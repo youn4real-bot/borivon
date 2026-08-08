@@ -1491,8 +1491,33 @@ async function writeManageBatch(opts: { op: string; batchId?: string; employerId
   if (opts.notes !== undefined) upd.notes = opts.notes || null;
   if (opts.close) upd.status = "closed";
   if (Object.keys(upd).length === 0) return { ok: false, error: "nothing_to_update" };
+
+  // The agency folder is addressed by NAME, so a rename or an agency switch
+  // moves where the dossier belongs while every mirrored file stays put. Read
+  // the old values first so only a real change triggers the move.
+  const touchesFolder = "name" in upd || "org_id" in upd;
+  let folderChanged = false;
+  if (touchesFolder) {
+    const { data: before } = await db
+      .from("employer_batches").select("name, org_id").eq("id", opts.batchId).maybeSingle();
+    const b = before as { name?: string | null; org_id?: string | null } | null;
+    folderChanged =
+      ("name" in upd && (b?.name ?? null) !== (upd.name as string | null)) ||
+      ("org_id" in upd && (b?.org_id ?? null) !== (upd.org_id as string | null));
+  }
+
   const { error } = await db.from("employer_batches").update(upd).eq("id", opts.batchId);
-  return error ? { ok: false, error: "write_failed" } : { ok: true };
+  if (error) return { ok: false, error: "write_failed" };
+
+  if (folderChanged) {
+    const { keepAlive } = await import("@/lib/keepAlive");
+    const batchId = opts.batchId;
+    keepAlive(async () => {
+      const { resyncBatchFolder } = await import("@/lib/driveMirror");
+      await resyncBatchFolder(batchId);
+    });
+  }
+  return { ok: true };
 }
 
 // Set a candidate's funnel stage and/or batch (candidate_pipeline columns).
@@ -1507,7 +1532,37 @@ async function writeFunnelStage(userId: string, stage: string | undefined, batch
     fields.batch_id = batchId || null;
   }
   if (Object.keys(fields).length === 0) return { ok: false, error: "nothing_to_set" };
-  return applyPipelinePatch(userId, fields);
+
+  // Read the old batch BEFORE the write — the Drive mirror has to follow.
+  // Telling the bot "take Amina out of the Kiel batch" used to change the row
+  // and nothing else, leaving her whole dossier (passport included) in the
+  // partner agency's folder for good. Both web routes do this; the bot is the
+  // third way to change batch membership and was the last one missed.
+  let oldBatchId: string | null = null;
+  const changingBatch = "batch_id" in fields;
+  if (changingBatch) {
+    const { data: prev } = await getServiceSupabase()
+      .from("candidate_pipeline").select("batch_id").eq("user_id", userId).maybeSingle();
+    oldBatchId = (prev as { batch_id?: string | null } | null)?.batch_id ?? null;
+  }
+
+  const res = await applyPipelinePatch(userId, fields);
+  if (res.ok && changingBatch && oldBatchId !== (fields.batch_id ?? null)) {
+    // Legacy rows carry a NULL drive_mirror_batch_id, which the mirror reads as
+    // "current" and refuses to retract — stamp them with the OLD batch first.
+    if (oldBatchId) {
+      try {
+        await getServiceSupabase().from("documents")
+          .update({ drive_mirror_batch_id: oldBatchId })
+          .eq("user_id", userId)
+          .not("drive_mirror_id", "is", null)
+          .is("drive_mirror_batch_id", null);
+      } catch { /* best-effort; schema-tolerant */ }
+    }
+    const { scheduleCandidateMirror } = await import("@/lib/scheduleMirror");
+    scheduleCandidateMirror(userId);
+  }
+  return res;
 }
 
 // Stamp last_touch_at so a warmed candidate drops off the "cold" list. Best-effort

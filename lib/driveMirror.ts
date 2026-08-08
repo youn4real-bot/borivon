@@ -737,6 +737,54 @@ export async function autoMirrorCandidate(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Move a whole batch's mirrored dossier after the FOLDER IT LIVES IN changed —
+ * i.e. the batch was renamed, or re-pointed at a different agency.
+ *
+ * Nothing used to happen on either edit. The mirror finds its destination by
+ * NAME (agencyRootFolderName(org) / batchName), so the next sync created a fresh
+ * folder under the new name — while every document row still carried a
+ * drive_mirror_id pointing at the file in the OLD folder, and the upload path
+ * reuses that id to update in place. Result: the clinic is handed a link to an
+ * empty folder, the sync reports success, and the previous agency keeps the real
+ * dossier — 15 passports among them — indefinitely.
+ *
+ * `isMirrorInWrongBatch` could not catch this: it compares drive_mirror_batch_id
+ * against the current batch id, and on a rename the id never changes. Only the
+ * name did.
+ *
+ * So: archive every existing copy out of the old folder (LAW #33 — moved to
+ * Archiv, never deleted), null the pointers, then re-mirror each candidate,
+ * which uploads fresh into the folder the new name resolves to.
+ *
+ * Never throws — a Drive outage must not fail the rename the founder just made.
+ */
+export async function resyncBatchFolder(batchId: string): Promise<{ moved: number; candidates: number }> {
+  const out = { moved: 0, candidates: 0 };
+  try {
+    if (!UUID_RE.test(batchId)) return out;
+    const db = getServiceSupabase();
+    const drive = getDriveOrNull();
+    if (!drive) return out; // not connected — the manual sync will rebuild later
+
+    const { data: pipe } = await db
+      .from("candidate_pipeline").select("user_id").eq("batch_id", batchId);
+    const userIds = [...new Set(((pipe ?? []) as { user_id: string }[]).map(r => r.user_id))];
+    out.candidates = userIds.length;
+
+    for (const userId of userIds) {
+      // Out of the old folder first. This nulls drive_mirror_id, which is what
+      // makes the re-mirror below upload a NEW file instead of updating the old
+      // one in place.
+      out.moved += await retractAllCandidateMirrors(db, drive, userId);
+      await autoMirrorCandidate(userId);
+    }
+  } catch (e) {
+    console.error("[resyncBatchFolder] non-fatal:", e instanceof Error ? e.message : e);
+  }
+  return out;
+}
+
 /** Retract EVERY mirrored copy a candidate has (used when they're in no batch). */
 async function retractAllCandidateMirrors(db: SupabaseClient, drive: Drive, userId: string): Promise<number> {
   const { data } = await db

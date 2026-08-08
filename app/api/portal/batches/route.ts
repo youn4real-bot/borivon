@@ -18,6 +18,9 @@ import { requireAdminRole, resolveAuthNames, getStaffUserIdsAmong } from "@/lib/
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { isFunnelStage } from "@/lib/batchBoard";
+import { resyncBatchFolder } from "@/lib/driveMirror";
+import { keepAlive } from "@/lib/keepAlive";
+import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -138,12 +141,50 @@ export async function PATCH(req: NextRequest) {
       fields.funnel_stage = body.stage;
     }
     if (Object.keys(fields).length === 1) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+
+    // What batch were they in before? Needed to decide whether the agency's
+    // Drive folder has to change — see below.
+    const changingBatch = "batch_id" in fields;
+    let oldBatchId: string | null = null;
+    if (changingBatch) {
+      const { data: prev } = await db
+        .from("candidate_pipeline").select("batch_id").eq("user_id", body.candidateUserId).maybeSingle();
+      oldBatchId = (prev as { batch_id?: string | null } | null)?.batch_id ?? null;
+    }
+
     // Update-then-insert (the pipeline row may not exist yet).
     const { data: upd, error } = await db.from("candidate_pipeline").update(fields).eq("user_id", body.candidateUserId).select("user_id");
     if (error) return NextResponse.json({ error: "assign_failed" }, { status: 500 });
     if (!upd || upd.length === 0) {
       const { error: insErr } = await db.from("candidate_pipeline").insert({ user_id: body.candidateUserId, ...fields });
       if (insErr) return NextResponse.json({ error: "assign_failed" }, { status: 500 });
+    }
+
+    // FOLLOW THE DOSSIER. This branch changed batch membership and did nothing
+    // about the Drive mirror, so dropping a nurse from a batch HERE left her
+    // whole dossier — passport included — in the partner agency's folder, for
+    // good. The Batch TRACKER (/api/portal/tracker) has always done this; this
+    // route is the second way to do the same thing and was missed.
+    //
+    // Legacy rows carry a NULL drive_mirror_batch_id, which the mirror reads as
+    // "unknown = current" and would refuse to retract — so stamp them with the
+    // OLD batch first, exactly as the tracker does. Schema-tolerant: a
+    // deployment without that column just skips it and the manual sync catches
+    // up.
+    if (changingBatch && oldBatchId !== (fields.batch_id ?? null)) {
+      if (oldBatchId) {
+        try {
+          const r = await db.from("documents")
+            .update({ drive_mirror_batch_id: oldBatchId })
+            .eq("user_id", body.candidateUserId)
+            .not("drive_mirror_id", "is", null)
+            .is("drive_mirror_batch_id", null);
+          if (r.error && !/drive_mirror_batch_id|column .* does not exist|schema cache/i.test(r.error.message ?? "")) {
+            console.warn("[batches PATCH] batch-stamp backfill failed:", r.error.message);
+          }
+        } catch { /* best-effort */ }
+      }
+      scheduleCandidateMirror(body.candidateUserId);
     }
     return NextResponse.json({ ok: true });
   }
@@ -163,7 +204,40 @@ export async function PATCH(req: NextRequest) {
   if (body.close === true || body.status === "closed") upd.status = "closed";
   if (body.status === "open") upd.status = "open";
   if (Object.keys(upd).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+
+  // The agency's Drive folder is addressed by NAME — agencyRootFolderName(org)
+  // / batchName — so renaming a batch or re-pointing it at another agency moves
+  // where the dossier is SUPPOSED to live, while every mirrored file stays put.
+  // Read the old values first so we only act on a real change.
+  const touchesFolder = "name" in upd || "org_id" in upd;
+  let folderChanged = false;
+  if (touchesFolder) {
+    const { data: before } = await db
+      .from("employer_batches").select("name, org_id").eq("id", body.batchId).maybeSingle();
+    const b = before as { name?: string | null; org_id?: string | null } | null;
+    folderChanged =
+      ("name" in upd && (b?.name ?? null) !== (upd.name as string | null)) ||
+      ("org_id" in upd && (b?.org_id ?? null) !== (upd.org_id as string | null));
+  }
+
   const { error } = await db.from("employer_batches").update(upd).eq("id", body.batchId);
   if (error) return NextResponse.json({ error: "update_failed" }, { status: 500 });
-  return NextResponse.json({ ok: true });
+
+  // Follow the dossier to the new folder. Without this the next sync built a
+  // fresh EMPTY folder under the new name and reported success, while the real
+  // files — passports included — stayed in the old agency's folder for good,
+  // because the upload path reuses each row's recorded drive_mirror_id and
+  // updates that file in place. isMirrorInWrongBatch cannot see it: the batch
+  // ID never changed, only its name did.
+  //
+  // Fire-and-forget through keepAlive: on Workers an unawaited promise is
+  // cancelled when the response is sent, and moving 95 files is far too slow to
+  // block the rename on.
+  if (folderChanged) {
+    keepAlive(async () => {
+      const { moved, candidates } = await resyncBatchFolder(body.batchId as string);
+      console.log(`[batches PATCH] folder changed → re-mirrored ${candidates} candidate(s), moved ${moved} file(s)`);
+    });
+  }
+  return NextResponse.json({ ok: true, folderResync: folderChanged });
 }
