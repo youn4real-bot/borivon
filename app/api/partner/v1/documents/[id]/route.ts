@@ -67,7 +67,26 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!(await isSharedWithPartner(auth.orgId, doc.user_id))) return notFound(doc.id, doc.user_id);
 
   if (!doc.r2_key) return notFound(doc.id, doc.user_id);
-  const obj = await r2GetObject(doc.r2_key);
+
+  // A STORAGE failure is not a 404.
+  //
+  // r2GetObject THROWS when storage is unreachable, which would otherwise
+  // escape as an unhandled 500 with a stack trace. Worse, answering 404 here
+  // would be a lie with consequences: the integration guide tells the partner
+  // that 404 means "not shared, do not retry", so a transient outage would read
+  // to their system as "she was withdrawn" — and they might delete their copy.
+  // 502 says "our side, try again", which is the truth.
+  let obj: Awaited<ReturnType<typeof r2GetObject>> = null;
+  try {
+    obj = await r2GetObject(doc.r2_key);
+  } catch (e) {
+    console.error("[partner documents] storage read failed:", e instanceof Error ? e.message : e);
+    await logPartnerAccess({
+      keyId: auth.keyId, orgId: auth.orgId, path: `/documents/${id}`,
+      documentId: doc.id, candidateUserId: doc.user_id, status: 502,
+    });
+    return NextResponse.json({ error: "storage_unavailable" }, { status: 502 });
+  }
   // An empty object is a MISSING file, not an empty document — the same trap
   // that had one candidate's diploma reading as "waiting for review" for months.
   if (!obj || !obj.body.length) return notFound(doc.id, doc.user_id);

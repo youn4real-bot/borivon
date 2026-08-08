@@ -22,7 +22,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Loader2, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -937,6 +937,13 @@ export default function AdminPage() {
   // Saving the candidate photo: the bytes come from another origin, so it is a
   // fetch, not a link — which means it can take a moment and it can fail.
   const [photoDlBusy, setPhotoDlBusy]     = useState(false);
+  // PARTNER SHARING — which outside agencies this candidate has been sent to.
+  // The share row is the ONLY thing that lets a partner's API key see her, so
+  // this toggle is a real access grant, not a label.
+  const [partnerOrgs, setPartnerOrgs]     = useState<{ id: string; name: string }[]>([]);
+  const [partnerShares, setPartnerShares] = useState<string[]>([]);
+  const [shareBusy, setShareBusy]         = useState<string | null>(null);
+  const [shareErr, setShareErr]           = useState<string | null>(null);
   const [photoDlErr, setPhotoDlErr]       = useState(false);
   // Snapshot of the candidate's cv_draft loaded alongside the status
   // modal — surfaces the CV-builder B1/B2 decision-tree (Prüfung type,
@@ -970,6 +977,52 @@ export default function AdminPage() {
   const statusSeedRef  = useRef<string>("");
   const statusSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusFormRef  = useRef<CandStatus>(EMPTY_STATUS);
+
+  // Load which agencies this candidate is already shared with. Runs whenever
+  // the selected candidate changes; failure leaves the toggle absent rather
+  // than showing a wrong state, because a stale shared badge would be a lie
+  // about who can see her passport.
+  async function loadPartnerShares(uid: string) {
+    setShareErr(null);
+    try {
+      const r = await fetch(`/api/portal/admin/partner-share?candidateUserId=${encodeURIComponent(uid)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setPartnerOrgs([]); setPartnerShares([]); return; }
+      setPartnerOrgs((j.organizations ?? []) as { id: string; name: string }[]);
+      setPartnerShares(((j.shares ?? []) as { orgId: string }[]).map((x) => x.orgId));
+    } catch {
+      setPartnerOrgs([]); setPartnerShares([]);
+    }
+  }
+
+  // Grant or revoke. Optimistic, with rollback: a failed grant that LOOKED
+  // like it worked would have him believing Calmaroi can see her when they
+  // cannot -- or worse, the reverse.
+  async function togglePartnerShare(orgId: string, on: boolean) {
+    if (!selectedUser) return;
+    setShareBusy(orgId);
+    setShareErr(null);
+    const prev = partnerShares;
+    setPartnerShares(on ? [...prev, orgId] : prev.filter((x) => x !== orgId));
+    try {
+      const r = await fetch('/api/portal/admin/partner-share', {
+        method: on ? 'POST' : 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ candidateUserId: selectedUser, orgId }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setPartnerShares(prev);
+        setShareErr(j?.hint ?? j?.error ?? 'failed');
+      }
+    } catch {
+      setPartnerShares(prev);
+      setShareErr('network');
+    }
+    setShareBusy(null);
+  }
 
   async function openStatusModal() {
     if (!selectedUser || !accessToken) return;
@@ -2838,6 +2891,17 @@ export default function AdminPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [selectedUser]);
 
+  // Which agencies the selected candidate is shared with. Cleared FIRST on every
+  // switch: showing the previous candidate's shares for even a moment would be a
+  // lie about who can see this one's passport.
+  useEffect(() => {
+    setPartnerShares([]);
+    setPartnerOrgs([]);
+    setShareErr(null);
+    if (selectedUser && accessToken) loadPartnerShares(selectedUser);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUser, accessToken]);
+
   if (loading) return <PageLoader />;
 
   const grouped = docs.reduce<Record<string, Doc[]>>((acc, doc) => {
@@ -3800,6 +3864,16 @@ export default function AdminPage() {
                       : "Could not download the photo — try again."}
                   </p>
                 )}
+                {/* A failed share must be loud: believing an agency can see a
+                    candidate when they cannot (or the reverse) is the whole
+                    risk this feature carries. */}
+                {shareErr && (
+                  <p className="text-[11.5px] mt-1" style={{ color: "var(--danger)" }} role="alert">
+                    {lang === "de" ? "Freigabe fehlgeschlagen — nichts wurde geändert."
+                      : lang === "fr" ? "Le partage a échoué — rien n'a changé."
+                      : "Sharing failed — nothing was changed."}
+                  </p>
+                )}
               </div>
               {/* Admin-only STATUS reminders (B2 …). Candidate never sees this. */}
               <button
@@ -3808,6 +3882,41 @@ export default function AdminPage() {
                 style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                 <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
               </button>
+
+              {/* SEND TO <AGENCY> — the gate for the partner API.
+                  Pressing this is what lets that agency's system fetch her
+                  documents; nothing else does. So it reads as a real access
+                  grant: gold when they can see her, plain when they cannot, and
+                  it says the agency's name rather than a generic "share". */}
+              {partnerOrgs.map((org) => {
+                const on = partnerShares.includes(org.id);
+                const busy = shareBusy === org.id;
+                return (
+                  <button
+                    key={org.id}
+                    onClick={() => togglePartnerShare(org.id, !on)}
+                    disabled={busy}
+                    title={on
+                      ? (lang === "de" ? `${org.name} kann ihre Unterlagen abrufen — zum Zurückziehen klicken`
+                        : lang === "fr" ? `${org.name} peut récupérer ses documents — cliquez pour retirer`
+                        : `${org.name} can pull her documents — click to stop sharing`)
+                      : (lang === "de" ? `Unterlagen an ${org.name} freigeben`
+                        : lang === "fr" ? `Partager les documents avec ${org.name}`
+                        : `Share her documents with ${org.name}`)}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
+                    style={on
+                      ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                      : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
+                  >
+                    {busy ? <Loader2 size={12} className="animate-spin" aria-hidden />
+                      : on ? <Check size={12} strokeWidth={2.4} />
+                      : <Send size={12} strokeWidth={2} />}
+                    {on
+                      ? (lang === "de" ? `Bei ${org.name}` : lang === "fr" ? `Chez ${org.name}` : `With ${org.name}`)
+                      : (lang === "de" ? `An ${org.name}` : lang === "fr" ? `Vers ${org.name}` : `Send to ${org.name}`)}
+                  </button>
+                );
+              })}
             </div>
 
             {/* ── Admin-only STATUS modal (LAW #36) — candidate never sees ── */}
