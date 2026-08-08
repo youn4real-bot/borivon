@@ -11,6 +11,8 @@ import { pdfPageLimit } from "@/lib/pdfPageLimits";
 import { PDFDocument } from "pdf-lib";
 import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
 import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType } from "@/lib/passportSanity";
+import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
+import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -989,7 +991,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Speicherung fehlgeschlagen — bitte erneut versuchen." }, { status: 500 });
   }
 
-  const { error: dbErr } = await db.from("documents").insert({
+  let insertedId: string | null = null;
+  const { data: insertedRow, error: dbErr } = await db.from("documents").insert({
     user_id: userId, file_name: structuredName,
     file_path: `gdrive/${userId}/${Date.now()}`,
     // drive_file_id stays in the row (and in the schema) so every existing
@@ -1004,7 +1007,8 @@ export async function POST(req: NextRequest) {
     // surfacing candidate uploads as green/approved with zero review,
     // e.g. the passport box). Approval is human-only.
     status: uploadedByAdmin ? "approved" : "pending",
-  });
+  }).select("id").maybeSingle();
+  insertedId = (insertedRow as { id: string } | null)?.id ?? null;
   if (dbErr) {
     // Schema-tolerant fallback: if the file_sha256 column hasn't been
     // migrated yet, retry the insert without it. New uploads will then
@@ -1018,13 +1022,14 @@ export async function POST(req: NextRequest) {
       // file_sha256 migration wasn't applied, every upload's R2 key was lost →
       // the bytes sat in R2 but the row pointed nowhere → "Preview not
       // available" / "Failed to load PDF". r2_key is the store of record now.
-      const { error: retryErr } = await db.from("documents").insert({
+      const { data: retryRow, error: retryErr } = await db.from("documents").insert({
         user_id: userId, file_name: structuredName,
         file_path: `gdrive/${userId}/${Date.now()}`,
         file_type: fileType, drive_file_id: null, r2_key: r2Key,
         uploaded_by_admin: uploadedByAdmin,
         status: uploadedByAdmin ? "approved" : "pending",
-      });
+      }).select("id").maybeSingle();
+      insertedId = (retryRow as { id: string } | null)?.id ?? null;
       if (retryErr) {
         console.error("DB insert error (no-sha retry):", retryErr);
         return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
@@ -1032,6 +1037,44 @@ export async function POST(req: NextRequest) {
     } else {
       console.error("DB insert error:", dbErr);
       return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
+    }
+  }
+
+  // ── ONE LIVE DOCUMENT PER SLOT (LAW #33) ───────────────────────────────────
+  //
+  // A re-upload has always inserted a new row and left the old one live. The
+  // candidate never saw the difference — loadDocs de-duplicates on the client,
+  // keeping the newest row per slot — but the ADMIN queue counts rows, so every
+  // re-upload added an orange badge that could not be cleared.
+  //
+  // Measured before this shipped: 67 slots holding more than one live document,
+  // 147 redundant copies, one candidate with twelve live CVs, and 126 of the 181
+  // documents awaiting review sitting in a duplicated slot. Real uploads had
+  // been queued behind copies for one to three months.
+  //
+  // Retire, never delete: superseded_at is the archive marker every live list
+  // already hides, so the previous version stays recoverable. Best-effort — a
+  // failure here must never lose an upload that is already safely stored.
+  if (insertedId) {
+    const slotKey = LABEL_TO_FILE_KEY[fileType] ?? fileType;
+    if (shouldSupersedePrevious(slotKey)) {
+      try {
+        const { data: sameSlot } = await db
+          .from("documents")
+          .select("id, superseded_at")
+          .eq("user_id", userId)
+          .eq("file_type", fileType);
+        const stale = idsToRetire((sameSlot ?? []) as { id: string; superseded_at?: string | null }[], insertedId);
+        if (stale.length) {
+          const { error: supErr } = await db
+            .from("documents")
+            .update({ superseded_at: new Date().toISOString() })
+            .in("id", stale);
+          if (supErr) console.warn("[upload] could not retire previous versions:", supErr.message);
+        }
+      } catch (e) {
+        console.warn("[upload] supersede pass threw:", e instanceof Error ? e.message : e);
+      }
     }
   }
 
