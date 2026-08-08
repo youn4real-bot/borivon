@@ -194,7 +194,7 @@ export function ProfileIcon() {
   // route only loads its bundle — it doesn't bypass any auth gate (LAW #1).
   useEffect(() => {
     if (!open || !user?.isAdmin) return;
-    const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry", "/portal/admin/chase"];
+    const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry", "/portal/admin/chase", "/portal/admin/partner-keys"];
     if (!user.isOrgAdmin) routes.push("/portal/admin/bookings");
     if (!user.isOrgAdmin) routes.push("/portal/admin/organizations", "/portal/admin/employers");
     if (user.isSuperAdmin) routes.push("/portal/admin/manage", "/portal/admin/online-courses", "/portal/admin/academy", "/portal/admin/batches");
@@ -727,6 +727,23 @@ export function ProfileIcon() {
                     </svg>
                     {lang === "fr" ? "À relancer" : lang === "de" ? "Nachfassliste" : "Chase list"}
                   </button>
+                  {/* Partner keys — supreme only. Issuing one decides which
+                      outside company may read candidate passports, so it is
+                      deliberately NOT in a sub-admin's menu. */}
+                  {user.isSuperAdmin && (
+                    <button
+                      onClick={() => { setOpen(false); router.push("/portal/admin/partner-keys"); }}
+                      className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                      style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>
+                      </svg>
+                      {lang === "fr" ? "Clés partenaires" : lang === "de" ? "Partner-Schlüssel" : "Partner keys"}
+                    </button>
+                  )}
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/expiry"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
