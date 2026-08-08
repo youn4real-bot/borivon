@@ -11,6 +11,7 @@ import { useLang } from "@/components/LangContext";
 import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
+import { downloadProfilePhoto } from "@/lib/photoDownload";
 import { useDlToken, withDlt, appendDlt } from "@/lib/dlClient";
 import { PdfViewer } from "@/components/PdfViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
@@ -21,7 +22,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -933,6 +934,10 @@ export default function AdminPage() {
     return base;
   };
   const [statusOpen, setStatusOpen]       = useState(false);
+  // Saving the candidate photo: the bytes come from another origin, so it is a
+  // fetch, not a link — which means it can take a moment and it can fail.
+  const [photoDlBusy, setPhotoDlBusy]     = useState(false);
+  const [photoDlErr, setPhotoDlErr]       = useState(false);
   // Snapshot of the candidate's cv_draft loaded alongside the status
   // modal — surfaces the CV-builder B1/B2 decision-tree (Prüfung type,
   // result, modules, dates, registration status) in the Status → B2
@@ -3729,11 +3734,36 @@ export default function AdminPage() {
               {(() => {
                 const photo = selectedUser ? profiles[selectedUser]?.profile_photo : null;
                 if (photo) {
+                  // The avatar IS the download button. A separate icon beside it
+                  // would be one more control in an already dense header, and
+                  // "click the photo to save the photo" needs no explaining.
+                  // A real <button> so it is keyboard-reachable — hover-only
+                  // affordances do not exist on the phone he actually uses.
                   return (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photo} alt={user.name}
-                      className="w-14 h-14 rounded-full object-cover flex-shrink-0"
-                      style={{ border: "1px solid var(--border-gold)" }} />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setPhotoDlBusy(true);
+                        const ok = await downloadProfilePhoto(photo, user.name);
+                        setPhotoDlBusy(false);
+                        if (!ok) setPhotoDlErr(true);
+                      }}
+                      disabled={photoDlBusy}
+                      title={lang === "de" ? "Foto herunterladen" : lang === "fr" ? "Télécharger la photo" : "Download photo"}
+                      aria-label={lang === "de" ? "Foto herunterladen" : lang === "fr" ? "Télécharger la photo" : "Download photo"}
+                      className="relative group w-14 h-14 rounded-full flex-shrink-0 outline-none disabled:opacity-60"
+                      style={{ border: "1px solid var(--border-gold)" }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photo} alt={user.name} className="w-full h-full rounded-full object-cover" />
+                      <span
+                        className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
+                        style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
+                        aria-hidden="true"
+                      >
+                        {photoDlBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} strokeWidth={2.2} />}
+                      </span>
+                    </button>
                   );
                 }
                 return (
@@ -3760,6 +3790,16 @@ export default function AdminPage() {
                   ))}
                 </h1>
                 <p className="text-[12.5px] mt-1 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
+                {/* The photo lives on another host, so the save can genuinely
+                    fail (offline, blocked). Say so rather than let the click
+                    look like it did nothing. */}
+                {photoDlErr && (
+                  <p className="text-[11.5px] mt-1" style={{ color: "var(--danger)" }} role="alert">
+                    {lang === "de" ? "Foto konnte nicht geladen werden — bitte erneut versuchen."
+                      : lang === "fr" ? "Impossible de télécharger la photo — réessayez."
+                      : "Could not download the photo — try again."}
+                  </p>
+                )}
               </div>
               {/* Admin-only STATUS reminders (B2 …). Candidate never sees this. */}
               <button
