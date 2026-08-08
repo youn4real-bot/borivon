@@ -106,3 +106,23 @@ export function effectiveB2Stage(
   }
   return stored;
 }
+
+/**
+ * Is this document the B2 language certificate?
+ *
+ * Matched on the stored `file_type`, which is a DISPLAY LABEL and therefore
+ * arrives in whichever language the candidate's portal was in when she
+ * uploaded. The live table holds all three at once — "B2 Sprachzertifikat",
+ * "Certificat de langue B2", "B2 Language Certificate" — so matching one
+ * spelling would silently miss two thirds of them.
+ *
+ * Deliberately NOT a bare /b2/ test: "B2 Anmeldung" (the exam registration) and
+ * a Sonstiges file a candidate happened to name "b2 stuff" would both pass, and
+ * approving either would wrongly mark her as having passed.
+ */
+export function isB2CertificateDoc(fileType: string | null | undefined): boolean {
+  const s = String(fileType ?? "").toLowerCase().trim();
+  if (!s) return false;
+  if (!/\bb2\b/.test(s)) return false;
+  return /sprachzertifikat|zertifikat|certificat|certificate/.test(s);
+}

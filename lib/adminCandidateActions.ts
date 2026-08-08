@@ -55,6 +55,7 @@ async function candidateLang(
   }
 }
 import { cvFieldsFromProfile, PASSPORT_DERIVED_COLUMNS, type ProfileLike } from "@/lib/personalData";
+import { isB2CertificateDoc } from "@/lib/b2Journey";
 
 type DB = ReturnType<typeof getServiceSupabase>;
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -142,6 +143,35 @@ export async function applyDocReview(
 
       if (status === "approved" && isPassportDoc) {
         await maybeGrantVerified(db, doc.user_id as string);
+      }
+
+      // APPROVING A B2 CERTIFICATE MARKS B2 PASSED.
+      //
+      // Nothing ever wrote b2_stage. Live: all 78 candidates read "not_started"
+      // while 15 of them have an APPROVED B2 certificate on file — so the batch
+      // board and the analytics page, which both key on b2_stage, reported zero
+      // ready while the B2 page (which counts certificates) disagreed. Two
+      // screens, two answers, and batch decisions made on the wrong one.
+      //
+      // The certificate IS the evidence: approving it is the moment we know she
+      // passed. Only ever moves the stage FORWARD to "passed" — never
+      // downgrades a stage an admin set by hand — and clears b2_failed, since a
+      // certificate we accepted supersedes an earlier failure.
+      if (status === "approved" && isB2CertificateDoc(doc.file_type as string | null)) {
+        try {
+          const { data: prof } = await db
+            .from("candidate_profiles").select("b2_stage").eq("user_id", doc.user_id as string).maybeSingle();
+          if ((prof as { b2_stage?: string | null } | null)?.b2_stage !== "passed") {
+            const { error } = await db
+              .from("candidate_profiles")
+              .update({ b2_stage: "passed", b2_failed: false })
+              .eq("user_id", doc.user_id as string);
+            if (error) console.warn("[applyDocReview] b2_stage update failed:", error.message);
+          }
+        } catch (e) {
+          // Never let this sink the approval itself.
+          console.warn("[applyDocReview] b2 pass-through threw:", e instanceof Error ? e.message : e);
+        }
       }
       // AUTO-MIRROR: any dossier change (approve OR reject) now refreshes the
       // agency's Drive folder automatically — best-effort, after the response,
