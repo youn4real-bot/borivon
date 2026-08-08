@@ -129,8 +129,14 @@ export async function applyDocReview(
           const email = data?.user?.email;
           if (!email) return;
           const lang = await candidateLang(db, doc.user_id as string);
-          if (status === "approved") await sendDocApprovedEmail(email, doc.file_type as string, lang);
-          else await sendDocRejectedEmail(email, doc.file_type as string, typeof feedback === "string" ? feedback : null, lang);
+          // notifDocType, NOT the raw file_type. A wizard-slot document stores
+          // the slot's UUID in file_type, and the bell already resolves it to
+          // the slot's label a few lines above — the emails were still sending
+          // the raw value, so a rejected contract arrived as
+          // "❌ ad88cd94-acc9-46fd-a310-ab5daf988df6 — à corriger", which tells
+          // her nothing about which document to fix.
+          if (status === "approved") await sendDocApprovedEmail(email, notifDocType, lang);
+          else await sendDocRejectedEmail(email, notifDocType, typeof feedback === "string" ? feedback : null, lang);
         });
       }
 

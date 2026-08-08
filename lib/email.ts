@@ -173,6 +173,7 @@ export async function sendDocApprovedEmail(to: string, docType: string, lang?: C
       from: FROM,
       to,
       subject: `✅ ${subj(docType)} — ${_one ? APPROVED[_blocks[0]].subj : "validé / approved / genehmigt"} · Borivon`,
+      replyTo: REPLY_TO,
       html: baseHtml(`
         <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">${
           _one ? APPROVED[_blocks[0]].h : "Document validé · approved · genehmigt"
@@ -216,6 +217,7 @@ export async function sendDocRejectedEmail(
       from: FROM,
       to,
       subject: `❌ ${subj(docType)} — ${subjTail} · Borivon`,
+      replyTo: REPLY_TO,
       html: baseHtml(`
         <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">${heading}</h1>
         ${blocks.map((b) => `
@@ -243,6 +245,7 @@ export async function sendVerifiedEmail(to: string, firstName: string): Promise<
       from: FROM,
       to,
       subject: `🎉 Your profile is verified — Borivon`,
+      replyTo: REPLY_TO,
       html: baseHtml(`
         <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#c9a240;">You're verified!</h1>
         <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">
@@ -264,6 +267,7 @@ export async function sendPlacedEmail(to: string, orgName: string): Promise<void
       from: FROM,
       to,
       subject: `🏢 You've been matched — Borivon`,
+      replyTo: REPLY_TO,
       html: baseHtml(`
         <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#0095F6;">You've been matched!</h1>
         <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">
@@ -292,6 +296,7 @@ export async function sendCandidateMessageEmail(to: string, firstName: string, b
       from: FROM,
       to,
       subject: `💬 Eine Nachricht von Borivon`,
+      replyTo: REPLY_TO,
       html: baseHtml(`
         <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">${firstName ? `Hallo ${esc(firstName)},` : "Hallo,"}</h1>
         <p style="margin:0 0 20px;font-size:14px;color:#e0e0da;line-height:1.6;">${safeBody}</p>
@@ -317,6 +322,7 @@ export async function sendUnreadMessagesReminderEmail(to: string, firstName: str
       from: FROM,
       to,
       subject: `💬 Du hast eine Nachricht — Borivon`,
+      replyTo: REPLY_TO,
       html: baseHtml(`
         <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">Du hast eine Nachricht auf Borivon</h1>
         <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">

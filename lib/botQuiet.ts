@@ -25,6 +25,9 @@ import { getServiceSupabase } from "@/lib/supabase";
 
 const KEY = "bot_quiet";
 
+/** Indefinite mute — set deliberately, lifted only by an explicit resume. */
+const HOLD = "hold";
+
 /** How long a mute lasts before it lifts itself. */
 export const QUIET_MAX_DAYS = 7;
 
@@ -39,6 +42,11 @@ export function quietHasExpired(
   updatedAt: string | null | undefined,
   now = Date.now(),
 ): boolean {
+  // "hold" = muted INDEFINITELY, by an explicit decision rather than a passing
+  // "go quiet". It never lifts itself — only "resume reminders" clears it. The
+  // 7-day expiry exists so a casual mute cannot be forgotten for a month; it
+  // must not override someone who has deliberately parked the bot.
+  if (value === HOLD) return false;
   if (value !== "on") return false;
   const t = updatedAt ? Date.parse(updatedAt) : NaN;
   // No usable timestamp → treat the mute as live rather than silently lifting
@@ -54,7 +62,7 @@ export async function isBotQuiet(): Promise<boolean> {
     const { data, error } = await db.from("app_settings").select("value, updated_at").eq("key", KEY).maybeSingle();
     if (error) return false;
     const row = data as { value: string; updated_at: string | null } | null;
-    if (row?.value !== "on") return false;
+    if (row?.value !== "on" && row?.value !== HOLD) return false;
 
     if (quietHasExpired(row.value, row.updated_at)) {
       // Lift it, and say so once. Both are best-effort: if either fails we still
@@ -81,12 +89,16 @@ export async function isBotQuiet(): Promise<boolean> {
 }
 
 /** Turn the quiet switch on/off. Best-effort (never throws). */
-export async function setBotQuiet(on: boolean): Promise<void> {
+export async function setBotQuiet(on: boolean, indefinitely = false): Promise<void> {
   try {
     const db = getServiceSupabase();
     // updated_at is what the expiry is measured from, so it must be rewritten
     // on every set — including a re-mute, which restarts the clock.
-    await db.from("app_settings").upsert({ key: KEY, value: on ? "on" : "off", updated_at: new Date().toISOString() });
+    await db.from("app_settings").upsert({
+      key: KEY,
+      value: on ? (indefinitely ? HOLD : "on") : "off",
+      updated_at: new Date().toISOString(),
+    });
   } catch {
     /* best effort */
   }

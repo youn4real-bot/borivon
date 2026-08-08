@@ -1732,23 +1732,47 @@ function NursingStatusField({ entry, updateEdu, diplomaHasError = false, statusH
      pending    → small "Pending" pill (passport submitted, admin reviewing)
      rejected   → small "Rejected" pill
      approved   → green ✓ checkmark — data is verified, lock conceptually lifted */
-function LockedField({ value, placeholder, onLockedClick, displayFlag, passportStatus, hasError, onChange }: {
+function LockedField({ value, placeholder, onLockedClick, displayFlag, passportStatus, hasError, onChange, onFill }: {
   value: string;
   placeholder?: string;
   onLockedClick: () => void;
   displayFlag?: { iso2: string };
   passportStatus: null | "pending" | "approved" | "rejected";
   hasError?: boolean;
+  /** Admin override — always editable. */
   onChange?: (v: string) => void;
+  /**
+   * The CANDIDATE may fill this one herself, but only while it is empty and the
+   * form is asking for it. Pass it on fields she owns (address, postcode, city,
+   * phone) — never on passport-derived identity.
+   */
+  onFill?: (v: string) => void;
 }) {
   const { lang } = useLang();
 
-  // Supreme admin unlock: render as a real editable input
-  if (onChange) {
+  // Editable when an admin is overriding (`onChange`), OR when the candidate
+  // owns this field and it is EMPTY AND REQUIRED (`onFill`).
+  //
+  // These fields are locked because they carry approved-passport data that must
+  // not be edited afterwards. But some are not on the passport at all: the
+  // postcode comes from candidate_profiles.address_postal, which is empty for
+  // 20 of the 78 candidates. Those twenty hit "postcode required" on a box they
+  // cannot type into, with a padlock tooltip and no way forward — permanently
+  // unable to produce their CV, which is the gate to being placed.
+  //
+  // An empty value has nothing to protect, so the lock there is not a
+  // safeguard, only a wall. `onFill` is passed ONLY on fields the candidate
+  // legitimately owns (her address, postcode, city, phone) — never on name,
+  // birth date, nationality or passport number, where an empty box must stay
+  // locked rather than become a place to type anything she likes. And once she
+  // fills it, `value` is no longer empty, so it locks again on the next render.
+  const candidateMayFill = !onChange && !!onFill && !!hasError && !value?.trim();
+  const edit = onChange ?? (candidateMayFill ? onFill : undefined);
+  if (edit) {
     return (
       <input
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => edit(e.target.value)}
         placeholder={placeholder ?? "—"}
         data-cv-error={hasError ? "1" : undefined}
         className="w-full px-4 py-3.5 text-[15px] font-medium outline-none"
@@ -3962,16 +3986,16 @@ function CVBuilderInner() {
             {/* Address (left) | Postal code (right) */}
             <div>
               <Label>{t.cvb_address}</Label>
-              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} onChange={canOverrideLocked && adminCandidateId ? v => set("address", v) : undefined} />
+              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} onChange={canOverrideLocked && adminCandidateId ? v => set("address", v) : undefined} onFill={v => set("address", v)} />
             </div>
             <div>
               <Label>{t.cvb_postalCode}</Label>
-              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} onChange={canOverrideLocked && adminCandidateId ? v => set("postalCode", v) : undefined} />
+              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} onChange={canOverrideLocked && adminCandidateId ? v => set("postalCode", v) : undefined} onFill={v => set("postalCode", v)} />
             </div>
             {/* City of residence (left) | Country of residence (right) */}
             <div>
               <Label>{lang === "de" ? "Wohnort" : lang === "en" ? "City of residence" : "Ville de résidence"}</Label>
-              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} onChange={canOverrideLocked && adminCandidateId ? v => set("city", v) : undefined} />
+              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} onChange={canOverrideLocked && adminCandidateId ? v => set("city", v) : undefined} onFill={v => set("city", v)} />
             </div>
             <div>
               <Label>{lang === "de" ? "Wohnsitzland" : lang === "en" ? "Country of residence" : "Pays de résidence"}</Label>

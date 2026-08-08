@@ -105,10 +105,10 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
   // also surfaces these. He can ask for any of them on demand at any time regardless.
   const extrasOn = await isAutomationEnabled("briefing_extras").catch(() => false);
   if (extrasOn) {
-    type P = { user_id: string; first_name: string | null; last_name: string | null; passport_expiry: string | null; b2_exam_date: string | null };
+    type P = { user_id: string; first_name: string | null; last_name: string | null; passport_expiry: string | null; passport_status: string | null; b2_exam_date: string | null };
     const { data: profs } = await db
       .from("candidate_profiles")
-      .select("user_id, first_name, last_name, passport_expiry, b2_exam_date");
+      .select("user_id, first_name, last_name, passport_expiry, passport_status, b2_exam_date");
     const profRowsAll = (profs ?? []) as P[];
     const { data: pend } = await db.from("documents").select("*").eq("status", "pending"); // '*' so a not-yet-migrated superseded_at never errors
     const pendRowsAll = ((pend ?? []) as { user_id: string; file_name: string | null; superseded_at?: string | null }[])
@@ -170,6 +170,26 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
         const d = Math.round((x.ms - now) / DAY);
         lines.push(`   • ${nameOf(x.p)} — ${x.p.passport_expiry} (${d < 0 ? "EXPIRED" : d + "d"})`);
       }
+      lines.push("");
+    }
+    // 🛂 APPROVED PASSPORT, NO EXPIRY DATE ON FILE.
+    //
+    // The expiry list above keeps only rows whose date PARSES, so anyone with no
+    // expiry recorded is silently dropped — they can never appear, however close
+    // their passport is to running out. Ten approved passports are in that state
+    // and five of those people are in a live batch. The failure mode is finding
+    // out a passport expired only after the embassy appointment is booked, which
+    // costs months.
+    //
+    // Listed separately from the countdown because there is no date to count to:
+    // the ask is to go and record one.
+    const noExpiry = profRows.filter(
+      (p) => p.passport_status === "approved" && !parseDate(p.passport_expiry),
+    );
+    if (noExpiry.length) {
+      count += noExpiry.length;
+      lines.push(`🛂 ${noExpiry.length} approved passport(s) with NO expiry date on file:`);
+      for (const p of noExpiry.slice(0, 10)) lines.push(`   • ${nameOf(p)}`);
       lines.push("");
     }
     if (b2.length) {

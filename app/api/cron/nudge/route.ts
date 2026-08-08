@@ -32,19 +32,25 @@ export async function GET(req: NextRequest) {
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) return Response.json({ skipped: "telegram_not_configured" });
 
-  // DROPPED-PROMISE SCAN — runs BEFORE the quiet gate ON PURPOSE. It is SILENT
-  // (it only records what people promised; it never messages anyone), and the
-  // founder can ask "what is everyone owing me?" at any time — including while
-  // the bot is quiet. Gating it behind quiet would leave that question answering
-  // "nothing" forever, because no promise would ever have been captured.
-  // The CHASE (which does ping) stays suppressed — runCommitmentChase checks
-  // isBotQuiet itself. Evening pass only: it costs a model call per email.
+  // QUIET GATE FIRST — including for the dropped-promise scan.
+  //
+  // The scan used to run BEFORE this gate, deliberately: it is silent, and the
+  // reasoning was that "what is everyone owing me?" should still have data to
+  // answer from while the bot is muted. But it costs A MODEL CALL PER EMAIL, so
+  // "quiet" silenced the messages while quietly continuing to spend — which is
+  // the opposite of what someone muting the bot expects, and the founder asked
+  // for it to stop draining tokens, not just stop talking.
+  //
+  // Quiet now means QUIET: no messages and no model spend. The trade is that
+  // promises made while muted are not captured, so the commitments list will
+  // have a gap covering the mute; that is the correct trade when the explicit
+  // instruction is to stop spending.
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
+
   const commitAdminId = (await getAdminUserId()) ?? "";
   if (commitAdminId && (req.nextUrl.searchParams.get("slot") || "").toLowerCase() === "evening") {
     await runCommitmentScan(commitAdminId).catch(() => 0);
   }
-
-  if (await isBotQuiet()) return Response.json({ skipped: "quiet", scanned: !!commitAdminId });
 
   // Fire any now-due personal reminders first — independent of every toggle below.
   const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0 }));
