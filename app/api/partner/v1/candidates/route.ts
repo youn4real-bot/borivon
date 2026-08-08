@@ -38,8 +38,15 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
   const [{ data: profs }, { data: docs }] = await Promise.all([
+    // EVERY field their intake form asks for, not just the headline ones.
+    // The point of this API is that nobody retypes anything: if their portal
+    // has a box for "place of birth" and we know it, it should arrive filled.
+    // Sending only name + passport would leave an operator copying the rest by
+    // hand off a PDF, which is the exact work this is meant to delete.
     db.from("candidate_profiles")
-      .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry")
+      // One literal string, not a joined array: supabase-js infers the row type
+      // from the literal, and a computed one degrades it to an error type.
+      .select("user_id, first_name, last_name, dob, sex, nationality, phone, passport_no, passport_expiry, issue_date, issuing_authority, city_of_birth, country_of_birth, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, nursing_specialty, years_experience")
       .in("user_id", ids),
     // APPROVED and not archived only. A rejected phone photo of a certificate
     // must never reach a clinic through this pipe — that is exactly the mistake
@@ -67,15 +74,36 @@ export async function GET(req: NextRequest) {
 
   const candidates = ((profs ?? []) as Record<string, unknown>[]).map((p) => {
     const uid = String(p.user_id);
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
     return {
       id: uid,
-      first_name: (p.first_name as string) ?? null,
-      last_name: (p.last_name as string) ?? null,
-      date_of_birth: (p.dob as string) ?? null,
-      sex: (p.sex as string) ?? null,
-      nationality: (p.nationality as string) ?? null,
-      passport_number: (p.passport_no as string) ?? null,
-      passport_expiry: (p.passport_expiry as string) ?? null,
+      first_name: str(p.first_name),
+      last_name: str(p.last_name),
+      date_of_birth: str(p.dob),
+      sex: str(p.sex),
+      nationality: str(p.nationality),
+      phone: str(p.phone),
+      place_of_birth: {
+        city: str(p.city_of_birth),
+        country: str(p.country_of_birth),
+      },
+      address: {
+        street: str(p.address_street),
+        number: str(p.address_number),
+        postal_code: str(p.address_postal),
+        city: str(p.city_of_residence),
+        country: str(p.country_of_residence),
+      },
+      passport: {
+        number: str(p.passport_no),
+        expiry: str(p.passport_expiry),
+        issued_on: str(p.issue_date),
+        issuing_authority: str(p.issuing_authority),
+      },
+      marital_status: str(p.marital_status),
+      children_ages: str(p.children_ages),
+      nursing_specialty: str(p.nursing_specialty),
+      years_experience: p.years_experience ?? null,
       documents: byUser.get(uid) ?? [],
     };
   });

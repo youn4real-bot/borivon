@@ -65,8 +65,25 @@ Authorization: Bearer <key>
       "date_of_birth": "1996-04-12",
       "sex": "F",
       "nationality": "Marokkanisch",
-      "passport_number": "XB9015219",
-      "passport_expiry": "2029-11-03",
+      "phone": "+212 652 628 769",
+      "place_of_birth": { "city": "CASABLANCA", "country": "Marokko" },
+      "address": {
+        "street": "Rue Ibn Sina",
+        "number": "14",
+        "postal_code": "20250",
+        "city": "CASABLANCA",
+        "country": "Marokko"
+      },
+      "passport": {
+        "number": "XB9015219",
+        "expiry": "2029-11-03",
+        "issued_on": "2024-11-04",
+        "issuing_authority": "CASABLANCA"
+      },
+      "marital_status": "ledig",
+      "children_ages": null,
+      "nursing_specialty": "Intensivpflege",
+      "years_experience": 4,
       "documents": [
         {
           "id": "66406f84-3fb9-44af-a273-a4909e6be0d1",
@@ -80,6 +97,15 @@ Authorization: Bearer <key>
   ]
 }
 ```
+
+**This is everything a German placement intake form asks for**, so no one should
+be retyping anything off a PDF. Any field we do not hold for that candidate
+arrives as `null` — treat `null` as "we don't know", not as "empty".
+
+**This flows in one direction only: from Borivon to you.** There is no endpoint
+that accepts data, and there never will be through this key. If something we
+send is wrong or out of date, tell your Borivon contact — do not correct it on
+your side and assume it reaches us, because it will not.
 
 Notes:
 
