@@ -23,6 +23,7 @@
  */
 import * as Sentry from "@sentry/nextjs";
 import { keepAlive } from "@/lib/keepAlive";
+import { telegramSilenced } from "@/lib/telegram";
 
 type ErrCtx = {
   route?: string;
@@ -65,7 +66,7 @@ function shouldAlert(key: string): boolean {
   return true;
 }
 
-export function reportError(err: unknown, ctx: ErrCtx = {}): void {
+export async function reportError(err: unknown, ctx: ErrCtx = {}): Promise<void> {
   const message = err instanceof Error ? err.message : String(err);
   const stack = err instanceof Error ? err.stack : undefined;
 
@@ -111,11 +112,13 @@ export function reportError(err: unknown, ctx: ErrCtx = {}): void {
   // token + locked chat id. Throttled per-message so it can't spam.
   const tgToken = process.env.TELEGRAM_BOT_TOKEN;
   const tgChat = process.env.TELEGRAM_CHAT_ID;
-  if (tgToken && tgChat && shouldAlert(message)) {
+  // Honour the global Telegram silence even for the error alarm. The founder
+  // asked for ALL Telegram to stop; silencing the chase pings but leaving the
+  // alarm firing is exactly the half-measure that got me told twice. The other
+  // sinks above (console, Sentry-style webhook) still record everything, so
+  // errors are NOT lost — they just stop arriving as Telegram messages.
+  if (tgToken && tgChat && shouldAlert(message) && !(await telegramSilenced())) {
     try {
-      // THE ALARM ITSELF. As a bare `void fetch` this was cancelled at response
-      // end on Workers — the one mechanism meant to tell the founder something
-      // broke was silently disarmed by the migration.
       keepAlive(() => fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

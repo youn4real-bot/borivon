@@ -63,10 +63,38 @@ const CRON_ROUTES = {
  * Message is minimalist by the founder's standing rule: the facts, nothing else.
  * Never throws — the alerter must never be the thing that breaks the cron.
  */
+/**
+ * Read app_settings.telegram_silenced over Supabase REST, from inside the raw
+ * Worker (no Next, no supabase-js client). Fails CLOSED — any trouble reading
+ * it returns true (silent), because the founder asked for silence and a missed
+ * cron alert costs less than an unwanted message.
+ */
+async function telegramSilencedWorker(env) {
+  const url = env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return true;
+  try {
+    const r = await fetch(
+      `${url}/rest/v1/app_settings?key=eq.telegram_silenced&select=value`,
+      { headers: { apikey: key, authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(3000) },
+    );
+    if (!r.ok) return true;
+    const rows = await r.json();
+    return rows?.[0]?.value === "on";
+  } catch {
+    return true;
+  }
+}
+
 async function alertCronFailure(env, cron, path, detail) {
   const token = env.TELEGRAM_BOT_TOKEN;
   const chat = env.TELEGRAM_CHAT_ID;
   if (!token || !chat) return;
+  // Honour the global Telegram silence. This runs in the raw Worker, not the
+  // Next app, so it can't import lib/telegram — it reads the same app_settings
+  // flag directly over the Supabase REST API. Fails CLOSED: if the flag can't
+  // be read, stay silent, matching lib/telegram's telegramSilenced().
+  if (await telegramSilencedWorker(env)) return;
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",

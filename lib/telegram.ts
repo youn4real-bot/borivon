@@ -12,6 +12,53 @@ export function telegramConfigured(): boolean {
   return !!process.env.TELEGRAM_BOT_TOKEN;
 }
 
+/**
+ * TOTAL TELEGRAM KILL SWITCH.
+ *
+ * The founder asked twice for the bot to stop reaching him. The first time I
+ * muted the things I knew about and left two "cheap" pings running because I
+ * judged them worth keeping — which was not my call to make, and they kept
+ * arriving. So this is not another per-caller gate: 56 call sites send Telegram
+ * messages, and gating them one at a time guarantees missing one and guarantees
+ * a next time.
+ *
+ * It sits at the LAST point before the HTTP call instead. Nothing above it
+ * matters — a new feature added tomorrow that calls tgSend is silenced by
+ * default, without anyone remembering this exists.
+ *
+ * Read once per isolate and cached: this is checked on every send, and a
+ * database round-trip per message would be its own problem. A deploy or a
+ * cold start picks up the change; so does `resetTelegramSilence()`.
+ *
+ * FAILS CLOSED. If the flag cannot be read, we stay SILENT. The usual rule is
+ * fail-open so a blip cannot swallow the founder's alerts, but he has now said
+ * twice that he wants silence, and the cost of wrongly staying quiet is far
+ * lower than the cost of wrongly messaging him again.
+ */
+const SILENCE_KEY = "telegram_silenced";
+let silencedCache: { value: boolean; at: number } | null = null;
+const SILENCE_TTL_MS = 60_000;
+
+export function resetTelegramSilence(): void {
+  silencedCache = null;
+}
+
+export async function telegramSilenced(): Promise<boolean> {
+  const now = Date.now();
+  if (silencedCache && now - silencedCache.at < SILENCE_TTL_MS) return silencedCache.value;
+  try {
+    const { data, error } = await getServiceSupabase()
+      .from("app_settings").select("value").eq("key", SILENCE_KEY).maybeSingle();
+    if (error) { silencedCache = { value: true, at: now }; return true; } // fail closed
+    const on = (data as { value?: string } | null)?.value === "on";
+    silencedCache = { value: on, at: now };
+    return on;
+  } catch {
+    silencedCache = { value: true, at: now };
+    return true; // fail closed
+  }
+}
+
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** One sendMessage with bounded retries: respect Telegram's 429 retry_after
@@ -19,6 +66,10 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  *  than 429 is our bug — don't loop on it. (This is the @grammyjs/auto-retry idea
  *  inlined — no framework, since the bot owns its fetch helpers.) */
 async function postMessage(chatId: string | number, text: string): Promise<void> {
+  // THE single choke point. Every proactive message, every webhook reply, every
+  // alert funnels through here before it hits the wire — so one check silences
+  // all 56 call sites and anything added later.
+  if (await telegramSilenced()) return;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch(`${API}/bot${token()}/sendMessage`, {
@@ -49,6 +100,9 @@ async function postMessage(chatId: string | number, text: string): Promise<void>
  *  rides the same 429/5xx backoff as postMessage. */
 export async function tgSendReturningId(chatId: string | number, text: string): Promise<number | null> {
   if (!token()) return null;
+  // The other wire path — reminder pings that expect a message_id back. Silenced
+  // too; callers already handle a null id (it just means "no ping to reply to").
+  if (await telegramSilenced()) return null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch(`${API}/bot${token()}/sendMessage`, {
