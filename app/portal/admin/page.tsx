@@ -936,6 +936,11 @@ export default function AdminPage() {
   const [statusOpen, setStatusOpen]       = useState(false);
   // Saving the candidate photo: the bytes come from another origin, so it is a
   // fetch, not a link — which means it can take a moment and it can fail.
+  // RLS watchdog: which sensitive tables (if any) are readable by the public
+  // key right now. Surfaced as a red banner so a future leak like the
+  // candidate_profiles one is caught the next time an admin opens this page,
+  // not months later by an audit. No AI, no tokens — a dozen tiny reads.
+  const [rlsLeaks, setRlsLeaks] = useState<string[]>([]);
   const [photoDlBusy, setPhotoDlBusy]     = useState(false);
   // PARTNER SHARING — which outside agencies this candidate has been sent to.
   // The share row is the ONLY thing that lets a partner's API key see her, so
@@ -2901,6 +2906,22 @@ export default function AdminPage() {
     if (selectedUser && accessToken) loadPartnerShares(selectedUser);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser, accessToken]);
+
+  // RLS watchdog — run once when a supreme admin lands here. Cheap (a dozen
+  // count-only reads, no AI), so on-demand-per-load beats a cron: it is always
+  // current and needs no notification plumbing. Silent unless something leaks.
+  useEffect(() => {
+    if (!isSuperAdmin || !accessToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/portal/admin/rls-status", { headers: { Authorization: `Bearer ${accessToken}` } });
+        const j = await r.json().catch(() => ({}));
+        if (!cancelled && Array.isArray(j?.leaks)) setRlsLeaks(j.leaks.map((l: { table: string }) => l.table));
+      } catch { /* a watchdog that breaks the page is worse than none */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isSuperAdmin, accessToken]);
 
   if (loading) return <PageLoader />;
 
@@ -7660,6 +7681,26 @@ export default function AdminPage() {
       <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
         <PortalTopNav />
         <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
+
+          {/* RLS watchdog alarm — LOUD and impossible to miss. Only shows when a
+              sensitive table is actually readable by the public key. This is the
+              early-warning the passport leak never had. */}
+          {rlsLeaks.length > 0 && (
+            <div className="mb-5 p-4 rounded-2xl" role="alert"
+              style={{ background: "var(--danger-bg)", border: "2px solid var(--danger)", color: "var(--danger)" }}>
+              <p className="text-[14px] font-bold mb-1">
+                {lang === "de" ? "⚠️ DATENLECK: Tabellen sind öffentlich lesbar"
+                  : lang === "fr" ? "⚠️ FUITE DE DONNÉES : des tables sont publiquement lisibles"
+                  : "⚠️ DATA LEAK: tables are readable by the public"}
+              </p>
+              <p className="text-[12.5px]" style={{ color: "var(--w)" }}>
+                {lang === "de" ? "Diese Tabellen geben Daten an jeden im Internet heraus — sofort beheben (Row-Level-Security):"
+                  : lang === "fr" ? "Ces tables exposent des données à tout le monde sur internet — à corriger immédiatement (Row-Level Security) :"
+                  : "These tables are handing data to anyone on the internet — fix immediately (Row-Level Security):"}
+                {" "}<b>{rlsLeaks.join(", ")}</b>
+              </p>
+            </div>
+          )}
 
           {/* Header */}
           <div className="mb-5 text-center">
