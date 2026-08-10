@@ -27,9 +27,15 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
-    const headerOk = req.headers.get("authorization") === `Bearer ${cronSecret}`;
-    const queryOk = req.nextUrl.searchParams.get("secret") === cronSecret;
-    if (!headerOk && !queryOk) return new Response("forbidden", { status: 403 });
+    // HEADER ONLY. The `?secret=` query form was here for an external uptime
+    // pinger back on Vercel Hobby (crons ran at most daily). Cloudflare now
+    // fires this every minute with the Bearer header, so the pinger is gone —
+    // and a secret in a URL leaks into access logs, browser history and the
+    // Referer header. Every other cron route is already header-only; this was
+    // the last one accepting it in the URL.
+    if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+      return new Response("forbidden", { status: 403 });
+    }
   }
 
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
