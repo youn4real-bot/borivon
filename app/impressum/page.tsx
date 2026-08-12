@@ -34,13 +34,13 @@ export default function ImpressumPage() {
       </p>
 
       <Section title="Diensteanbieter">
-        {ph("[ Firmenname, z. B. Borivon GmbH ]")}
+        Borivon LLC
         <br />
-        {ph("[ Straße und Hausnummer ]")}
+        30 N Gould St Ste R
         <br />
-        {ph("[ PLZ Ort ]")}
+        Sheridan, WY 82801
         <br />
-        {ph("[ Land, z. B. Deutschland ]")}
+        USA
       </Section>
 
       <Section title="Vertreten durch">
@@ -48,7 +48,7 @@ export default function ImpressumPage() {
       </Section>
 
       <Section title="Kontakt">
-        Telefon: {ph("[ +49 … ]")}
+        Telefon: +49 157 315 047 59
         <br />
         E-Mail:{" "}
         <a className="bv-link" href="mailto:contact@borivon.com">
@@ -57,15 +57,13 @@ export default function ImpressumPage() {
       </Section>
 
       <Section title="Registereintrag">
-        {ph("[ Falls eingetragen: Handelsregister / Registergericht ]")}
+        Limited Liability Company (LLC), eingetragen im Bundesstaat Wyoming, USA.
         <br />
-        {ph("[ Registernummer, z. B. HRB 123456 ]")}
+        Nicht im deutschen Handelsregister eingetragen.
       </Section>
 
       <Section title="Umsatzsteuer-ID">
-        {ph(
-          "[ Falls vorhanden: USt-IdNr. gemäß § 27a UStG, z. B. DE123456789 ]",
-        )}
+        Nicht vorhanden (US-Gesellschaft).
       </Section>
 
       <Section title="Redaktionell verantwortlich">

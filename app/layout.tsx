@@ -58,9 +58,9 @@ export const metadata: Metadata = {
     "interprétation allemand",
     "traduction allemand",
   ],
-  authors: [{ name: "Borivon SARLAU", url: "https://borivon.com" }],
-  creator: "Borivon SARLAU",
-  publisher: "Borivon SARLAU",
+  authors: [{ name: "Borivon LLC", url: "https://borivon.com" }],
+  creator: "Borivon LLC",
+  publisher: "Borivon LLC",
   robots: {
     index: true,
     follow: true,
@@ -144,7 +144,7 @@ export default function RootLayout({
               "@context": "https://schema.org",
               "@type": "LanguageSchool",
               name: "Borivon",
-              legalName: "Borivon SARLAU",
+              legalName: "Borivon LLC",
               url: "https://borivon.com",
               logo: "https://borivon.com/logo.png",
               description:

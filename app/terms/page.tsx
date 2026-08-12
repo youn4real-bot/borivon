@@ -14,7 +14,7 @@ const content = {
     sections: [
       {
         heading: "1. Présentation de la société",
-        body: `Borivon est une plateforme internationale exploitée par Germeds LLC, société à responsabilité limitée enregistrée aux États-Unis d'Amérique. Germeds LLC est l'unique responsable du traitement de toutes les données personnelles traitées via cette plateforme.\nE-mail : contact@borivon.com`,
+        body: `Borivon est une plateforme internationale exploitée par Borivon LLC, société à responsabilité limitée enregistrée dans l'État du Wyoming, États-Unis d'Amérique. Borivon LLC est l'unique responsable du traitement de toutes les données personnelles traitées via cette plateforme.\nAdresse : Borivon LLC, 30 N Gould St Ste R, Sheridan, WY 82801, États-Unis\nE-mail : contact@borivon.com`,
       },
       {
         heading: "2. Services proposés",
@@ -74,7 +74,7 @@ const content = {
     sections: [
       {
         heading: "1. Company Overview",
-        body: `Borivon is an international platform operated by Germeds LLC, a limited liability company registered in the United States of America. Germeds LLC is the sole data controller for all personal data processed through this platform.\nEmail: contact@borivon.com`,
+        body: `Borivon is an international platform operated by Borivon LLC, a limited liability company registered in the State of Wyoming, United States of America. Borivon LLC is the sole data controller for all personal data processed through this platform.\nAddress: Borivon LLC, 30 N Gould St Ste R, Sheridan, WY 82801, USA\nEmail: contact@borivon.com`,
       },
       {
         heading: "2. Services Offered",
@@ -134,7 +134,7 @@ const content = {
     sections: [
       {
         heading: "1. Unternehmensübersicht",
-        body: `Borivon ist eine internationale Plattform, betrieben von Germeds LLC, einer in den Vereinigten Staaten von Amerika eingetragenen Gesellschaft mit beschränkter Haftung. Germeds LLC ist der alleinige Verantwortliche für alle über diese Plattform verarbeiteten personenbezogenen Daten.\nE-Mail: contact@borivon.com`,
+        body: `Borivon ist eine internationale Plattform, betrieben von Borivon LLC, einer im Bundesstaat Wyoming, Vereinigte Staaten von Amerika, eingetragenen Gesellschaft mit beschränkter Haftung. Borivon LLC ist der alleinige Verantwortliche für alle über diese Plattform verarbeiteten personenbezogenen Daten.\nAnschrift: Borivon LLC, 30 N Gould St Ste R, Sheridan, WY 82801, USA\nE-Mail: contact@borivon.com`,
       },
       {
         heading: "2. Angebotene Dienste",
