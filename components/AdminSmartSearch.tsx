@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, Loader2, X as XIcon, CornerDownLeft, SearchX } from "lucide-react";
+import { Sparkles, Loader2, X as XIcon, CornerDownLeft, SearchX, User } from "lucide-react";
 
 type Hit = {
   uid: string;
@@ -30,12 +30,17 @@ type Hit = {
 };
 type SearchResponse = {
   ok: boolean;
-  usedAI: boolean;
-  empty: boolean;
-  filter: string[];
-  results: Hit[];
-  matched: number;
-  total: number;
+  mode?: "list" | "ask";
+  // list mode
+  usedAI?: boolean;
+  empty?: boolean;
+  filter?: string[];
+  results?: Hit[];
+  matched?: number;
+  total?: number;
+  // ask mode
+  answer?: string;
+  candidates?: { uid: string; name: string }[];
 };
 
 export function AdminSmartSearch({
@@ -113,6 +118,7 @@ export function AdminSmartSearch({
     L("interview next week", "entretien la semaine prochaine", "nächste Woche Gespräch"),
     L("ICU nurses, 3+ years", "infirmiers soins intensifs, 3+ ans", "Intensivpflege, 3+ Jahre"),
     L("stuck at passport review", "bloqué à la revue du passeport", "hängt bei der Passprüfung"),
+    L("what needs me today", "qu'est-ce qui m'attend aujourd'hui", "was braucht mich heute"),
   ];
 
   const runExample = (ex: string) => { setQ(ex); void runSearch(ex); };
@@ -142,9 +148,9 @@ export function AdminSmartSearch({
           }}
           aria-label={L("Ask for candidates in plain language", "Demandez des candidats en langage naturel", "Kandidaten in normaler Sprache suchen")}
           placeholder={L(
-            "Ask anything — e.g. who got B2 this year, interviews next week…",
-            "Demandez — ex. qui a eu le B2 cette année, entretiens la semaine prochaine…",
-            "Frag alles — z. B. wer dieses Jahr B2 hat, Gespräche nächste Woche…",
+            "Find candidates or ask about one — e.g. B2 this year, or what does Hajar still need?",
+            "Trouvez des candidats ou posez une question — ex. B2 cette année, ou que manque-t-il à Hajar ?",
+            "Kandidaten finden oder fragen — z. B. B2 dieses Jahr, oder was fehlt Hajar noch?",
           )}
           className="flex-1 min-w-0 outline-none bg-transparent placeholder:opacity-40"
           style={{ color: "var(--w)", fontSize: 13.5, height: 30 }}
@@ -203,17 +209,53 @@ export function AdminSmartSearch({
         <div className="mt-2 text-[12px]" style={{ color: "var(--w2)" }}>{error}</div>
       )}
 
-      {/* Results */}
-      {res && (
+      {/* ── ASK MODE — a grounded prose answer + clickable candidates ── */}
+      {res && res.mode === "ask" && (
+        <div className="mt-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span
+              className="px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide inline-flex items-center gap-1"
+              style={{ borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}
+            >
+              <Sparkles size={9} strokeWidth={2.4} />
+              {L("Answer", "Réponse", "Antwort")}
+            </span>
+          </div>
+          <div
+            className="p-3 text-[13px]"
+            style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--w)", lineHeight: 1.55, whiteSpace: "pre-wrap" }}
+          >
+            {res.answer || "—"}
+          </div>
+          {res.candidates && res.candidates.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {res.candidates.map((c) => (
+                <button
+                  key={c.uid}
+                  type="button"
+                  onClick={() => onOpen(c.uid)}
+                  className="px-2 py-1 text-[11.5px] font-semibold inline-flex items-center gap-1 transition-opacity"
+                  style={{ borderRadius: 999, border: "1px solid var(--border-gold)", background: "var(--gdim)", color: "var(--gold)" }}
+                >
+                  <User size={11} strokeWidth={2} /> {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── LIST MODE — candidate cards ── */}
+      {res && res.mode !== "ask" && (
         <div className="mt-3">
           {/* Summary row: count + how it was parsed + filter chips */}
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
             <span className="text-[12px] font-semibold" style={{ color: "var(--w)" }}>
               {res.empty
-                ? L(`Showing all ${res.matched}`, `Tous les ${res.matched}`, `Alle ${res.matched}`)
+                ? L(`Showing all ${res.matched ?? 0}`, `Tous les ${res.matched ?? 0}`, `Alle ${res.matched ?? 0}`)
                 : res.matched === 1
                   ? L("1 candidate", "1 candidat", "1 Kandidat")
-                  : L(`${res.matched} candidates`, `${res.matched} candidats`, `${res.matched} Kandidaten`)}
+                  : L(`${res.matched ?? 0} candidates`, `${res.matched ?? 0} candidats`, `${res.matched ?? 0} Kandidaten`)}
             </span>
             <span
               className="px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide inline-flex items-center gap-1"
@@ -230,7 +272,7 @@ export function AdminSmartSearch({
                 {L("(no specific filter detected)", "(aucun filtre précis détecté)", "(kein konkreter Filter erkannt)")}
               </span>
             )}
-            {res.filter.map((chip, i) => (
+            {(res.filter ?? []).map((chip, i) => (
               <span key={i} className="px-2 py-0.5 text-[11px]" style={{ borderRadius: 999, border: "1px solid var(--border-gold)", color: "var(--gold)", background: "var(--gdim)" }}>
                 {chip}
               </span>
@@ -238,14 +280,14 @@ export function AdminSmartSearch({
           </div>
 
           {/* Hits */}
-          {res.results.length === 0 ? (
+          {(res.results ?? []).length === 0 ? (
             <div className="flex items-center gap-2 py-4 text-[12.5px]" style={{ color: "var(--w3)" }}>
               <SearchX size={15} strokeWidth={1.8} />
               {L("No candidates match that. Try rephrasing.", "Aucun candidat ne correspond. Reformulez.", "Keine Treffer. Anders formulieren.")}
             </div>
           ) : (
             <div className="flex flex-col gap-1 max-h-[420px] overflow-y-auto pr-0.5">
-              {res.results.map((h) => (
+              {(res.results ?? []).map((h) => (
                 <button
                   key={h.uid}
                   type="button"

@@ -4,7 +4,8 @@ import { resolveAssistantScope } from "@/lib/assistantScope";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { assembleSearchableCandidates } from "@/lib/candidateSearchData";
 import { compileCandidateQuery, describeQuery, keywordParseQuery, isEmptyQuery, type CandidateQuery } from "@/lib/candidateSearch";
-import { parseQueryWithAI } from "@/lib/candidateSearchAI";
+import { parseQueryWithAI, type ParsedQuery } from "@/lib/candidateSearchAI";
+import { answerCandidateQuestion } from "@/lib/adminAssistant";
 
 /**
  * NATURAL-LANGUAGE CANDIDATE SEARCH — POST /api/portal/admin/search
@@ -26,7 +27,8 @@ import { parseQueryWithAI } from "@/lib/candidateSearchAI";
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+// 60s: list mode is fast, but ask mode runs a multi-step read-only tool loop.
+export const maxDuration = 60;
 
 const LANGS = new Set(["en", "fr", "de"]);
 
@@ -55,23 +57,37 @@ export async function POST(req: NextRequest) {
     const scope = await resolveAssistantScope(auth);
     const nowMs = Date.now();
 
-    // Assemble the scoped set + translate the query concurrently — they're independent
-    // and the assembly (auth walk + joins) is the slow part, so overlap them.
-    const [candidates, aiQuery] = await Promise.all([
+    // Assemble the scoped set + classify the query concurrently. For a filter this
+    // overlaps the slow assembly with the model call; if the model instead
+    // classifies it as an ASK, the assembled set is simply unused (ask is heavier
+    // anyway). The default (blank query) is a filter that shows everyone.
+    const [candidates, parsed] = await Promise.all([
       assembleSearchableCandidates(scope),
-      rawQuery ? parseQueryWithAI(rawQuery, nowMs) : Promise.resolve<CandidateQuery | null>({}),
+      rawQuery ? parseQueryWithAI(rawQuery, nowMs) : Promise.resolve<ParsedQuery | null>({ mode: "filter", filter: {} }),
     ]);
 
-    // AI first; keyword fallback when the model produced nothing usable.
-    let query: CandidateQuery;
-    let usedAI: boolean;
-    if (aiQuery) { query = aiQuery; usedAI = true; }
-    else { query = rawQuery ? keywordParseQuery(rawQuery) : {}; usedAI = false; }
+    // ── ASK MODE — a question about a specific candidate / a summary. The read-only
+    // assistant answers in prose, grounded in real tool reads (it can change nothing).
+    if (parsed?.mode === "ask") {
+      const ans = await answerCandidateQuestion(scope, rawQuery, lang, nowMs);
+      if (!("error" in ans)) {
+        return NextResponse.json({ ok: true, mode: "ask", answer: ans.answer, candidates: ans.candidates });
+      }
+      // Classifier said "question" but the assistant couldn't run (no model / failure)
+      // → fall back to a plain candidate search so the bar still returns something.
+      const q = keywordParseQuery(rawQuery);
+      const r = compileCandidateQuery(q, candidates, nowMs, lang);
+      return NextResponse.json({ ok: true, mode: "list", usedAI: false, empty: isEmptyQuery(q), filter: describeQuery(q, lang), results: r.hits, matched: r.matched, total: r.total });
+    }
 
+    // ── LIST MODE — deterministic filter → real candidates.
+    const query: CandidateQuery = parsed?.mode === "filter" ? parsed.filter : (rawQuery ? keywordParseQuery(rawQuery) : {});
+    const usedAI = parsed?.mode === "filter";
     const { hits, matched, total } = compileCandidateQuery(query, candidates, nowMs, lang);
 
     return NextResponse.json({
       ok: true,
+      mode: "list",
       usedAI,
       empty: isEmptyQuery(query),
       filter: describeQuery(query, lang),
@@ -82,7 +98,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("[candidate-search] unexpected failure:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { ok: false, error: "Search is temporarily unavailable — try again.", results: [], filter: [], matched: 0, total: 0, usedAI: false, empty: true },
+      { ok: false, mode: "list", error: "Search is temporarily unavailable — try again.", results: [], filter: [], matched: 0, total: 0, usedAI: false, empty: true },
       { status: 200 },
     );
   }

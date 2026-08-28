@@ -31,6 +31,8 @@ function buildSystemPrompt(nowMs: number): string {
     "You convert a recruiter's plain-language search into a JSON filter for a database of nursing candidates (Morocco → Germany placement). You do NOT answer the question or name any candidate — you ONLY output the filter. Real candidates are selected by code from the filter.",
     `Today is ${today}. Convert every relative time to a whole number of days (\"last year\"→365, \"last month\"→30, \"next week\"→7, \"this week\"→7, \"tomorrow\"→2, \"today\"→1).`,
     "",
+    'CLASSIFY FIRST. If the request asks ABOUT ONE specific candidate (what documents they are missing, what they still need, their next step, their current status) OR asks for a summary / \"what is new\" / \"what needs me today\", it is NOT a filter — respond with exactly {\"ask\":true} and nothing else. If instead it selects a GROUP of candidates by attributes (even when phrased as \"who has an interview next week\"), produce a filter as below.',
+    "",
     "Output ONLY a JSON object — no prose, no markdown, no code fences. Include ONLY the fields the query actually constrains; omit everything else. Empty query → {}.",
     "",
     "Fields (all optional):",
@@ -52,14 +54,22 @@ function buildSystemPrompt(nowMs: number): string {
     '  "moroccan ICU nurses with 3+ years waiting for visa" → {"nationality":"morocco","specialty":"intensive","minYearsExperience":3,"funnelStage":"passed"}',
     '  "everyone stuck at passport review" → {"passportPending":true}',
     '  "hajar" → {"text":"hajar"}',
+    '  "what documents is Hajar missing" → {"ask":true}',
+    '  "what is the next step for Yassine" → {"ask":true}',
+    '  "what needs me today" → {"ask":true}',
   ].join("\n");
 }
 
+/** The model either produces a list FILTER or classifies the query as an ASK
+ *  (a question about a specific candidate / a summary), which the caller routes to
+ *  the answer assistant instead of the deterministic compiler. */
+export type ParsedQuery = { mode: "filter"; filter: CandidateQuery } | { mode: "ask" };
+
 /**
- * Translate a query with the model. Returns the sanitized filter, or null to signal
- * "use the keyword fallback". Never throws.
+ * Translate a query with the model. Returns the classified filter/ask, or null to
+ * signal "use the keyword fallback" (list mode). Never throws.
  */
-export async function parseQueryWithAI(query: string, nowMs: number): Promise<CandidateQuery | null> {
+export async function parseQueryWithAI(query: string, nowMs: number): Promise<ParsedQuery | null> {
   const text = (query || "").trim();
   if (!text) return null;
   const model = vertexModel("flash");
@@ -80,10 +90,12 @@ export async function parseQueryWithAI(query: string, nowMs: number): Promise<Ca
     if (!result) return null; // timed out
     const obj = extractFilterJson(result.text ?? "");
     if (!obj) return null;
+    // The model classified this as a question about a specific candidate / a summary.
+    if (obj.ask === true || obj.intent === "ask") return { mode: "ask" };
     const q = sanitizeQuery(obj);
     // An AI reply that sanitizes to nothing is indistinguishable from a parse miss;
     // let the keyword parser have a go rather than silently "show everyone".
-    return isEmptyQuery(q) && !q.text ? null : q;
+    return isEmptyQuery(q) && !q.text ? null : { mode: "filter", filter: q };
   } catch {
     return null;
   }
