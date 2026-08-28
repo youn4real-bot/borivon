@@ -6,24 +6,53 @@
  */
 import { UUID_RE } from "@/lib/uuid";
 
-/** Pure-read tools the dashboard assistant may call. Every name verified read-only. */
-export const ASSISTANT_READ_TOOLS: readonly string[] = [
-  // find / identity / dossier
-  "searchCandidates", "listAllCandidates", "getCandidateById", "getCandidateDossier",
-  "getCandidatePipeline", "getCandidatePhone", "getNurseProfile", "getCandidateAccess",
-  // documents & what's MISSING (the core "what does X still need")
-  "getCandidateChecklist", "listCandidateDocuments", "listCandidateCVs",
-  "findDocumentsAcrossCandidates", "getVaccineStatus", "readCvDraft",
-  "getCandidateSlotStatus", "listSignRequests", "listPendingSignatures", "listExpiringPassports",
-  // B2 language status
-  "getB2Status", "getB2Overview", "listB2ExamsDue",
-  // pipeline / funnel / cohorts / lists ("who is at stage X")
-  "listCandidatesByFunnelStage", "listCandidatesIn", "listCandidatesByProfile",
-  "getPipelineBoard", "getFunnelStageCounts", "listStuckCandidates", "listCriticalDates",
-  "listRecentSignups", "listStalledSignups", "listAssignedTasks", "getAcademyStanding",
-  // notes (read) + light reports + "what's new / updates"
-  "listCandidateNotes", "getFunnelSnapshot", "getConversionFunnel", "getTodayBriefing",
+// The read allowlist is PARTITIONED by scope, because "read-only" is not the same
+// as "in-scope". Some read tools take a candidateUserId and gate on THAT candidate
+// (canActOnCandidate / scope.inScope) — safe for anyone. Others read ACROSS the
+// roster or aggregate globally — safe only for a caller who legitimately sees ALL
+// candidates. A bounded org-admin who got a roster/briefing read would receive
+// out-of-scope names + PII in the answer prose (a real LAW #25 leak found in review).
+
+/** Per-candidate reads — each gates on the specific candidate, so safe for ANY admin. */
+export const CANDIDATE_SCOPED_READ_TOOLS: readonly string[] = [
+  "searchCandidates",          // resolves a name → id via the SCOPED roster (in-scope only)
+  "getCandidateById", "getCandidateDossier", "getCandidatePipeline", "getCandidatePhone",
+  "getNurseProfile", "getCandidateAccess", "getCandidateChecklist", "listCandidateDocuments",
+  "listCandidateCVs", "getVaccineStatus", "readCvDraft", "getCandidateSlotStatus",
+  "getB2Status", "listCandidateNotes", "getAcademyStanding",
 ] as const;
+
+/** Roster / aggregate reads — exposed ONLY to callers who see every candidate
+ *  (scope.visibleIds === null: supreme admin / HQ sub-admin). */
+export const GLOBAL_READ_TOOLS: readonly string[] = [
+  "listAllCandidates", "findDocumentsAcrossCandidates", "listExpiringPassports",
+  "listCandidatesByFunnelStage", "listCandidatesIn", "listCandidatesByProfile",
+  "getPipelineBoard", "getFunnelStageCounts", "getFunnelSnapshot", "getConversionFunnel",
+  "listStuckCandidates", "listCriticalDates", "listRecentSignups", "listStalledSignups",
+  "listAssignedTasks", "listSignRequests", "listPendingSignatures",
+  "getB2Overview", "listB2ExamsDue",
+] as const;
+
+/** Reads exposed to the SUPREME admin only. getTodayBriefing additionally surfaces
+ *  the founder's own Google calendar, so it never goes to any sub-admin. */
+export const SUPREME_ONLY_READ_TOOLS: readonly string[] = ["getTodayBriefing"] as const;
+
+/** The full union — used by the read ∩ write disjointness test. */
+export const ASSISTANT_READ_TOOLS: readonly string[] = [
+  ...CANDIDATE_SCOPED_READ_TOOLS, ...GLOBAL_READ_TOOLS, ...SUPREME_ONLY_READ_TOOLS,
+];
+
+/**
+ * The read tools a given scope may use. A bounded org-admin (visibleIds is an
+ * array) gets ONLY per-candidate tools; a caller who sees all candidates also gets
+ * the roster/aggregate reads; only the supreme admin gets the daily briefing.
+ */
+export function readToolKeysForScope(scope: { role: string; visibleIds: string[] | null }): string[] {
+  const keys = [...CANDIDATE_SCOPED_READ_TOOLS];
+  if (scope.visibleIds === null) keys.push(...GLOBAL_READ_TOOLS);
+  if (scope.role === "admin") keys.push(...SUPREME_ONLY_READ_TOOLS);
+  return keys;
+}
 
 /**
  * Every tool that mutates (staged confirm-first writes + immediate writes + external

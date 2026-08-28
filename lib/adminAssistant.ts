@@ -21,6 +21,9 @@ import { resolveAuthNames } from "@/lib/admin-auth";
 
 export type AnswerResult = { answer: string; candidates: { uid: string; name: string }[] };
 
+// Under the route's maxDuration=60 with headroom for the fallback list search.
+const ASK_TIMEOUT_MS = 45_000;
+
 function systemPrompt(nowMs: number, lang: string): string {
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const language = lang === "fr" ? "French" : lang === "de" ? "German" : "English";
@@ -53,6 +56,13 @@ export async function answerCandidateQuestion(
   const model = vertexModel("flash");
   if (!model) return { error: "assistant_unconfigured" };
 
+  // HARD wall-clock cap, comfortably under the route's maxDuration=60. Without it a
+  // stalled model or a long 10-step tool loop would run past the platform limit and
+  // the request would be KILLED (504 / dead spinner) — the route's ask→list fallback
+  // only fires when this returns {error}. On timeout we abort the underlying call so
+  // it stops eating a worker, then the caller degrades to a plain list search.
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ASK_TIMEOUT_MS);
   let result;
   try {
     result = await generateText({
@@ -64,11 +74,14 @@ export async function answerCandidateQuestion(
       maxOutputTokens: 3072,
       maxRetries: 1,
       stopWhen: stepCountIs(10),
+      abortSignal: ac.signal,
       providerOptions: { vertex: { safetySettings: GEMINI_SAFETY }, google: { safetySettings: GEMINI_SAFETY } },
     });
   } catch (e) {
     console.error("[admin-assistant] generateText failed:", e instanceof Error ? e.message : e);
-    return { error: "assistant_failed" };
+    return { error: ac.signal.aborted ? "assistant_timeout" : "assistant_failed" };
+  } finally {
+    clearTimeout(timer);
   }
 
   const answer = (result.text || "").trim();

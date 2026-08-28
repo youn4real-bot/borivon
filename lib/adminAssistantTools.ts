@@ -13,19 +13,22 @@
  */
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
-import { ASSISTANT_READ_TOOLS } from "@/lib/assistantReadOnly";
+import { readToolKeysForScope } from "@/lib/assistantReadOnly";
 
 export { ASSISTANT_READ_TOOLS, WRITE_TOOL_NAMES } from "@/lib/assistantReadOnly";
 
 /**
  * Instantiate the full tool set (each tool still closes over `scope`, so
  * per-candidate access stays gated by canActOnCandidate / scope.inScope — LAW #25),
- * then keep only the allowlisted read tools.
+ * then keep only the read tools this scope is allowed. readToolKeysForScope gives a
+ * bounded org-admin ONLY per-candidate tools; roster/aggregate reads and the daily
+ * briefing are withheld unless the caller sees all candidates (defence against a
+ * roster read leaking out-of-scope PII into an answer).
  */
 export function buildReadOnlyAssistantTools(scope: AssistantScope) {
   const all = buildAssistantTools(scope) as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  for (const key of ASSISTANT_READ_TOOLS) {
+  for (const key of readToolKeysForScope(scope)) {
     if (all[key]) out[key] = all[key];
   }
   return out as ReturnType<typeof buildAssistantTools>;
