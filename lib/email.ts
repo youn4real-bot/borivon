@@ -49,6 +49,31 @@ async function deliver(payload: Parameters<Resend["emails"]["send"]>[0]): Promis
 }
 
 const FROM = "Borivon <noreply@borivon.com>";
+
+/**
+ * EMERGENCY alert straight to the founder's own inbox — the one channel that
+ * survives the Telegram mute.
+ *
+ * The portal went fully dark once (the Supabase project dropped offline) and the
+ * only alarm for it was Telegram, which the founder had deliberately silenced —
+ * so nobody was told. A total outage is not a "reminder"; it must reach him even
+ * when the bot is parked. Email does not touch the database and does not go
+ * through the Telegram gate, so it works precisely when everything else is down.
+ *
+ * Returns true only if Resend accepted it. Never throws.
+ */
+export async function sendAdminAlertEmail(subject: string, body: string): Promise<boolean> {
+  const to = (process.env.ADMIN_EMAIL || "").trim();
+  if (!to) return false;
+  return deliver({
+    from: FROM,
+    to,
+    replyTo: (process.env.CONTACT_EMAIL || "contact@borivon.com").trim(),
+    subject: subject.slice(0, 200),
+    text: body.slice(0, 4000),
+  });
+}
+
 /**
  * Where a reply actually goes. Booking mail is a CONVERSATION starter — "I'll be
  * 15 minutes late", "can my head of nursing join?", "the video link won't open".

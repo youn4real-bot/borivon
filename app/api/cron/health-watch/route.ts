@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runHealthProbes, driveOnlyDocCount, publicSummary, type Probe } from "@/lib/healthProbes";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
+import { sendAdminAlertEmail } from "@/lib/email";
 
 /**
  * HOURLY dependency watchdog — the thing that stops the founder being the bug finder.
@@ -102,6 +103,39 @@ export async function GET(req: NextRequest) {
       } catch (e) {
         console.error("[health-watch] alert send failed:", e instanceof Error ? e.message : e);
       }
+    }
+
+    // ALSO EMAIL THE FOUNDER — the channel that survives the Telegram mute.
+    //
+    // When the whole portal went dark (the Supabase project dropped offline) the
+    // only alarm was Telegram, which was deliberately silenced, so nobody was
+    // told until users complained. A dependency being down is an emergency, not
+    // a reminder: it must reach him even when the bot is parked. Email does not
+    // touch the database or the Telegram gate, so it fires precisely when
+    // everything else is down. Best-effort — an alert that can't send must not
+    // break the cron.
+    try {
+      const lines = alertable.map((p) => `${p.name}: ${p.detail ?? "failed"}`);
+      const dbDown = alertable.some((p) => p.name === "database");
+      const subject = dbDown
+        ? "🔴 Borivon portal DOWN — database unreachable"
+        : `⚠️ Borivon portal — dependency down: ${alertable.map((p) => p.name).join(", ")}`;
+      const body = [
+        dbDown
+          ? "The portal is DOWN: the Supabase database is unreachable, so login and all data fail."
+          : "A portal dependency is failing:",
+        "",
+        ...lines,
+        "",
+        dbDown
+          ? "Most likely the Supabase project is paused/suspended. Open https://supabase.com/dashboard, find the project and Restore/Resume it. Then check https://status.supabase.com."
+          : "Check the affected service.",
+        "",
+        `Checked at ${new Date().toISOString()}.`,
+      ].join("\n");
+      await sendAdminAlertEmail(subject, body);
+    } catch (e) {
+      console.error("[health-watch] admin email alert failed:", e instanceof Error ? e.message : e);
     }
   }
 
