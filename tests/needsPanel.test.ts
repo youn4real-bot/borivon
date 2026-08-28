@@ -15,7 +15,7 @@ function mk(p: Partial<SearchableCandidate> & { uid: string; name: string }): Se
     availableFromMs: null, hasEmployer: false, orgNames: [], b2Complete: null, b2CertDateMs: null,
     b2ExamMs: null, funnelStage: null, interview1Ms: null, interview2Ms: null, interview1Status: null,
     interview2Status: null, visaApptMs: null, flightMs: null, lastTouchMs: null,
-    pendingDocCount: 0, hasApprovedB2Cert: false, ...p,
+    pendingDocCount: 0, hasApprovedB2Cert: false, docTotal: 0, rejectedDocs: 0, missingRequired: 0, checklistPct: 0, ...p,
   };
 }
 const group = (r: ReturnType<typeof computeNeeds>, key: string) => r.groups.find((g) => g.key === key);

@@ -52,6 +52,10 @@ function mk(partial: Partial<SearchableCandidate> & { uid: string; name: string 
     lastTouchMs: null,
     pendingDocCount: 0,
     hasApprovedB2Cert: false,
+    docTotal: 0,
+    rejectedDocs: 0,
+    missingRequired: 0,
+    checklistPct: 0,
     ...partial,
   };
 }

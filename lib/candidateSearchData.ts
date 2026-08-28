@@ -19,6 +19,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { normalizeB2Stage, isB2CertificateDoc } from "@/lib/b2Journey";
+import { computeChecklist } from "@/lib/candidateChecklist";
 import type { AssistantScope } from "@/lib/assistantScope";
 import type { SearchableCandidate } from "@/lib/candidateSearch";
 
@@ -145,14 +146,19 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
     } catch { /* org tables missing → no org facet */ }
   }
 
-  // ── 6. documents → pending count + approved-B2-cert evidence (+ cert date fallback) ──
+  // ── 6. documents → pending/rejected/checklist + approved-B2-cert evidence ──
   const pendingCount = new Map<string, number>();
   const approvedB2CertMs = new Map<string, number | null>(); // uid → cert doc time (or null if approved but timeless)
+  const docsByUid = new Map<string, { file_type: string | null; status: string | null }[]>();
   try {
     const { data: docs } = await db.from("documents").select("user_id, file_type, status, uploaded_at, superseded_at").in("user_id", ids);
     for (const d of (docs ?? []) as Record<string, unknown>[]) {
       if (d.superseded_at) continue; // archived (LAW #33)
       const uid = d.user_id as string;
+      (docsByUid.get(uid) ?? docsByUid.set(uid, []).get(uid)!).push({
+        file_type: (d.file_type as string | null) ?? null,
+        status: (d.status as string | null) ?? null,
+      });
       if (d.status === "pending") pendingCount.set(uid, (pendingCount.get(uid) ?? 0) + 1);
       if (d.status === "approved" && isB2CertificateDoc(d.file_type as string)) {
         if (!approvedB2CertMs.has(uid)) approvedB2CertMs.set(uid, ms(d.uploaded_at));
@@ -172,6 +178,9 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
     const hasApprovedB2Cert = approvedB2CertMs.has(uid);
     // Cert date: admin-set b2_cert_date first; else the approved cert doc's time.
     const b2CertDateMs = ms(s.b2_cert_date) ?? (hasApprovedB2Cert ? approvedB2CertMs.get(uid) ?? null : null);
+    // Document checklist roll-up (pure) — powers the doc facets + progress.
+    const uidDocs = docsByUid.get(uid) ?? [];
+    const chk = computeChecklist(uidDocs);
 
     out.push({
       uid,
@@ -214,6 +223,10 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
 
       pendingDocCount: pendingCount.get(uid) ?? 0,
       hasApprovedB2Cert,
+      docTotal: uidDocs.length,
+      rejectedDocs: chk.counts.rejected,
+      missingRequired: chk.counts.missing,
+      checklistPct: chk.pct,
     });
   }
   return out;

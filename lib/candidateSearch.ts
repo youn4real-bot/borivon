@@ -101,6 +101,10 @@ export type SearchableCandidate = {
   // documents summary
   pendingDocCount: number;
   hasApprovedB2Cert: boolean;
+  docTotal: number;          // non-superseded documents on file
+  rejectedDocs: number;      // documents the admin rejected (candidate must re-upload)
+  missingRequired: number;   // required checklist items not yet complete
+  checklistPct: number;      // 0–100 completeness of the required-document checklist
 };
 
 // ─── The flat filter the parser produces ──────────────────────────────────────

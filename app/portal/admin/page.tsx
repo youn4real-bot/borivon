@@ -28,6 +28,7 @@ import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { AdminSmartSearch } from "@/components/AdminSmartSearch";
 import { AdminNeedsPanel } from "@/components/AdminNeedsPanel";
+import { AdminAdvancedFilters } from "@/components/AdminAdvancedFilters";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -7731,6 +7732,20 @@ export default function AdminPage() {
               fills a filter server-side; the people come from the actual scoped DB, so
               it can never invent someone. Opens the same dossier the list cards open. */}
           <AdminSmartSearch
+            accessToken={accessToken}
+            lang={lang}
+            onOpen={(uid) => {
+              setSelectedUser(uid);
+              setActivePhase(0);
+              setPassportDataFeedback(profiles[uid]?.passport_feedback ?? "");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+
+          {/* Advanced filters — deterministic Booking.com-style facet panel (no AI):
+              tick granular facets (B2 full-cert/partial/…, docs, passport, stage, …)
+              with live per-option counts. Scoped server-side (LAW #25). */}
+          <AdminAdvancedFilters
             accessToken={accessToken}
             lang={lang}
             onOpen={(uid) => {
