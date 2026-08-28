@@ -27,6 +27,7 @@ import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { AdminSmartSearch } from "@/components/AdminSmartSearch";
+import { AdminNeedsPanel } from "@/components/AdminNeedsPanel";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -7711,6 +7712,20 @@ export default function AdminPage() {
               Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
             </span>
           </div>
+
+          {/* Needs You — proactive triage. The portal checks every candidate and shows
+              what needs the admin the moment the page loads, so there's no searching or
+              guessing. Scoped server-side (LAW #25); clicking a line opens the dossier. */}
+          <AdminNeedsPanel
+            accessToken={accessToken}
+            lang={lang}
+            onOpen={(uid) => {
+              setSelectedUser(uid);
+              setActivePhase(0);
+              setPassportDataFeedback(profiles[uid]?.passport_feedback ?? "");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
 
           {/* Smart search — type plain language, get REAL candidates back. The AI only
               fills a filter server-side; the people come from the actual scoped DB, so
