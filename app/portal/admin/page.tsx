@@ -723,6 +723,10 @@ export default function AdminPage() {
     setSelectedBatchId(batchId);
     setBatchFilterUids(batchId ? Object.keys(batchByUid).filter((u) => batchByUid[u] === batchId) : null);
   };
+  // A search (smart bar) feeds its matching uids here → the ONE list shows them
+  // (unified, spanning all candidates). null = no active search.
+  const [searchFilterUids, setSearchFilterUids] = useState<string[] | null>(null);
+  const searchActive = searchFilterUids !== null;
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
@@ -7742,6 +7746,7 @@ export default function AdminPage() {
           <AdminSmartSearch
             accessToken={accessToken}
             lang={lang}
+            onResults={(uids) => { setSearchFilterUids(uids); if (uids) applyBatch(null); }}
             onOpen={(uid) => {
               setSelectedUser(uid);
               setActivePhase(0);
@@ -7776,8 +7781,16 @@ export default function AdminPage() {
             onCreated={(b) => setBatches((prev) => [...prev.filter((x) => x.id !== b.id), b].sort((a, c) => a.name.localeCompare(c.name)))}
           />
 
-          {/* List sort pills — hidden while a batch is selected (batch view is the list then) */}
-          {!batchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
+          {/* "Alle" label above search results — so it's clear these span all
+              candidates (not a batch), per the founder's ask. */}
+          {searchActive && (
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--w3)" }}>
+              {lang === "de" ? "Alle" : lang === "fr" ? "Tous" : "All"}
+            </div>
+          )}
+
+          {/* List sort pills — hidden while a batch is selected or a search is active */}
+          {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
             const all = [...pendingUserIds, ...archivedUserIds];
             const HOUR = 60 * 60 * 1000;
             const stuckCount = all.filter(uid => {
@@ -7918,9 +7931,12 @@ export default function AdminPage() {
             };
             if (activeFilterCount > 0) visibleIds = visibleIds.filter(matchesFilters);
 
-            // Batch pick wins: show exactly that batch's members, least-doc-complete
-            // first (keep only ones actually loaded).
-            if (batchFilterUids) {
+            // Search wins over everything: show exactly the matches (across ALL
+            // candidates), in the search's relevance order. Else a batch pick shows
+            // that batch's members least-doc-complete first. Both keep only loaded ids.
+            if (searchFilterUids) {
+              visibleIds = searchFilterUids.filter((uid) => !!users[uid]);
+            } else if (batchFilterUids) {
               const pct = (uid: string) => computeChecklist(grouped[uid] ?? []).pct;
               visibleIds = batchFilterUids.filter((uid) => !!users[uid]).sort((a, b) => pct(a) - pct(b));
             }

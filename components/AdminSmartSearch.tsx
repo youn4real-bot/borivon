@@ -16,28 +16,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, Loader2, X as XIcon, SearchX, User } from "lucide-react";
+import { Search, Loader2, X as XIcon, User } from "lucide-react";
 
-type Hit = {
-  uid: string;
-  name: string;
-  email: string;
-  photo: string | null;
-  why: string;
-  sub: string;
-  stageColor: string;
-  pendingDocs: number;
-};
+type Hit = { uid: string };
 type SearchResponse = {
   ok: boolean;
   mode?: "list" | "ask";
-  // list mode
-  usedAI?: boolean;
-  empty?: boolean;
-  filter?: string[];
   results?: Hit[];
-  matched?: number;
-  total?: number;
   // ask mode
   answer?: string;
   candidates?: { uid: string; name: string }[];
@@ -47,10 +32,14 @@ export function AdminSmartSearch({
   accessToken,
   lang,
   onOpen,
+  onResults,
 }: {
   accessToken: string;
   lang: string;
   onOpen: (uid: string) => void;
+  /** Matching candidate uids for a plain search → the page filters its ONE list to
+   *  them (unified). null = no active search (restore the previous list). */
+  onResults: (uids: string[] | null) => void;
 }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -63,7 +52,7 @@ export function AdminSmartSearch({
   const runSearch = useCallback(
     async (query: string) => {
       const text = query.trim();
-      if (!text) { setRes(null); setError(null); return; }
+      if (!text) { setRes(null); setError(null); onResults(null); return; }
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
@@ -79,20 +68,28 @@ export function AdminSmartSearch({
         if (!r.ok) {
           const j = (await r.json().catch(() => ({}))) as { error?: string };
           setError(j.error || L("Search failed — try again.", "Échec de la recherche — réessayez.", "Suche fehlgeschlagen — erneut versuchen."));
-          setRes(null);
+          setRes(null); onResults(null);
           return;
         }
         const data = (await r.json()) as SearchResponse & { error?: string };
         // The route degrades to a 200 with ok:false rather than a 500 — show it.
         if (data.ok === false) {
           setError(data.error || L("Search is temporarily unavailable — try again.", "Recherche momentanément indisponible — réessayez.", "Suche vorübergehend nicht verfügbar — erneut versuchen."));
-          setRes(null);
+          setRes(null); onResults(null);
           return;
         }
-        setRes(data);
+        if (data.mode === "ask") {
+          // A question → keep the prose answer in the bar; don't touch the list.
+          setRes(data); onResults(null);
+        } else {
+          // A search → feed the matches into the ONE candidate list below (unified);
+          // the bar renders no list of its own.
+          setRes(null); onResults((data.results ?? []).map((h) => h.uid));
+        }
       } catch (e) {
         if ((e as { name?: string })?.name === "AbortError") return;
         setError(L("Search failed — try again.", "Échec de la recherche — réessayez.", "Suche fehlgeschlagen — erneut versuchen."));
+        onResults(null);
       } finally {
         // Only the CURRENT request may clear the spinner — a superseded request's
         // late (abort) rejection must not switch it off while a newer one is in flight.
@@ -111,6 +108,7 @@ export function AdminSmartSearch({
     setQ("");
     setRes(null);
     setError(null);
+    onResults(null); // restore the previous (batch / general) list
   };
 
   return (
@@ -177,69 +175,8 @@ export function AdminSmartSearch({
         </div>
       )}
 
-      {/* ── LIST MODE — candidate results ── */}
-      {res && res.mode !== "ask" && (
-        <div className="mt-2">
-          <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-            <span className="text-[11.5px]" style={{ color: "var(--w3)" }}>
-              {res.empty
-                ? L(`All ${res.matched ?? 0}`, `Tous (${res.matched ?? 0})`, `Alle ${res.matched ?? 0}`)
-                : res.matched === 1
-                  ? L("1 candidate", "1 candidat", "1 Kandidat")
-                  : L(`${res.matched ?? 0} candidates`, `${res.matched ?? 0} candidats`, `${res.matched ?? 0} Kandidaten`)}
-            </span>
-            {(res.filter ?? []).map((chip, i) => (
-              <span key={i} className="px-2 py-0.5 text-[11px]" style={{ borderRadius: 6, border: "1px solid var(--border)", color: "var(--w2)", background: "var(--card)" }}>
-                {chip}
-              </span>
-            ))}
-          </div>
-
-          {(res.results ?? []).length === 0 ? (
-            <div className="flex items-center gap-2 py-3 text-[12.5px]" style={{ color: "var(--w3)" }}>
-              <SearchX size={15} strokeWidth={1.8} />
-              {L("No matches. Try rephrasing.", "Aucun résultat. Reformulez.", "Keine Treffer. Anders formulieren.")}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1 max-h-[420px] overflow-y-auto pr-0.5">
-              {(res.results ?? []).map((h) => (
-                <button
-                  key={h.uid}
-                  type="button"
-                  onClick={() => onOpen(h.uid)}
-                  className="flex items-center gap-2.5 p-2 text-left transition-colors"
-                  style={{ borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg2)" }}
-                >
-                  {/* Avatar */}
-                  {h.photo ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={h.photo} alt="" width={34} height={34} className="rounded-full object-cover" style={{ width: 34, height: 34, flexShrink: 0 }} />
-                  ) : (
-                    <span
-                      className="inline-flex items-center justify-center rounded-full font-semibold"
-                      style={{ width: 34, height: 34, flexShrink: 0, background: "var(--card)", border: `2px solid ${h.stageColor}`, color: "var(--w2)", fontSize: 13 }}
-                    >
-                      {(h.name || "?").trim().charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <span className="flex-1 min-w-0">
-                    <span className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{h.name}</span>
-                      {h.pendingDocs > 0 && (
-                        <span className="px-1.5 rounded-full text-[9.5px] font-bold" style={{ background: "#f59e0b", color: "#1a1205", flexShrink: 0 }} title={L("pending documents", "documents en attente", "offene Dokumente")}>
-                          {h.pendingDocs}
-                        </span>
-                      )}
-                    </span>
-                    {h.sub && <span className="block text-[11px] truncate" style={{ color: "var(--w3)" }}>{h.sub}</span>}
-                    {h.why && <span className="block text-[11px] truncate" style={{ color: "var(--w2)" }}>{h.why}</span>}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* List-mode results are rendered by the page's ONE candidate list (unified),
+          not here — the bar only feeds it uids via onResults. */}
     </div>
   );
 }
