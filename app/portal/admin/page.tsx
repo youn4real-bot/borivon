@@ -711,9 +711,11 @@ export default function AdminPage() {
   const [filterOpen, setFilterOpen]     = useState(false);
   const emptyFilters = { cityBirth: "", cityRes: "", nationality: "", sex: "", marital: "", b2: "", specialty: "", org: "", minExp: "", placementReady: "", verified: "", pending: "" };
   const [filters, setFilters]           = useState<typeof emptyFilters>(emptyFilters);
-  // True when a batch is selected in the batch tracker → the general candidate list
-  // hides so the same people are never shown twice (one list on screen at a time).
-  const [batchActive, setBatchActive]   = useState(false);
+  // When a batch pill is picked, the candidate list below is filtered to that batch's
+  // members (ordered least-doc-complete first) — the SAME profile cards, not a second
+  // list. null = "All" (normal list). batchActive derives from it.
+  const [batchFilterUids, setBatchFilterUids] = useState<string[] | null>(null);
+  const batchActive = batchFilterUids !== null;
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
@@ -7745,18 +7747,12 @@ export default function AdminPage() {
             }}
           />
 
-          {/* Batch tracker — active Germany-track candidates by batch + their doc
-              status, on entry. Minimal; renders nothing when there are no batches. */}
+          {/* Batch tracker — pick a batch → the list below shows THOSE candidates as
+              the same profile cards, least-doc-complete first. "All" = normal list. */}
           <AdminBatches
             accessToken={accessToken}
             lang={lang}
-            onActiveChange={setBatchActive}
-            onOpen={(uid) => {
-              setSelectedUser(uid);
-              setActivePhase(0);
-              setPassportDataFeedback(profiles[uid]?.passport_feedback ?? "");
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
+            onSelect={setBatchFilterUids}
           />
 
           {/* List sort pills — hidden while a batch is selected (batch view is the list then) */}
@@ -7841,9 +7837,10 @@ export default function AdminPage() {
             );
           })()}
 
-          {/* Pending candidates — the general list; hidden while a batch is selected
-              (the batch tracker above IS the list then, so people aren't doubled). */}
-          {!batchActive && (() => {
+          {/* Candidate list — the real profile cards. When a batch pill is picked it
+              renders that batch's members (the batchFilterUids override below), so the
+              batch view is the SAME cards, not a second list. */}
+          {(() => {
             // Apply search + filter
             const HOUR = 60 * 60 * 1000;
             const q = searchQuery.trim().toLowerCase();
@@ -7899,6 +7896,10 @@ export default function AdminPage() {
               return true;
             };
             if (activeFilterCount > 0) visibleIds = visibleIds.filter(matchesFilters);
+
+            // Batch pick wins: show exactly that batch's members, in the endpoint's
+            // least-doc-complete order (keep only ones actually loaded).
+            if (batchFilterUids) visibleIds = batchFilterUids.filter((uid) => !!users[uid]);
 
             if (visibleIds.length === 0) {
               if (q || activeFilterCount > 0) {
