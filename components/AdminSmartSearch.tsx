@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, Loader2, X as XIcon, CornerDownLeft, SearchX, User } from "lucide-react";
+import { Search, Loader2, X as XIcon, SearchX, User } from "lucide-react";
 
 type Hit = {
   uid: string;
@@ -113,31 +113,12 @@ export function AdminSmartSearch({
     setError(null);
   };
 
-  const examples: string[] = [
-    L("B2 certified this year", "certifié B2 cette année", "dieses Jahr B2 zertifiziert"),
-    L("interview next week", "entretien la semaine prochaine", "nächste Woche Gespräch"),
-    L("ICU nurses, 3+ years", "infirmiers soins intensifs, 3+ ans", "Intensivpflege, 3+ Jahre"),
-    L("stuck at passport review", "bloqué à la revue du passeport", "hängt bei der Passprüfung"),
-    L("what needs me today", "qu'est-ce qui m'attend aujourd'hui", "was braucht mich heute"),
-  ];
-
-  const runExample = (ex: string) => { setQ(ex); void runSearch(ex); };
-
   return (
-    <div
-      className="mb-3"
-      role="search"
-      style={{
-        background: "var(--card)",
-        border: "1px solid var(--border-gold)",
-        borderRadius: 12,
-        padding: 12,
-        boxShadow: "0 0 0 1px var(--gdim) inset",
-      }}
-    >
-      {/* Bar */}
-      <div className="flex items-center gap-2">
-        <Sparkles size={16} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+    <div className="mb-3" role="search">
+      {/* ONE plain search field — name / email / phone, or a question. Enter to run.
+          Minimalist by request: no card chrome, no example chips, no big button. */}
+      <div className="relative flex items-center">
+        <Search size={15} strokeWidth={1.8} className="absolute left-3 pointer-events-none" style={{ color: "var(--w3)" }} />
         <input
           type="text"
           value={q}
@@ -146,64 +127,24 @@ export function AdminSmartSearch({
             if (e.key === "Enter") { e.preventDefault(); void runSearch(q); }
             else if (e.key === "Escape") { e.preventDefault(); clearAll(); }
           }}
-          aria-label={L("Ask for candidates in plain language", "Demandez des candidats en langage naturel", "Kandidaten in normaler Sprache suchen")}
+          aria-label={L("Search candidates", "Rechercher des candidats", "Kandidaten suchen")}
           placeholder={L(
-            "Search a name, email or phone — or ask, e.g. what does Hajar still need?",
-            "Cherchez un nom, e-mail ou téléphone — ou demandez, ex. que manque-t-il à Hajar ?",
-            "Name, E-Mail oder Telefon suchen — oder fragen, z. B. was fehlt Hajar noch?",
+            "Search a name, email or phone — or ask a question",
+            "Cherchez un nom, e-mail ou téléphone — ou posez une question",
+            "Name, E-Mail oder Telefon suchen — oder eine Frage stellen",
           )}
-          className="flex-1 min-w-0 outline-none bg-transparent placeholder:opacity-40"
-          style={{ color: "var(--w)", fontSize: 13.5, height: 30 }}
+          className="w-full outline-none placeholder:opacity-40"
+          style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 10, height: 40, fontSize: 14, paddingLeft: 34, paddingRight: 34 }}
         />
-        {(q || res) && (
-          <button
-            type="button"
-            onClick={clearAll}
-            aria-label={L("Clear", "Effacer", "Löschen")}
-            className="p-1 rounded-md transition-opacity hover:opacity-100 opacity-60"
-            style={{ color: "var(--w3)" }}
-          >
-            <XIcon size={15} strokeWidth={2} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void runSearch(q)}
-          disabled={loading || !q.trim()}
-          className="inline-flex items-center gap-1.5 px-3 font-semibold transition-opacity disabled:opacity-40"
-          style={{
-            height: 30,
-            borderRadius: 8,
-            fontSize: 12.5,
-            background: "var(--gold)",
-            color: "#1a1205",
-            flexShrink: 0,
-          }}
-        >
-          {loading ? <Loader2 size={13} className="animate-spin" strokeWidth={2.4} /> : <CornerDownLeft size={13} strokeWidth={2.4} />}
-          {L("Search", "Chercher", "Suchen")}
-        </button>
+        <span className="absolute right-3 flex items-center" style={{ color: "var(--w3)" }}>
+          {loading ? <Loader2 size={15} className="animate-spin" strokeWidth={2} />
+            : (q || res) ? (
+              <button type="button" onClick={clearAll} aria-label={L("Clear", "Effacer", "Löschen")} className="opacity-60 hover:opacity-100 transition-opacity">
+                <XIcon size={15} strokeWidth={2} />
+              </button>
+            ) : null}
+        </span>
       </div>
-
-      {/* Example chips — shown until the first search runs */}
-      {!res && !loading && !error && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: "var(--w3)" }}>
-            {L("Try", "Essayez", "Beispiele")}
-          </span>
-          {examples.map((ex) => (
-            <button
-              key={ex}
-              type="button"
-              onClick={() => runExample(ex)}
-              className="px-2 py-0.5 text-[11.5px] transition-colors"
-              style={{ borderRadius: 999, border: "1px solid var(--border)", background: "transparent", color: "var(--w2)" }}
-            >
-              {ex}
-            </button>
-          ))}
-        </div>
-      )}
 
       {error && (
         <div className="mt-2 text-[12px]" style={{ color: "var(--w2)" }}>{error}</div>
@@ -211,19 +152,10 @@ export function AdminSmartSearch({
 
       {/* ── ASK MODE — a grounded prose answer + clickable candidates ── */}
       {res && res.mode === "ask" && (
-        <div className="mt-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <span
-              className="px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide inline-flex items-center gap-1"
-              style={{ borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}
-            >
-              <Sparkles size={9} strokeWidth={2.4} />
-              {L("Answer", "Réponse", "Antwort")}
-            </span>
-          </div>
+        <div className="mt-2">
           <div
             className="p-3 text-[13px]"
-            style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--w)", lineHeight: 1.55, whiteSpace: "pre-wrap" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--w)", lineHeight: 1.55, whiteSpace: "pre-wrap" }}
           >
             {res.answer || "—"}
           </div>
@@ -234,10 +166,10 @@ export function AdminSmartSearch({
                   key={c.uid}
                   type="button"
                   onClick={() => onOpen(c.uid)}
-                  className="px-2 py-1 text-[11.5px] font-semibold inline-flex items-center gap-1 transition-opacity"
-                  style={{ borderRadius: 999, border: "1px solid var(--border-gold)", background: "var(--gdim)", color: "var(--gold)" }}
+                  className="px-2.5 py-1 text-[12px] font-medium inline-flex items-center gap-1 transition-opacity hover:opacity-80"
+                  style={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)" }}
                 >
-                  <User size={11} strokeWidth={2} /> {c.name}
+                  <User size={11} strokeWidth={2} style={{ color: "var(--w3)" }} /> {c.name}
                 </button>
               ))}
             </div>
@@ -245,45 +177,28 @@ export function AdminSmartSearch({
         </div>
       )}
 
-      {/* ── LIST MODE — candidate cards ── */}
+      {/* ── LIST MODE — candidate results ── */}
       {res && res.mode !== "ask" && (
-        <div className="mt-3">
-          {/* Summary row: count + how it was parsed + filter chips */}
-          <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            <span className="text-[12px] font-semibold" style={{ color: "var(--w)" }}>
+        <div className="mt-2">
+          <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+            <span className="text-[11.5px]" style={{ color: "var(--w3)" }}>
               {res.empty
-                ? L(`Showing all ${res.matched ?? 0}`, `Tous les ${res.matched ?? 0}`, `Alle ${res.matched ?? 0}`)
+                ? L(`All ${res.matched ?? 0}`, `Tous (${res.matched ?? 0})`, `Alle ${res.matched ?? 0}`)
                 : res.matched === 1
                   ? L("1 candidate", "1 candidat", "1 Kandidat")
                   : L(`${res.matched ?? 0} candidates`, `${res.matched ?? 0} candidats`, `${res.matched ?? 0} Kandidaten`)}
             </span>
-            <span
-              className="px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide inline-flex items-center gap-1"
-              style={{ borderRadius: 999, background: "var(--gdim)", color: res.usedAI ? "var(--gold)" : "var(--w3)" }}
-              title={res.usedAI
-                ? L("Understood by AI", "Interprété par l'IA", "Von KI verstanden")
-                : L("Matched by keywords", "Par mots-clés", "Per Stichwort")}
-            >
-              {res.usedAI ? <Sparkles size={9} strokeWidth={2.4} /> : null}
-              {res.usedAI ? L("AI", "IA", "KI") : L("keyword", "mot-clé", "Stichwort")}
-            </span>
-            {res.empty && (
-              <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-                {L("(no specific filter detected)", "(aucun filtre précis détecté)", "(kein konkreter Filter erkannt)")}
-              </span>
-            )}
             {(res.filter ?? []).map((chip, i) => (
-              <span key={i} className="px-2 py-0.5 text-[11px]" style={{ borderRadius: 999, border: "1px solid var(--border-gold)", color: "var(--gold)", background: "var(--gdim)" }}>
+              <span key={i} className="px-2 py-0.5 text-[11px]" style={{ borderRadius: 6, border: "1px solid var(--border)", color: "var(--w2)", background: "var(--card)" }}>
                 {chip}
               </span>
             ))}
           </div>
 
-          {/* Hits */}
           {(res.results ?? []).length === 0 ? (
-            <div className="flex items-center gap-2 py-4 text-[12.5px]" style={{ color: "var(--w3)" }}>
+            <div className="flex items-center gap-2 py-3 text-[12.5px]" style={{ color: "var(--w3)" }}>
               <SearchX size={15} strokeWidth={1.8} />
-              {L("No candidates match that. Try rephrasing.", "Aucun candidat ne correspond. Reformulez.", "Keine Treffer. Anders formulieren.")}
+              {L("No matches. Try rephrasing.", "Aucun résultat. Reformulez.", "Keine Treffer. Anders formulieren.")}
             </div>
           ) : (
             <div className="flex flex-col gap-1 max-h-[420px] overflow-y-auto pr-0.5">
@@ -317,7 +232,7 @@ export function AdminSmartSearch({
                       )}
                     </span>
                     {h.sub && <span className="block text-[11px] truncate" style={{ color: "var(--w3)" }}>{h.sub}</span>}
-                    {h.why && <span className="block text-[11px] truncate" style={{ color: "var(--gold)" }}>{h.why}</span>}
+                    {h.why && <span className="block text-[11px] truncate" style={{ color: "var(--w2)" }}>{h.why}</span>}
                   </span>
                 </button>
               ))}
