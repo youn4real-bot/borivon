@@ -711,11 +711,18 @@ export default function AdminPage() {
   const [filterOpen, setFilterOpen]     = useState(false);
   const emptyFilters = { cityBirth: "", cityRes: "", nationality: "", sex: "", marital: "", b2: "", specialty: "", org: "", minExp: "", placementReady: "", verified: "", pending: "" };
   const [filters, setFilters]           = useState<typeof emptyFilters>(emptyFilters);
-  // When a batch pill is picked, the candidate list below is filtered to that batch's
-  // members (ordered least-doc-complete first) — the SAME profile cards, not a second
-  // list. null = "All" (normal list). batchActive derives from it.
+  // Batch tracker. batches + batchByUid arrive in the initial /api/portal/admin
+  // payload (no second fetch → instant, no load-flash). Picking a batch filters the
+  // candidate list to its members (same profile cards). null = "All".
+  const [batches, setBatches] = useState<{ id: string; name: string; count: number }[]>([]);
+  const [batchByUid, setBatchByUid] = useState<Record<string, string>>({});
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [batchFilterUids, setBatchFilterUids] = useState<string[] | null>(null);
   const batchActive = batchFilterUids !== null;
+  const applyBatch = (batchId: string | null) => {
+    setSelectedBatchId(batchId);
+    setBatchFilterUids(batchId ? Object.keys(batchByUid).filter((u) => batchByUid[u] === batchId) : null);
+  };
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
@@ -1482,6 +1489,16 @@ export default function AdminPage() {
             setUsers(json.users ?? {});
             setProfiles(json.profiles ?? {});
             setCandidateOrgs(json.candidateOrgs ?? {});
+            setBatches(json.batches ?? []);
+            setBatchByUid(json.batchByUid ?? {});
+            // Default to the first batch, computed inline from THIS payload so the
+            // batch list is right on first paint (no flash / no second load).
+            {
+              const bb: Record<string, string> = json.batchByUid ?? {};
+              const first: string | null = (json.batches?.[0]?.id) ?? null;
+              setSelectedBatchId(first);
+              setBatchFilterUids(first ? Object.keys(bb).filter((u) => bb[u] === first) : null);
+            }
             const fb: Record<string, string> = {};
             for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
             setFeedbacks(fb);
@@ -7753,7 +7770,10 @@ export default function AdminPage() {
             accessToken={accessToken}
             lang={lang}
             canCreate={isSuperAdmin}
-            onSelect={setBatchFilterUids}
+            batches={batches}
+            selectedBatchId={selectedBatchId}
+            onSelect={applyBatch}
+            onCreated={(b) => setBatches((prev) => [...prev.filter((x) => x.id !== b.id), b].sort((a, c) => a.name.localeCompare(c.name)))}
           />
 
           {/* List sort pills — hidden while a batch is selected (batch view is the list then) */}
@@ -7898,9 +7918,12 @@ export default function AdminPage() {
             };
             if (activeFilterCount > 0) visibleIds = visibleIds.filter(matchesFilters);
 
-            // Batch pick wins: show exactly that batch's members, in the endpoint's
-            // least-doc-complete order (keep only ones actually loaded).
-            if (batchFilterUids) visibleIds = batchFilterUids.filter((uid) => !!users[uid]);
+            // Batch pick wins: show exactly that batch's members, least-doc-complete
+            // first (keep only ones actually loaded).
+            if (batchFilterUids) {
+              const pct = (uid: string) => computeChecklist(grouped[uid] ?? []).pct;
+              visibleIds = batchFilterUids.filter((uid) => !!users[uid]).sort((a, b) => pct(a) - pct(b));
+            }
 
             if (visibleIds.length === 0) {
               if (q || activeFilterCount > 0) {

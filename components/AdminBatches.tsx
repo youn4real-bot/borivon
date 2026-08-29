@@ -1,75 +1,45 @@
 "use client";
 
 /**
- * Batch selector — pills that FILTER the real candidate list below (same profile
- * cards, with photos) to the picked batch's people, least-doc-complete first. "All"
- * clears it. A "+" (supreme only) creates a new batch right here — same create API
- * as the batches page — so it's all in one place; candidates get added later.
+ * Batch selector — pills that FILTER the real candidate list (same profile cards)
+ * to the picked batch's people. Fully CONTROLLED + prop-driven: batches come from
+ * the initial page payload, so it renders instantly with no second fetch and no
+ * load-flash. "All" clears it. A "+" (supreme only) creates a batch right here
+ * (same create API); candidates get added later. Minimalist.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Loader2, Plus, X as XIcon } from "lucide-react";
 
-type Member = { uid: string; batchId: string; pct: number };
 type Batch = { id: string; name: string; count: number };
-type Resp = { ok: boolean; batches: Batch[]; members: Member[] };
 type Opt = { id: string; name: string };
 
 export function AdminBatches({
   accessToken,
   lang,
   canCreate,
+  batches,
+  selectedBatchId,
   onSelect,
+  onCreated,
 }: {
   accessToken: string;
   lang: string;
   canCreate: boolean;
-  onSelect: (uids: string[] | null) => void;
+  batches: Batch[];
+  selectedBatchId: string | null;
+  onSelect: (batchId: string | null) => void;
+  onCreated: (batch: Batch) => void;
 }) {
-  const [data, setData] = useState<Resp | null>(null);
-  const [sel, setSel] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const abortRef = useRef<AbortController | null>(null);
   const L = (en: string, fr: string, de: string) => (lang === "fr" ? fr : lang === "de" ? de : en);
-
-  // create-batch modal
   const [showCreate, setShowCreate] = useState(false);
   const [employers, setEmployers] = useState<Opt[]>([]);
   const [orgs, setOrgs] = useState<Opt[]>([]);
   const [form, setForm] = useState({ name: "", seats: "10", employerId: "", orgId: "", start: "", end: "" });
   const [saving, setSaving] = useState(false);
 
-  const uidsFor = (resp: Resp, batchId: string | null) =>
-    batchId === null ? null : resp.members.filter((m) => m.batchId === batchId).map((m) => m.uid);
-  const choose = (resp: Resp, batchId: string | null) => { setSel(batchId); onSelect(uidsFor(resp, batchId)); };
+  if (batches.length === 0 && !canCreate) return null;
 
-  const load = useCallback(async () => {
-    if (!accessToken) return;
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-    setLoading(true);
-    try {
-      const r = await fetch("/api/portal/admin/batches-track", { headers: { Authorization: `Bearer ${accessToken}` }, signal: ac.signal });
-      const j = (await r.json()) as Resp;
-      if (abortRef.current !== ac) return;
-      setData(j);
-      setSel((prev) => {
-        const keep = prev && j.batches.some((b) => b.id === prev) ? prev : (j.batches[0]?.id ?? null);
-        onSelect(uidsFor(j, keep));
-        return keep;
-      });
-    } catch (e) {
-      if ((e as { name?: string })?.name === "AbortError") return;
-      if (abortRef.current === ac) { setData({ ok: true, batches: [], members: [] }); onSelect(null); }
-    } finally {
-      if (abortRef.current === ac) setLoading(false);
-    }
-  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { void load(); return () => abortRef.current?.abort(); }, [load]);
-
-  // Lazily load employer + agency options the first time the create modal opens.
   const openCreate = async () => {
     setShowCreate(true);
     if (employers.length || orgs.length) return;
@@ -79,7 +49,7 @@ export function AdminBatches({
       const j = (await r.json()) as { employers?: Opt[]; organizations?: Opt[] };
       setEmployers(j.employers ?? []);
       setOrgs(j.organizations ?? []);
-    } catch { /* pickers just stay empty */ }
+    } catch { /* pickers stay empty */ }
   };
 
   const create = async () => {
@@ -91,27 +61,25 @@ export function AdminBatches({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
-          name,
-          seats: parseInt(form.seats, 10) || 10,
-          employerId: form.employerId || undefined,
-          orgId: form.orgId || undefined,
-          targetStart: form.start || undefined,
-          targetEnd: form.end || undefined,
+          name, seats: parseInt(form.seats, 10) || 10,
+          employerId: form.employerId || undefined, orgId: form.orgId || undefined,
+          targetStart: form.start || undefined, targetEnd: form.end || undefined,
         }),
       });
       if (r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { id?: string };
+        if (j.id) onCreated({ id: j.id, name, count: 0 });
         setShowCreate(false);
         setForm({ name: "", seats: "10", employerId: "", orgId: "", start: "", end: "" });
-        await load(); // new batch appears as a pill
       }
-    } catch { /* ignore — modal stays open to retry */ }
+    } catch { /* stay open to retry */ }
     finally { setSaving(false); }
   };
 
   const pill = (id: string | null, label: string) => {
-    const active = sel === id;
+    const active = selectedBatchId === id;
     return (
-      <button key={id ?? "all"} type="button" onClick={() => data && choose(data, id)}
+      <button key={id ?? "all"} type="button" onClick={() => onSelect(id)}
         className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
         style={{ borderRadius: 999, border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`, background: active ? "var(--gdim)" : "transparent", color: active ? "var(--gold)" : "var(--w3)" }}>
         {label}
@@ -119,23 +87,12 @@ export function AdminBatches({
     );
   };
 
-  // Nothing to select yet: still offer "+" to create the first batch (supreme only).
-  if (loading && !data) {
-    return (
-      <div className="mb-3 flex items-center gap-2 text-[12px]" style={{ color: "var(--w3)" }}>
-        <Loader2 size={13} className="animate-spin" strokeWidth={2} /> {L("Loading batches…", "Chargement…", "Batches werden geladen…")}
-      </div>
-    );
-  }
-  const hasBatches = !!data && data.batches.length > 0;
-  if (!hasBatches && !canCreate) return null;
-
   const inp: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 8, height: 34, fontSize: 13, padding: "0 8px", width: "100%" };
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-1.5">
-      {data?.batches.map((b) => pill(b.id, `${b.name.replace(/_/g, " ")} ${b.count}`))}
-      {hasBatches && pill(null, L("All", "Tous", "Alle"))}
+      {batches.map((b) => pill(b.id, `${b.name.replace(/_/g, " ")} ${b.count}`))}
+      {batches.length > 0 && pill(null, L("All", "Tous", "Alle"))}
       {canCreate && (
         <button type="button" onClick={openCreate} aria-label={L("New batch", "Nouveau lot", "Neuer Batch")}
           className="inline-flex items-center justify-center transition-colors"

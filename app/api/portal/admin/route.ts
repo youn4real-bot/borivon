@@ -265,7 +265,35 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, role });
+  // Batch membership for the visible candidates — folded into THIS payload so the
+  // dashboard batch tracker is instant (no second round-trip / no load-flash).
+  const batchByUid: Record<string, string> = {};
+  let batches: { id: string; name: string; count: number }[] = [];
+  try {
+    const count: Record<string, number> = {};
+    if (userIds.length > 0) {
+      const { data: pipe } = await db
+        .from("candidate_pipeline").select("user_id, batch_id")
+        .in("user_id", userIds).not("batch_id", "is", null);
+      for (const r of (pipe ?? []) as { user_id: string; batch_id: string }[]) {
+        batchByUid[r.user_id] = r.batch_id;
+        count[r.batch_id] = (count[r.batch_id] ?? 0) + 1;
+      }
+    }
+    // Supreme sees every OPEN batch (so a just-created empty one shows too); a
+    // scoped admin sees only batches their visible candidates are in (LAW #25).
+    let rows: { id: string; name: string }[] = [];
+    if (role === "admin") {
+      const { data } = await db.from("employer_batches").select("id, name").eq("status", "open");
+      rows = (data ?? []) as { id: string; name: string }[];
+    } else if (Object.keys(count).length) {
+      const { data } = await db.from("employer_batches").select("id, name").in("id", Object.keys(count));
+      rows = (data ?? []) as { id: string; name: string }[];
+    }
+    batches = rows.map((b) => ({ id: b.id, name: b.name, count: count[b.id] ?? 0 })).sort((a, b) => a.name.localeCompare(b.name));
+  } catch { /* pipeline / batches not migrated → no batch tracker */ }
+
+  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, role });
 }
 
 // POST — review a document (status + feedback) → notify candidate. Shares the
