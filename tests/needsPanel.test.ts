@@ -13,7 +13,8 @@ function mk(p: Partial<SearchableCandidate> & { uid: string; name: string }): Se
     sex: null, maritalStatus: null, specialty: null, yearsExperience: null, workplacePref: null,
     placementReady: false, verified: false, passportStatus: null, passportExpiryMs: null,
     availableFromMs: null, hasEmployer: false, orgNames: [], b2Complete: null, b2CertDateMs: null,
-    b2ExamMs: null, funnelStage: null, interview1Ms: null, interview2Ms: null, interview1Status: null,
+    b2ExamMs: null, germanLevel: null, b2Result: null, b2ExamType: null, b2CertStatus: null, b2Planned: false, b2PlannedMs: null,
+    funnelStage: null, interview1Ms: null, interview2Ms: null, interview1Status: null,
     interview2Status: null, visaApptMs: null, flightMs: null, lastTouchMs: null,
     pendingDocCount: 0, hasApprovedB2Cert: false, docTotal: 0, rejectedDocs: 0, missingRequired: 0, checklistPct: 0, ...p,
   };

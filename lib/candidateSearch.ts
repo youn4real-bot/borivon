@@ -22,6 +22,7 @@
 import { B2_STAGE_BY_KEY, b2StageColor, b2StageLabel, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { funnelLabel } from "@/lib/batchBoard";
+import { canonicalCountry } from "@/lib/nationality";
 
 const DAY = 86_400_000;
 
@@ -87,6 +88,15 @@ export type SearchableCandidate = {
   b2Complete: boolean | null;
   b2CertDateMs: number | null;
   b2ExamMs: number | null;      // soonest planned B2 exam (profile or status)
+
+  // Rich B2 detail from the cv_draft German panel — the ACTUALLY-maintained source
+  // (b2_stage / candidate_status are largely empty in practice).
+  germanLevel: string | null;   // "A2" | "B1" | "B2" | …
+  b2Result: string | null;      // "full" | "partial" | "failed" | "waiting"
+  b2ExamType: string | null;    // "telc" | "goethe" | "oesd"
+  b2CertStatus: string | null;  // "got" | "waiting"
+  b2Planned: boolean;           // an exam is scheduled but not yet taken
+  b2PlannedMs: number | null;   // best-effort date of that planned/retake exam
 
   // candidate_pipeline
   funnelStage: string | null;
@@ -185,6 +195,17 @@ export function norm(s: string | null | undefined): string {
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .trim();
+}
+
+/**
+ * Does this candidate hold the full B2 certificate? Reads EVERY real signal, in
+ * priority: the cv_draft German panel (result=full / certificate got — the
+ * maintained source), then the admin B2 record, the coarse rail stage, and an
+ * approved B2 certificate document. Shared by the compiler, facets and needs so
+ * "has the certificate" means the same everywhere.
+ */
+export function hasFullB2Cert(c: SearchableCandidate): boolean {
+  return c.b2Result === "full" || c.b2CertStatus === "got" || c.b2Complete === true || c.b2Stage === "passed" || c.hasApprovedB2Cert;
 }
 
 // ─── Query sanitisation ───────────────────────────────────────────────────────
@@ -492,12 +513,10 @@ function matches(c: SearchableCandidate, q: CandidateQuery, nowMs: number): bool
   }
 
   if (q.b2Certified !== undefined) {
-    const certified = c.b2Complete === true || c.b2Stage === "passed" || c.hasApprovedB2Cert;
-    if (certified !== q.b2Certified) return false;
+    if (hasFullB2Cert(c) !== q.b2Certified) return false;
   }
   if (q.b2CertifiedWithinDays !== undefined) {
-    const certified = c.b2Complete === true || c.b2Stage === "passed" || c.hasApprovedB2Cert;
-    if (!certified) return false;
+    if (!hasFullB2Cert(c)) return false;
     // Needs a known cert date inside the past window (can't prove "within" without one).
     if (!pastWithin(c.b2CertDateMs, q.b2CertifiedWithinDays)) return false;
   }
@@ -527,7 +546,14 @@ function matches(c: SearchableCandidate, q: CandidateQuery, nowMs: number): bool
   // available (available_from in the past) is the MOST placeable and must match.
   if (q.availableWithinDays !== undefined && !(c.availableFromMs != null && c.availableFromMs <= nowMs + q.availableWithinDays * DAY)) return false;
 
-  if (q.nationality && !norm(c.nationality).includes(norm(q.nationality))) return false;
+  if (q.nationality) {
+    // Match by canonical country so "moroccan" / "maroc" / "marokko" / "marokkanisch"
+    // all hit the same people, whichever spelling/language was entered.
+    const qc = canonicalCountry(q.nationality);
+    const cc = canonicalCountry(c.nationality);
+    const ok = (qc !== null && qc === cc) || norm(c.nationality).includes(norm(q.nationality));
+    if (!ok) return false;
+  }
   if (q.cityOfBirth && !norm(c.cityOfBirth).includes(norm(q.cityOfBirth))) return false;
   if (q.cityOfResidence && !norm(c.cityOfResidence).includes(norm(q.cityOfResidence))) return false;
   if (q.sex && norm(c.sex).charAt(0) !== q.sex) return false;

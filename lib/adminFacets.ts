@@ -11,7 +11,8 @@
 import { b2StageColor, b2StageLabel } from "@/lib/b2Journey";
 import { specialtyLabel, NURSE_SPECIALTIES } from "@/lib/nurseSpecialties";
 import { funnelLabel, FUNNEL_STAGES } from "@/lib/batchBoard";
-import { norm, type SearchableCandidate, type SearchHit } from "@/lib/candidateSearch";
+import { norm, hasFullB2Cert, type SearchableCandidate, type SearchHit } from "@/lib/candidateSearch";
+import { nationalityKey, countryLabel } from "@/lib/nationality";
 
 const DAY = 86_400_000;
 const RESULT_LIMIT = 150;
@@ -19,7 +20,6 @@ const RESULT_LIMIT = 150;
 function L(lang: string, en: string, fr: string, de: string): string {
   return lang === "fr" ? fr : lang === "de" ? de : en;
 }
-const hasFullCert = (c: SearchableCandidate) => c.b2Complete === true || c.b2Stage === "passed" || c.hasApprovedB2Cert;
 const interviewWithin = (c: SearchableCandidate, now: number, n: number) =>
   [c.interview1Ms, c.interview2Ms].some((m) => m != null && m >= now - DAY && m <= now + n * DAY);
 
@@ -32,13 +32,23 @@ const FIXED_GROUPS: GroupDef[] = [
   {
     key: "b2", label: (l) => L(l, "B2 German", "B2 allemand", "B2 Deutsch"),
     options: [
-      { key: "full_cert", label: (l) => L(l, "Has full certificate", "Certificat complet", "Vollständiges Zertifikat"), test: (c) => hasFullCert(c) },
-      { key: "partial", label: (l) => L(l, "Partial pass (retaking)", "Réussite partielle (reprise)", "Teilbestanden (Wiederholung)"), test: (c) => c.b2Failed && !hasFullCert(c) },
-      { key: "awaiting", label: (l) => L(l, "Awaiting results", "Résultats en attente", "Ergebnisse ausstehend"), test: (c) => c.b2Stage === "awaiting_results" },
-      { key: "booked", label: (l) => L(l, "Exam booked", "Examen réservé", "Prüfung gebucht"), test: (c) => c.b2Stage === "exam_booked" },
-      { key: "exam_30d", label: (l) => L(l, "Exam in ≤30 days", "Examen ≤30 jours", "Prüfung in ≤30 Tagen"), test: (c, now) => c.b2ExamMs != null && c.b2ExamMs >= now - DAY && c.b2ExamMs <= now + 30 * DAY },
-      { key: "studying", label: (l) => L(l, "Still studying", "En cours d'étude", "Lernt noch"), test: (c) => c.b2Stage === "studying" },
-      { key: "failed", label: (l) => L(l, "Failed at least once", "A échoué au moins une fois", "Mind. einmal nicht bestanden"), test: (c) => c.b2Failed === true },
+      // Certificate / result (from the cv_draft German panel — the real source).
+      { key: "full_cert", label: (l) => L(l, "Has full certificate", "Certificat complet", "Vollständiges Zertifikat"), test: (c) => hasFullB2Cert(c) },
+      { key: "cert_got", label: (l) => L(l, "Certificate in hand", "Certificat en main", "Zertifikat erhalten"), test: (c) => c.b2CertStatus === "got" },
+      { key: "cert_waiting", label: (l) => L(l, "Certificate awaited", "Certificat en attente", "Zertifikat ausstehend"), test: (c) => c.b2CertStatus === "waiting" },
+      { key: "partial", label: (l) => L(l, "Partial pass (retaking)", "Réussite partielle (reprise)", "Teilbestanden (Wiederholung)"), test: (c) => c.b2Result === "partial" || (c.b2Failed && !hasFullB2Cert(c)) },
+      { key: "awaiting", label: (l) => L(l, "Awaiting results", "Résultats en attente", "Ergebnisse ausstehend"), test: (c) => c.b2Result === "waiting" || c.b2Stage === "awaiting_results" },
+      { key: "failed", label: (l) => L(l, "Failed (retaking)", "Échoué (reprise)", "Nicht bestanden (Wdh.)"), test: (c) => c.b2Result === "failed" || c.b2Failed === true },
+      // Upcoming exam.
+      { key: "scheduled", label: (l) => L(l, "Exam scheduled", "Examen prévu", "Prüfung angesetzt"), test: (c) => c.b2Planned },
+      { key: "exam_soon", label: (l) => L(l, "Exam within ~6 weeks", "Examen sous ~6 sem.", "Prüfung in ~6 Wochen"), test: (c, now) => c.b2PlannedMs != null && c.b2PlannedMs >= now - 31 * DAY && c.b2PlannedMs <= now + 45 * DAY },
+      // German level reached.
+      { key: "level_b2", label: (l) => L(l, "Reached level B2", "Niveau B2 atteint", "Niveau B2 erreicht"), test: (c) => c.germanLevel === "B2" },
+      { key: "level_b1", label: (l) => L(l, "Reached level B1", "Niveau B1 atteint", "Niveau B1 erreicht"), test: (c) => c.germanLevel === "B1" },
+      // Exam body.
+      { key: "telc", label: () => "telc", test: (c) => c.b2ExamType === "telc" },
+      { key: "goethe", label: () => "Goethe", test: (c) => c.b2ExamType === "goethe" },
+      { key: "oesd", label: () => "ÖSD", test: (c) => c.b2ExamType === "oesd" },
     ],
   },
   {
@@ -140,18 +150,47 @@ function dynamicGroup(key: string, label: (lang: string) => string, get: (c: Sea
   return { key, label, options };
 }
 
+/** Nationality group — merges spelling/language variants into one country and
+ *  labels it as the country name in the UI language (Morocco / Maroc / Marokko). */
+function nationalityGroup(candidates: SearchableCandidate[], lang: string, cap = 40): GroupDef {
+  const counts = new Map<string, number>();
+  for (const c of candidates) {
+    const key = nationalityKey(c.nationality);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const options: OptDef[] = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, cap)
+    .map(([key]) => ({ key, label: (l: string) => countryLabel(key, l), test: (c: SearchableCandidate) => nationalityKey(c.nationality) === key }));
+  return { key: "nationality", label: (l) => L(l, "Nationality", "Nationalité", "Staatsangeh."), options };
+}
+
 // ─── Output types ─────────────────────────────────────────────────────────────
 export type FacetOptionOut = { key: string; label: string; count: number; selected: boolean };
 export type FacetGroupOut = { key: string; label: string; options: FacetOptionOut[] };
 export type FacetSelection = Record<string, string[]>;
 export type FacetResult = { groups: FacetGroupOut[]; results: SearchHit[]; total: number; shown: number };
 
+/** Short, localized B2 status for a result card — reads the REAL cv_draft signal,
+ *  never the dead b2_stage. "" when there's no German data. */
+function b2Chip(c: SearchableCandidate, lang: string): string {
+  const lvl = c.germanLevel && c.germanLevel !== "B2" ? `${c.germanLevel} ` : "";
+  if (hasFullB2Cert(c)) return `${c.germanLevel ?? "B2"} ✓`;
+  if (c.b2Result === "partial") return `${lvl}${L(lang, "B2 partial", "B2 partiel", "B2 teilbestanden")}`;
+  if (c.b2Result === "waiting") return `${lvl}${L(lang, "B2 awaiting", "B2 en attente", "B2 wartet")}`;
+  if (c.b2Result === "failed") return `${lvl}${L(lang, "B2 retaking", "B2 reprise", "B2 Wdh.")}`;
+  if (c.b2Planned) return L(lang, "B2 exam set", "examen B2 prévu", "B2-Prüfung geplant");
+  return c.germanLevel ?? "";
+}
+
 function toHit(c: SearchableCandidate, lang: string): SearchHit {
   const bits: string[] = [];
   if (c.specialty) bits.push(specialtyLabel(c.specialty, lang));
   const city = c.cityOfResidence || c.cityOfBirth;
   if (city) bits.push(city);
-  bits.push(c.funnelStage ? funnelLabel(c.funnelStage) : b2StageLabel(c.b2Stage, lang));
+  const b2 = b2Chip(c, lang);
+  bits.push(b2 || (c.funnelStage ? funnelLabel(c.funnelStage) : b2StageLabel(c.b2Stage, lang)));
   return {
     uid: c.uid, name: c.name, email: c.email, photo: c.photo, why: "",
     sub: bits.filter(Boolean).slice(0, 3).join(" · "),
@@ -167,7 +206,7 @@ function toHit(c: SearchableCandidate, lang: string): SearchHit {
 export function buildFacets(candidates: SearchableCandidate[], selected: FacetSelection, now: number, lang = "en"): FacetResult {
   const groups: GroupDef[] = [
     ...FIXED_GROUPS,
-    dynamicGroup("nationality", (l) => L(l, "Nationality", "Nationalité", "Staatsangeh."), (c) => c.nationality, candidates),
+    nationalityGroup(candidates, lang),
     dynamicGroup("cityRes", (l) => L(l, "City of residence", "Ville de résidence", "Wohnort"), (c) => c.cityOfResidence, candidates),
     dynamicGroup("cityBirth", (l) => L(l, "City of birth", "Ville de naissance", "Geburtsort"), (c) => c.cityOfBirth, candidates),
     dynamicGroup("marital", (l) => L(l, "Marital status", "État civil", "Familienstand"), (c) => c.maritalStatus, candidates),

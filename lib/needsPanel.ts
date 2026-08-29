@@ -73,11 +73,15 @@ export function computeNeeds(candidates: SearchableCandidate[], nowMs: number, l
     ].filter((d): d is { ms: number; kind: string } => d.ms != null && d.ms >= nowMs - DAY && d.ms <= nowMs + DATE_SOON_DAYS * DAY)
       .sort((a, b) => a.ms - b.ms)[0];
     if (soon) dates.push({ uid: c.uid, name: c.name, sort: soon.ms, detail: `${soon.kind} ${iso(soon.ms)}` });
-    // 4. B2 exam soon, or sat and awaiting results.
-    if (c.b2ExamMs != null && c.b2ExamMs >= nowMs - DAY && c.b2ExamMs <= nowMs + B2_EXAM_SOON_DAYS * DAY) {
-      b2.push({ uid: c.uid, name: c.name, sort: c.b2ExamMs, detail: `${L(lang, "B2 exam", "examen B2", "B2-Prüfung")} ${iso(c.b2ExamMs)}` });
-    } else if (c.b2Stage === "awaiting_results") {
-      b2.push({ uid: c.uid, name: c.name, sort: Number.MAX_SAFE_INTEGER, detail: L(lang, "awaiting B2 results", "résultats B2 attendus", "B2-Ergebnisse ausstehend") });
+    // 4. B2: sat the exam and awaiting results (follow up), or an exam scheduled
+    // soon — read from the real cv_draft German panel, not the dead b2_stage.
+    if (c.b2Result === "waiting" || c.b2Stage === "awaiting_results") {
+      b2.push({ uid: c.uid, name: c.name, sort: Number.MIN_SAFE_INTEGER, detail: L(lang, "awaiting B2 results", "résultats B2 attendus", "B2-Ergebnisse ausstehend") });
+    } else {
+      const examMs = c.b2ExamMs ?? c.b2PlannedMs;
+      if (examMs != null && examMs >= nowMs - 31 * DAY && examMs <= nowMs + B2_EXAM_SOON_DAYS * DAY) {
+        b2.push({ uid: c.uid, name: c.name, sort: examMs, detail: `${L(lang, "B2 exam", "examen B2", "B2-Prüfung")} ${iso(examMs)}` });
+      }
     }
     // 5. Going cold — waiting between interviews, no login/touch in the window.
     if (c.funnelStage && WAITING_STAGES.has(c.funnelStage)) {

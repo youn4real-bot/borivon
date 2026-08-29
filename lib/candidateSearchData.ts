@@ -20,6 +20,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { normalizeB2Stage, isB2CertificateDoc } from "@/lib/b2Journey";
 import { computeChecklist } from "@/lib/candidateChecklist";
+import { extractGerman, type MonthYear } from "@/lib/b2Detail";
 import type { AssistantScope } from "@/lib/assistantScope";
 import type { SearchableCandidate } from "@/lib/candidateSearch";
 
@@ -27,6 +28,16 @@ const ms = (v: unknown): number | null => {
   if (!v || typeof v !== "string") return null;
   const t = Date.parse(v);
   return Number.isFinite(t) ? t : null;
+};
+// Best-effort epoch from a {month, year} pair (the cv_draft exam dates are
+// month-resolution). Unparseable month → first of the year; no year → null.
+const monthYearMs = (my: MonthYear | undefined | null): number | null => {
+  if (!my) return null;
+  const y = parseInt(String(my.year ?? ""), 10);
+  if (!Number.isFinite(y) || y < 2000 || y > 2100) return null;
+  let mo = parseInt(String(my.month ?? ""), 10);
+  if (!Number.isFinite(mo) || mo < 1 || mo > 12) mo = 1;
+  return Date.UTC(y, mo - 1, 1);
 };
 const minMs = (a: number | null, b: number | null): number | null => {
   if (a == null) return b;
@@ -91,7 +102,7 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
   // ── 2. candidate_profiles (schema-tolerant) ──
   const profiles = new Map<string, Record<string, unknown>>();
   try {
-    const cols = "user_id, nationality, sex, marital_status, city_of_birth, city_of_residence, passport_status, passport_expiry, b2_stage, b2_failed, b2_exam_date, nursing_specialty, years_experience, workplace_pref, placement_ready, manually_verified, available_from, employer_id, is_test_account, profile_photo";
+    const cols = "user_id, nationality, sex, marital_status, city_of_birth, city_of_residence, passport_status, passport_expiry, b2_stage, b2_failed, b2_exam_date, nursing_specialty, years_experience, workplace_pref, placement_ready, manually_verified, available_from, employer_id, is_test_account, profile_photo, cv_langs:cv_draft->langs";
     let rows: Record<string, unknown>[] | null = null;
     const res = await db.from("candidate_profiles").select(cols).in("user_id", ids);
     if (res.error) {
@@ -182,6 +193,14 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
     const uidDocs = docsByUid.get(uid) ?? [];
     const chk = computeChecklist(uidDocs);
 
+    // Rich B2 detail from the cv_draft German panel (the maintained B2 source).
+    const langs = (p as { cv_langs?: unknown; cv_draft?: { langs?: unknown } }).cv_langs
+      ?? (p as { cv_draft?: { langs?: unknown } }).cv_draft?.langs ?? null;
+    const de = extractGerman({ langs });
+    const plannedMy = de.detail?.written === "no" ? de.detail?.notYetDate
+      : de.detail?.result === "failed" ? de.detail?.retakeDate : null;
+    const b2Planned = !!(plannedMy && (plannedMy.month || plannedMy.year));
+
     out.push({
       uid,
       name: a.name,
@@ -211,6 +230,12 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
       b2Complete: typeof s.b2_complete === "boolean" ? s.b2_complete : null,
       b2CertDateMs,
       b2ExamMs: minMs(ms(p.b2_exam_date), ms(s.b2_next_exam_date)),
+      germanLevel: de.level,
+      b2Result: de.detail?.result ?? null,
+      b2ExamType: de.detail?.pruefung ?? null,
+      b2CertStatus: de.detail?.certificateStatus ?? null,
+      b2Planned,
+      b2PlannedMs: monthYearMs(plannedMy),
 
       funnelStage: (pipe.funnel_stage as string | null) ?? null,
       interview1Ms: ms(pipe.interview1_date),
