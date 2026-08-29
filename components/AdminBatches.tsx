@@ -134,7 +134,7 @@ export function AdminBatches({
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-1.5">
-      {data?.batches.map((b) => pill(b.id, `${b.name} ${b.count}`))}
+      {data?.batches.map((b) => pill(b.id, `${b.name.replace(/_/g, " ")} ${b.count}`))}
       {hasBatches && pill(null, L("All", "Tous", "Alle"))}
       {canCreate && (
         <button type="button" onClick={openCreate} aria-label={L("New batch", "Nouveau lot", "Neuer Batch")}

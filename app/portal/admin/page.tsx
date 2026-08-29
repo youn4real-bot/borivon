@@ -7936,6 +7936,9 @@ export default function AdminPage() {
                   : "";
                 const isExpanded = expandedRow === uid;
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+                // In batch view, show document completeness at a glance (the point of
+                // batch tracking). Only there — keeps the general list uncluttered.
+                const docPct = batchActive ? computeChecklist(allDocs).pct : null;
 
                 return (
                   <div key={uid}
@@ -7990,6 +7993,15 @@ export default function AdminPage() {
                           </span>
                         );
                       })()}
+
+                      {/* Batch view: document completeness at a glance */}
+                      {docPct !== null && (
+                        <span className="hidden sm:block flex-shrink-0 text-[11px] font-semibold tabular-nums"
+                          title={lang === "de" ? "Dokumente vollständig" : lang === "fr" ? "documents complétés" : "documents complete"}
+                          style={{ color: docPct === 100 ? "#16a34a" : docPct >= 50 ? "var(--w2)" : "#f59e0b" }}>
+                          {docPct}%
+                        </span>
+                      )}
 
                       {/* Pending tasks badge */}
                       {(() => {
