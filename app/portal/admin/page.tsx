@@ -1499,7 +1499,9 @@ export default function AdminPage() {
             // batch list is right on first paint (no flash / no second load).
             {
               const bb: Record<string, string> = json.batchByUid ?? {};
-              const first: string | null = (json.batches?.[0]?.id) ?? null;
+              // Default to the first batch that actually HAS members — never an empty
+              // one (that would blank the list into a false "all clear").
+              const first: string | null = ((json.batches ?? []).find((b: { count: number }) => b.count > 0)?.id) ?? null;
               setSelectedBatchId(first);
               setBatchFilterUids(first ? Object.keys(bb).filter((u) => bb[u] === first) : null);
             }
@@ -7937,8 +7939,9 @@ export default function AdminPage() {
             if (searchFilterUids) {
               visibleIds = searchFilterUids.filter((uid) => !!users[uid]);
             } else if (batchFilterUids) {
-              const pct = (uid: string) => computeChecklist(grouped[uid] ?? []).pct;
-              visibleIds = batchFilterUids.filter((uid) => !!users[uid]).sort((a, b) => pct(a) - pct(b));
+              const inBatch = batchFilterUids.filter((uid) => !!users[uid]);
+              const pctMap = new Map(inBatch.map((uid) => [uid, computeChecklist(grouped[uid] ?? []).pct] as const));
+              visibleIds = inBatch.sort((a, b) => (pctMap.get(a) ?? 0) - (pctMap.get(b) ?? 0));
             }
 
             if (visibleIds.length === 0) {
@@ -7954,6 +7957,16 @@ export default function AdminPage() {
               }
               if (filterMode === "stuck") {
                 return <EmptyState Icon={CheckCircle2} tone="success" title={t.adNothingStuck} sub={t.adNoStuckSub} />;
+              }
+              // A batch / search with no results is NOT "all clear" — say so plainly
+              // so real candidates never look like they vanished.
+              if (searchActive) {
+                return <EmptyState Icon={Search} title={t.adNoCandFound}
+                  sub={lang === "de" ? "Keine Treffer. Anders formulieren." : lang === "fr" ? "Aucun résultat. Reformulez." : "No matches. Try rephrasing."} />;
+              }
+              if (batchActive) {
+                return <EmptyState Icon={Search} title={lang === "de" ? "Keine Kandidaten in diesem Batch" : lang === "fr" ? "Aucun candidat dans ce lot" : "No candidates in this batch"}
+                  sub={lang === "de" ? "Diesem Batch sind noch keine Kandidaten zugewiesen." : lang === "fr" ? "Aucun candidat n'est encore affecté à ce lot." : "No candidates assigned to this batch yet."} />;
               }
               return <EmptyState Icon={CheckCircle2} tone="success" title={t.aNothingTitle} sub={t.aNothing} />;
             }

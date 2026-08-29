@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
-import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds, getVisibleOrgIds } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { UUID_RE } from "@/lib/uuid";
 // Doc-review + profile-patch mutation logic is shared with the AI assistant
@@ -270,26 +270,33 @@ export async function GET(req: NextRequest) {
   const batchByUid: Record<string, string> = {};
   let batches: { id: string; name: string; count: number }[] = [];
   try {
+    const rawByUid: Record<string, string> = {};
     const count: Record<string, number> = {};
     if (userIds.length > 0) {
       const { data: pipe } = await db
         .from("candidate_pipeline").select("user_id, batch_id")
         .in("user_id", userIds).not("batch_id", "is", null);
       for (const r of (pipe ?? []) as { user_id: string; batch_id: string }[]) {
-        batchByUid[r.user_id] = r.batch_id;
+        rawByUid[r.user_id] = r.batch_id;
         count[r.batch_id] = (count[r.batch_id] ?? 0) + 1;
       }
     }
-    // Supreme sees every OPEN batch (so a just-created empty one shows too); a
-    // scoped admin sees only batches their visible candidates are in (LAW #25).
+    // Batches are scoped by ORG OWNERSHIP, not candidate membership — else a
+    // candidate approved-linked to two orgs would leak the OTHER org's batch name
+    // to a scoped admin (LAW #25). Supreme / HQ sub-admin (visibleOrgIds === null)
+    // see every open batch; an org-scoped admin sees only their org's open batches.
     let rows: { id: string; name: string }[] = [];
-    if (role === "admin") {
+    const visibleOrgIds = role === "admin" ? null : await getVisibleOrgIds(token);
+    if (visibleOrgIds === null) {
       const { data } = await db.from("employer_batches").select("id, name").eq("status", "open");
       rows = (data ?? []) as { id: string; name: string }[];
-    } else if (Object.keys(count).length) {
-      const { data } = await db.from("employer_batches").select("id, name").in("id", Object.keys(count));
+    } else if (visibleOrgIds.length) {
+      const { data } = await db.from("employer_batches").select("id, name").eq("status", "open").in("org_id", visibleOrgIds);
       rows = (data ?? []) as { id: string; name: string }[];
     }
+    // Only expose batch membership for batches the caller may actually see.
+    const allowed = new Set(rows.map((r) => r.id));
+    for (const uid of Object.keys(rawByUid)) if (allowed.has(rawByUid[uid])) batchByUid[uid] = rawByUid[uid];
     batches = rows.map((b) => ({ id: b.id, name: b.name, count: count[b.id] ?? 0 })).sort((a, b) => a.name.localeCompare(b.name));
   } catch { /* pipeline / batches not migrated → no batch tracker */ }
 
