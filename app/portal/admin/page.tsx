@@ -7791,87 +7791,27 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* List sort pills — hidden while a batch is selected or a search is active */}
-          {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
-            const all = [...pendingUserIds, ...archivedUserIds];
-            const HOUR = 60 * 60 * 1000;
-            const stuckCount = all.filter(uid => {
-              const docs = grouped[uid];
-              if (!docs?.length) return false;
-              const recent = Math.max(...docs.map(d => new Date(d.uploaded_at).getTime()));
-              return docs.some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
-            }).length;
-            const clearCount = archivedUserIds.length;
-            const pendingCount = pendingUserIds.length;
-            // ── Attribute-filter options — distinct values from the loaded
-            // profiles, so only values that actually exist are offered (no
-            // free-text spelling drift). Labels via the shared catalogs. ──
-            const L = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
-            const profVals = Object.values(profiles);
-            const distinct = (get: (p: CandidateProfile) => string | null | undefined) =>
-              [...new Set(profVals.map(get).map((v) => (v ?? "").toString().trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-            const asOpts = (arr: string[]) => arr.map((s) => ({ value: s, label: s }));
-            const cityBirthOpts = asOpts(distinct((p) => p.city_of_birth));
-            const cityResOpts   = asOpts(distinct((p) => p.city_of_residence));
-            const natOpts       = asOpts(distinct((p) => p.nationality));
-            const sexOpts       = asOpts(distinct((p) => p.sex));
-            const maritalOpts   = asOpts(distinct((p) => p.marital_status));
-            // Normalize the b2 option VALUE (not just the label) so raw variants
-            // like 'not_started' fold into the same canonical stage the pipeline
-            // displays — one option per real stage, and it matches every row in it.
-            const b2Opts        = [...new Set(profVals.map((p) => p.b2_stage).filter((v): v is string => !!v).map((k) => normalizeB2Stage(k)))].map((st) => ({ value: st, label: b2StageLabel(st, lang) }));
-            const specOpts      = distinct((p) => p.nursing_specialty).map((k) => ({ value: k, label: specialtyLabel(k, lang) }));
-            const orgOpts = (() => { const m = new Map<string, string>(); for (const arr of Object.values(candidateOrgs)) for (const o of arr) m.set(o.id, o.name); return [...m.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)); })();
-            const setF = (k: keyof typeof filters, v: string) => setFilters((prev) => ({ ...prev, [k]: v }));
-            const selStyle: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 8, height: 30, fontSize: "12.5px", padding: "0 8px", width: "100%" };
-            const field = (label: string, control: React.ReactNode) => (
-              <label className="flex flex-col gap-1 min-w-0">
-                <span className="text-[10px] font-semibold uppercase tracking-wide truncate" style={{ color: "var(--w3)" }}>{label}</span>
-                {control}
-              </label>
-            );
-            const dropdown = (key: keyof typeof filters, opts: { value: string; label: string }[]) => (
-              <select value={filters[key]} onChange={(e) => setF(key, e.target.value)} style={selStyle}>
-                <option value="">{L("Any", "Alle", "Tous")}</option>
-                {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            );
-            const triState = (key: keyof typeof filters) => (
-              <select value={filters[key]} onChange={(e) => setF(key, e.target.value)} style={selStyle}>
-                <option value="">{L("Any", "Alle", "Tous")}</option>
-                <option value="yes">{L("Yes", "Ja", "Oui")}</option>
-                <option value="no">{L("No", "Nein", "Non")}</option>
-              </select>
-            );
-            return (
-              <div className="mb-3">
-                {/* List sort only — search + filtering live in the ONE smart bar and
-                    the Advanced Filters above; the old duplicate search box + filter
-                    pill were removed (founder: keep one search bar). */}
-                <div className="flex items-center gap-1.5">
-                  {([
-                    ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
-                    ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
-                    ["inactive", lang === "de" ? "Inaktiv"   : lang === "fr" ? "Inactifs"  : "Inactive"],
-                  ] as const).map(([mode, label]) => {
-                    const active = regView === mode;
-                    return (
-                      <button key={mode} type="button" onClick={() => setRegView(mode)}
-                        className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
-                        style={{
-                          borderRadius: "999px",
-                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
-                          background: active ? "var(--gdim)" : "transparent",
-                          color: active ? "var(--gold)" : "var(--w3)",
-                        }}>
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
+          {/* List sort pills — hidden while a batch is selected or a search is active.
+              (The old inline search box + attribute-filter panel were removed; search
+              + faceting live in the smart bar and Advanced Filters above.) */}
+          {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
+            <div className="mb-3 flex items-center gap-1.5">
+              {([
+                ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
+                ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
+                ["inactive", lang === "de" ? "Inaktiv"   : lang === "fr" ? "Inactifs"  : "Inactive"],
+              ] as const).map(([mode, label]) => {
+                const active = regView === mode;
+                return (
+                  <button key={mode} type="button" onClick={() => setRegView(mode)}
+                    className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
+                    style={{ borderRadius: "999px", border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`, background: active ? "var(--gdim)" : "transparent", color: active ? "var(--gold)" : "var(--w3)" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Candidate list — the real profile cards. When a batch pill is picked it
               renders that batch's members (the batchFilterUids override below), so the
