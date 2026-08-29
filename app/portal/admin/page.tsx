@@ -711,6 +711,9 @@ export default function AdminPage() {
   const [filterOpen, setFilterOpen]     = useState(false);
   const emptyFilters = { cityBirth: "", cityRes: "", nationality: "", sex: "", marital: "", b2: "", specialty: "", org: "", minExp: "", placementReady: "", verified: "", pending: "" };
   const [filters, setFilters]           = useState<typeof emptyFilters>(emptyFilters);
+  // True when a batch is selected in the batch tracker → the general candidate list
+  // hides so the same people are never shown twice (one list on screen at a time).
+  const [batchActive, setBatchActive]   = useState(false);
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
@@ -7747,6 +7750,7 @@ export default function AdminPage() {
           <AdminBatches
             accessToken={accessToken}
             lang={lang}
+            onActiveChange={setBatchActive}
             onOpen={(uid) => {
               setSelectedUser(uid);
               setActivePhase(0);
@@ -7755,8 +7759,8 @@ export default function AdminPage() {
             }}
           />
 
-          {/* Search + filter row — works on the full candidate list (pending + archived combined) */}
-          {(pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
+          {/* List sort pills — hidden while a batch is selected (batch view is the list then) */}
+          {!batchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
             const all = [...pendingUserIds, ...archivedUserIds];
             const HOUR = 60 * 60 * 1000;
             const stuckCount = all.filter(uid => {
@@ -7837,8 +7841,9 @@ export default function AdminPage() {
             );
           })()}
 
-          {/* Pending candidates */}
-          {(() => {
+          {/* Pending candidates — the general list; hidden while a batch is selected
+              (the batch tracker above IS the list then, so people aren't doubled). */}
+          {!batchActive && (() => {
             // Apply search + filter
             const HOUR = 60 * 60 * 1000;
             const q = searchQuery.trim().toLowerCase();

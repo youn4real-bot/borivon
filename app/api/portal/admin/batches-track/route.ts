@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
       return {
         uid: c.uid,
         name: c.name,
+        email: c.email,
+        photo: c.photo,
         batchId: c.batchId!,
         missing: c.missingRequired,
         pending: c.pendingDocCount,
