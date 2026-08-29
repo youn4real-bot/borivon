@@ -124,13 +124,23 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
   // ── 4. candidate_pipeline (funnel + interview/visa dates), schema-tolerant ──
   const pipeline = new Map<string, Record<string, unknown>>();
   try {
-    const cols = "user_id, funnel_stage, interview1_date, interview2_date, interview1_status, interview2_status, visa_appt_date, flight_date, last_touch_at";
+    const cols = "user_id, funnel_stage, batch_id, interview1_date, interview2_date, interview1_status, interview2_status, visa_appt_date, flight_date, last_touch_at";
     const res = await db.from("candidate_pipeline").select(cols).in("user_id", ids);
     const rows = res.error
       ? ((await db.from("candidate_pipeline").select("*").in("user_id", ids)).data ?? [])
       : (res.data ?? []);
     for (const p of rows as Record<string, unknown>[]) pipeline.set(p.user_id as string, p);
   } catch { /* candidate_pipeline not migrated → no funnel/interview data */ }
+
+  // Batch names for whatever batch_ids the (scoped) candidates are assigned to.
+  const batchNames = new Map<string, string>();
+  try {
+    const batchIds = [...new Set([...pipeline.values()].map((p) => (p as { batch_id?: string | null }).batch_id).filter((b): b is string => !!b))];
+    if (batchIds.length) {
+      const { data: batches } = await db.from("employer_batches").select("id, name").in("id", batchIds);
+      for (const b of (batches ?? []) as { id: string; name: string }[]) batchNames.set(b.id, b.name);
+    }
+  } catch { /* employer_batches not migrated → no batch names */ }
 
   // ── 5. org links (approved only) → names per candidate ──
   // ONLY surfaced to callers who legitimately see ALL orgs (supreme admin / HQ
@@ -239,6 +249,8 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
       b2PlannedMs: monthYearMs(plannedMy),
 
       funnelStage: (pipe.funnel_stage as string | null) ?? null,
+      batchId: (pipe.batch_id as string | null) ?? null,
+      batchName: pipe.batch_id ? (batchNames.get(pipe.batch_id as string) ?? null) : null,
       interview1Ms: ms(pipe.interview1_date),
       interview2Ms: ms(pipe.interview2_date),
       interview1Status: (pipe.interview1_status as string | null) ?? null,

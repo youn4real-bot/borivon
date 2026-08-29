@@ -44,7 +44,7 @@ function mk(partial: Partial<SearchableCandidate> & { uid: string; name: string 
     b2CertDateMs: null,
     b2ExamMs: null,
     germanLevel: null, b2Result: null, b2ExamType: null, b2CertStatus: null, b2Planned: false, b2PlannedMs: null,
-    funnelStage: null,
+    funnelStage: null, batchId: null, batchName: null,
     interview1Ms: null,
     interview2Ms: null,
     interview1Status: null,

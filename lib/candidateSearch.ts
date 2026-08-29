@@ -101,6 +101,8 @@ export type SearchableCandidate = {
 
   // candidate_pipeline
   funnelStage: string | null;
+  batchId: string | null;       // employer_batches.id the candidate is assigned to
+  batchName: string | null;     // that batch's display name
   interview1Ms: number | null;
   interview2Ms: number | null;
   interview1Status: string | null;
