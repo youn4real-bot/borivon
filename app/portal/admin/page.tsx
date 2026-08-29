@@ -7752,6 +7752,7 @@ export default function AdminPage() {
           <AdminBatches
             accessToken={accessToken}
             lang={lang}
+            canCreate={isSuperAdmin}
             onSelect={setBatchFilterUids}
           />
 
