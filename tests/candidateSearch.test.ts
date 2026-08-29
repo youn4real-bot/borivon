@@ -19,6 +19,7 @@ const iso = (s: string) => Date.parse(s);
 function mk(partial: Partial<SearchableCandidate> & { uid: string; name: string }): SearchableCandidate {
   return {
     email: `${partial.uid}@example.com`,
+    phone: null,
     photo: null,
     createdAtMs: null,
     lastSignInMs: null,
@@ -278,6 +279,12 @@ describe("compileCandidateQuery — deterministic matching", () => {
   it("free-text AND across terms", () => {
     expect(uids(run({ text: "amina intensive" }))).toEqual(["certd"]);
     expect(uids(run({ text: "amina geriatric" }))).toEqual([]);
+  });
+
+  it("free-text finds people by phone (digits match across formatting)", () => {
+    const phones = [mk({ uid: "ph", name: "Zed", phone: "+212 612-345-678" }), mk({ uid: "no", name: "Yan", phone: "+212 699-000-111" })];
+    expect(uids(compileCandidateQuery({ text: "612345" }, phones, NOW, "en"))).toEqual(["ph"]);
+    expect(uids(compileCandidateQuery({ text: "zed" }, phones, NOW, "en"))).toEqual(["ph"]);
   });
 
   it("empty query returns everyone", () => {

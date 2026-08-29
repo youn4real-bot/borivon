@@ -148,9 +148,9 @@ export function AdminSmartSearch({
           }}
           aria-label={L("Ask for candidates in plain language", "Demandez des candidats en langage naturel", "Kandidaten in normaler Sprache suchen")}
           placeholder={L(
-            "Find candidates or ask about one — e.g. B2 this year, or what does Hajar still need?",
-            "Trouvez des candidats ou posez une question — ex. B2 cette année, ou que manque-t-il à Hajar ?",
-            "Kandidaten finden oder fragen — z. B. B2 dieses Jahr, oder was fehlt Hajar noch?",
+            "Search a name, email or phone — or ask, e.g. what does Hajar still need?",
+            "Cherchez un nom, e-mail ou téléphone — ou demandez, ex. que manque-t-il à Hajar ?",
+            "Name, E-Mail oder Telefon suchen — oder fragen, z. B. was fehlt Hajar noch?",
           )}
           className="flex-1 min-w-0 outline-none bg-transparent placeholder:opacity-40"
           style={{ color: "var(--w)", fontSize: 13.5, height: 30 }}

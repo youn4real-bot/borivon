@@ -8,7 +8,7 @@ const iso = (s: string) => Date.parse(s);
 
 function mk(p: Partial<SearchableCandidate> & { uid: string; name: string }): SearchableCandidate {
   return {
-    email: `${p.uid}@x.com`, photo: null, createdAtMs: null, lastSignInMs: null,
+    email: `${p.uid}@x.com`, phone: null, photo: null, createdAtMs: null, lastSignInMs: null,
     b2Stage: "studying", b2Failed: false, nationality: null, cityOfBirth: null, cityOfResidence: null,
     sex: null, maritalStatus: null, specialty: null, yearsExperience: null, workplacePref: null,
     placementReady: false, verified: false, passportStatus: null, passportExpiryMs: null,

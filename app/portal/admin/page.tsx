@@ -7795,27 +7795,10 @@ export default function AdminPage() {
             );
             return (
               <div className="mb-3">
-                <div className="relative">
-                  <Search size={11} strokeWidth={1.8}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-                    style={{ color: "var(--w3)" }} />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder={t.adSearchPh}
-                    className="w-full pl-7 pr-7 outline-none transition-colors placeholder:opacity-40"
-                    style={{
-                      background: "var(--card)",
-                      border: "1px solid var(--border)",
-                      color: "var(--w)",
-                      borderRadius: "8px",
-                      height: "32px",
-                      fontSize: "13px",
-                    }} />
-                </div>
-                {/* Registration lens — who registered when + the never-started ghosts */}
-                <div className="mt-2 flex items-center gap-1.5">
+                {/* List sort only — search + filtering live in the ONE smart bar and
+                    the Advanced Filters above; the old duplicate search box + filter
+                    pill were removed (founder: keep one search bar). */}
+                <div className="flex items-center gap-1.5">
                   {([
                     ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
                     ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
@@ -7835,53 +7818,7 @@ export default function AdminPage() {
                       </button>
                     );
                   })}
-                  {/* Attribute filter toggle — 4th pill, opens the panel below. */}
-                  <button type="button" onClick={() => setFilterOpen((v) => !v)}
-                    className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors inline-flex items-center gap-1"
-                    style={{
-                      borderRadius: "999px",
-                      border: `1px solid ${filterOpen || activeFilterCount > 0 ? "var(--border-gold)" : "var(--border)"}`,
-                      background: filterOpen || activeFilterCount > 0 ? "var(--gdim)" : "transparent",
-                      color: filterOpen || activeFilterCount > 0 ? "var(--gold)" : "var(--w3)",
-                    }}>
-                    <SlidersHorizontal size={12} strokeWidth={2} />
-                    {L("Filter", "Filter", "Filtrer")}
-                    {activeFilterCount > 0 && <span className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: "var(--gold)", color: "#1a1205" }}>{activeFilterCount}</span>}
-                  </button>
                 </div>
-                {/* Collapsible attribute-filter panel — narrows the already-loaded,
-                    already-scoped list (LAW #25 handled server-side). */}
-                {filterOpen && (
-                  <div className="mt-2 p-3" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10 }}>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {field(L("City of birth", "Geburtsort", "Lieu de naissance"), dropdown("cityBirth", cityBirthOpts))}
-                      {field(L("City of living", "Wohnort", "Ville de résidence"), dropdown("cityRes", cityResOpts))}
-                      {field(L("Nationality", "Staatsangeh.", "Nationalité"), dropdown("nationality", natOpts))}
-                      {field(L("Profession", "Fachbereich", "Spécialité"), dropdown("specialty", specOpts))}
-                      {field(L("Min. experience (yrs)", "Min. Erfahrung (J.)", "Expérience min. (ans)"),
-                        <input type="number" min={0} max={60} value={filters.minExp} onChange={(e) => setF("minExp", e.target.value)} placeholder="0" style={selStyle} />)}
-                      {field(L("B2 German", "B2 Deutsch", "B2 allemand"), dropdown("b2", b2Opts))}
-                      {field(L("Sex", "Geschlecht", "Sexe"), dropdown("sex", sexOpts))}
-                      {field(L("Marital status", "Familienstand", "État civil"), dropdown("marital", maritalOpts))}
-                      {field(L("Agency / org", "Agentur / Org", "Agence / org"), dropdown("org", orgOpts))}
-                      {field(L("Placement ready", "Vermittlungsbereit", "Prêt au placement"), triState("placementReady"))}
-                      {field(L("Verified", "Verifiziert", "Vérifié"), triState("verified"))}
-                      {field(L("Pending docs", "Offene Dok.", "Docs en attente"), triState("pending"))}
-                    </div>
-                    <div className="mt-2.5 flex items-center justify-between">
-                      <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-                        {activeFilterCount > 0
-                          ? L(`${activeFilterCount} active`, `${activeFilterCount} aktiv`, `${activeFilterCount} actif(s)`)
-                          : L("No filters set", "Keine Filter", "Aucun filtre")}
-                      </span>
-                      <button type="button" onClick={() => setFilters(emptyFilters)} disabled={activeFilterCount === 0}
-                        className="text-[11.5px] font-semibold px-2.5 py-1 rounded-md transition-opacity disabled:opacity-40"
-                        style={{ color: "var(--w2)", border: "1px solid var(--border)" }}>
-                        {L("Clear all", "Zurücksetzen", "Effacer")}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })()}

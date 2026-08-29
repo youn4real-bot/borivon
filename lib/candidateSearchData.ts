@@ -102,7 +102,7 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
   // ── 2. candidate_profiles (schema-tolerant) ──
   const profiles = new Map<string, Record<string, unknown>>();
   try {
-    const cols = "user_id, nationality, sex, marital_status, city_of_birth, city_of_residence, passport_status, passport_expiry, b2_stage, b2_failed, b2_exam_date, nursing_specialty, years_experience, workplace_pref, placement_ready, manually_verified, available_from, employer_id, is_test_account, profile_photo, cv_langs:cv_draft->langs";
+    const cols = "user_id, phone, nationality, sex, marital_status, city_of_birth, city_of_residence, passport_status, passport_expiry, b2_stage, b2_failed, b2_exam_date, nursing_specialty, years_experience, workplace_pref, placement_ready, manually_verified, available_from, employer_id, is_test_account, profile_photo, cv_langs:cv_draft->langs";
     let rows: Record<string, unknown>[] | null = null;
     const res = await db.from("candidate_profiles").select(cols).in("user_id", ids);
     if (res.error) {
@@ -205,6 +205,7 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
       uid,
       name: a.name,
       email: a.email,
+      phone: (p.phone as string | null) ?? null,
       photo: (p.profile_photo as string | null) ?? null,
       createdAtMs: a.createdAtMs,
       lastSignInMs: a.lastSignInMs,

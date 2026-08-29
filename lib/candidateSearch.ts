@@ -61,6 +61,7 @@ export type SearchableCandidate = {
   uid: string;
   name: string;
   email: string;
+  phone: string | null;
   photo: string | null;
   createdAtMs: number | null;   // signup time (auth.users.created_at)
   lastSignInMs: number | null;  // last login (activity / inactivity radar)
@@ -506,10 +507,15 @@ function matches(c: SearchableCandidate, q: CandidateQuery, nowMs: number): bool
   const pastWithin = (ms: number | null, n: number) => ms != null && ms <= nowMs + DAY && ms >= nowMs - n * DAY;
 
   if (q.text) {
-    const hay = norm([c.name, c.email, c.nationality, c.cityOfBirth, c.cityOfResidence, c.specialty ? specialtyLabel(c.specialty, "en") : "", c.specialty ? specialtyLabel(c.specialty, "de") : "", c.specialty ? specialtyLabel(c.specialty, "fr") : "", ...c.orgNames].join(" "));
-    // Match if ALL whitespace-separated terms appear (so "hajar icu" narrows).
+    // People are looked up by name / email / phone first (the founder's default),
+    // plus a few facets for convenience. Phone is matched both raw and digits-only
+    // so "0612…" finds a stored "+212 6 12…".
+    const phoneDigits = (c.phone ?? "").replace(/\D/g, "");
+    const hay = norm([c.name, c.email, c.phone, c.nationality, c.cityOfResidence, c.specialty ? specialtyLabel(c.specialty, "en") : "", c.specialty ? specialtyLabel(c.specialty, "de") : "", c.specialty ? specialtyLabel(c.specialty, "fr") : "", ...c.orgNames].join(" ")) + " " + phoneDigits;
+    // Match if ALL whitespace-separated terms appear (so "hajar icu" narrows). For a
+    // digit term, also test against the digits-only phone.
     const terms = norm(q.text).split(/\s+/).filter(Boolean);
-    if (!terms.every((term) => hay.includes(term))) return false;
+    if (!terms.every((term) => hay.includes(term) || (/\d/.test(term) && phoneDigits.includes(term.replace(/\D/g, ""))))) return false;
   }
 
   if (q.b2Certified !== undefined) {

@@ -208,7 +208,6 @@ export function buildFacets(candidates: SearchableCandidate[], selected: FacetSe
     ...FIXED_GROUPS,
     nationalityGroup(candidates, lang),
     dynamicGroup("cityRes", (l) => L(l, "City of residence", "Ville de résidence", "Wohnort"), (c) => c.cityOfResidence, candidates),
-    dynamicGroup("cityBirth", (l) => L(l, "City of birth", "Ville de naissance", "Geburtsort"), (c) => c.cityOfBirth, candidates),
     dynamicGroup("marital", (l) => L(l, "Marital status", "État civil", "Familienstand"), (c) => c.maritalStatus, candidates),
     dynamicGroup("org", (l) => L(l, "Agency / org", "Agence / org", "Agentur / Org"), (c) => (c.orgNames[0] ?? null), candidates),
   ];
