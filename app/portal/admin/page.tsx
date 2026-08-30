@@ -92,6 +92,7 @@ const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null 
 type UserInfo = { email: string; name: string; createdAt?: string | null };
 type CandidateProfile = {
   first_name: string | null; last_name: string | null;
+  phone?: string | null;
   dob: string | null; sex: string | null; nationality: string | null;
   passport_no: string | null; passport_expiry: string | null;
   city_of_birth: string | null; country_of_birth: string | null;
@@ -727,6 +728,24 @@ export default function AdminPage() {
   // (unified, spanning all candidates). null = no active search.
   const [searchFilterUids, setSearchFilterUids] = useState<string[] | null>(null);
   const searchActive = searchFilterUids !== null;
+  // Live, instant search over the loaded candidates — name / email / phone, as the
+  // founder types, spanning ALL candidates (in or out of a batch). No server call;
+  // the smart bar's Enter still runs the AI search for questions/complex queries.
+  const liveSearch = (text: string) => {
+    const norm = (s: string) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const raw = text.trim();
+    if (!raw) { setSearchFilterUids(null); return; }
+    const terms = norm(raw).split(/\s+/).filter(Boolean);
+    const ids = Object.keys(users).filter((uid) => {
+      const u = users[uid]; if (!u) return false;
+      const phone = String(profiles[uid]?.phone ?? "");
+      const digits = phone.replace(/\D/g, "");
+      const hay = norm([u.name, u.email, phone].join(" ")) + " " + digits;
+      return terms.every((term) => hay.includes(term) || (/\d/.test(term) && digits.length > 0 && digits.includes(term.replace(/\D/g, ""))));
+    });
+    setSearchFilterUids(ids);
+    if (selectedBatchId !== null) applyBatch(null); // search spans everyone → "Alle"
+  };
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
@@ -7748,6 +7767,7 @@ export default function AdminPage() {
           <AdminSmartSearch
             accessToken={accessToken}
             lang={lang}
+            onQueryChange={liveSearch}
             onResults={(uids) => { setSearchFilterUids(uids); if (uids) applyBatch(null); }}
             onOpen={(uid) => {
               setSelectedUser(uid);
@@ -7787,7 +7807,7 @@ export default function AdminPage() {
               candidates (not a batch), per the founder's ask. */}
           {searchActive && (
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--w3)" }}>
-              {lang === "de" ? "Alle" : lang === "fr" ? "Tous" : "All"}
+              {(lang === "de" ? "Alle" : lang === "fr" ? "Tous" : "All")} · {searchFilterUids?.length ?? 0}
             </div>
           )}
 

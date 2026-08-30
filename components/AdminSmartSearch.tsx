@@ -33,6 +33,7 @@ export function AdminSmartSearch({
   lang,
   onOpen,
   onResults,
+  onQueryChange,
 }: {
   accessToken: string;
   lang: string;
@@ -40,6 +41,9 @@ export function AdminSmartSearch({
   /** Matching candidate uids for a plain search → the page filters its ONE list to
    *  them (unified). null = no active search (restore the previous list). */
   onResults: (uids: string[] | null) => void;
+  /** Fires on every keystroke so the page can filter its list LIVE (instant
+   *  name/email/phone match). Enter still runs the AI search via onResults. */
+  onQueryChange: (text: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -108,6 +112,7 @@ export function AdminSmartSearch({
     setQ("");
     setRes(null);
     setError(null);
+    onQueryChange("");
     onResults(null); // restore the previous (batch / general) list
   };
 
@@ -120,7 +125,7 @@ export function AdminSmartSearch({
         <input
           type="text"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); setRes(null); onQueryChange(e.target.value); }}
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); void runSearch(q); }
             else if (e.key === "Escape") { e.preventDefault(); clearAll(); }
