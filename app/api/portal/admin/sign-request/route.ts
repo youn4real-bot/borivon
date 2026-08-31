@@ -5,6 +5,7 @@ import { dlTokenUserId } from "@/lib/dlToken";
 import { PDFDocument } from "pdf-lib";
 import { r2GetObject } from "@/lib/r2";
 import { UUID_RE } from "@/lib/uuid";
+import { isPassportFileType } from "@/lib/passportFile";
 
 const MAX_PDF_BYTES = 10_000_000; // 10 MB
 const BUCKET = "sign-documents";
@@ -174,12 +175,19 @@ export async function POST(req: NextRequest) {
       const db = getServiceSupabase();
       const { data: doc } = await db
         .from("documents")
-        .select("user_id")
+        .select("user_id, file_type")
         .eq("drive_file_id", driveFileId)
         .maybeSingle();
       const ownerId = (doc as { user_id?: string | null } | null)?.user_id ?? null;
       if (ownerId && !(await canActOnCandidate(auth.role, auth.email, ownerId))) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      // LAW #39: NEVER run passport bytes through pdf-lib load+save (it destroys
+      // MRZ/VIZ content streams on scanner PDFs). Refuse to stamp a passport —
+      // mirrors merge-pdf's passport refusal. Stamping happens client-side/CSS only.
+      const fileType = (doc as { file_type?: string | null } | null)?.file_type ?? null;
+      if (isPassportFileType(fileType)) {
+        return NextResponse.json({ error: "Passport documents cannot be signed or stamped" }, { status: 400 });
       }
     } catch (e) {
       console.error("[sign-request POST] drive-file ownership check failed:", e);
