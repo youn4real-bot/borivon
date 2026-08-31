@@ -7805,12 +7805,6 @@ export default function AdminPage() {
 
           {/* "Alle" label above search results — so it's clear these span all
               candidates (not a batch), per the founder's ask. */}
-          {searchActive && (
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--w3)" }}>
-              {(lang === "de" ? "Alle" : lang === "fr" ? "Tous" : "All")} · {searchFilterUids?.length ?? 0}
-            </div>
-          )}
-
           {/* List sort pills — hidden while a batch is selected or a search is active.
               (The old inline search box + attribute-filter panel were removed; search
               + faceting live in the smart bar and Advanced Filters above.) */}
@@ -7904,6 +7898,32 @@ export default function AdminPage() {
               visibleIds = inBatch.sort((a, b) => (pctMap.get(a) ?? 0) - (pctMap.get(b) ?? 0));
             }
 
+            // When SEARCHING, split the results into sections: each batch (its
+            // matching people) then an "All" section for those in no batch — so it's
+            // clear at a glance who belongs to a batch and who doesn't.
+            const searchSectionBefore: Record<string, string> = {};
+            if (searchActive && visibleIds.length) {
+              const byBatch = new Map<string, string[]>();
+              const noBatch: string[] = [];
+              for (const uid of visibleIds) {
+                const bid = batchByUid[uid];
+                if (bid) (byBatch.get(bid) ?? byBatch.set(bid, []).get(bid)!).push(uid);
+                else noBatch.push(uid);
+              }
+              const bname = (bid: string) => (batches.find((b) => b.id === bid)?.name ?? "Batch").replace(/_/g, " ");
+              const ordered: string[] = [];
+              for (const bid of [...byBatch.keys()].sort((a, b) => bname(a).localeCompare(bname(b)))) {
+                const us = byBatch.get(bid)!;
+                searchSectionBefore[us[0]] = `${bname(bid)} · ${us.length}`;
+                ordered.push(...us);
+              }
+              if (noBatch.length) {
+                searchSectionBefore[noBatch[0]] = `${lang === "de" ? "Alle" : lang === "fr" ? "Tous" : "All"} · ${noBatch.length}`;
+                ordered.push(...noBatch);
+              }
+              visibleIds = ordered;
+            }
+
             if (visibleIds.length === 0) {
               if (q || activeFilterCount > 0) {
                 return <EmptyState Icon={Search} title={t.adNoCandFound}
@@ -7953,7 +7973,14 @@ export default function AdminPage() {
                 const docPct = batchActive ? computeChecklist(allDocs).pct : null;
 
                 return (
-                  <div key={uid}
+                  <React.Fragment key={uid}>
+                    {searchSectionBefore[uid] && (
+                      <div className="px-3 pt-3 pb-1 text-[10.5px] font-semibold uppercase tracking-wide"
+                        style={{ color: "var(--w3)", background: "var(--bg2)", borderBottom: "1px solid var(--border)" }}>
+                        {searchSectionBefore[uid]}
+                      </div>
+                    )}
+                  <div
                     className="bv-row group transition-colors"
                     style={{ borderBottom: "1px solid var(--border)" }}>
                     <div role="button" tabIndex={0}
@@ -8056,6 +8083,7 @@ export default function AdminPage() {
                       })()}
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               })}
             </div>
