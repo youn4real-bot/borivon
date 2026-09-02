@@ -52,8 +52,12 @@ export async function GET(
     .select("status")
     .eq("org_id", orgId)
     .eq("candidate_user_id", candidateId)
+    .eq("status", "approved")
     .maybeSingle();
 
+  // LAW #25: only an APPROVED linkage exposes the dossier. A pending/rejected
+  // applicant is treated as "not found" (same 404 as no link) so an org member
+  // can't read the profile of someone who merely applied to their org.
   if (!link) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

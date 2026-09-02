@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, canActOnOrg } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -153,6 +153,13 @@ export async function GET(req: NextRequest) {
   if (candidateIdParam && UUID_RE.test(candidateIdParam)) {
     const adminAuth = await requireAdminRole(req);
     if (adminAuth.ok) {
+      // LAW #25: an org-scoped sub-admin must NOT read an out-of-scope candidate's
+      // employer/org linkage — or, via that linkage, another org's private slot
+      // config — by passing ?candidateId=. Gate on the same scope check every
+      // per-candidate action uses. Supreme/HQ pass (canActOnCandidate → true).
+      if (!(await canActOnCandidate(adminAuth.role, adminAuth.email, candidateIdParam))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
       adminViewingCand = true;
       const { data: prof } = await db
         .from("candidate_profiles").select("employer_id").eq("user_id", candidateIdParam).maybeSingle();
@@ -218,7 +225,13 @@ export async function GET(req: NextRequest) {
     // param is ignored → falls through to auto-detect/global below.
     const adminAuth = await requireAdminRole(req);
     if (adminAuth.ok) {
-      orgId = orgIdParam;
+      // LAW #25: a scoped agency admin must NOT read another org's slot set by
+      // passing ?orgId=. Supreme (role "admin") and true HQ sub-admins pass via
+      // canActOnOrg; an org-scoped admin passing a foreign org is ignored → falls
+      // through to their own org's auto-detected set below.
+      if (adminAuth.role === "admin" || (await canActOnOrg(adminAuth.role, adminAuth.email, orgIdParam))) {
+        orgId = orgIdParam;
+      }
     } else {
       const { data: link } = await db
         .from("candidate_organizations")
