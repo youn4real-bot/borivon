@@ -2087,6 +2087,10 @@ function CVBuilderInner() {
   const [pendingPhotoSrc, setPendingPhotoSrc] = useState<string | null>(null);
 
   const [generating, setGenerating] = useState(false);
+  // Admin-only "Auto-fill" (fills the tedious German duty bullets + phone from
+  // what Borivon knows; empty-only, editable). No candidate-facing surface.
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillMsg, setAutofillMsg] = useState("");
   const [cvDl, setCvDl]             = useState(false); // download spinner
   const [pdfBlob, setPdfBlob]       = useState<Blob | null>(null);
   const [pdfUrl, setPdfUrlRaw]      = useState<string | null>(null);
@@ -3550,6 +3554,44 @@ function CVBuilderInner() {
       setGenError(err instanceof Error ? err.message : t.cvbErrFallback);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  // ── Admin-only Auto-fill ────────────────────────────────────────────────────
+  // Fills the empty, tedious German duty bullets (Gemini Flash + a nursing-catalog
+  // fallback) and the phone if Borivon holds it. Merge is empty-only server-side;
+  // the returned draft lands in the editor and normal autosave persists it.
+  async function handleAutofill() {
+    if (!adminCandidateId || autofilling) return;
+    setAutofilling(true);
+    setAutofillMsg("");
+    try {
+      const r = await fetch(`/api/portal/admin/cv-autofill?candidateId=${encodeURIComponent(adminCandidateId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ draft: cvData }),
+      });
+      if (!r.ok) {
+        setAutofillMsg(lang === "de" ? "Auto-Ausfüllen fehlgeschlagen." : lang === "fr" ? "Échec du remplissage automatique." : "Auto-fill failed.");
+        return;
+      }
+      const data = (await r.json()) as { draft?: CVData; filled?: number };
+      if (data.draft) {
+        // Keep the in-memory photo (server never touches it); apply the rest.
+        setCvData(prev => ({ ...prev, ...data.draft, photo: prev.photo }));
+        const n = data.filled ?? 0;
+        setAutofillMsg(
+          n > 0
+            ? (lang === "de" ? `${n} Feld(er) ausgefüllt — bitte prüfen und anpassen.`
+              : lang === "fr" ? `${n} champ(s) rempli(s) — à vérifier et ajuster.`
+              : `Filled ${n} field(s) — please review and adjust.`)
+            : (lang === "de" ? "Nichts zu ergänzen." : lang === "fr" ? "Rien à ajouter." : "Nothing to add."),
+        );
+      }
+    } catch {
+      setAutofillMsg(lang === "de" ? "Auto-Ausfüllen fehlgeschlagen." : lang === "fr" ? "Échec du remplissage automatique." : "Auto-fill failed.");
+    } finally {
+      setAutofilling(false);
     }
   }
 
@@ -5355,6 +5397,23 @@ function CVBuilderInner() {
             </div>
           </div>
         </SectionCard>
+
+        {/* ── Admin-only Auto-fill — drafts the German duty bullets so the admin
+              doesn't type them by hand. Empty-only + fully editable. ── */}
+        {adminCandidateId && !pdfUrl && (
+          <div className="text-center mt-2 mb-3">
+            <button onClick={handleAutofill} disabled={autofilling || generating}
+              className="bv-press inline-flex items-center gap-2 px-6 py-3 text-[13px] font-semibold disabled:opacity-50 w-full sm:w-auto justify-center"
+              style={{ background: "var(--card)", color: "var(--w)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-lg)" }}>
+              {autofilling ? (
+                <><Spinner size="sm" color="var(--gold)" /> {lang === "de" ? "Wird ausgefüllt…" : lang === "fr" ? "Remplissage…" : "Filling…"}</>
+              ) : (
+                <><Sparkles size={15} strokeWidth={1.8} style={{ color: "var(--gold)" }} /> {lang === "de" ? "Automatisch ausfüllen" : lang === "fr" ? "Remplir automatiquement" : "Auto-fill"}</>
+              )}
+            </button>
+            {autofillMsg && <p className="mt-2 text-[12px]" style={{ color: "var(--w2)" }}>{autofillMsg}</p>}
+          </div>
+        )}
 
         {/* ── Generate — sticky on mobile so the CTA is always reachable ── */}
         {!pdfUrl ? (
