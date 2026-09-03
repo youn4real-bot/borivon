@@ -4380,6 +4380,7 @@ function CVBuilderInner() {
                         // is fixed in German (gendered: -in for women, -ant for
                         // men). Pulled from passport data, locked from edits.
                         <div
+                          data-cv-error={validationErrors.has(`work_${entry.id}_title`) ? "1" : undefined}
                           className="w-full flex items-center px-4 py-3.5 text-[15px] font-medium"
                           style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "12px", cursor: "default",
                             ...(validationErrors.has(`work_${entry.id}_title`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}) }}>
@@ -4500,7 +4501,7 @@ function CVBuilderInner() {
                         </p>
                       )}
                       {idx === 0 ? (
-                      <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
+                      <div data-cv-error={validationErrors.has(`work_${entry.id}_departments`) ? "1" : undefined} className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
                         {NURSING_DEPTS.map(dept => {
                           const selected = entry.departments.includes(dept.de);
                           return (
@@ -4567,6 +4568,7 @@ function CVBuilderInner() {
                         const hasErr = validationErrors.has(`work_${entry.id}_taetigkeiten`);
                         return (
                           <div className="sm:col-span-2"
+                            data-cv-error={hasErr ? "1" : undefined}
                             style={hasErr ? { outline: "1px solid var(--danger)", outlineOffset: "2px", borderRadius: "14px", padding: "4px" } : {}}>
                             <Label required>
                               {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
@@ -4625,6 +4627,7 @@ function CVBuilderInner() {
                           : "+ Ajouter une autre";
                         return (
                           <div className="sm:col-span-2"
+                            data-cv-error={hasErr ? "1" : undefined}
                             style={hasErr ? { outline: "1px solid var(--danger)", outlineOffset: "2px", borderRadius: "14px", padding: "4px" } : {}}>
                             <Label required>
                               {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
