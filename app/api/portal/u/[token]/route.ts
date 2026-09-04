@@ -22,7 +22,7 @@ import { looksLikeUploadToken, hashUploadToken } from "@/lib/uploadLink";
 import { buildFileName, isUploadLinkKey } from "@/lib/uploadName";
 import { candidateKey, r2Put, r2Configured } from "@/lib/r2";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
-import { FILE_KEY_LABELS } from "@/lib/fileKeys";
+import { FILE_KEY_LABELS, resolveFileKey } from "@/lib/fileKeys";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -160,7 +160,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   if (insertedId && shouldSupersedePrevious(docKey)) {
     try {
       const { data: existing } = await db.from("documents").select("id, superseded_at, file_type").eq("user_id", link.candidate_user_id);
-      const sameSlot = (existing ?? []).filter((d) => (d as { file_type: string | null }).file_type === fileLabel) as { id: string; superseded_at?: string | null }[];
+      // Match the slot by canonical fileKey so a prior upload in ANOTHER language
+      // label (e.g. a rejected diploma) is still retired — no duplicate rows.
+      const sameSlot = (existing ?? []).filter((d) => resolveFileKey((d as { file_type: string | null }).file_type) === docKey) as { id: string; superseded_at?: string | null }[];
       const retire = idsToRetire(sameSlot, insertedId);
       if (retire.length) await db.from("documents").update({ superseded_at: new Date().toISOString() }).in("id", retire);
     } catch (e) { console.warn("[u upload] supersede (non-fatal)", e); }
