@@ -119,6 +119,10 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   // Navbar + bug button here so there's no double-nav. The providers above stay
   // mounted, so /v2's own nav reads/writes the same Lang/Theme context.
   const isV2 = pathname === "/v2" || pathname.startsWith("/v2/");
+  // /u/<token> is the bare login-less one-time upload page — NO portal chrome, no
+  // navbar, no bell. Route-only decision (LAW #1), same escape hatch as /v2; the
+  // providers below stay mounted so the page's useLang() still works.
+  const isUpload = pathname === "/u" || pathname.startsWith("/u/");
 
   return (
     <ThemeProvider>
@@ -128,7 +132,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
               Visually hidden until focused — keyboard-only users get to
               the main content with one Tab keypress instead of 8+. */}
           <SkipToMain />
-          {!isV2 && (
+          {!isV2 && !isUpload && (
             <Navbar
               hideThemeLang={isPortal}
               rightExtra={isPortal ? (

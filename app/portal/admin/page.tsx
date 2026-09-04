@@ -4013,6 +4013,8 @@ export default function AdminPage() {
                 const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
                 return (
                   <WhatsAppDocRequest
+                    candidateId={selectedUser}
+                    accessToken={accessToken}
                     phoneRaw={profiles[selectedUser]?.phone ?? ""}
                     firstName={first}
                     docs={missing}
