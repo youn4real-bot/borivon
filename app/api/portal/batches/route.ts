@@ -169,6 +169,11 @@ export async function PATCH(req: NextRequest) {
       const { data: prev } = await db
         .from("candidate_pipeline").select("batch_id").eq("user_id", body.candidateUserId).maybeSingle();
       oldBatchId = (prev as { batch_id?: string | null } | null)?.batch_id ?? null;
+      // LAW #25: REMOVING from a batch (batch_id → null) must also be scoped — an
+      // org admin may only pull a candidate out of a batch they can act on, not
+      // another org's batch (the "into" case is gated above).
+      if (fields.batch_id === null && oldBatchId && !(await canActOnBatch(auth.role, auth.email, oldBatchId)))
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Update-then-insert (the pipeline row may not exist yet).

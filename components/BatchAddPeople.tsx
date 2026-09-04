@@ -24,7 +24,7 @@ export function BatchAddPeople({
   batchName: string;
   candidates: PickCandidate[];
   lang: string;
-  onAssign: (uid: string, batchId: string | null) => void;
+  onAssign: (uid: string, batchId: string | null) => Promise<boolean>;
   onClose: () => void;
 }) {
   const L = (en: string, fr: string, de: string) => (lang === "fr" ? fr : lang === "de" ? de : en);
@@ -40,10 +40,13 @@ export function BatchAddPeople({
       .slice(0, 200);
   }, [candidates, q, batchId]);
 
-  const add = (uid: string) => {
+  const add = async (uid: string) => {
     if (added.has(uid)) return;
     setAdded((prev) => new Set(prev).add(uid));
-    onAssign(uid, batchId);
+    const ok = await onAssign(uid, batchId);
+    // On failure, undo the optimistic "added" so the row re-enables + the count
+    // stays truthful (no false success).
+    if (!ok) setAdded((prev) => { const n = new Set(prev); n.delete(uid); return n; });
   };
 
   const inp: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 10, height: 40, fontSize: 14, paddingLeft: 34, paddingRight: 12, width: "100%" };

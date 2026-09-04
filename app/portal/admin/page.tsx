@@ -751,18 +751,20 @@ export default function AdminPage() {
   // Move / add / remove a candidate's batch (supreme admin). Optimistic: update the
   // local map + pill counts + the current batch filter, then PATCH; revert on error.
   const [showAddPeople, setShowAddPeople] = useState(false);
-  const assignCandidateToBatch = async (uid: string, batchId: string | null) => {
+  const assignCandidateToBatch = async (uid: string, batchId: string | null): Promise<boolean> => {
     const prev = batchByUid[uid] ?? null;
-    if (prev === (batchId ?? null)) return;
-    const snapByUid = batchByUid, snapBatches = batches, snapFilter = batchFilterUids;
-    const nextByUid = { ...batchByUid };
-    if (batchId) nextByUid[uid] = batchId; else delete nextByUid[uid];
-    setBatchByUid(nextByUid);
+    if (prev === (batchId ?? null)) return true;
+    // FUNCTIONAL optimistic updates (never a stale full-snapshot) so a second,
+    // concurrent assign isn't clobbered by this one.
+    setBatchByUid((m) => { const n = { ...m }; if (batchId) n[uid] = batchId; else delete n[uid]; return n; });
     setBatches((bs) => bs.map((b) =>
       b.id === prev ? { ...b, count: Math.max(0, b.count - 1) }
-      : b.id === batchId ? { ...b, count: b.count + 1 }
-      : b));
-    if (selectedBatchId) setBatchFilterUids(Object.keys(nextByUid).filter((u) => nextByUid[u] === selectedBatchId));
+      : b.id === batchId ? { ...b, count: b.count + 1 } : b));
+    if (selectedBatchId) setBatchFilterUids((f) => {
+      if (!f) return f;
+      const n = f.filter((u) => u !== uid);
+      return batchId === selectedBatchId ? [...n, uid] : n;
+    });
     try {
       const r = await fetch("/api/portal/batches", {
         method: "PATCH",
@@ -770,9 +772,20 @@ export default function AdminPage() {
         body: JSON.stringify({ candidateUserId: uid, batchId: batchId ?? null }),
       });
       if (!r.ok) throw new Error("assign_failed");
+      return true;
     } catch {
-      setBatchByUid(snapByUid); setBatches(snapBatches); setBatchFilterUids(snapFilter);
+      // Revert ONLY this op (functional) — a concurrent in-flight assign survives.
+      setBatchByUid((m) => { const n = { ...m }; if (prev) n[uid] = prev; else delete n[uid]; return n; });
+      setBatches((bs) => bs.map((b) =>
+        b.id === batchId ? { ...b, count: Math.max(0, b.count - 1) }
+        : b.id === prev ? { ...b, count: b.count + 1 } : b));
+      if (selectedBatchId) setBatchFilterUids((f) => {
+        if (!f) return f;
+        const n = f.filter((u) => u !== uid);
+        return prev === selectedBatchId ? [...n, uid] : n;
+      });
       alert(lang === "de" ? "Konnte nicht gespeichert werden." : lang === "fr" ? "Échec de l'enregistrement." : "Could not save the change.");
+      return false;
     }
   };
   // A search (smart bar) feeds its matching uids here → the ONE list shows them
@@ -4019,15 +4032,15 @@ export default function AdminPage() {
                     missing.push({ key: `${i.key}_de`, label: base + tSuffix });
                 }
                 const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
-                // Phone: the CV draft is the source of truth (what the CV builder shows +
-                // what the candidate edits); candidate_profiles.phone can be stale, so
-                // prefer the draft and only fall back to the column.
-                const draftPhone = (statusCvDraft as { phone?: string } | null)?.phone;
+                // Phone: the per-candidate profile column (now repaired + kept clean by
+                // the phone formatter). Do NOT read statusCvDraft here — it isn't reset
+                // when the admin switches candidates, so it would leak the previously-
+                // opened candidate's number into THIS candidate's message.
                 return (
                   <WhatsAppDocRequest
                     candidateId={selectedUser}
                     accessToken={accessToken}
-                    phoneRaw={(draftPhone && draftPhone.trim()) || profiles[selectedUser]?.phone || ""}
+                    phoneRaw={profiles[selectedUser]?.phone ?? ""}
                     firstName={first}
                     docs={missing}
                     lang={lang}

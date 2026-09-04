@@ -3581,8 +3581,26 @@ function CVBuilderInner() {
       }
       const data = (await r.json()) as { draft?: CVData; filled?: number };
       if (data.draft) {
-        // Keep the in-memory photo (server never touches it); apply the rest.
-        setCvData(prev => ({ ...prev, ...data.draft, photo: prev.photo }));
+        const d = data.draft;
+        // Merge ONLY the fields autofill produces (phone + per-job duty bullets),
+        // each empty-only against the FRESHEST state — never blind-spread the whole
+        // echoed draft, or an edit made during the ~seconds-long call gets reverted
+        // (and its autosave would persist the loss).
+        setCvData(prev => {
+          const next: CVData = { ...prev };
+          if (d.phone && d.phone.trim() && !(prev.phone && prev.phone.trim())) next.phone = d.phone;
+          if (Array.isArray(d.workEntries) && Array.isArray(prev.workEntries)) {
+            next.workEntries = prev.workEntries.map(pe => {
+              const de = d.workEntries!.find(x => x.id === pe.id);
+              const filled = (pe.taetigkeiten ?? []).filter(b => (b ?? "").trim().length > 0).length;
+              if (de && filled === 0 && Array.isArray(de.taetigkeiten) && de.taetigkeiten.length >= 3) {
+                return { ...pe, taetigkeiten: de.taetigkeiten };
+              }
+              return pe;
+            });
+          }
+          return next;
+        });
         const n = data.filled ?? 0;
         setAutofillMsg(
           n > 0

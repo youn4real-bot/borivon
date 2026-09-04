@@ -46,6 +46,7 @@ export function AdminBatches({
   const [orgs, setOrgs] = useState<Opt[]>([]);
   const [form, setForm] = useState({ name: "", seats: "10", employerId: "", orgId: "", start: "", end: "" });
   const [saving, setSaving] = useState(false);
+  const [formReady, setFormReady] = useState(true); // false while an edit's values are still loading
 
   if (batches.length === 0 && !canCreate) return null;
 
@@ -63,11 +64,13 @@ export function AdminBatches({
   const closeForm = () => {
     setShowForm(false);
     setEditingId(null);
+    setFormReady(true);
     setForm({ name: "", seats: "10", employerId: "", orgId: "", start: "", end: "" });
   };
 
   const openCreate = async () => {
     setEditingId(null);
+    setFormReady(true); // create has nothing to load — ready immediately
     setForm({ name: "", seats: "10", employerId: "", orgId: "", start: "", end: "" });
     setShowForm(true);
     const { orgs: loaded } = await loadPickers();
@@ -78,14 +81,20 @@ export function AdminBatches({
 
   const openEdit = async (id: string) => {
     setEditingId(id);
+    setFormReady(false); // block save until the batch's real values load
     setShowForm(true);
     const { batches: full } = await loadPickers();
     const b = full.find((x) => x.id === id);
-    if (b) setForm({
-      name: b.name ?? "", seats: String(b.seats ?? 10),
-      employerId: b.employerId ?? "", orgId: b.orgId ?? "",
-      start: b.targetStart ?? "", end: b.targetEnd ?? "",
-    });
+    // Only mark ready once we've loaded the batch — otherwise a failed/slow GET
+    // would leave empty fields that Save would send as intentional clears.
+    if (b) {
+      setForm({
+        name: b.name ?? "", seats: String(b.seats ?? 10),
+        employerId: b.employerId ?? "", orgId: b.orgId ?? "",
+        start: b.targetStart ?? "", end: b.targetEnd ?? "",
+      });
+      setFormReady(true);
+    }
   };
 
   const save = async () => {
@@ -196,7 +205,7 @@ export function AdminBatches({
                 <input type="date" value={form.end} onChange={(e) => setForm((f) => ({ ...f, end: e.target.value }))} style={inp} />
               </label>
             </div>
-            <button type="button" onClick={() => void save()} disabled={!form.name.trim() || saving}
+            <button type="button" onClick={() => void save()} disabled={!form.name.trim() || saving || !formReady}
               className="mt-1 inline-flex items-center justify-center gap-1.5 font-semibold transition-opacity disabled:opacity-40"
               style={{ height: 38, borderRadius: 10, background: "var(--gold)", color: "#1a1205", fontSize: 13 }}>
               {saving ? <Loader2 size={14} className="animate-spin" strokeWidth={2.4} /> : editingId ? <Pencil size={13} strokeWidth={2.4} /> : <Plus size={14} strokeWidth={2.4} />}
