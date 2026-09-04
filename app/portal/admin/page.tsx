@@ -4007,15 +4007,27 @@ export default function AdminPage() {
                 const cl = computeChecklist(
                   docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
                 );
-                const missing: MissingDoc[] = cl.items
-                  .filter(i => !i.optional && (i.original === "missing" || i.original === "rejected"))
-                  .map(i => ({ key: i.key, label: missingDocLabel(i.key, lang) }));
+                // Original and translated are SEPARATE requestable docs — a
+                // qualification ships as an original + its German translation.
+                const tSuffix = lang === "fr" ? " (traduction)" : lang === "de" ? " (Übersetzung)" : " (translation)";
+                const missing: MissingDoc[] = [];
+                for (const i of cl.items) {
+                  if (i.optional) continue;
+                  const base = missingDocLabel(i.key, lang);
+                  if (i.original === "missing" || i.original === "rejected") missing.push({ key: i.key, label: base });
+                  if (i.hasTranslation && (i.translation === "missing" || i.translation === "rejected"))
+                    missing.push({ key: `${i.key}_de`, label: base + tSuffix });
+                }
                 const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
+                // Phone: the CV draft is the source of truth (what the CV builder shows +
+                // what the candidate edits); candidate_profiles.phone can be stale, so
+                // prefer the draft and only fall back to the column.
+                const draftPhone = (statusCvDraft as { phone?: string } | null)?.phone;
                 return (
                   <WhatsAppDocRequest
                     candidateId={selectedUser}
                     accessToken={accessToken}
-                    phoneRaw={profiles[selectedUser]?.phone ?? ""}
+                    phoneRaw={(draftPhone && draftPhone.trim()) || profiles[selectedUser]?.phone || ""}
                     firstName={first}
                     docs={missing}
                     lang={lang}

@@ -37,7 +37,14 @@ export default function UploadLinkPage() {
   const token = String(useParams()?.token ?? "");
   const { lang } = useLang();
   const T = (en: string, fr: string, de: string) => (lang === "fr" ? fr : lang === "de" ? de : en);
-  const docLabel = (k: string) => { const e = LABELS[k]; return e ? (lang === "fr" ? e.fr : lang === "de" ? e.de : e.en) : k; };
+  const docLabel = (k: string) => {
+    const isTrans = k.endsWith("_de");
+    const base = isTrans ? k.slice(0, -3) : k;
+    const e = LABELS[base];
+    const name = e ? (lang === "fr" ? e.fr : lang === "de" ? e.de : e.en) : base;
+    const suffix = isTrans ? (lang === "fr" ? " (traduction)" : lang === "de" ? " (Übersetzung)" : " (translation)") : "";
+    return name + suffix;
+  };
 
   const [state, setState] = useState<"loading" | "ok" | "notfound">("loading");
   const [firstName, setFirstName] = useState("");
