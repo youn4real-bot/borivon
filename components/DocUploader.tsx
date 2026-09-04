@@ -37,7 +37,7 @@ export default function DocUploader({
         allowedFileTypes: [".pdf", ".jpg", ".jpeg", ".png", ".webp"],
       },
     }).use(XHRUpload, {
-      endpoint: `/api/portal/u/${token}/upload`,
+      endpoint: `/api/portal/u/${token}`,
       method: "POST",
       fieldName: "file",
       formData: true,

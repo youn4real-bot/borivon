@@ -97,6 +97,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   const link = await resolveLink(token);
   if (!link) return NOT_FOUND();
 
+  // Reject an oversized body BEFORE buffering it into the isolate (Workers OOM
+  // guard; mirrors app/api/portal/upload). The browser/Uppy sets content-length.
+  const declared = Number(req.headers.get("content-length") || 0);
+  if (declared && declared > MAX_BYTES + 2 * 1024 * 1024)
+    return NextResponse.json({ error: "File too large (max 25 MB)" }, { status: 413 });
+
   let form: FormData;
   try { form = await req.formData(); } catch { return NextResponse.json({ error: "Invalid form" }, { status: 400 }); }
   const file = form.get("file") as File | null;
@@ -105,6 +111,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   // SCOPE: the key must be one this link was minted for (never trust the request).
   if (!isUploadLinkKey(docKey) || !link.doc_keys.includes(docKey))
     return NextResponse.json({ error: "This document isn't part of your link." }, { status: 403 });
+  // Each requested doc uploads ONCE per link — a re-upload of an already-received
+  // key is a no-op, so a held link can't flood R2 / documents / notifications.
+  if ((link.uploaded_keys ?? []).includes(docKey))
+    return NextResponse.json({ ok: true, alreadyUploaded: true });
 
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "File too large (max 25 MB)" }, { status: 413 });
   const buf = Buffer.from(await file.arrayBuffer());
