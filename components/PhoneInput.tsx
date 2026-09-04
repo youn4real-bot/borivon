@@ -26,8 +26,12 @@ const COUNTRY_CODES: { code: string; iso: string; iso3: string; name: string }[]
     }));
 
 function formatPhoneNumber(digits: string): string {
-  // Morocco numbers are 9 digits (after +212). Cap to 9 and group into 3s.
-  const clean = digits.replace(/\D/g, "").slice(0, 9);
+  // Morocco numbers are 9 digits (after +212). Drop a local leading 0 ("06…")
+  // BEFORE the 9-digit cap — else the cap keeps the 0 and silently truncates her
+  // last real digit (the +212 06… truncation bug). Then cap + group into 3s.
+  let clean = digits.replace(/\D/g, "");
+  if (clean.startsWith("0")) clean = clean.slice(1);
+  clean = clean.slice(0, 9);
   return clean.match(/.{1,3}/g)?.join(" ") ?? clean;
 }
 
