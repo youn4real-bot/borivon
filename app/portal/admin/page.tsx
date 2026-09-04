@@ -24,12 +24,11 @@ import {
 } from "@/components/PortalIcons";
 import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
-import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
+import { b2StageLabel, normalizeB2Stage, effectiveB2Stage, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { AdminSmartSearch } from "@/components/AdminSmartSearch";
 import { AdminAdvancedFilters } from "@/components/AdminAdvancedFilters";
 import { AdminBatches } from "@/components/AdminBatches";
-import { CardBatchMenu } from "@/components/CardBatchMenu";
 import { BatchAddPeople, type PickCandidate } from "@/components/BatchAddPeople";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
@@ -8029,6 +8028,18 @@ export default function AdminPage() {
                 // batch tracking). Only there — keeps the general list uncluttered.
                 const docPct = batchActive ? computeChecklist(allDocs).pct : null;
 
+                // B2 — the most-glanced signal. A subtle coloured ring on the avatar
+                // (inner = current B2 stage; red halo = failed at least once). Colour
+                // carries the status per LAW #4; hover shows the label.
+                const b2Stage = effectiveB2Stage(normalizeB2Stage(profiles[uid]?.b2_stage), allDocs);
+                const b2Color = b2StageColor(b2Stage);
+                const b2Failed = !!profiles[uid]?.b2_failed;
+                const b2Ring: React.CSSProperties = {
+                  border: `2px solid ${b2Color}`,
+                  boxShadow: b2Failed ? `0 0 0 1.5px var(--card), 0 0 0 3.5px ${B2_FAILED_COLOR}` : undefined,
+                };
+                const b2Title = `B2 · ${b2StageLabel(b2Stage, lang)}${b2Failed ? (lang === "de" ? " · schon einmal nicht bestanden" : lang === "fr" ? " · échoué une fois" : " · failed once") : ""}`;
+
                 return (
                   <React.Fragment key={uid}>
                     {searchSectionBefore[uid] && (
@@ -8047,12 +8058,13 @@ export default function AdminPage() {
 
                       {profiles[uid]?.profile_photo ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={profiles[uid].profile_photo!} alt={user.name}
+                        <img src={profiles[uid].profile_photo!} alt={user.name} title={b2Title}
                           className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-                          style={{ border: "1px solid var(--border-gold)" }} />
+                          style={b2Ring} />
                       ) : (
                         <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
+                          title={b2Title}
+                          style={{ background: "var(--gdim)", color: "var(--gold)", ...b2Ring }}>
                           {user.name.charAt(0).toUpperCase()}
                         </span>
                       )}
@@ -8109,18 +8121,6 @@ export default function AdminPage() {
                           </span>
                         );
                       })()}
-
-                      {/* Batch move/remove (supreme only) — assign this candidate to a
-                          batch or pull them out, right from the list. */}
-                      {isSuperAdmin && batches.length > 0 && (
-                        <CardBatchMenu
-                          uid={uid}
-                          currentBatchId={batchByUid[uid] ?? null}
-                          batches={batches}
-                          lang={lang}
-                          onAssign={assignCandidateToBatch}
-                        />
-                      )}
 
                       {/* Match-with-org chevron — always shown; gold if already matched */}
                       {(() => {
@@ -8610,6 +8610,41 @@ export default function AdminPage() {
                           <p className="text-[11px]" style={{ color: "var(--w3)" }}>
                             {lang === "de" ? "Keine Arbeitgeber" : lang === "fr" ? "Aucun employeur" : "No employers yet"}
                           </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Batch — tucked away here (not a priority action). Move this
+                      candidate to a batch or pull them out. Supreme only. */}
+                  {isSuperAdmin && batches.length > 0 && (
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                      <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
+                        {lang === "de" ? "Batch:" : lang === "fr" ? "Lot :" : "Batch:"}
+                      </p>
+                      <div className="flex flex-col gap-1.5">
+                        {batches.map(b => {
+                          const active = batchByUid[uid] === b.id;
+                          return (
+                            <button key={b.id}
+                              onClick={e => { e.stopPropagation(); if (!active) assignCandidateToBatch(uid, b.id); setExpandedRow(null); setRowDropdownPos(null); }}
+                              className="inline-flex items-center justify-between text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all"
+                              style={ active
+                                ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                                : { background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" } }>
+                              <span className="truncate">{b.name.replace(/_/g, " ")}</span>
+                              {active && <span style={{ fontSize: 12 }}>✓</span>}
+                            </button>
+                          );
+                        })}
+                        {batchByUid[uid] && (
+                          <button
+                            onClick={e => { e.stopPropagation(); assignCandidateToBatch(uid, null); setExpandedRow(null); setRowDropdownPos(null); }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all"
+                            style={{ background: "transparent", color: "var(--danger)", border: "1px solid var(--border)" }}>
+                            <XIcon size={11} strokeWidth={2.2} />
+                            {lang === "de" ? "Aus Batch entfernen" : lang === "fr" ? "Retirer du lot" : "Remove from batch"}
+                          </button>
                         )}
                       </div>
                     </div>
