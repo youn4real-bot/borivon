@@ -22,7 +22,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, MessageCircle } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage, effectiveB2Stage, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -4142,6 +4142,27 @@ export default function AdminPage() {
                             const cl = computeChecklist(
                               docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status }))
                             );
+                            // WhatsApp nudge — click a missing/rejected doc → open WhatsApp
+                            // with a ready message telling the candidate exactly what to
+                            // upload. Compose-and-open only (the admin reviews + hits send;
+                            // nothing is sent automatically). Needs a phone on file.
+                            const waPhone = (profiles[selectedUser ?? ""]?.phone ?? "").replace(/\D/g, "");
+                            const waFirst = (users[selectedUser ?? ""]?.name ?? "").trim().split(/\s+/)[0] || "";
+                            const waUrl = (docLabel: string, status: ItemStatus) => {
+                              const portal = "https://www.borivon.com/portal";
+                              const msg = lang === "fr"
+                                ? (status === "rejected"
+                                    ? `Bonjour ${waFirst}, le document « ${docLabel} » a été refusé. Merci de le renvoyer sur votre portail Borivon : ${portal}`
+                                    : `Bonjour ${waFirst}, il manque encore le document « ${docLabel} » sur votre portail Borivon. Merci de le téléverser ici : ${portal}`)
+                                : lang === "de"
+                                ? (status === "rejected"
+                                    ? `Hallo ${waFirst}, das Dokument „${docLabel}" wurde abgelehnt. Bitte laden Sie es erneut in Ihrem Borivon-Portal hoch: ${portal}`
+                                    : `Hallo ${waFirst}, das Dokument „${docLabel}" fehlt noch in Ihrem Borivon-Portal. Bitte laden Sie es hier hoch: ${portal}`)
+                                : (status === "rejected"
+                                    ? `Hi ${waFirst}, the document "${docLabel}" was rejected. Please re-upload it in your Borivon portal: ${portal}`
+                                    : `Hi ${waFirst}, the document "${docLabel}" is still missing in your Borivon portal. Please upload it here: ${portal}`);
+                              return `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`;
+                            };
                             const COLOR: Record<ItemStatus, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#ef4444", missing: "#9ca3af" };
                             const Icn = ({ s, size = 15 }: { s: ItemStatus; size?: number }) => (
                               s === "approved" ? <CheckCircle2 size={size} strokeWidth={1.9} style={{ color: COLOR.approved }} />
@@ -4177,6 +4198,16 @@ export default function AdminPage() {
                                             <span title={dl.trans} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--w3)", fontSize: 10 }}>
                                               {dl.trans.slice(0, 2).toUpperCase()} <Icn s={i.translation} size={13} />
                                             </span>
+                                          )}
+                                          {/* Nudge on WhatsApp — only for a doc that still needs the
+                                              candidate to act, and only when we have a phone. */}
+                                          {(i.original === "missing" || i.original === "rejected") && waPhone.length >= 8 && (
+                                            <a href={waUrl(dl.labels[i.key] ?? i.key, i.original)} target="_blank" rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              title={lang === "fr" ? "Rappeler sur WhatsApp" : lang === "de" ? "Per WhatsApp erinnern" : "Remind on WhatsApp"}
+                                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: 999, color: "#25D366", flexShrink: 0 }}>
+                                              <MessageCircle size={14} strokeWidth={2} />
+                                            </a>
                                           )}
                                         </div>
                                       ))}
