@@ -1,20 +1,24 @@
 /**
- * Batch Board API (supreme-admin only) — employer intake batches + funnel.
+ * Batch Board API — employer intake batches + funnel. Open to ALL admins
+ * (supreme + sub-admins), each SCOPED per LAW #25:
+ *   - Supreme + true HQ sub-admin → every batch / candidate.
+ *   - Org-scoped (agency) admin    → only their org's batches + candidates.
  *
- *   GET    → { batches: [...with filled count + employer name], candidates: [...
- *            every real candidate with their funnel_stage + batch_id + name] }
- *   POST   → create a batch { name, employerId?, seats?, targetStart?, targetEnd?, notes? }
+ *   GET    → { batches (scoped), candidates (scoped), employers, organizations (scoped) }
+ *   POST   → create a batch { name, employerId?, seats?, targetStart?, targetEnd?, notes?, orgId? }
+ *            (a scoped admin must target one of their own orgs)
  *   PATCH  → if body.candidateUserId  → assign/restage a candidate
- *                                       (batch_id = body.batchId|null, funnel_stage = body.stage?)
- *            else (body.batchId)      → edit/close a batch
+ *                                       (gated by canActOnCandidate + canActOnBatch)
+ *            else (body.batchId)      → edit/close a batch (gated by canActOnBatch)
  *
  * All writes mirror the bot's lib/assistantWrites batch helpers (same columns,
- * same validation) so the two surfaces never diverge. Fail-safe: if
- * supabase/employer_batches.sql hasn't been run, the queries error → 500 with a
- * clear message (the page shows an empty board).
+ * same validation) so the two surfaces never diverge.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminRole, resolveAuthNames, getStaffUserIdsAmong } from "@/lib/admin-auth";
+import {
+  requireAdminRole, resolveAuthNames, getStaffUserIdsAmong,
+  canActOnCandidate, canActOnBatch, canActOnOrg, getVisibleOrgIds, getVisibleCandidateIds,
+} from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { isFunnelStage } from "@/lib/batchBoard";
@@ -25,38 +29,38 @@ import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function requireSupreme(req: NextRequest) {
-  const auth = await requireAdminRole(req);
-  if (!auth.ok) return { ok: false as const, res: NextResponse.json({ error: auth.error }, { status: auth.status }) };
-  if (auth.role !== "admin") return { ok: false as const, res: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  return { ok: true as const };
-}
-
 export async function GET(req: NextRequest) {
-  const gate = await requireSupreme(req);
-  if (!gate.ok) return gate.res;
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const db = getServiceSupabase();
 
-  const { data: batches, error: bErr } = await db
+  // LAW #25 scope. null = unrestricted (supreme / true HQ sub-admin).
+  const visibleOrgs = auth.role === "admin" ? null : await getVisibleOrgIds(auth.email);
+  const visibleCands = auth.role === "admin" ? null : await getVisibleCandidateIds(auth.email);
+  const orgVisible = (orgId: string | null) => visibleOrgs === null ? true : (!!orgId && visibleOrgs.includes(orgId));
+
+  const { data: batchesRaw, error: bErr } = await db
     .from("employer_batches")
     .select("id, employer_id, org_id, name, seats, target_start, target_end, status, notes")
     .order("created_at", { ascending: false });
   if (bErr) return NextResponse.json({ error: "batches_unavailable" }, { status: 500 });
+  const batchRows = ((batchesRaw ?? []) as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string; notes: string | null }[])
+    .filter((b) => orgVisible(b.org_id));
 
-  // EVERY real candidate (so the page can also offer an "add to the funnel"
-  // picker), each with their funnel_stage + batch_id merged from the pipeline.
+  // EVERY real candidate the caller MAY see (so the page can offer an "add to
+  // the funnel" picker), each with their funnel_stage + batch_id merged in.
   const { data: profs } = await db.from("candidate_profiles").select("user_id, first_name, last_name");
   const profRows = (profs ?? []) as { user_id: string; first_name: string | null; last_name: string | null }[];
   const allIds = profRows.map((p) => p.user_id);
   const staff = allIds.length ? await getStaffUserIdsAmong(allIds) : new Set<string>();
-  const realProfs = profRows.filter((p) => !staff.has(p.user_id));
+  const visSet = visibleCands === null ? null : new Set(visibleCands);
+  const realProfs = profRows.filter((p) => !staff.has(p.user_id) && (visSet === null || visSet.has(p.user_id)));
 
   const profNames = new Map<string, string>();
   for (const p of realProfs) {
     const n = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
     if (n) profNames.set(p.user_id, n);
   }
-  // Resolve auth full_name only for the ones whose profile name is blank.
   const needNames = realProfs.filter((p) => !profNames.has(p.user_id)).map((p) => p.user_id);
   const names = needNames.length ? await resolveAuthNames(needNames) : {};
 
@@ -79,23 +83,21 @@ export async function GET(req: NextRequest) {
   const empName = new Map<string, string>();
   for (const e of employers) empName.set(e.id, e.name);
 
-  // Organizations = the AGENCIES a batch can run through (e.g. Calmaroi).
+  // Organizations = the AGENCIES a batch can run through (scoped for org-admins).
   const { data: orgsData } = await db.from("organizations").select("id, name").order("name");
-  const organizations = (orgsData ?? []) as { id: string; name: string }[];
+  const organizations = ((orgsData ?? []) as { id: string; name: string }[])
+    .filter((o) => orgVisible(o.id));
   const orgName = new Map<string, string>();
-  for (const o of organizations) orgName.set(o.id, o.name);
+  for (const o of (orgsData ?? []) as { id: string; name: string }[]) orgName.set(o.id, o.name);
 
   return NextResponse.json({
     employers,
     organizations,
-    batches: (batches ?? []).map((b) => {
-      const row = b as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string; notes: string | null };
-      return {
-        id: row.id, name: row.name, employerId: row.employer_id, employer: row.employer_id ? empName.get(row.employer_id) ?? null : null,
-        orgId: row.org_id, agency: row.org_id ? orgName.get(row.org_id) ?? null : null,
-        seats: row.seats, filled: filled.get(row.id) ?? 0, targetStart: row.target_start, targetEnd: row.target_end, status: row.status, notes: row.notes,
-      };
-    }),
+    batches: batchRows.map((row) => ({
+      id: row.id, name: row.name, employerId: row.employer_id, employer: row.employer_id ? empName.get(row.employer_id) ?? null : null,
+      orgId: row.org_id, agency: row.org_id ? orgName.get(row.org_id) ?? null : null,
+      seats: row.seats, filled: filled.get(row.id) ?? 0, targetStart: row.target_start, targetEnd: row.target_end, status: row.status, notes: row.notes,
+    })),
     candidates: real.map((r) => ({
       userId: r.user_id, name: profNames.get(r.user_id) || names[r.user_id]?.name || names[r.user_id]?.email || r.user_id,
       funnelStage: r.funnel_stage, batchId: r.batch_id,
@@ -104,8 +106,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await requireSupreme(req);
-  if (!gate.ok) return gate.res;
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
@@ -115,6 +117,16 @@ export async function POST(req: NextRequest) {
   if (typeof body.targetStart === "string" && body.targetStart) row.target_start = body.targetStart;
   if (typeof body.targetEnd === "string" && body.targetEnd) row.target_end = body.targetEnd;
   if (typeof body.notes === "string" && body.notes.trim()) row.notes = body.notes.trim().slice(0, 500);
+
+  // LAW #25: a scoped admin may only create a batch inside an org they control.
+  // Supreme + true HQ sub-admin pass for any (or no) org; an org-scoped admin
+  // MUST name one of their orgs (a null-org / global batch is denied to them).
+  if (auth.role !== "admin") {
+    const targetOrg = typeof row.org_id === "string" ? (row.org_id as string) : null;
+    if (!(await canActOnOrg(auth.role, auth.email, targetOrg)))
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const db = getServiceSupabase();
   const { data, error } = await db.from("employer_batches").insert(row).select("id").single();
   if (error) return NextResponse.json({ error: "create_failed" }, { status: 500 });
@@ -122,18 +134,25 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const gate = await requireSupreme(req);
-  if (!gate.ok) return gate.res;
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   const db = getServiceSupabase();
 
   // ── Assign / restage a candidate ──
   if (typeof body.candidateUserId === "string") {
     if (!UUID_RE.test(body.candidateUserId)) return NextResponse.json({ error: "Bad candidate id" }, { status: 400 });
+    // LAW #25: may this admin act on THIS candidate at all?
+    if (!(await canActOnCandidate(auth.role, auth.email, body.candidateUserId)))
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const fields: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.batchId === null || body.batchId === "") fields.batch_id = null;
     else if (typeof body.batchId === "string") {
       if (!UUID_RE.test(body.batchId)) return NextResponse.json({ error: "Bad batch id" }, { status: 400 });
+      // LAW #25: and may they put someone INTO this batch? (Removing to null is
+      // fine — the candidate gate above already covers it.)
+      if (!(await canActOnBatch(auth.role, auth.email, body.batchId)))
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       fields.batch_id = body.batchId;
     }
     if (typeof body.stage === "string") {
@@ -191,6 +210,9 @@ export async function PATCH(req: NextRequest) {
 
   // ── Edit / close a batch ──
   if (typeof body.batchId !== "string" || !UUID_RE.test(body.batchId)) return NextResponse.json({ error: "Missing batchId" }, { status: 400 });
+  // LAW #25: may this admin act on this batch?
+  if (!(await canActOnBatch(auth.role, auth.email, body.batchId)))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const upd: Record<string, unknown> = {};
   if (typeof body.name === "string") upd.name = body.name.trim().slice(0, 120);
   if (Number.isFinite(body.seats)) upd.seats = Math.max(1, Math.min(1000, Math.round(body.seats)));
@@ -204,6 +226,11 @@ export async function PATCH(req: NextRequest) {
   if (body.close === true || body.status === "closed") upd.status = "closed";
   if (body.status === "open") upd.status = "open";
   if (Object.keys(upd).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+
+  // LAW #25: re-pointing a batch at another agency must land it in an org the
+  // caller controls (and a scoped admin cannot orphan it to a null/global org).
+  if ("org_id" in upd && !(await canActOnOrg(auth.role, auth.email, (upd.org_id as string | null) ?? null)))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // The agency's Drive folder is addressed by NAME — agencyRootFolderName(org)
   // / batchName — so renaming a batch or re-pointing it at another agency moves

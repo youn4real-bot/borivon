@@ -7824,7 +7824,8 @@ export default function AdminPage() {
           <AdminBatches
             accessToken={accessToken}
             lang={lang}
-            canCreate={isSuperAdmin}
+            canCreate={roleResolved}
+            isOrgAdmin={isOrgAdmin}
             batches={batches}
             selectedBatchId={selectedBatchId}
             onSelect={applyBatch}
@@ -7832,9 +7833,9 @@ export default function AdminPage() {
             onEdited={(b) => setBatches((prev) => prev.map((x) => (x.id === b.id ? { ...x, name: b.name } : x)).sort((a, c) => a.name.localeCompare(c.name)))}
           />
 
-          {/* Add people into the open batch (supreme only) — pull in candidates who
-              aren't in it yet, without leaving the dashboard. */}
-          {isSuperAdmin && selectedBatchId && (
+          {/* Add people into the open batch (any admin, scoped) — pull in candidates
+              who aren't in it yet, without leaving the dashboard. */}
+          {roleResolved && selectedBatchId && (
             <button type="button" onClick={() => setShowAddPeople(true)}
               className="mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold transition-opacity hover:opacity-90"
               style={{ borderRadius: 999, border: "1px solid var(--border-gold)", background: "var(--gdim)", color: "var(--gold)" }}>
@@ -7842,7 +7843,7 @@ export default function AdminPage() {
               {lang === "de" ? "Personen hinzufügen" : lang === "fr" ? "Ajouter des personnes" : "Add people"}
             </button>
           )}
-          {isSuperAdmin && selectedBatchId && showAddPeople && (
+          {roleResolved && selectedBatchId && showAddPeople && (
             <BatchAddPeople
               batchId={selectedBatchId}
               batchName={batches.find((b) => b.id === selectedBatchId)?.name ?? ""}
@@ -8616,8 +8617,8 @@ export default function AdminPage() {
                   )}
 
                   {/* Batch — tucked away here (not a priority action). Move this
-                      candidate to a batch or pull them out. Supreme only. */}
-                  {isSuperAdmin && batches.length > 0 && (
+                      candidate to a batch or pull them out. Any admin (scoped). */}
+                  {roleResolved && batches.length > 0 && (
                     <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                       <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
                         {lang === "de" ? "Batch:" : lang === "fr" ? "Lot :" : "Batch:"}

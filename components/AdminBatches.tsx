@@ -21,6 +21,7 @@ export function AdminBatches({
   accessToken,
   lang,
   canCreate,
+  isOrgAdmin = false,
   batches,
   selectedBatchId,
   onSelect,
@@ -30,6 +31,8 @@ export function AdminBatches({
   accessToken: string;
   lang: string;
   canCreate: boolean;
+  /** Org-scoped agency admin → their batches must carry an org; pre-select it. */
+  isOrgAdmin?: boolean;
   batches: Batch[];
   selectedBatchId: string | null;
   onSelect: (batchId: string | null) => void;
@@ -46,15 +49,15 @@ export function AdminBatches({
 
   if (batches.length === 0 && !canCreate) return null;
 
-  const loadPickers = async (): Promise<FullBatch[]> => {
+  const loadPickers = async (): Promise<{ orgs: Opt[]; batches: FullBatch[] }> => {
     try {
       const r = await fetch("/api/portal/batches", { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!r.ok) return [];
+      if (!r.ok) return { orgs: [], batches: [] };
       const j = (await r.json()) as { employers?: Opt[]; organizations?: Opt[]; batches?: FullBatch[] };
       setEmployers(j.employers ?? []);
       setOrgs(j.organizations ?? []);
-      return j.batches ?? [];
-    } catch { return []; }
+      return { orgs: j.organizations ?? [], batches: j.batches ?? [] };
+    } catch { return { orgs: [], batches: [] }; }
   };
 
   const closeForm = () => {
@@ -67,13 +70,16 @@ export function AdminBatches({
     setEditingId(null);
     setForm({ name: "", seats: "10", employerId: "", orgId: "", start: "", end: "" });
     setShowForm(true);
-    if (!employers.length && !orgs.length) await loadPickers();
+    const { orgs: loaded } = await loadPickers();
+    // An org-scoped admin's batch MUST carry an org — pre-select their (first) one
+    // so a create can't silently 403 on a missing agency.
+    if (isOrgAdmin && loaded.length) setForm((f) => ({ ...f, orgId: f.orgId || loaded[0].id }));
   };
 
   const openEdit = async (id: string) => {
     setEditingId(id);
     setShowForm(true);
-    const full = await loadPickers();
+    const { batches: full } = await loadPickers();
     const b = full.find((x) => x.id === id);
     if (b) setForm({
       name: b.name ?? "", seats: String(b.seats ?? 10),
