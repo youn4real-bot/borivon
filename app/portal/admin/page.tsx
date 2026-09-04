@@ -772,7 +772,9 @@ export default function AdminPage() {
       return terms.every((term) => hay.includes(term) || (/\d/.test(term) && digits.length > 0 && digits.includes(term.replace(/\D/g, ""))));
     });
     setSearchFilterUids(ids);
-    if (selectedBatchId !== null) applyBatch(null); // search spans everyone → "Alle"
+    // Search spans EVERYONE, but we KEEP the picked batch as context: its matches
+    // render first, and out-of-batch matches follow under their batch / "All"
+    // headers (see searchSectionBefore) so it's clear who belongs where.
   };
   const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
@@ -1542,16 +1544,8 @@ export default function AdminPage() {
             setCandidateOrgs(json.candidateOrgs ?? {});
             setBatches(json.batches ?? []);
             setBatchByUid(json.batchByUid ?? {});
-            // Default to the first batch, computed inline from THIS payload so the
-            // batch list is right on first paint (no flash / no second load).
-            {
-              const bb: Record<string, string> = json.batchByUid ?? {};
-              // Default to the first batch that actually HAS members — never an empty
-              // one (that would blank the list into a false "all clear").
-              const first: string | null = ((json.batches ?? []).find((b: { count: number }) => b.count > 0)?.id) ?? null;
-              setSelectedBatchId(first);
-              setBatchFilterUids(first ? Object.keys(bb).filter((u) => bb[u] === first) : null);
-            }
+            // Default view = "All" (no batch pre-selected). The founder opens the
+            // portal to the full list; batches are picked deliberately from the pills.
             const fb: Record<string, string> = {};
             for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
             setFeedbacks(fb);
@@ -7796,7 +7790,7 @@ export default function AdminPage() {
             accessToken={accessToken}
             lang={lang}
             onQueryChange={liveSearch}
-            onResults={(uids) => { setSearchFilterUids(uids); if (uids) applyBatch(null); }}
+            onResults={(uids) => { setSearchFilterUids(uids); }}
             onOpen={(uid) => {
               setSelectedUser(uid);
               setActivePhase(0);
@@ -7955,11 +7949,13 @@ export default function AdminPage() {
               visibleIds = inBatch.sort((a, b) => (pctMap.get(a) ?? 0) - (pctMap.get(b) ?? 0));
             }
 
-            // When SEARCHING, split the results into sections: each batch (its
-            // matching people) then an "All" section for those in no batch — so it's
-            // clear at a glance who belongs to a batch and who doesn't.
+            // Section headers only when a BATCH is picked AND you're searching: the
+            // picked batch's matches come FIRST (so they show immediately), then any
+            // out-of-batch hit is appended under its own batch name — or "All" for
+            // someone in no batch — so it's obvious a result belongs elsewhere.
+            // On the default "All" view a search is a PLAIN flat list of names.
             const searchSectionBefore: Record<string, string> = {};
-            if (searchActive && visibleIds.length) {
+            if (searchActive && selectedBatchId && visibleIds.length) {
               const byBatch = new Map<string, string[]>();
               const noBatch: string[] = [];
               for (const uid of visibleIds) {
@@ -7968,8 +7964,14 @@ export default function AdminPage() {
                 else noBatch.push(uid);
               }
               const bname = (bid: string) => (batches.find((b) => b.id === bid)?.name ?? "Batch").replace(/_/g, " ");
+              // Picked batch first, then the other batches alphabetically.
+              const otherBatchIds = [...byBatch.keys()]
+                .filter((bid) => bid !== selectedBatchId)
+                .sort((a, b) => bname(a).localeCompare(bname(b)));
+              const orderedBatchIds = byBatch.has(selectedBatchId)
+                ? [selectedBatchId, ...otherBatchIds] : otherBatchIds;
               const ordered: string[] = [];
-              for (const bid of [...byBatch.keys()].sort((a, b) => bname(a).localeCompare(bname(b)))) {
+              for (const bid of orderedBatchIds) {
                 const us = byBatch.get(bid)!;
                 searchSectionBefore[us[0]] = `${bname(bid)} · ${us.length}`;
                 ordered.push(...us);
