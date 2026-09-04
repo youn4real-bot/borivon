@@ -385,6 +385,28 @@ function SortableCategory({
   );
 }
 
+// Short candidate-facing label for a required doc fileKey (used in the WhatsApp
+// "missing docs" nudge message). Compact on purpose — only the required keys.
+const MISSING_DOC_LABELS: Record<string, { fr: string; en: string; de: string }> = {
+  id:                { fr: "Passeport",              en: "Passport",          de: "Reisepass" },
+  cv_de:             { fr: "CV",                     en: "CV",                de: "Lebenslauf" },
+  letter:            { fr: "Lettre de motivation",   en: "Cover letter",      de: "Motivationsschreiben" },
+  langcert:          { fr: "Certificat B2",          en: "B2 certificate",    de: "B2-Zertifikat" },
+  diploma:           { fr: "Diplôme",                en: "Diploma",           de: "Diplom" },
+  studyprog:         { fr: "Programme d'études",     en: "Study program",     de: "Ausbildungsprogramm" },
+  transcript:        { fr: "Relevé de notes",        en: "Transcript",        de: "Notenübersicht" },
+  abitur:            { fr: "Abitur",                 en: "Abitur",            de: "Abitur" },
+  abitur_transcript: { fr: "Relevé Abitur",          en: "Abitur transcript", de: "Abitur-Notenübersicht" },
+  praktikum:         { fr: "Stage",                  en: "Internship",        de: "Praktikum" },
+  workcert:          { fr: "Autorisation d'exercer", en: "Work permit",       de: "Berufserlaubnis" },
+  work_experience:   { fr: "Expérience pro.",        en: "Work experience",   de: "Berufserfahrung" },
+  impfung:           { fr: "Vaccination",            en: "Vaccination",       de: "Impfnachweis" },
+};
+function missingDocLabel(key: string, lang: string): string {
+  const e = MISSING_DOC_LABELS[key];
+  return e ? (lang === "fr" ? e.fr : lang === "de" ? e.de : e.en) : key;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const router = useRouter();
@@ -3975,6 +3997,36 @@ export default function AdminPage() {
                 style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                 <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
               </button>
+
+              {/* Nudge the candidate on WhatsApp about EVERY missing/rejected doc at
+                  once. Compose-and-open only (admin reviews + sends). Shows only when
+                  a phone is on file AND something is actually missing. */}
+              {selectedUser && (() => {
+                const phone = (profiles[selectedUser]?.phone ?? "").replace(/\D/g, "");
+                if (phone.length < 8) return null;
+                const cl = computeChecklist(
+                  docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
+                );
+                const missing = cl.items.filter(i => !i.optional && (i.original === "missing" || i.original === "rejected"));
+                if (missing.length === 0) return null;
+                const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
+                const names = missing.map(i => missingDocLabel(i.key, lang)).join(", ");
+                const portal = "https://www.borivon.com/portal";
+                const msg = lang === "fr"
+                  ? `Bonjour ${first}, il manque encore ces documents sur votre portail Borivon : ${names}. Merci de les téléverser ici : ${portal}`
+                  : lang === "de"
+                  ? `Hallo ${first}, diese Dokumente fehlen noch in Ihrem Borivon-Portal: ${names}. Bitte laden Sie sie hier hoch: ${portal}`
+                  : `Hi ${first}, these documents are still missing in your Borivon portal: ${names}. Please upload them here: ${portal}`;
+                return (
+                  <a href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer"
+                    title={lang === "fr" ? "Rappeler les documents manquants sur WhatsApp" : lang === "de" ? "Fehlende Dokumente per WhatsApp erinnern" : "Remind missing docs on WhatsApp"}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
+                    style={{ background: "rgba(37,211,102,0.12)", color: "#25D366", border: "1px solid rgba(37,211,102,0.4)" }}>
+                    <MessageCircle size={12} strokeWidth={2} />
+                    {lang === "fr" ? `Docs manquants (${missing.length})` : lang === "de" ? `Fehlende Docs (${missing.length})` : `Missing docs (${missing.length})`}
+                  </a>
+                );
+              })()}
 
               {/* SEND TO <AGENCY> — the gate for the partner API.
                   Pressing this is what lets that agency's system fetch her
