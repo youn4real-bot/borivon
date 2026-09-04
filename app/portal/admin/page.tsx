@@ -22,7 +22,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, MessageCircle } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage, effectiveB2Stage, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -30,6 +30,7 @@ import { AdminSmartSearch } from "@/components/AdminSmartSearch";
 import { AdminAdvancedFilters } from "@/components/AdminAdvancedFilters";
 import { AdminBatches } from "@/components/AdminBatches";
 import { BatchAddPeople, type PickCandidate } from "@/components/BatchAddPeople";
+import { WhatsAppDocRequest, type MissingDoc } from "@/components/WhatsAppDocRequest";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -3998,33 +3999,25 @@ export default function AdminPage() {
                 <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
               </button>
 
-              {/* Nudge the candidate on WhatsApp about EVERY missing/rejected doc at
-                  once. Compose-and-open only (admin reviews + sends). Shows only when
-                  a phone is on file AND something is actually missing. */}
+              {/* WhatsApp: ask the candidate to upload a missing doc — STEP BY STEP.
+                  Opens a picker of the missing docs; the admin ticks 1–2 and sends,
+                  so we never dump the whole list on her. (Self-hides if no phone /
+                  nothing missing; warns on an incomplete number.) */}
               {selectedUser && (() => {
-                const phone = (profiles[selectedUser]?.phone ?? "").replace(/\D/g, "");
-                if (phone.length < 8) return null;
                 const cl = computeChecklist(
                   docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
                 );
-                const missing = cl.items.filter(i => !i.optional && (i.original === "missing" || i.original === "rejected"));
-                if (missing.length === 0) return null;
+                const missing: MissingDoc[] = cl.items
+                  .filter(i => !i.optional && (i.original === "missing" || i.original === "rejected"))
+                  .map(i => ({ key: i.key, label: missingDocLabel(i.key, lang) }));
                 const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
-                const names = missing.map(i => missingDocLabel(i.key, lang)).join(", ");
-                const portal = "https://www.borivon.com/portal";
-                const msg = lang === "fr"
-                  ? `Bonjour ${first}, il manque encore ces documents sur votre portail Borivon : ${names}. Merci de les téléverser ici : ${portal}`
-                  : lang === "de"
-                  ? `Hallo ${first}, diese Dokumente fehlen noch in Ihrem Borivon-Portal: ${names}. Bitte laden Sie sie hier hoch: ${portal}`
-                  : `Hi ${first}, these documents are still missing in your Borivon portal: ${names}. Please upload them here: ${portal}`;
                 return (
-                  <a href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer"
-                    title={lang === "fr" ? "Rappeler les documents manquants sur WhatsApp" : lang === "de" ? "Fehlende Dokumente per WhatsApp erinnern" : "Remind missing docs on WhatsApp"}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
-                    style={{ background: "rgba(37,211,102,0.12)", color: "#25D366", border: "1px solid rgba(37,211,102,0.4)" }}>
-                    <MessageCircle size={12} strokeWidth={2} />
-                    {lang === "fr" ? `Docs manquants (${missing.length})` : lang === "de" ? `Fehlende Docs (${missing.length})` : `Missing docs (${missing.length})`}
-                  </a>
+                  <WhatsAppDocRequest
+                    phoneRaw={profiles[selectedUser]?.phone ?? ""}
+                    firstName={first}
+                    docs={missing}
+                    lang={lang}
+                  />
                 );
               })()}
 
@@ -4194,27 +4187,6 @@ export default function AdminPage() {
                             const cl = computeChecklist(
                               docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status }))
                             );
-                            // WhatsApp nudge — click a missing/rejected doc → open WhatsApp
-                            // with a ready message telling the candidate exactly what to
-                            // upload. Compose-and-open only (the admin reviews + hits send;
-                            // nothing is sent automatically). Needs a phone on file.
-                            const waPhone = (profiles[selectedUser ?? ""]?.phone ?? "").replace(/\D/g, "");
-                            const waFirst = (users[selectedUser ?? ""]?.name ?? "").trim().split(/\s+/)[0] || "";
-                            const waUrl = (docLabel: string, status: ItemStatus) => {
-                              const portal = "https://www.borivon.com/portal";
-                              const msg = lang === "fr"
-                                ? (status === "rejected"
-                                    ? `Bonjour ${waFirst}, le document « ${docLabel} » a été refusé. Merci de le renvoyer sur votre portail Borivon : ${portal}`
-                                    : `Bonjour ${waFirst}, il manque encore le document « ${docLabel} » sur votre portail Borivon. Merci de le téléverser ici : ${portal}`)
-                                : lang === "de"
-                                ? (status === "rejected"
-                                    ? `Hallo ${waFirst}, das Dokument „${docLabel}" wurde abgelehnt. Bitte laden Sie es erneut in Ihrem Borivon-Portal hoch: ${portal}`
-                                    : `Hallo ${waFirst}, das Dokument „${docLabel}" fehlt noch in Ihrem Borivon-Portal. Bitte laden Sie es hier hoch: ${portal}`)
-                                : (status === "rejected"
-                                    ? `Hi ${waFirst}, the document "${docLabel}" was rejected. Please re-upload it in your Borivon portal: ${portal}`
-                                    : `Hi ${waFirst}, the document "${docLabel}" is still missing in your Borivon portal. Please upload it here: ${portal}`);
-                              return `https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`;
-                            };
                             const COLOR: Record<ItemStatus, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#ef4444", missing: "#9ca3af" };
                             const Icn = ({ s, size = 15 }: { s: ItemStatus; size?: number }) => (
                               s === "approved" ? <CheckCircle2 size={size} strokeWidth={1.9} style={{ color: COLOR.approved }} />
@@ -4250,16 +4222,6 @@ export default function AdminPage() {
                                             <span title={dl.trans} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--w3)", fontSize: 10 }}>
                                               {dl.trans.slice(0, 2).toUpperCase()} <Icn s={i.translation} size={13} />
                                             </span>
-                                          )}
-                                          {/* Nudge on WhatsApp — only for a doc that still needs the
-                                              candidate to act, and only when we have a phone. */}
-                                          {(i.original === "missing" || i.original === "rejected") && waPhone.length >= 8 && (
-                                            <a href={waUrl(dl.labels[i.key] ?? i.key, i.original)} target="_blank" rel="noopener noreferrer"
-                                              onClick={(e) => e.stopPropagation()}
-                                              title={lang === "fr" ? "Rappeler sur WhatsApp" : lang === "de" ? "Per WhatsApp erinnern" : "Remind on WhatsApp"}
-                                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: 999, color: "#25D366", flexShrink: 0 }}>
-                                              <MessageCircle size={14} strokeWidth={2} />
-                                            </a>
                                           )}
                                         </div>
                                       ))}
