@@ -22,13 +22,15 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { AdminSmartSearch } from "@/components/AdminSmartSearch";
 import { AdminAdvancedFilters } from "@/components/AdminAdvancedFilters";
 import { AdminBatches } from "@/components/AdminBatches";
+import { CardBatchMenu } from "@/components/CardBatchMenu";
+import { BatchAddPeople, type PickCandidate } from "@/components/BatchAddPeople";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -723,6 +725,33 @@ export default function AdminPage() {
   const applyBatch = (batchId: string | null) => {
     setSelectedBatchId(batchId);
     setBatchFilterUids(batchId ? Object.keys(batchByUid).filter((u) => batchByUid[u] === batchId) : null);
+  };
+  // Move / add / remove a candidate's batch (supreme admin). Optimistic: update the
+  // local map + pill counts + the current batch filter, then PATCH; revert on error.
+  const [showAddPeople, setShowAddPeople] = useState(false);
+  const assignCandidateToBatch = async (uid: string, batchId: string | null) => {
+    const prev = batchByUid[uid] ?? null;
+    if (prev === (batchId ?? null)) return;
+    const snapByUid = batchByUid, snapBatches = batches, snapFilter = batchFilterUids;
+    const nextByUid = { ...batchByUid };
+    if (batchId) nextByUid[uid] = batchId; else delete nextByUid[uid];
+    setBatchByUid(nextByUid);
+    setBatches((bs) => bs.map((b) =>
+      b.id === prev ? { ...b, count: Math.max(0, b.count - 1) }
+      : b.id === batchId ? { ...b, count: b.count + 1 }
+      : b));
+    if (selectedBatchId) setBatchFilterUids(Object.keys(nextByUid).filter((u) => nextByUid[u] === selectedBatchId));
+    try {
+      const r = await fetch("/api/portal/batches", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ candidateUserId: uid, batchId: batchId ?? null }),
+      });
+      if (!r.ok) throw new Error("assign_failed");
+    } catch {
+      setBatchByUid(snapByUid); setBatches(snapBatches); setBatchFilterUids(snapFilter);
+      alert(lang === "de" ? "Konnte nicht gespeichert werden." : lang === "fr" ? "Échec de l'enregistrement." : "Could not save the change.");
+    }
   };
   // A search (smart bar) feeds its matching uids here → the ONE list shows them
   // (unified, spanning all candidates). null = no active search.
@@ -7801,7 +7830,35 @@ export default function AdminPage() {
             selectedBatchId={selectedBatchId}
             onSelect={applyBatch}
             onCreated={(b) => setBatches((prev) => [...prev.filter((x) => x.id !== b.id), b].sort((a, c) => a.name.localeCompare(c.name)))}
+            onEdited={(b) => setBatches((prev) => prev.map((x) => (x.id === b.id ? { ...x, name: b.name } : x)).sort((a, c) => a.name.localeCompare(c.name)))}
           />
+
+          {/* Add people into the open batch (supreme only) — pull in candidates who
+              aren't in it yet, without leaving the dashboard. */}
+          {isSuperAdmin && selectedBatchId && (
+            <button type="button" onClick={() => setShowAddPeople(true)}
+              className="mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold transition-opacity hover:opacity-90"
+              style={{ borderRadius: 999, border: "1px solid var(--border-gold)", background: "var(--gdim)", color: "var(--gold)" }}>
+              <UserPlus size={13} strokeWidth={2} />
+              {lang === "de" ? "Personen hinzufügen" : lang === "fr" ? "Ajouter des personnes" : "Add people"}
+            </button>
+          )}
+          {isSuperAdmin && selectedBatchId && showAddPeople && (
+            <BatchAddPeople
+              batchId={selectedBatchId}
+              batchName={batches.find((b) => b.id === selectedBatchId)?.name ?? ""}
+              lang={lang}
+              candidates={Object.keys(users).map((uid): PickCandidate => ({
+                uid,
+                name: users[uid]?.name ?? uid,
+                email: users[uid]?.email ?? "",
+                photo: profiles[uid]?.profile_photo ?? null,
+                currentBatchId: batchByUid[uid] ?? null,
+              }))}
+              onAssign={assignCandidateToBatch}
+              onClose={() => setShowAddPeople(false)}
+            />
+          )}
 
           {/* "Alle" label above search results — so it's clear these span all
               candidates (not a batch), per the founder's ask. */}
@@ -8052,6 +8109,18 @@ export default function AdminPage() {
                           </span>
                         );
                       })()}
+
+                      {/* Batch move/remove (supreme only) — assign this candidate to a
+                          batch or pull them out, right from the list. */}
+                      {isSuperAdmin && batches.length > 0 && (
+                        <CardBatchMenu
+                          uid={uid}
+                          currentBatchId={batchByUid[uid] ?? null}
+                          batches={batches}
+                          lang={lang}
+                          onAssign={assignCandidateToBatch}
+                        />
+                      )}
 
                       {/* Match-with-org chevron — always shown; gold if already matched */}
                       {(() => {
