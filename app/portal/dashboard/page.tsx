@@ -116,12 +116,13 @@ type Pipeline = {
 };
 
 const JOURNEY_STAGES = [
-  { key: "interview"   as const, kind: "interview"   as PhaseKind },
+  // Only Bearbeitung (recognition) + Visum remain in the rail. Gespräch
+  // (interview), Reise and Integration were removed per the founder — kept to the
+  // 4 categories (Essentials · Unterlagen · Bearbeitung · Visum). The underlying
+  // pipeline fields + supreme lock/unlock controls stay (reversible), just not
+  // shown as rail stations. (LAW #31 enumeration updated to match.)
   { key: "recognition" as const, kind: "recognition" as PhaseKind },
   { key: "visum"       as const, kind: "embassy"      as PhaseKind },
-  { key: "reise"       as const, kind: "flight"      as PhaseKind },
-  { key: "integration" as const, kind: "integration" as PhaseKind },
-  // "Start" stage removed from the rail (to be rebuilt later).
 ];
 
 function isJourneyUnlocked(stage: Exclude<ViewMode,"docs">, p: Pipeline | null): boolean {
@@ -2730,11 +2731,10 @@ export default function DashboardPage() {
               const unlocked = isJourneyUnlocked(js.key, pipeline);
               const adminOpen = isAdminUnlocked(js.key, pipeline);
               // recognition → docs phase 2, visum → docs phase 3 (upload-first stages)
-              const isDocsStage = js.key === "recognition" || js.key === "visum";
+              // Both remaining rail stations are document-upload phases:
+              // recognition → Bearbeitung docs (phase 2), visum → Visum docs (phase 3).
               const docsPhaseIdx = js.key === "recognition" ? 2 : 3;
-              const isActive = isDocsStage
-                ? (viewMode === "docs" && phase === docsPhaseIdx)
-                : viewMode === js.key;
+              const isActive = viewMode === "docs" && phase === docsPhaseIdx;
               const stageLabel = t[`pJourney${js.key.charAt(0).toUpperCase() + js.key.slice(1)}` as keyof typeof t] as string;
               // Inert = Premium but stage not yet opened by admin
               const isInert = hasPremium && !unlocked && !adminOpen;
@@ -2747,11 +2747,7 @@ export default function DashboardPage() {
                       // Non-premium + stage not admin-unlocked → show upgrade modal
                       if (!hasPremium && !adminOpen) { setUpgradeTargetStage(js.key); setUpgradeOpen(true); return; }
                       if (unlocked || adminOpen) {
-                        if (isDocsStage) {
-                          setPhase(docsPhaseIdx); setViewMode("docs"); setSlotMsg(null);
-                        } else {
-                          setViewMode(js.key);
-                        }
+                        setPhase(docsPhaseIdx); setViewMode("docs"); setSlotMsg(null);
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }
                     }}

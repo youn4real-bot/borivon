@@ -4903,12 +4903,10 @@ export default function AdminPage() {
 
                 {/* Journey stage icons — click to show that stage on the right */}
                 {([
-                  { key: "interview",   kind: "interview"   as PhaseKind, label: "Gespräch",    active: pipeline.docs_approved },
+                  // Only Bearbeitung + Visum remain — Gespräch, Reise, Integration
+                  // removed per founder (data + supreme lock/unlock kept dormant).
                   { key: "recognition", kind: "recognition" as PhaseKind, label: "Bearbeitung", active: pipeline.recognition_unlocked },
                   { key: "visum",       kind: "embassy"     as PhaseKind, label: "Visum",       active: pipeline.embassy_unlocked },
-                  { key: "reise",       kind: "flight"      as PhaseKind, label: "Reise",       active: !!pipeline.flight_date },
-                  { key: "integration", kind: "integration" as PhaseKind, label: "Integration", active: pipeline.integration_unlocked },
-                  // "Start" stage removed from the rail (to be rebuilt later).
                 ]).map((js, ji, arr) => {
                   const isSel = activePipelineStage === js.key;
                   return (

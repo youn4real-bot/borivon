@@ -111,10 +111,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   // SCOPE: the key must be one this link was minted for (never trust the request).
   if (!isUploadLinkKey(docKey) || !link.doc_keys.includes(docKey))
     return NextResponse.json({ error: "This document isn't part of your link." }, { status: 403 });
-  // Each requested doc uploads ONCE per link — a re-upload of an already-received
-  // key is a no-op, so a held link can't flood R2 / documents / notifications.
-  if ((link.uploaded_keys ?? []).includes(docKey))
-    return NextResponse.json({ ok: true, alreadyUploaded: true });
 
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "File too large (max 25 MB)" }, { status: 413 });
   const buf = Buffer.from(await file.arrayBuffer());
@@ -132,6 +128,25 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
 
   if (!r2Configured()) return NextResponse.json({ error: "Storage unavailable" }, { status: 500 });
 
+  const db = getServiceSupabase();
+  // ATOMIC once-per-key claim BEFORE any R2/DB/notify work: the .not(...cs...)
+  // predicate lets only ONE request flip docKey from absent→present in
+  // uploaded_keys, so concurrent same-key POSTs can't each flood R2 / documents /
+  // notifications (the loser matches 0 rows → graceful no-op). Fail-closed on a
+  // used/revoked link. On a later R2/DB failure we release the claim so the
+  // candidate can retry. (docKey is isUploadLinkKey-validated → safe in the array literal.)
+  const claimedKeys = [...new Set([...(link.uploaded_keys ?? []), docKey])];
+  const { data: claim } = await db.from("upload_links")
+    .update({ uploaded_keys: claimedKeys })
+    .eq("id", link.id).is("used_at", null).is("revoked_at", null)
+    .not("uploaded_keys", "cs", `{${docKey}}`)
+    .select("id");
+  if (!claim || claim.length === 0) return NextResponse.json({ ok: true, alreadyUploaded: true });
+  const releaseClaim = async () => {
+    try { await db.from("upload_links").update({ uploaded_keys: link.uploaded_keys ?? [] }).eq("id", link.id); }
+    catch { /* best-effort rollback */ }
+  };
+
   const { firstName, lastName, fullName, email } = await candidateInfo(link.candidate_user_id);
   const ext = isPdf ? "pdf" : isPng ? "png" : isWebp ? "webp" : "jpg";
   const structuredName = buildFileName(firstName, lastName, docKey, ext);
@@ -140,9 +155,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
 
   const r2Key = candidateKey(link.candidate_user_id, `${Date.now()}_${structuredName}`);
   try { await r2Put(r2Key, buf, file.type || "application/octet-stream"); }
-  catch (e) { console.error("[u upload] r2Put", e); return NextResponse.json({ error: "Upload failed" }, { status: 500 }); }
+  catch (e) { console.error("[u upload] r2Put", e); await releaseClaim(); return NextResponse.json({ error: "Upload failed" }, { status: 500 }); }
 
-  const db = getServiceSupabase();
   const baseRow = {
     user_id: link.candidate_user_id,
     file_name: structuredName,
@@ -159,7 +173,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     if (error) {
       // schema-tolerant: retry without file_sha256 if that column is missing
       const { data: d2, error: e2 } = await db.from("documents").insert(baseRow).select("id").maybeSingle();
-      if (e2) { console.error("[u upload] documents insert", e2.message); return NextResponse.json({ error: "Save failed" }, { status: 500 }); }
+      if (e2) { console.error("[u upload] documents insert", e2.message); await releaseClaim(); return NextResponse.json({ error: "Save failed" }, { status: 500 }); }
       insertedId = (d2 as { id: string } | null)?.id ?? null;
     } else {
       insertedId = (data as { id: string } | null)?.id ?? null;
@@ -189,15 +203,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     });
   } catch (e) { console.warn("[u upload] notify (non-fatal)", e); }
 
-  // Mark this key uploaded; if every requested doc is in, retire the link.
-  const uploaded = [...new Set([...(link.uploaded_keys ?? []), docKey])];
-  const allDone = link.doc_keys.every((k) => uploaded.includes(k));
-  try {
-    await db.from("upload_links")
-      .update({ uploaded_keys: uploaded, ...(allDone ? { used_at: new Date().toISOString() } : {}) })
-      .eq("id", link.id);
-  } catch (e) { console.warn("[u upload] link update (non-fatal)", e); }
-
-  const remaining = link.doc_keys.filter((k) => !uploaded.includes(k));
-  return NextResponse.json({ ok: true, uploaded, remaining, done: allDone });
+  // uploaded_keys was already set atomically by the claim above. If every
+  // requested doc is now in, retire the link (single-use).
+  const allDone = link.doc_keys.every((k) => claimedKeys.includes(k));
+  if (allDone) {
+    try { await db.from("upload_links").update({ used_at: new Date().toISOString() }).eq("id", link.id); }
+    catch (e) { console.warn("[u upload] link used_at (non-fatal)", e); }
+  }
+  const remaining = link.doc_keys.filter((k) => !claimedKeys.includes(k));
+  return NextResponse.json({ ok: true, uploaded: claimedKeys, remaining, done: allDone });
 }
