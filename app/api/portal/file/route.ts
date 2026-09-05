@@ -33,32 +33,41 @@ async function ensurePassportIntegrity(
   driveFileId: string | null,
   source: string,
 ): Promise<Buffer> {
-  if (!storedHash || !driveFileId) return served;
+  // Run the check whenever we have a stored hash — NOT only when driveFileId is
+  // set. drive_file_id is null for every R2-era passport now, so the old
+  // `|| !driveFileId` guard silently disabled this LAW #39 integrity net for the
+  // entire live population. The hash comparison + critical log must run so any
+  // served-vs-upload divergence is DETECTED.
+  if (!storedHash) return served;
   const actual = createHash("sha256").update(served).digest("hex");
   if (actual === storedHash) return served;
 
   console.error(
     `[file-proxy] LAW #39 hash mismatch on passport — source=${source} ` +
-    `driveFileId=${driveFileId} stored=${storedHash.slice(0, 12)}… ` +
-    `served=${actual.slice(0, 12)}… falling back to Storage backup`,
+    `driveFileId=${driveFileId ?? "(r2)"} stored=${storedHash.slice(0, 12)}… ` +
+    `served=${actual.slice(0, 12)}… ${driveFileId ? "falling back to Storage backup" : "(no legacy backup for R2-era doc)"}`,
   );
 
-  try {
-    const db = getServiceSupabase();
-    const { data: blob } = await db.storage
-      .from(BUCKET)
-      .download(`doc-cache/${driveFileId}`);
-    if (blob) {
-      const backup = Buffer.from(await blob.arrayBuffer());
-      const backupHash = createHash("sha256").update(backup).digest("hex");
-      if (backupHash === storedHash) return backup;
-      console.error(
-        `[file-proxy] LAW #39 storage backup ALSO mismatches — ` +
-        `driveFileId=${driveFileId} backup=${backupHash.slice(0, 12)}…`,
-      );
+  // Legacy Drive-era recovery copy only (doc-cache/<driveFileId>); R2-era docs
+  // have none, so skip the pointless "doc-cache/null" fetch.
+  if (driveFileId) {
+    try {
+      const db = getServiceSupabase();
+      const { data: blob } = await db.storage
+        .from(BUCKET)
+        .download(`doc-cache/${driveFileId}`);
+      if (blob) {
+        const backup = Buffer.from(await blob.arrayBuffer());
+        const backupHash = createHash("sha256").update(backup).digest("hex");
+        if (backupHash === storedHash) return backup;
+        console.error(
+          `[file-proxy] LAW #39 storage backup ALSO mismatches — ` +
+          `driveFileId=${driveFileId} backup=${backupHash.slice(0, 12)}…`,
+        );
+      }
+    } catch (e) {
+      console.error("[file-proxy] LAW #39 fallback fetch threw:", e);
     }
-  } catch (e) {
-    console.error("[file-proxy] LAW #39 fallback fetch threw:", e);
   }
   return served; // last-resort: something > nothing
 }

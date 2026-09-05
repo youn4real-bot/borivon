@@ -42,7 +42,20 @@ async function isAuthorised(
       .eq(origDriveId ? "drive_file_id" : "id", origDriveId ?? origDocId!)
       .maybeSingle();
     if (!origDoc) return false;
-    return canActOnCandidate(adminAuth.role, adminAuth.email, origDoc.user_id);
+    if (!(await canActOnCandidate(adminAuth.role, adminAuth.email, origDoc.user_id))) return false;
+    // LAW #25: the TRANSLATION doc must be scope-checked too, and belong to the
+    // SAME candidate — otherwise an org-scoped sub-admin could pass a transId for
+    // ANOTHER org's candidate and get that candidate's document merged into the
+    // output (the candidate branch below already checks both; this branch didn't).
+    if (transDriveId || transDocId) {
+      const { data: transDoc } = await db
+        .from("documents")
+        .select("user_id")
+        .eq(transDriveId ? "drive_file_id" : "id", transDriveId ?? transDocId!)
+        .maybeSingle();
+      if (!transDoc || transDoc.user_id !== origDoc.user_id) return false;
+    }
+    return true;
   }
 
   // Header JWT (fetch) OR short-lived signed download token (?dlt=, iOS

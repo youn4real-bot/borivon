@@ -196,6 +196,29 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // LAW #39 (BOTH modes): whenever the source is a stored file, refuse a passport
+  // before any pdf-lib load+save touches it. The adminOnly branch checks above;
+  // candidate-mode (!adminOnly) had NO passport gate, so a candidate-mode sign
+  // request carrying a passport's driveFileId would corrupt its MRZ/VIZ. Gate here
+  // for every mode. (A raw pdfBuffer is the caller's own upload, not the stored
+  // passport document, so it's out of scope.)
+  if (driveFileId) {
+    try {
+      const db = getServiceSupabase();
+      const { data: pdoc } = await db
+        .from("documents")
+        .select("file_type")
+        .eq("drive_file_id", driveFileId)
+        .maybeSingle();
+      if (isPassportFileType((pdoc as { file_type?: string | null } | null)?.file_type ?? null)) {
+        return NextResponse.json({ error: "Passport documents cannot be signed or stamped" }, { status: 400 });
+      }
+    } catch (e) {
+      console.error("[sign-request POST] passport gate lookup failed:", e);
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
+  }
+
   // If we don't have the bytes yet, fetch them from R2 by the doc's r2_key.
   // R2 is the only store of record; a doc with no r2_key gets a precise 409 so
   // the caller can tell "not migrated" apart from a genuine fetch failure. The

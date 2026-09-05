@@ -5,6 +5,7 @@ import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { PDFDocument } from "pdf-lib";
 import { UUID_RE } from "@/lib/uuid";
+import { isPassportFileType } from "@/lib/passportFile";
 
 const BUCKET = "sign-documents";
 
@@ -86,6 +87,14 @@ export async function POST(
 
   if (!r.pdf_storage_path) {
     return NextResponse.json({ error: "No PDF attached to this request" }, { status: 400 });
+  }
+
+  // LAW #39 defense-in-depth: never run passport bytes through pdf-lib load+save
+  // (it destroys MRZ/VIZ). A passport sign_request shouldn't be created (the
+  // create route now blocks it), but refuse here too if one slipped through —
+  // the document_name carries the passport label ("…reisepass…").
+  if (isPassportFileType(r.document_name)) {
+    return NextResponse.json({ error: "Passport documents cannot be signed" }, { status: 400 });
   }
 
   // Download original PDF
