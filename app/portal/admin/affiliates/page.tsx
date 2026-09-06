@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import {
-  ArrowLeft, Plus, Copy, Check, Loader2, RefreshCw, Play, Pause, Link2, KeyRound,
+  ArrowLeft, Plus, Copy, Check, Loader2, RefreshCw, Play, Pause, Link2, KeyRound, Users, ChevronDown,
 } from "lucide-react";
 
 type Affiliate = {
@@ -45,6 +45,24 @@ export default function AdminAffiliatesPage() {
 
   // per-row commission edits
   const [commEdit, setCommEdit] = useState<Record<string, string>>({});
+
+  // "who referred whom" — expandable per affiliate (supreme-only, loaded on demand)
+  type Referral = { name: string; arrived: boolean; status: string | null };
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [refs, setRefs] = useState<Record<string, Referral[]>>({});
+  const [refLoading, setRefLoading] = useState("");
+  const toggleReferrals = async (id: string) => {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (refs[id]) return;
+    setRefLoading(id);
+    try {
+      const r = await fetch(`/api/portal/admin/affiliates/${id}/referrals`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json();
+      setRefs((m) => ({ ...m, [id]: j.referrals ?? [] }));
+    } catch { setRefs((m) => ({ ...m, [id]: [] })); }
+    setRefLoading("");
+  };
 
   const money = (n: number, cur = "EUR") => `${cur === "EUR" ? "€" : cur + " "}${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const copy = async (text: string, key: string) => {
@@ -234,6 +252,10 @@ export default function AdminAffiliatesPage() {
                 <button disabled={busy === `k-${a.id}`} onClick={() => patch({ id: a.id, regenerateToken: true }, `k-${a.id}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: "transparent", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
                   <KeyRound size={12} /> {L("New dashboard link", "Nouveau lien privé", "Neuer Dashboard-Link")}
                 </button>
+                <button onClick={() => toggleReferrals(a.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: expanded === a.id ? "var(--gdim)" : "transparent", color: expanded === a.id ? "var(--gold)" : "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
+                  <Users size={12} /> {L("Who referred", "Qui a parrainé", "Wer empfahl")}
+                  <ChevronDown size={12} style={{ transition: "transform .18s", transform: expanded === a.id ? "rotate(180deg)" : "none" }} />
+                </button>
                 {/* commission inline edit */}
                 <span className="inline-flex items-center gap-1.5">
                   <input type="number" min={0} value={commEdit[a.id] ?? String(a.commission_eur)} onChange={(e) => setCommEdit((m) => ({ ...m, [a.id]: e.target.value }))} className="w-[70px] text-[12px]" style={{ ...input, padding: "6px 8px" }} />
@@ -247,6 +269,35 @@ export default function AdminAffiliatesPage() {
                   <RefreshCw size={12} />
                 </button>
               </div>
+
+              {/* Who referred whom — supreme-admin-only visibility (affiliates never see this). */}
+              {expanded === a.id && (
+                <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                  {refLoading === a.id ? (
+                    <div className="flex justify-center py-3"><Loader2 size={15} className="animate-spin" style={{ color: "var(--gold)" }} /></div>
+                  ) : (refs[a.id]?.length ?? 0) === 0 ? (
+                    <p className="text-[12px] py-2" style={{ color: "var(--w3)" }}>{L("No referred candidates yet.", "Aucun candidat parrainé pour l'instant.", "Noch keine empfohlenen Kandidaten.")}</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {refs[a.id].map((c, i) => {
+                        const label = c.status === "paid"
+                          ? { t: L("Paid", "Payé", "Bezahlt"), bg: "var(--success-bg, rgba(22,163,74,0.14))", fg: "var(--success)" }
+                          : c.status === "owed"
+                          ? { t: L("Owed", "Dû", "Offen"), bg: "var(--warning-bg, rgba(245,158,11,0.14))", fg: "var(--warning)" }
+                          : c.arrived
+                          ? { t: L("Placed", "Placé", "Vermittelt"), bg: "var(--warning-bg, rgba(245,158,11,0.14))", fg: "var(--warning)" }
+                          : { t: L("Referred", "Parrainé", "Empfohlen"), bg: "var(--bg2)", fg: "var(--w3)" };
+                        return (
+                          <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded-lg" style={{ background: "var(--bg2)" }}>
+                            <span className="text-[12.5px]" style={{ color: "var(--w)" }}>{c.name}</span>
+                            <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: label.bg, color: label.fg }}>{label.t}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
