@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { looksLikeAffiliateCode } from "@/lib/affiliates";
 
 export const runtime = "nodejs";
@@ -18,6 +19,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ code: strin
   const { code } = await ctx.params;
   const res = NextResponse.redirect(new URL("/", req.url));
   if (!looksLikeAffiliateCode(code)) return res;
+  // Per-IP throttle: codes are public (shared over WhatsApp), and each hit does a
+  // SELECT + clicks UPDATE. Over the limit → still redirect home, but skip the DB.
+  const rl = await enforceRateLimitDistributed(req, "ref-hit", { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) return res;
   try {
     const db = getServiceSupabase();
     const { data } = await db.from("affiliates").select("id, active, clicks").eq("code", code).maybeSingle();

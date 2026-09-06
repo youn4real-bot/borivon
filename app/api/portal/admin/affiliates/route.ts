@@ -48,10 +48,11 @@ export async function GET(req: NextRequest) {
   try {
     const { data: es } = await db.from("affiliate_earnings").select("affiliate_id, amount_eur, status");
     for (const e of (es ?? []) as { affiliate_id: string; amount_eur: number; status: string }[]) {
+      if (e.status !== "paid" && e.status !== "owed") continue; // skip 'void' (reversed placements)
       const amt = Number(e.amount_eur) || 0;
       placed.set(e.affiliate_id, (placed.get(e.affiliate_id) ?? 0) + 1);
       if (e.status === "paid") paid.set(e.affiliate_id, (paid.get(e.affiliate_id) ?? 0) + amt);
-      else if (e.status === "owed") owed.set(e.affiliate_id, (owed.get(e.affiliate_id) ?? 0) + amt);
+      else owed.set(e.affiliate_id, (owed.get(e.affiliate_id) ?? 0) + amt);
     }
   } catch { /* pre-migration */ }
 

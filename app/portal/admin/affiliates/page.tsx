@@ -88,8 +88,8 @@ export default function AdminAffiliatesPage() {
         setCreated({ ...j, name: fName.trim() });
         setFName(""); setFEmail(""); setFPhone(""); setFComm(""); setShowForm(false);
         load(token);
-      } else { alert(j.error || "Error"); }
-    } catch { alert("Error"); }
+      } else { alert(L("Couldn't create the affiliate. Please try again.", "Impossible de créer l'affilié. Réessayez.", "Affiliate konnte nicht erstellt werden. Bitte erneut versuchen.")); }
+    } catch { alert(L("Couldn't create the affiliate. Please try again.", "Impossible de créer l'affilié. Réessayez.", "Affiliate konnte nicht erstellt werden. Bitte erneut versuchen.")); }
     setCreating(false);
   };
 

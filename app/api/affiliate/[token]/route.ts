@@ -52,16 +52,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
       .eq("affiliate_id", id)
       .order("placed_at", { ascending: false });
     for (const e of (es ?? []) as { amount_eur: number; status: string; placed_at: string }[]) {
+      if (e.status !== "paid" && e.status !== "owed") continue; // skip 'void' (reversed placements)
       const amt = Number(e.amount_eur) || 0;
       placed++;
       if (e.status === "paid") paidEur += amt;
-      else if (e.status === "owed") owedEur += amt;
+      else owedEur += amt;
       earnings.push({ placed_at: e.placed_at, status: e.status, amount_eur: amt });
     }
   } catch { /* pre-migration */ }
 
-  // T&C gate: only when the column exists AND is unset. Pre-migration → no gate.
-  const termsAccepted = "terms_accepted_at" in aff ? !!aff.terms_accepted_at : true;
+  // T&C gate: block until the affiliate has accepted the CURRENT terms version.
+  // Pre-migration (column absent) → no gate. Bumping AFFILIATE_TERMS_VERSION
+  // forces everyone to re-accept.
+  const termsAccepted = "terms_accepted_at" in aff
+    ? (!!aff.terms_accepted_at && aff.terms_version === AFFILIATE_TERMS_VERSION)
+    : true;
 
   return NextResponse.json({
     name: String(aff.name ?? ""),
