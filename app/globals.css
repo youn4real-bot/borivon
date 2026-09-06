@@ -168,6 +168,12 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Affiliate subdomain (affiliates.borivon.com) hides ALL global chrome so only
+   the affiliate portal's own header shows. The hiding rule is INJECTED as a
+   <style> node before first paint by the host script in app/layout.tsx (React
+   strips class/attr set on <html> during hydration, so injecting a style node
+   is the reliable, no-flash mechanism). No effect on the main site. */
+
 /* Baseline font-size for touch viewports — prevents iOS Safari zoom on focus
    for inputs that don't specify their own size. Placed in @layer base so
    Tailwind utility classes (text-[Xpx]) override it normally. */

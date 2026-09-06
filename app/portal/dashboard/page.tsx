@@ -222,7 +222,7 @@ export default function DashboardPage() {
   const pendingKeyRef = useRef<string | null>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
-  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null };
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null; is_required?: boolean };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
   // Shared Visum doc order (set by the admin's drag → phase_doc_order) so the
@@ -300,6 +300,7 @@ export default function DashboardPage() {
       isTranslations: false,
       items: dynamicSlots.bea.map(s => ({
         key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,
+        ...(s.is_required === false ? { optional: true as const } : {}),
         ...(s.instructions ? { instructions: s.instructions } : {}),
         // Sign/fill hidden for now (SIGN_FILL_ENABLED) → drop form fields + sig
         // zone so the slot is a plain upload box.
@@ -345,6 +346,7 @@ export default function DashboardPage() {
       { key: "berufserfahrung_visum",   label: t.pTypeBerufserfahrungVisum, hint: "", optional: true as const },
       ...dynamicSlots.vis.map(s => ({
         key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,
+        ...(s.is_required === false ? { optional: true as const } : {}),
         ...(s.instructions ? { instructions: s.instructions } : {}),
         // Sign/fill hidden for now (SIGN_FILL_ENABLED) → drop form fields + sig
         // zone so the slot is a plain upload box.
@@ -1415,6 +1417,24 @@ export default function DashboardPage() {
       subscription.unsubscribe();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Affiliate referral attribution. If this candidate arrived through a referral
+  // link, /r/<code> left a `bv_ref` cookie — tag her to that affiliate ONCE.
+  // First-touch wins; the server clears the cookie once settled so this can't
+  // re-fire. Best-effort, fires after login, never blocks anything.
+  useEffect(() => {
+    if (!authToken) return;
+    const m = typeof document !== "undefined" ? document.cookie.match(/(?:^|;\s*)bv_ref=([^;]+)/) : null;
+    if (!m) return;
+    let code = "";
+    try { code = decodeURIComponent(m[1]); } catch { code = m[1]; }
+    if (!code) return;
+    fetch("/api/portal/ref/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ code }),
+    }).catch(() => { /* best-effort */ });
+  }, [authToken]);
 
   async function loadDynamicSlots(token: string) {
     if (dynamicSlotsLoaded) return;

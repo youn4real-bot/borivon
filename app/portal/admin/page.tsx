@@ -751,9 +751,14 @@ export default function AdminPage() {
   // Move / add / remove a candidate's batch (supreme admin). Optimistic: update the
   // local map + pill counts + the current batch filter, then PATCH; revert on error.
   const [showAddPeople, setShowAddPeople] = useState(false);
+  // Per-candidate op counter: the newest assign for a uid wins. A failing op
+  // whose counter has since been bumped is superseded, so its revert is skipped
+  // (reverting would discard the later op's already-applied optimistic result).
+  const batchOpSeq = useRef<Record<string, number>>({});
   const assignCandidateToBatch = async (uid: string, batchId: string | null): Promise<boolean> => {
     const prev = batchByUid[uid] ?? null;
     if (prev === (batchId ?? null)) return true;
+    const myOp = (batchOpSeq.current[uid] = (batchOpSeq.current[uid] ?? 0) + 1);
     // FUNCTIONAL optimistic updates (never a stale full-snapshot) so a second,
     // concurrent assign isn't clobbered by this one.
     setBatchByUid((m) => { const n = { ...m }; if (batchId) n[uid] = batchId; else delete n[uid]; return n; });
@@ -774,6 +779,10 @@ export default function AdminPage() {
       if (!r.ok) throw new Error("assign_failed");
       return true;
     } catch {
+      // If a LATER assign for this uid has since started, this op is superseded —
+      // leave its (already-overwritten) optimistic state alone. Reverting would
+      // undo the newer op's result and desync the UI from the server.
+      if (batchOpSeq.current[uid] !== myOp) return false;
       // Revert ONLY this op (functional) — a concurrent in-flight assign survives.
       setBatchByUid((m) => { const n = { ...m }; if (prev) n[uid] = prev; else delete n[uid]; return n; });
       setBatches((bs) => bs.map((b) =>
@@ -824,7 +833,7 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null; is_required?: boolean };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   // Stores the SCOPE KEY each phase's slots were last loaded for ("" = not yet,
   // "global" = global set, else an employer_id). Lets the manager reload when
@@ -862,7 +871,7 @@ export default function AdminPage() {
   const [addSlotCatId, setAddSlotCatId]               = useState<string | null>(null);
   const [addSlotSaving, setAddSlotSaving]             = useState(false);
   // Slot config popup — appears after admin uploads a PDF to a slot (LAW #34)
-  type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
+  type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; is_required: boolean };
   const [slotConfigPopup, setSlotConfigPopup]         = useState<SlotConfigState | null>(null);
   const [slotConfigSaving, setSlotConfigSaving]       = useState(false);
   // Admin's reusable signature (uploaded photo of handwriting, bg-removed via Otsu).
@@ -2584,7 +2593,7 @@ export default function AdminPage() {
         if (hasManyNativeFields && pdfBytesForReview) {
           setAutoFillReview({ slotId, file, pdfBytes: pdfBytesForReview, detected: nativeFields });
         } else {
-          setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
+          setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false, is_required: true });
         }
       }
 
@@ -2637,6 +2646,7 @@ export default function AdminPage() {
           admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs,
           admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills,
           pdf_has_native_fields: cfg.pdf_has_native_fields,
+          is_required: cfg.is_required,
         }),
       });
       // Update local state
@@ -2644,7 +2654,7 @@ export default function AdminPage() {
         const updated: typeof prev = {};
         for (const [ph, slots] of Object.entries(prev)) {
           updated[ph] = (slots ?? []).map(s => s.id === cfg.slotId
-            ? { ...s, admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs, admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills, pdf_has_native_fields: cfg.pdf_has_native_fields }
+            ? { ...s, admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs, admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills, pdf_has_native_fields: cfg.pdf_has_native_fields, is_required: cfg.is_required }
             : s);
         }
         return updated;
@@ -4026,6 +4036,11 @@ export default function AdminPage() {
                 const missing: MissingDoc[] = [];
                 for (const i of cl.items) {
                   if (i.optional) continue;
+                  // Passport (key "id") is excluded from the login-less upload link
+                  // (LAW #39 — it has its own client-only rotation flow); the mint
+                  // endpoint drops it too. Offering it here would compose a WhatsApp
+                  // message advertising a link that can never carry it.
+                  if (i.key === "id") continue;
                   const base = missingDocLabel(i.key, lang);
                   if (i.original === "missing" || i.original === "rejected") missing.push({ key: i.key, label: base });
                   if (i.hasTranslation && (i.translation === "missing" || i.translation === "rejected"))
@@ -5155,7 +5170,7 @@ export default function AdminPage() {
                                               </button>
                                               <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null} anchorRect={menuRect(menuId)}>
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills, pdf_has_native_fields: !!slot.pdf_has_native_fields }); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills, pdf_has_native_fields: !!slot.pdf_has_native_fields, is_required: slot.is_required !== false }); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--gold)" }}>
                                                       <Zap size={11} strokeWidth={1.8} /> Action
@@ -6174,6 +6189,24 @@ export default function AdminPage() {
                             {/* Body — 3 tiles. min-h-0 + overscroll-contain so flex shrinks
                                 properly and tiles scroll inside the card when expanded on phone. */}
                             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-3 flex flex-col gap-2">
+                              {/* Required vs optional — a PERMANENT doc the candidate must do
+                                  (counts toward completion) or an OPTIONAL extra she may skip. */}
+                              <div className="flex items-center gap-2 px-1.5 py-1">
+                                <span className="text-[11.5px] font-semibold" style={{ color: "var(--w2)" }}>
+                                  {lang === "de" ? "Pflichtdokument?" : lang === "fr" ? "Document obligatoire ?" : "Required document?"}
+                                </span>
+                                <div className="ml-auto inline-flex rounded-full p-0.5" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                                  {([true, false] as const).map(req => (
+                                    <button key={String(req)} type="button"
+                                      onClick={() => setSlotConfigPopup(p => p ? { ...p, is_required: req } : p)}
+                                      className="px-3 py-1 text-[11px] font-semibold rounded-full transition-colors"
+                                      style={{ background: cfg.is_required === req ? "var(--gold)" : "transparent", color: cfg.is_required === req ? "#1a1205" : "var(--w2)" }}>
+                                      {req ? (lang === "de" ? "Pflicht" : lang === "fr" ? "Obligatoire" : "Required")
+                                           : (lang === "de" ? "Optional" : lang === "fr" ? "Optionnel" : "Optional")}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                               {/* SIGN tile — hidden while sign/fill is disabled. */}
                               {SIGN_FILL_ENABLED && (
                               <div data-slot-tile="sign" style={tileStyle}>
@@ -8286,6 +8319,21 @@ export default function AdminPage() {
               <span className="flex-1 text-left min-w-0">
                 <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Arbeitgeber-Listen" : lang === "fr" ? "Listes employeur" : "Employer shortlists"}</span>
                 <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Kandidaten kuratieren + Link teilen" : lang === "fr" ? "Sélectionner des candidats + partager un lien" : "Curate candidates + share a link"}</span>
+              </span>
+              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            </button>
+          )}
+
+          {/* ── Affiliates — referral partners + per-placement payouts. Supreme
+                 admin only (touches real money, like the LAW #31 lock). ── */}
+          {roleResolved && isSuperAdmin && (
+            <button onClick={() => router.push("/portal/admin/affiliates")}
+              className="mt-3 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              <UserPlus size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+              <span className="flex-1 text-left min-w-0">
+                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Affiliates" : lang === "fr" ? "Affiliés" : "Affiliates"}</span>
+                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Empfehlungspartner · Provision pro Vermittlung" : lang === "fr" ? "Partenaires de parrainage · commission par placement" : "Referral partners · commission per placement"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>

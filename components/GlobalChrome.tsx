@@ -9,14 +9,16 @@ import { Navbar } from "@/components/Navbar";
 import { useLang } from "@/components/LangContext";
 
 /**
- * The five PORTAL-ONLY widgets, lazy-loaded.
+ * The PORTAL-ONLY widgets, lazy-loaded.
  *
  * GlobalChrome is mounted in app/layout.tsx, so it is on EVERY route — including
  * the public marketing pages where a lead lands. Statically importing these meant
- * every one of those visitors downloaded the notification bell, message icon,
- * profile menu (and its stack of modals), checklist drawer and bug reporter — none
- * of which can ever render outside /portal/*. That was ~60 kB gzipped of the shared
- * baseline paid by people who will never see any of it.
+ * every one of those visitors downloaded the notification bell, profile menu (and
+ * its stack of modals) and bug reporter — none of which can ever render outside
+ * /portal/*. That was ~60 kB gzipped of the shared baseline paid by people who
+ * will never see any of it. (The message icon + checklist drawer used to live
+ * here too; they were removed from the portal cluster at the founder's request —
+ * only the notification bell + profile stay.)
  *
  * ssr:false costs nothing here, and that is not a guess about how it looks: all of
  * these already gate themselves on an ASYNC supabase session read and return null
@@ -28,9 +30,7 @@ import { useLang } from "@/components/LangContext";
  * `pathname` check below, never an auth-state read.
  */
 const NotificationBell = dynamic(() => import("@/components/NotificationBell").then((m) => m.NotificationBell), { ssr: false });
-const MessageIcon = dynamic(() => import("@/components/MessageIcon").then((m) => m.MessageIcon), { ssr: false });
 const ProfileIcon = dynamic(() => import("@/components/ProfileIcon").then((m) => m.ProfileIcon), { ssr: false });
-const ChecklistDrawer = dynamic(() => import("@/components/ChecklistDrawer").then((m) => m.ChecklistDrawer), { ssr: false });
 const BugReportButton = dynamic(() => import("@/components/BugReportButton").then((m) => m.BugReportButton), { ssr: false });
 
 function HomeLoginButton() {
@@ -123,6 +123,10 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   // navbar, no bell. Route-only decision (LAW #1), same escape hatch as /v2; the
   // providers below stay mounted so the page's useLang() still works.
   const isUpload = pathname === "/u" || pathname.startsWith("/u/");
+  // /affiliate/* is the affiliate portal (served at affiliates.borivon.com) — it
+  // ships its OWN minimal header, so suppress the global navbar/chrome here, same
+  // route-only escape hatch as /u and /v2 (LAW #1: never an auth-state read).
+  const isAffiliate = pathname === "/affiliate" || pathname.startsWith("/affiliate/");
 
   return (
     <ThemeProvider>
@@ -132,13 +136,19 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
               Visually hidden until focused — keyboard-only users get to
               the main content with one Tab keypress instead of 8+. */}
           <SkipToMain />
-          {!isV2 && !isUpload && (
+          {/* .bv-chrome wrapper lets the affiliate subdomain hide ALL global
+              chrome (navbar + flag strip + actions bar) via one CSS rule set by
+              the no-flash host script in the <head> — see app/layout.tsx. */}
+          {!isV2 && !isUpload && !isAffiliate && (
+            <div className="bv-chrome">
             <Navbar
               hideThemeLang={isPortal}
               rightExtra={isPortal ? (
                 <>
-                  <ChecklistDrawer />
-                  <MessageIcon />
+                  {/* Portal cluster trimmed to the notification bell + profile
+                      (logout / language / theme live in the profile menu). The
+                      checklist drawer + message icon were removed at the
+                      founder's request. */}
                   <NotificationBell />
                   <ProfileIcon />
                 </>
@@ -146,6 +156,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
                 <HomeLoginButton />
               ) : null}
             />
+            </div>
           )}
           {/* 100 px bottom clearance only on portal mobile (where the
               bottom action bar lives). Public + login pages stay flush. */}

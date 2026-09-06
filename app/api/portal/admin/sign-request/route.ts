@@ -207,14 +207,26 @@ export async function POST(req: NextRequest) {
       const db = getServiceSupabase();
       const { data: pdoc } = await db
         .from("documents")
-        .select("file_type")
+        .select("file_type, user_id")
         .eq("drive_file_id", driveFileId)
         .maybeSingle();
-      if (isPassportFileType((pdoc as { file_type?: string | null } | null)?.file_type ?? null)) {
+      const prow = pdoc as { file_type?: string | null; user_id?: string | null } | null;
+      if (isPassportFileType(prow?.file_type ?? null)) {
         return NextResponse.json({ error: "Passport documents cannot be signed or stamped" }, { status: 400 });
       }
+      // LAW #25 — candidate-mode ownership binding. canActOnCandidate(candidateId)
+      // proves the caller may act on the candidate, NOT that the supplied
+      // driveFileId belongs to that candidate. Without this a scoped sub-admin
+      // could stamp ANOTHER candidate's (even out-of-org) document into
+      // candidateId's sign_request just by knowing its drive_file_id. The
+      // adminOnly branch already gates on canActOnCandidate(owner); mirror the
+      // binding here for candidate-mode (and adminSave). A raw pdfBuffer upload
+      // has no driveFileId, so it never reaches this gate.
+      if (!adminOnly && prow && prow.user_id && prow.user_id !== candidateId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     } catch (e) {
-      console.error("[sign-request POST] passport gate lookup failed:", e);
+      console.error("[sign-request POST] doc gate lookup failed:", e);
       return NextResponse.json({ error: "Internal error" }, { status: 500 });
     }
   }

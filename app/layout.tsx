@@ -129,6 +129,21 @@ export default function RootLayout({
   return (
     <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable}`}>
       <head>
+        {/* Affiliate subdomain marker — runs synchronously before first paint so
+            the global chrome (navbar/flag-strip/actions) is CSS-hidden on
+            affiliates.borivon.com with NO flash. The middleware rewrites the
+            subdomain to /affiliate/*, which makes usePathname() report "/", so a
+            pathname check can't detect it — the host is the only reliable signal,
+            and doing it here avoids making the whole app dynamic via headers(). */}
+        <script
+          dangerouslySetInnerHTML={{
+            // Inject a <style> node (React reconciles <html>'s class AND its
+            // attributes during hydration, so a class/attr set here gets wiped —
+            // verified. A script-appended <head> style is NOT in React's tree, so
+            // it survives and hides the global chrome before first paint, no flash).
+            __html: "try{if((location.hostname||'').split('.')[0]==='affiliates'){var s=document.createElement('style');s.textContent='.bv-chrome{display:none!important}';(document.head||document.documentElement).appendChild(s);}}catch(e){}",
+          }}
+        />
         {/* Resource hints — let the browser open TCP+TLS to our hot origins
             during HTML parse, before any subresource is actually requested.
             Saves ~100-300ms on the first Supabase / Drive proxy call. */}

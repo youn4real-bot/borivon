@@ -21,6 +21,13 @@ export function normalizeWaPhone(raw: string | null | undefined): string {
     let nat = d.slice(3);
     if (nat.startsWith("0")) nat = nat.slice(1);
     d = "212" + nat;
+  } else if (d.startsWith("0") && d.length === 10 && /^0[67]/.test(d)) {
+    // Bare Moroccan local mobile (0[67]xxxxxxxx) — no country code. Add it.
+    // Every candidate here is Moroccan, so this is the common stored form.
+    d = "212" + d.slice(1);
+  } else if (d.length === 9 && /^[67]/.test(d)) {
+    // National mobile with neither the leading 0 nor a country code.
+    d = "212" + d;
   }
   return d;
 }
@@ -33,6 +40,9 @@ export function normalizeWaPhone(raw: string | null | undefined): string {
  */
 export function isValidWaPhone(d: string): boolean {
   if (!d) return false;
+  // A leftover leading 0 means the number has no country code (normalize could
+  // not place it) — flag it rather than compose a wrong wa.me link.
+  if (d.startsWith("0")) return false;
   if (d.startsWith("212")) return d.length === 12 && /^212[67]/.test(d);
   return d.length >= 10 && d.length <= 15;
 }

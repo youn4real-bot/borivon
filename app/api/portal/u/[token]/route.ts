@@ -23,6 +23,8 @@ import { buildFileName, isUploadLinkKey } from "@/lib/uploadName";
 import { candidateKey, r2Put, r2Configured } from "@/lib/r2";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
 import { FILE_KEY_LABELS, resolveFileKey } from "@/lib/fileKeys";
+import { pdfPageLimit } from "@/lib/pdfPageLimits";
+import { PDFDocument } from "pdf-lib";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,25 +128,63 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   if (!ALLOWED.has(file.type) || !sniffedOk)
     return NextResponse.json({ error: "Only PDF or photo (JPG/PNG/WebP) files are allowed." }, { status: 415 });
 
+  // Per-box PDF page cap — mirror the authenticated /api/portal/upload route so
+  // this public path can't admit a payload the dashboard would reject. Read-only
+  // (load + getPageCount, never re-save → LAW #39-safe; passports can't reach /u
+  // anyway). A parse failure doesn't block — the 25 MB size cap is the backstop.
+  if (isPdf) {
+    let pageCount = 0;
+    try {
+      const probe = await PDFDocument.load(buf, { ignoreEncryption: true, updateMetadata: false });
+      pageCount = probe.getPageCount();
+    } catch { pageCount = 0; }
+    const limit = pdfPageLimit(docKey);
+    if (pageCount > limit)
+      return NextResponse.json({ error: `PDF too long: ${pageCount} pages (max ${limit}).`, code: "PDF_TOO_MANY_PAGES", pages: pageCount, limit }, { status: 413 });
+  }
+
   if (!r2Configured()) return NextResponse.json({ error: "Storage unavailable" }, { status: 500 });
 
   const db = getServiceSupabase();
-  // ATOMIC once-per-key claim BEFORE any R2/DB/notify work: the .not(...cs...)
-  // predicate lets only ONE request flip docKey from absent→present in
-  // uploaded_keys, so concurrent same-key POSTs can't each flood R2 / documents /
-  // notifications (the loser matches 0 rows → graceful no-op). Fail-closed on a
-  // used/revoked link. On a later R2/DB failure we release the claim so the
-  // candidate can retry. (docKey is isUploadLinkKey-validated → safe in the array literal.)
-  const claimedKeys = [...new Set([...(link.uploaded_keys ?? []), docKey])];
-  const { data: claim } = await db.from("upload_links")
-    .update({ uploaded_keys: claimedKeys })
-    .eq("id", link.id).is("used_at", null).is("revoked_at", null)
-    .not("uploaded_keys", "cs", `{${docKey}}`)
-    .select("id");
-  if (!claim || claim.length === 0) return NextResponse.json({ ok: true, alreadyUploaded: true });
+  // ATOMIC once-per-key claim BEFORE any R2/DB/notify work, so only ONE request
+  // flips docKey from absent→present in uploaded_keys (concurrent same-key POSTs
+  // can't each flood R2 / documents / notifications; the loser is a graceful
+  // no-op). Prefer the DB-side atomic append (claim_upload_key RPC): a plain
+  // whole-array overwrite computed from the request-start snapshot would let two
+  // concurrent DIFFERENT-key uploads on a multi-doc link clobber each other (a
+  // dropped key → duplicate upload + the single-use link never retiring). Fall
+  // back to the legacy whole-array claim when the RPC migration isn't applied yet
+  // (graceful degrade — never 500 a candidate's upload).
+  // (docKey is isUploadLinkKey-validated → safe in the array literal.)
+  let claimedKeys: string[];
+  let usedRpc = false;
+  {
+    const { data: rpcArr, error: rpcErr } = await db.rpc("claim_upload_key", { p_link_id: link.id, p_key: docKey });
+    if (rpcErr && /claim_upload_key|does not exist|schema cache|could not find|PGRST202/i.test(rpcErr.message ?? "")) {
+      // Pre-migration fallback: legacy whole-array claim (racy but functional).
+      const legacy = [...new Set([...(link.uploaded_keys ?? []), docKey])];
+      const { data: claim } = await db.from("upload_links")
+        .update({ uploaded_keys: legacy })
+        .eq("id", link.id).is("used_at", null).is("revoked_at", null)
+        .not("uploaded_keys", "cs", `{${docKey}}`)
+        .select("id");
+      if (!claim || claim.length === 0) return NextResponse.json({ ok: true, alreadyUploaded: true });
+      claimedKeys = legacy;
+    } else if (rpcErr) {
+      console.error("[u upload] claim rpc", rpcErr.message);
+      return NextResponse.json({ error: "Save failed" }, { status: 500 });
+    } else {
+      usedRpc = true;
+      // Null = 0 rows updated = key already claimed (or link used/revoked) → no-op.
+      if (!rpcArr) return NextResponse.json({ ok: true, alreadyUploaded: true });
+      claimedKeys = rpcArr as string[]; // the ACTUAL post-append array (fresh, not stale)
+    }
+  }
   const releaseClaim = async () => {
-    try { await db.from("upload_links").update({ uploaded_keys: link.uploaded_keys ?? [] }).eq("id", link.id); }
-    catch { /* best-effort rollback */ }
+    try {
+      if (usedRpc) await db.rpc("release_upload_key", { p_link_id: link.id, p_key: docKey });
+      else await db.from("upload_links").update({ uploaded_keys: link.uploaded_keys ?? [] }).eq("id", link.id);
+    } catch { /* best-effort rollback */ }
   };
 
   const { firstName, lastName, fullName, email } = await candidateInfo(link.candidate_user_id);

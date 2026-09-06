@@ -32,10 +32,6 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   const langTriggerRef = useRef<HTMLButtonElement>(null);
   const [communityUnread, setCommunityUnread] = useState(0);
   const [authTk, setAuthTk] = useState("");
-  // Academy tab is WIP — hidden by default; the server (/me/role) says who may
-  // see it (supreme always; others per the mask-all flag + per-person override).
-  // Default false so it never flashes for masked users.
-  const [academyVisible, setAcademyVisible] = useState(false);
   // Signed-in user id + role-derived portal home. `navHome` is what the
   // "Dashboard" tab points to — resolved from the user's ROLE (cached for an
   // instant, correct value), NOT the current pathname. This kills the flash
@@ -98,12 +94,12 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   const dashHref = navHome ?? (isAdmin ? "/portal/admin"
                  : isOrg   ? "/portal/org/dashboard"
                  :            "/portal/dashboard");
+  // Portal nav trimmed to Dashboard + Calendar for ALL users at the founder's
+  // request — Community (feed) and Akademie are hidden everywhere. The routes
+  // still exist; they're just no longer surfaced in the nav.
   const portalTabs = useBottomBar && authTk && !isLoginPage ? [
     { label: PNT.dashboard, href: dashHref,           active: !isFeed && !isAcademy && !isCalendar },
-    // Academy tab only when the server says this user may see it (supreme / allowed).
-    ...(academyVisible ? [{ label: PNT.academy, href: "/portal/academy", active: isAcademy }] : []),
     { label: PNT.calendar,  href: "/portal/calendar", active: isCalendar },
-    { label: PNT.community, href: "/portal/feed",     active: isFeed  },
   ] : null;
 
   // Community unread badge ────────────────────────────────────────────────────
@@ -125,18 +121,18 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
     return () => { mounted = false; subscription.unsubscribe(); };
   }, [useBottomBar]);
 
-  // Resolve Academy-tab visibility from the server (supreme always; others per
-  // the supreme admin's mask-all flag + per-person override). Hidden by default.
+  // Resolve the role-based Dashboard home (Academy-tab visibility is no longer
+  // read — the tab is hidden for everyone now).
   useEffect(() => {
-    if (!authTk) { setAcademyVisible(false); return; }
+    if (!authTk) { setNavHome(null); return; }
     let mounted = true;
     // Instant, correct Dashboard home from the cached role (no network wait) —
     // then refine from the shared (deduped) role request.
     const cr = cachedRole(uid);
     if (cr) setNavHome(homeForRole(cr));
     fetchMyRole(authTk, uid)
-      .then(j => { if (!mounted) return; setAcademyVisible(j?.academyVisible === true); if (j?.role) setNavHome(homeForRole(j.role)); })
-      .catch(() => { /* keep hidden on error */ });
+      .then(j => { if (!mounted) return; if (j?.role) setNavHome(homeForRole(j.role)); })
+      .catch(() => { /* keep default on error */ });
     return () => { mounted = false; };
   }, [authTk, uid]);
 

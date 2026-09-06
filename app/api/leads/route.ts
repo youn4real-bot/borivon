@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { tgSend } from "@/lib/telegram";
+import { looksLikeAffiliateCode } from "@/lib/affiliates";
 
 /**
  * Public lead-capture endpoint for the homepage funnel (components/Funnel.tsx).
@@ -51,6 +52,10 @@ export async function POST(req: NextRequest) {
     if (v) details[f] = v;
   }
 
+  // Affiliate attribution: /r/<code> left a bv_ref cookie (sent on this same-site
+  // POST). Record which affiliate this lead came from — for analytics + a manual
+  // fallback if the nurse never self-registers. Bonus only, never required.
+  const refCode = req.cookies.get("bv_ref")?.value ?? "";
   const row = {
     kind,
     email,
@@ -58,6 +63,7 @@ export async function POST(req: NextRequest) {
     phone:   MAX(body.phone, 40),
     message: MAX(body.message, 1000),
     details,
+    ...(looksLikeAffiliateCode(refCode) ? { ref_code: refCode } : {}),
   };
 
   const db = getServiceSupabase();
@@ -85,9 +91,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, duplicate: true });
   }
 
-  const { error } = await db.from("leads").insert(row);
-  if (error) {
-    console.error("[/api/leads] insert error:", error.message);
+  let insErr = (await db.from("leads").insert(row)).error;
+  if (insErr && "ref_code" in row && /ref_code|column|schema cache|does not exist/i.test(insErr.message ?? "")) {
+    // Pre-migration: leads.ref_code not added yet. NEVER lose a lead over an
+    // analytics nicety — retry the insert without it.
+    const rest: Record<string, unknown> = { ...row };
+    delete rest.ref_code;
+    insErr = (await db.from("leads").insert(rest)).error;
+  }
+  if (insErr) {
+    console.error("[/api/leads] insert error:", insErr.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
 

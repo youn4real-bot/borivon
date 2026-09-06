@@ -15,6 +15,18 @@ describe("normalizeWaPhone", () => {
     // stored missing the leading 6 → stays 11 digits, to be flagged
     expect(normalizeWaPhone("+212 30298377")).toBe("21230298377");
   });
+  it("adds the country code to a bare local MA mobile (0[67] + 8 digits)", () => {
+    expect(normalizeWaPhone("0630298377")).toBe("212630298377");
+    expect(normalizeWaPhone("06 30 29 83 77")).toBe("212630298377");
+    expect(normalizeWaPhone("0712345678")).toBe("212712345678");
+  });
+  it("adds the country code to a national mobile with no leading 0 or code", () => {
+    expect(normalizeWaPhone("630298377")).toBe("212630298377");
+  });
+  it("leaves a bare local landline (0[5]) alone so it is flagged", () => {
+    // 05… is not a mobile → not rewritten → stays leading-0 → isValid rejects it
+    expect(isValidWaPhone(normalizeWaPhone("0530298377"))).toBe(false);
+  });
   it("returns empty for junk", () => {
     expect(normalizeWaPhone("")).toBe("");
     expect(normalizeWaPhone(null)).toBe("");
@@ -38,6 +50,12 @@ describe("isValidWaPhone", () => {
   it("rejects empty / too short", () => {
     expect(isValidWaPhone("")).toBe(false);
     expect(isValidWaPhone("21267")).toBe(false);
+  });
+  it("rejects a leftover leading-0 number (no country code → wrong wa.me link)", () => {
+    expect(isValidWaPhone("0630298377")).toBe(false);
+  });
+  it("a bare local MA mobile becomes valid after normalize", () => {
+    expect(isValidWaPhone(normalizeWaPhone("0630298377"))).toBe(true);
   });
 });
 

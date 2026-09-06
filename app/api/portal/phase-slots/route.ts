@@ -117,6 +117,8 @@ type PhaseSlot = {
   /** LAW #30 Mode 1: PDF already has AcroForm fields; skip box-drawing. */
   pdf_has_native_fields: boolean;
   candidate_signature_zone: { page: number; x: number; y: number; w: number; h: number } | null;
+  /** true = permanent/required (default), false = optional (doesn't block completeness). */
+  is_required?: boolean;
 };
 
 // GET — any authenticated user; returns slots for a phase (org-specific → global fallback)
@@ -380,8 +382,15 @@ export async function POST(req: NextRequest) {
   insertData.admin_fills           = body.admin_fills           === true;
   insertData.candidate_fills       = body.candidate_fills       === true;
   insertData.pdf_has_native_fields = body.pdf_has_native_fields === true;
+  // Required (permanent) by default; admin can mark a slot optional. Schema-tolerant:
+  // if the is_required column isn't migrated yet, retry without it (slot still created).
+  insertData.is_required           = body.is_required           !== false;
 
-  const { data, error } = await db.from("phase_slots").insert(insertData).select().single();
+  let { data, error } = await db.from("phase_slots").insert(insertData).select().single();
+  if (error && /is_required|column .* does not exist|schema cache/i.test(error.message ?? "")) {
+    delete insertData.is_required;
+    ({ data, error } = await db.from("phase_slots").insert(insertData).select().single());
+  }
   if (error) {
     console.error("[phase-slots POST]", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
@@ -404,6 +413,7 @@ export async function PATCH(req: NextRequest) {
     category_id?: string | null;
     admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
     pdf_has_native_fields?: boolean;
+    is_required?: boolean;
   };
 
   const db = getServiceSupabase();
@@ -478,6 +488,7 @@ export async function PATCH(req: NextRequest) {
   if (body.admin_fills           !== undefined) updates.admin_fills           = !!body.admin_fills;
   if (body.candidate_fills       !== undefined) updates.candidate_fills       = !!body.candidate_fills;
   if (body.pdf_has_native_fields !== undefined) updates.pdf_has_native_fields = !!body.pdf_has_native_fields;
+  if (body.is_required           !== undefined) updates.is_required           = body.is_required !== false;
   // Move slot into / out of a category (null = uncategorized). Validated
   // as UUID-or-null; tolerated when the column isn't migrated yet.
   if (body.category_id !== undefined)
@@ -485,10 +496,10 @@ export async function PATCH(req: NextRequest) {
 
   if (Object.keys(updates).length > 0) {
     const { error: updErr } = await db.from("phase_slots").update(updates).eq("id", body.id);
-    if (updErr && /category_id|column .* does not exist|schema cache/i.test(updErr.message ?? "")) {
-      // Pre-migration fallback: drop category_id and retry the rest.
-      const { category_id: _omit, ...rest } = updates;
-      void _omit;
+    if (updErr && /category_id|is_required|column .* does not exist|schema cache/i.test(updErr.message ?? "")) {
+      // Pre-migration fallback: drop the not-yet-migrated columns and retry the rest.
+      const { category_id: _o1, is_required: _o2, ...rest } = updates;
+      void _o1; void _o2;
       if (Object.keys(rest).length > 0) await db.from("phase_slots").update(rest).eq("id", body.id);
     }
   }

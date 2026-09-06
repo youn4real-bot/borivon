@@ -12,7 +12,7 @@ import { PDFDocument } from "pdf-lib";
 import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
 import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType } from "@/lib/passportSanity";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
-import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
+import { LABEL_TO_FILE_KEY, resolveFileKey } from "@/lib/fileKeys";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -1059,12 +1059,20 @@ export async function POST(req: NextRequest) {
     const slotKey = LABEL_TO_FILE_KEY[fileType] ?? fileType;
     if (shouldSupersedePrevious(slotKey)) {
       try {
-        const { data: sameSlot } = await db
+        // Match the slot by CANONICAL fileKey, not the exact file_type string. A
+        // prior row can carry a different language label for the SAME slot — e.g.
+        // the login-less /u link stores the French canonical label while a portal
+        // re-upload stores the candidate's current-UI-language label — and an
+        // exact-string match would miss it, leaving two live rows in one slot.
+        // resolveFileKey distinguishes originals (diploma) from translations
+        // (diploma_de), so this never retires the counterpart document.
+        const { data: allRows } = await db
           .from("documents")
-          .select("id, superseded_at")
-          .eq("user_id", userId)
-          .eq("file_type", fileType);
-        const stale = idsToRetire((sameSlot ?? []) as { id: string; superseded_at?: string | null }[], insertedId);
+          .select("id, superseded_at, file_type")
+          .eq("user_id", userId);
+        const sameSlot = ((allRows ?? []) as { id: string; superseded_at?: string | null; file_type: string | null }[])
+          .filter((d) => resolveFileKey(d.file_type) === slotKey);
+        const stale = idsToRetire(sameSlot, insertedId);
         if (stale.length) {
           const { error: supErr } = await db
             .from("documents")
