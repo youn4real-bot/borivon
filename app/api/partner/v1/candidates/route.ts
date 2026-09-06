@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requirePartner, sharedCandidateIds, logPartnerAccess } from "@/lib/partnerAuth";
-import { enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed, enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * GET /api/partner/v1/candidates
@@ -17,14 +17,21 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  // Pre-auth IP throttle BEFORE requirePartner — bounds the UNauthenticated flood
+  // surface so a bad-key spray can't run an auth hash-lookup + a logPartnerAccess
+  // DB write per request. Mirrors the documents route (was missing here).
+  const preRl = await enforceRateLimitDistributed(req, "partner-api-pre", { limit: 60, windowMs: 60_000 });
+  if (!preRl.ok) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": String(preRl.retryAfterSec) } });
+
   const auth = await requirePartner(req);
   if (!auth.ok) {
     await logPartnerAccess({ keyId: null, orgId: null, path: "/candidates", status: auth.status });
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  // A partner polling us is expected; a partner hammering us is not.
-  const rl = await enforceRateLimitDistributed(req, "partner-api", { limit: 120, windowMs: 60_000 });
+  // Post-auth limit keyed by the API KEY (not IP) so a partner rotating source IPs
+  // can't exceed the cap — matches the documents route.
+  const rl = await enforceUserRateLimit("partner-api", `k:${auth.keyId}`, { limit: 120, windowMs: 60_000 });
   if (!rl.ok) {
     await logPartnerAccess({ keyId: auth.keyId, orgId: auth.orgId, path: "/candidates", status: 429 });
     return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
