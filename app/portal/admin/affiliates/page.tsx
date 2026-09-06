@@ -11,8 +11,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import {
-  ArrowLeft, Plus, Copy, Check, Loader2, RefreshCw, Play, Pause, Link2, KeyRound, Users, ChevronDown,
+  ArrowLeft, Plus, Copy, Check, Loader2, RefreshCw, Play, Pause, Link2, KeyRound, Users, ChevronDown, MessageCircle,
 } from "lucide-react";
+import { normalizeWaPhone, isValidWaPhone, waMeUrl } from "@/lib/waLink";
 
 type Affiliate = {
   id: string; code: string; name: string; email: string | null; phone: string | null;
@@ -246,6 +247,24 @@ export default function AdminAffiliatesPage() {
                     {busy === `pay-${a.id}` ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {L("Mark owed as paid", "Marquer dû comme payé", "Als bezahlt markieren")}
                   </button>
                 )}
+                {/* Tell the affiliate on WhatsApp (compose-only — you send it). Shown
+                    when there's money owed and a valid phone. */}
+                {a.owedEur > 0 && isValidWaPhone(normalizeWaPhone(a.phone)) && (() => {
+                  const d = normalizeWaPhone(a.phone);
+                  const m = money(a.owedEur, a.currency);
+                  const msg = L(
+                    `Hi ${a.name}, this is Borivon. Your affiliate commission of ${m} for ${a.placed} placement(s) is ready — let's arrange your payout. Thank you for your referrals!`,
+                    `Bonjour ${a.name}, ici Borivon. Votre commission d'affilié de ${m} pour ${a.placed} placement(s) est prête — organisons votre paiement. Merci pour vos parrainages !`,
+                    `Hallo ${a.name}, hier ist Borivon. Ihre Affiliate-Provision von ${m} für ${a.placed} Vermittlung(en) ist bereit — wir veranlassen die Auszahlung. Danke für Ihre Empfehlungen!`,
+                  );
+                  return (
+                    <a href={waMeUrl(d, msg)} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold no-underline"
+                      style={{ background: "rgba(37,211,102,0.14)", color: "#1a9c4e", border: "1px solid rgba(37,211,102,0.35)" }}>
+                      <MessageCircle size={12} /> WhatsApp
+                    </a>
+                  );
+                })()}
                 <button disabled={busy === `t-${a.id}`} onClick={() => patch({ id: a.id, active: !a.active }, `t-${a.id}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: "transparent", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
                   {a.active ? <><Pause size={12} /> {L("Pause", "Pause", "Pausieren")}</> : <><Play size={12} /> {L("Activate", "Activer", "Aktivieren")}</>}
                 </button>
