@@ -74,6 +74,9 @@ Each session, always re-read the laws before non-trivial changes. Recurring regr
 | `/portal/feed` | all logged-in | Community feed (global Borivon + per-org channels). |
 | `/portal/cv-builder` | candidate | German-format CV builder. Generated CV uploads as `cv_de` slot. |
 | `/portal/auth/callback` | any | Supabase auth code → session redirect. |
+| `/portal/admin/affiliates` | supreme admin only | Referral-partner CRUD + per-placement commission + payout tracking + "who referred whom". |
+| `/r/<code>` | public | Referral entry — sets a 90-day `bv_ref` cookie, counts the click, redirects to `/`. |
+| `affiliates.borivon.com/<token>` | affiliate (no login) | Affiliate self-serve dashboard (middleware rewrites the host → `/affiliate/*`; also at `www.borivon.com/affiliate/<token>`). |
 
 ### Roles (resolved server-side in `lib/admin-auth.ts`)
 
@@ -126,6 +129,15 @@ If a slot has NO native fields (or <4), the slot config popup opens with two til
 - Admin signature persists in `admin_signatures` table; candidate signature in `candidate_profiles.saved_signature`. Both reusable across slots — upload once, drop into every zone.
 - Final embedding into PDF via `lib/stampSigOnPdf.ts` (client-side `pdf-lib`).
 
+### Affiliate / referral program
+
+Referral partners earn a **fixed € per placement** (a referred nurse the admin marks `arrived_done`). Admin-created only (no self-signup). The app **never moves money** — it tracks what's owed; the founder pays out manually and marks paid.
+
+- **Data model** (`supabase/affiliates.sql` + `affiliate_terms.sql`): `affiliates` (public `code`, sha256 `dash_token_hash`, `commission_eur`, `active`, `terms_accepted_at`/`terms_version`), `affiliate_earnings` (`unique(affiliate_id,candidate_user_id)`, status `owed`|`paid`|`void`), plus `candidate_profiles.referred_by_affiliate` + `leads.ref_code`.
+- **Attribution**: `/r/<code>` sets a 90-day `bv_ref` cookie → the dashboard fires `/api/portal/ref/claim` (first-touch, self-referral blocked by **email match**) to set `referred_by_affiliate`; `leads.ref_code` captured schema-tolerantly.
+- **Earnings** (`lib/affiliates.ts`): `reconcileAffiliateEarnings()` derives the ledger from live data on every admin/affiliate dashboard load — **voids** an `owed` row whose placement reversed, **revives** on re-arrival, **refreshes** a €0 snapshot, and **never touches `paid`**. The pure decision core is `planEarningReconciliation()` (unit-tested in `tests/affiliates.reconcile.test.ts`). `void` is excluded from every total.
+- **Subdomain**: the affiliate portal is served ONLY at `affiliates.borivon.com` — `middleware.ts` rewrites that host → `/affiliate/*` and redirects/404s it off other hosts; the global chrome is hidden via an injected `<style>` from `app/layout.tsx` (a script-appended head style survives React hydration; a class/attr on `<html>` does not). No login: the private token IS the key. Affiliates NEVER see candidate PII (LAW #25) — the admin's "who referred whom" view (`/api/portal/admin/affiliates/[id]/referrals`) is supreme-only.
+
 ### Notifications (LAW #21, LAW #22)
 
 Two tables:
@@ -167,10 +179,12 @@ Every portal page loads via `Promise.allSettled([…critical fetches…])` then 
 - `lib/stampSigOnPdf.ts` — client-side `pdf-lib` signature stamper.
 - `lib/pdfFieldEmbed.ts` — **legacy only.** `FormField` type + `embedFields()` stamper used by `PdfFieldFill` (candidate-side legacy drawn fields). New work doesn't touch this.
 - `lib/removeImageBg.ts` — Otsu bg-removal for signatures.
+- `lib/affiliates.ts` — affiliate code/token gen + `hashDashToken` + `reconcileAffiliateEarnings()` (IO) delegating to the pure, tested `planEarningReconciliation()` (void/revive/refresh/paid-protection). `AFFILIATE_TERMS_VERSION` gates T&C re-acceptance.
+- `lib/waLink.ts` — Moroccan WhatsApp phone normalize/validate + `waMeUrl` (doc-nudge + affiliate payout-notify).
 - `lib/relativeTime.ts` — `date-fns` wrappers (verbose/compact/day-label/clock).
 - `lib/pdfjs.ts` — **SINGLE source of truth for pdf.js `getDocument` options** (`pdfLoadOptions`). EVERY pdf.js load MUST use it. It sets `wasmUrl` → `/pdfjs/wasm/`: pdf.js v5 decodes CCITTFax/JBIG2/JPEG2000 images via a WASM module, and some official forms (German EzB / Zusatzblatt agency forms) are built ENTIRELY from CCITTFax 1‑bit image masks — **without `wasmUrl` pdf.js silently drops every image and the page renders blank** (a real prod bug). Also sets cMap + standardFontData (non‑embedded fonts), `useSystemFonts:false`, `isOffscreenCanvasSupported:false`. The asset folders `/public/pdfjs/{wasm,cmaps,standard_fonts}` auto-sync from `node_modules/pdfjs-dist` on `postinstall` (`scripts/copy-pdfjs-assets.mjs`) so a pdfjs-dist upgrade can't leave them stale — never hand-edit them.
-- `components/GlobalChrome.tsx` — site-wide chrome (Navbar + bell + chat + profile + bug-report). Route-gated per LAW #1.
-- `components/Navbar.tsx` — top + mobile-bottom nav. Owns `portalTabs` (Dashboard / Community).
+- `components/GlobalChrome.tsx` — site-wide chrome (Navbar + notification bell + profile + bug-report; the message icon + checklist drawer were removed from the portal cluster). Route-gated per LAW #1; wrapped in `.bv-chrome` so the affiliate subdomain hides it via an injected `<style>`.
+- `components/Navbar.tsx` — top + mobile-bottom nav. Owns `portalTabs` (Dashboard / Calendar only — Community + Akademie hidden for all users).
 - `components/PdfViewer.tsx` — `pdfjs-dist` viewer with zoom toolbar + `pageOverlay` callback for absolute-positioned hotspots. Used by `AutoFillReviewModal`, `PdfZonePicker`, `PdfFieldFill`.
 - `components/AutoFillReviewModal.tsx` — click-on-PDF auto-fill UX for native AcroForm PDFs.
 
