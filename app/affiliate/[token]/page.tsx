@@ -8,7 +8,8 @@
  */
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Copy, Check, Link2, Users, Plane, Wallet, Loader2 } from "lucide-react";
+import { Copy, Check, Link2, Users, Plane, Wallet, Loader2, MessageCircle } from "lucide-react";
+import { waMeUrl } from "@/lib/waLink";
 
 type Earning = { placed_at: string; status: string; amount_eur: number };
 type Stats = {
@@ -172,6 +173,19 @@ export default function AffiliateDashboard() {
                   {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? L("Copied", "Copié", "Kopiert") : L("Copy", "Copier", "Kopieren")}
                 </button>
               </div>
+              {/* One-tap share — opens WhatsApp with a ready invite + the link, no
+                  recipient set, so the affiliate just picks who to send it to. */}
+              <a
+                href={waMeUrl("", L(
+                  `Want to work as a nurse in Germany? Borivon handles the whole process — visa, recognition, the lot. Start here: ${stats.shareUrl}`,
+                  `Envie de travailler comme infirmier·ère en Allemagne ? Borivon s'occupe de tout — visa, reconnaissance, etc. Commencez ici : ${stats.shareUrl}`,
+                  `Möchten Sie als Pflegekraft in Deutschland arbeiten? Borivon übernimmt alles — Visum, Anerkennung, den kompletten Weg. Starten Sie hier: ${stats.shareUrl}`,
+                ))}
+                target="_blank" rel="noopener noreferrer"
+                className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12.5px] font-semibold no-underline"
+                style={{ background: "#25d366", color: "#0b3d1f", border: "none" }}>
+                <MessageCircle size={15} /> {L("Share on WhatsApp", "Partager sur WhatsApp", "Auf WhatsApp teilen")}
+              </a>
               <p className="text-[11px] mt-2" style={{ color: "var(--w3)" }}>{L("Share it. When a nurse joins through your link and reaches Germany, you get paid.", "Partagez-le. Quand une infirmière s'inscrit via votre lien et arrive en Allemagne, vous êtes payé.", "Teilen Sie ihn. Wenn eine Pflegekraft über Ihren Link beitritt und Deutschland erreicht, werden Sie bezahlt.")}</p>
             </div>
 
