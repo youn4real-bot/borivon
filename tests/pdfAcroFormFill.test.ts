@@ -49,4 +49,14 @@ describe("suggestBinding — unambiguous agency fields", () => {
     expect(suggestBinding("Betriebsnummer")).toBe("agency_betriebsnummer");
     expect(suggestBinding("Ansprechpartner")).toBe("agency_kontaktperson");
   });
+  it("maps the employer NAME field but NOT generic employer-section fields", () => {
+    // "Arbeitgebername" IS the company name → agency_firma.
+    expect(suggestBinding("Arbeitgebername")).toBe("agency_firma");
+    // Regression: bare "arbeitgeber" used to over-match every employer field and
+    // stamp the company name into the employer street/PLZ/phone. Those must stay
+    // unmapped so the admin maps them once by hand.
+    expect(suggestBinding("Strasse_Arbeitgeber")).toBeNull();
+    expect(suggestBinding("PLZ_Arbeitgeber")).toBeNull();
+    expect(suggestBinding("Telefon_Arbeitgeber")).toBeNull();
+  });
 });

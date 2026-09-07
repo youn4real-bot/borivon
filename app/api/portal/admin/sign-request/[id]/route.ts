@@ -44,12 +44,15 @@ export async function PATCH(
 
   const r = request as { id: string; candidate_user_id: string; document_name: string; status: string };
 
-  if (r.status !== "signed") {
-    return NextResponse.json({ error: "Can only review signed requests" }, { status: 409 });
+  // LAW #25: scope-check BEFORE the status branch, and answer 404 (not 403) for
+  // an out-of-scope row so a sub-admin can't distinguish "no such id" from
+  // "exists but not yours" — nor learn its signed-status via the 409 below.
+  if (!(await canActOnCandidate(auth.role, auth.email, r.candidate_user_id))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (!(await canActOnCandidate(auth.role, auth.email, r.candidate_user_id))) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (r.status !== "signed") {
+    return NextResponse.json({ error: "Can only review signed requests" }, { status: 409 });
   }
 
   const { error: updateErr } = await db

@@ -150,7 +150,12 @@ function normalizeKey(s: string): string {
 const RULES: ReadonlyArray<readonly [readonly string[], BindingId]> = [
   // ── Unambiguous agency / employer fields. Section C of forms always uses
   //    these terms — never the candidate. Safe to auto-map.
-  [["firma",         "firmenname",  "arbeitgeber", "company"],              "agency_firma"],
+  // NOTE: bare "arbeitgeber" was removed — it substring-matches EVERY employer
+  // field (Strasse_Arbeitgeber, PLZ_Arbeitgeber, Telefon_Arbeitgeber, …), so it
+  // stamped the company NAME into the employer street/PLZ/phone. Keep only
+  // company-name-specific terms; generic employer fields stay unmapped (admin
+  // maps them once via the modal, template memory recalls the choice).
+  [["firma",         "firmenname",  "arbeitgebername", "namedesarbeitgebers", "company"], "agency_firma"],
   [["betriebsnummer", "etablissement"],                                     "agency_betriebsnummer"],
   [["kontaktperson", "ansprechpartner", "contactperson", "personnedecontact"], "agency_kontaktperson"],
   [["telefax",       "fax"],                                                "agency_telefax"],

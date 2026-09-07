@@ -137,7 +137,12 @@ export function AutoFillReviewModal({
         const byName = new Map(saved.map(m => [m.name, m]));
         setMappings(prev => prev.map(m => {
           const hit = byName.get(m.name);
-          return hit ? { name: m.name, binding: hit.binding ?? null, literal: hit.literal ?? "" } : m;
+          // Restore ONLY the binding from shared template memory — NEVER a stored
+          // literal. Template memory (pdf_field_mappings) is keyed by the form's
+          // field signature and shared across ALL candidates of that form, so a
+          // literal is another candidate's specific free text; bindings re-resolve
+          // per candidate and are safe to reuse.
+          return hit ? { name: m.name, binding: hit.binding ?? null, literal: "" } : m;
         }));
       } catch (e) {
         console.warn("[AutoFillReviewModal] memory fetch failed:", e);
@@ -172,9 +177,13 @@ export function AutoFillReviewModal({
 
   async function persistMemory() {
     if (!signature) return;
+    // Persist ONLY reusable field→catalog bindings, NEVER literals. A literal is
+    // candidate-specific free text typed for THIS upload; the pdf_field_mappings
+    // memory is shared across every candidate of the same form, so remembering a
+    // literal would stamp candidate A's value into candidate B's signed PDF.
     const persisted = mappings
-      .map(m => ({ name: m.name, binding: m.binding, literal: m.literal ?? "" }))
-      .filter(m => m.binding || m.literal);
+      .filter(m => m.binding)
+      .map(m => ({ name: m.name, binding: m.binding, literal: "" }));
     try {
       await fetch("/api/portal/admin/pdf-mappings", {
         method: "POST",
