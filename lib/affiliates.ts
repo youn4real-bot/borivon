@@ -49,6 +49,64 @@ export const PLACEMENT_FIELD = "arrived_done";
 /** Current affiliate T&C version — stamped on acceptance (bump to force re-accept). */
 export const AFFILIATE_TERMS_VERSION = "2026-09-06";
 
+export type EarningRow = { id: string; affiliate_id: string; candidate_user_id: string; amount_eur: number; status: string };
+export type ReconcilePlan = {
+  toInsert: { affiliate_id: string; candidate_user_id: string; amount_eur: number; status: string }[];
+  toOwed: string[];                            // void → owed (re-arrived)
+  toRefresh: { id: string; amount: number }[]; // fix a €0 snapshot on an unpaid row
+  toVoid: string[];                            // owed → void (reversed / de-attributed)
+};
+
+/**
+ * PURE decision core of reconcileAffiliateEarnings — no IO, exhaustively unit
+ * tested (tests/affiliates.reconcile.test.ts). Given who is referred, who is
+ * currently placed (arrivedSet), each affiliate's commission + active state, and
+ * the existing earning rows, decide what to insert / revive / refresh / void.
+ * Invariants: 'paid' rows are NEVER touched; an inactive affiliate neither
+ * accrues new rows nor loses already-earned ones; a placement no longer in
+ * arrivedSet (reversed) or whose attribution was removed voids its 'owed' row.
+ */
+export function planEarningReconciliation(input: {
+  affByUser: Map<string, string>;
+  arrivedSet: Set<string>;
+  comm: Map<string, { amount: number; active: boolean }>;
+  existing: EarningRow[];
+}): ReconcilePlan {
+  const { affByUser, arrivedSet, comm, existing } = input;
+  const byPair = new Map<string, EarningRow>();
+  for (const r of existing) byPair.set(r.affiliate_id + "::" + r.candidate_user_id, r);
+
+  const toInsert: ReconcilePlan["toInsert"] = [];
+  const toOwed: string[] = [];
+  const toRefresh: { id: string; amount: number }[] = [];
+  const qualified = new Set<string>(); // arrived + referred → protected from void
+
+  for (const userId of arrivedSet) {
+    const affId = affByUser.get(userId);
+    if (!affId) continue;
+    const pairKey = affId + "::" + userId;
+    qualified.add(pairKey); // protected regardless of active state
+    const c = comm.get(affId);
+    if (!c || !c.active) continue; // inactive affiliate: don't create/revive
+    const row = byPair.get(pairKey);
+    if (!row) { toInsert.push({ affiliate_id: affId, candidate_user_id: userId, amount_eur: c.amount, status: "owed" }); continue; }
+    if (row.status === "void") {
+      toOwed.push(row.id);
+      if ((Number(row.amount_eur) || 0) === 0 && c.amount > 0) toRefresh.push({ id: row.id, amount: c.amount });
+    } else if (row.status === "owed" && (Number(row.amount_eur) || 0) === 0 && c.amount > 0) {
+      toRefresh.push({ id: row.id, amount: c.amount });
+    }
+    // 'paid' rows are never touched.
+  }
+
+  const toVoid: string[] = [];
+  for (const [pairKey, row] of byPair) {
+    if (row.status === "owed" && !qualified.has(pairKey)) toVoid.push(row.id);
+  }
+
+  return { toInsert, toOwed, toRefresh, toVoid };
+}
+
 /**
  * Idempotently create an 'owed' earning for every referred candidate who has
  * reached the placement milestone. Derived from live data (not a write hook),
@@ -88,51 +146,24 @@ export async function reconcileAffiliateEarnings(db: SupabaseClient): Promise<vo
       for (const a of (arr ?? []) as { user_id: string }[]) arrivedSet.add(a.user_id);
     }
 
-    // Existing earnings, keyed by (affiliate, candidate).
+    // Existing earnings.
     const { data: existing, error: e3 } = await db
       .from("affiliate_earnings")
       .select("id, affiliate_id, candidate_user_id, amount_eur, status");
     if (e3) return;
-    const byPair = new Map<string, { id: string; amount_eur: number; status: string }>();
-    for (const r of (existing ?? []) as { id: string; affiliate_id: string; candidate_user_id: string; amount_eur: number; status: string }[]) {
-      byPair.set(r.affiliate_id + "::" + r.candidate_user_id, r);
-    }
 
-    const toInsert: { affiliate_id: string; candidate_user_id: string; amount_eur: number; status: string }[] = [];
-    const toOwed: string[] = [];                            // revive void → owed (re-arrived)
-    const toRefresh: { id: string; amount: number }[] = []; // fix a €0 snapshot on an unpaid row
-    const qualified = new Set<string>();                    // arrived + referred → protected from void
+    // Decide what to change (pure, exhaustively unit-tested), then apply the IO.
+    const plan = planEarningReconciliation({
+      affByUser,
+      arrivedSet,
+      comm,
+      existing: (existing ?? []) as EarningRow[],
+    });
 
-    for (const userId of arrivedSet) {
-      const affId = affByUser.get(userId);
-      if (!affId) continue;
-      const pairKey = affId + "::" + userId;
-      qualified.add(pairKey);                               // protected regardless of active state
-      const c = comm.get(affId);
-      if (!c || !c.active) continue;                        // inactive affiliate: don't create/revive
-      const row = byPair.get(pairKey);
-      if (!row) { toInsert.push({ affiliate_id: affId, candidate_user_id: userId, amount_eur: c.amount, status: "owed" }); continue; }
-      if (row.status === "void") {
-        toOwed.push(row.id);
-        if ((Number(row.amount_eur) || 0) === 0 && c.amount > 0) toRefresh.push({ id: row.id, amount: c.amount });
-      } else if (row.status === "owed" && (Number(row.amount_eur) || 0) === 0 && c.amount > 0) {
-        toRefresh.push({ id: row.id, amount: c.amount });
-      }
-      // 'paid' rows are never touched.
-    }
-
-    // Void 'owed' rows that no longer qualify (arrived_done reversed, or attribution
-    // removed). 'paid' rows are never voided; an inactive affiliate's already-earned
-    // rows stay (they were earned while active).
-    const toVoid: string[] = [];
-    for (const [pairKey, row] of byPair) {
-      if (row.status === "owed" && !qualified.has(pairKey)) toVoid.push(row.id);
-    }
-
-    if (toInsert.length) await db.from("affiliate_earnings").upsert(toInsert, { onConflict: "affiliate_id,candidate_user_id", ignoreDuplicates: true });
-    if (toOwed.length) await db.from("affiliate_earnings").update({ status: "owed" }).in("id", toOwed);
-    for (const r of toRefresh) await db.from("affiliate_earnings").update({ amount_eur: r.amount }).eq("id", r.id);
-    if (toVoid.length) await db.from("affiliate_earnings").update({ status: "void" }).in("id", toVoid);
+    if (plan.toInsert.length) await db.from("affiliate_earnings").upsert(plan.toInsert, { onConflict: "affiliate_id,candidate_user_id", ignoreDuplicates: true });
+    if (plan.toOwed.length) await db.from("affiliate_earnings").update({ status: "owed" }).in("id", plan.toOwed);
+    for (const r of plan.toRefresh) await db.from("affiliate_earnings").update({ amount_eur: r.amount }).eq("id", r.id);
+    if (plan.toVoid.length) await db.from("affiliate_earnings").update({ status: "void" }).in("id", plan.toVoid);
   } catch {
     /* pre-migration column/table absent, or transient — degrade to no-op */
   }
