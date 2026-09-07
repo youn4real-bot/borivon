@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 /**
  * One-time bootstrap to reset (or create) the supreme admin's password.
@@ -37,6 +38,13 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Tight IP throttle on this UNAUTHENTICATED supreme-admin password-reset
+  // endpoint. The secret (>=32 chars) + no-oracle answer are the real guards,
+  // but the comments below flag the missing throttle twice — this closes it, so
+  // BOOTSTRAP_RESET_SECRET can't be brute-forced during the armed recovery window.
+  const rl = await enforceRateLimitDistributed(req, "bootstrap-reset", { limit: 8, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   /*
    * THE SECRET MUST COME FROM A LIVE WORKER SECRET, NEVER FROM process.env.
    *
