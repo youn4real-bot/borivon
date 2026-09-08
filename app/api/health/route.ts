@@ -55,6 +55,15 @@ export async function GET(req: Request) {
     if (broken.length) {
       console.error("[health] DEPENDENCY DOWN:", broken.map((p) => `${p.name}: ${p.detail ?? ""}`).join(" | "));
     }
+    // Scheduled jobs (briefing / reminders / lead pings / email chase) only fire
+    // when CF_CRONS_ENABLED === "true" on the Worker. Surface it here so "are my
+    // automations running?" is an externally-checkable uptime fact, not a guess.
+    // Boolean only — no value exposed. Not on Workers (local/build) → false.
+    try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+      const env = getCloudflareContext().env as unknown as Record<string, unknown>;
+      deps = { ...deps, cronsEnabled: String(env?.CF_CRONS_ENABLED ?? "") === "true" };
+    } catch { deps = { ...deps, cronsEnabled: false }; }
   }
 
   // A failing DEEP probe must not flip the shallow uptime signal: an external
