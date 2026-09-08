@@ -8229,7 +8229,10 @@ export default function AdminPage() {
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
                 // In batch view, show document completeness at a glance (the point of
                 // batch tracking). Only there — keeps the general list uncluttered.
-                const docPct = batchActive ? (journeyByUser[uid]?.pct ?? computeChecklist(allDocs, { requiredKeys: requiredKeysForCandidate(uid) }).pct) : null;
+                // Always visible (not just in batch view): whoever shepherds these
+                // people needs the movement signal the moment they open the portal.
+                const docPct = journeyByUser[uid]?.pct
+                  ?? (batchActive ? computeChecklist(allDocs, { requiredKeys: requiredKeysForCandidate(uid) }).pct : null);
 
                 // B2 — the most-glanced signal. A subtle coloured ring on the avatar
                 // (inner = current B2 stage; red halo = failed at least once). Colour
