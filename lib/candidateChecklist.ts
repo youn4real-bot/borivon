@@ -49,11 +49,20 @@ export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
   { key: "transcript",        group: "qualifications", hasTranslation: true, optional: false },
   { key: "abitur",            group: "qualifications", hasTranslation: true, optional: false },
   { key: "abitur_transcript", group: "qualifications", hasTranslation: true, optional: false },
-  { key: "praktikum",         group: "qualifications", hasTranslation: true, optional: false },
+  { key: "praktikum",         group: "qualifications", hasTranslation: true, optional: true },
   { key: "workcert",          group: "qualifications", hasTranslation: true, optional: false },
   { key: "work_experience",   group: "qualifications", hasTranslation: true, optional: true },
   { key: "impfung",           group: "qualifications", hasTranslation: true, optional: false },
 ];
+
+/**
+ * NEVER required — a standing rule from the founder, for EVERY candidate and
+ * every agency. Sonstiges isn't in the catalog at all; Berufserfahrung and
+ * Ausbildungspraktikum are catalog items that must never count toward a
+ * completion %. Enforced below so even a per-org `requiredKeys` override that
+ * names them cannot make them required.
+ */
+export const ALWAYS_OPTIONAL: ReadonlySet<string> = new Set(["work_experience", "praktikum"]);
 
 export type DocLike = { file_type: string | null; status: string | null };
 
@@ -116,8 +125,11 @@ export function computeChecklist(
 ): Checklist {
   const overrideSet =
     opts?.requiredKeys && opts.requiredKeys.length ? new Set(opts.requiredKeys) : null;
-  const isRequired = (def: ChecklistItemDef): boolean =>
-    overrideSet ? overrideSet.has(def.key) : !def.optional;
+  const isRequired = (def: ChecklistItemDef): boolean => {
+    // Standing rule wins over any per-org override.
+    if (ALWAYS_OPTIONAL.has(def.key)) return false;
+    return overrideSet ? overrideSet.has(def.key) : !def.optional;
+  };
 
   const items: ChecklistItem[] = CHECKLIST_ITEMS.map(def => {
     const original = statusForKey(docs, def.key);

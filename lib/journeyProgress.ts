@@ -1,27 +1,33 @@
 /**
- * lib/journeyProgress.ts — the WHOLE-JOURNEY completion % for one candidate.
+ * lib/journeyProgress.ts — the candidate's CURRENT phase and how far through it.
  *
- * Pure + server-safe. Where lib/candidateChecklist.ts measures only the PAPERS
- * (Essentials + Qualifications), this spans the entire journey so the number
- * keeps climbing from signup all the way to arrival — the at-a-glance "is this
- * person moving?" signal for whoever shepherds the pipeline.
+ * Pure + server-safe. The journey runs in three sequential document phases:
  *
- * It is DOC-DRIVEN (auto-moves on real approvals, no manual checkbox upkeep):
- *   papers        — required Essentials + Qualifications approved (org-tailored)
- *   Bearbeitung   — the candidate's applicable required recognition doc slots
- *   Visum         — the permanent embassy boxes + applicable required Visum slots
- *   arrived       — candidate_pipeline.arrived_done (the one team-set milestone)
+ *   1. papers       — Unterlagen: Essentials + Qualifications, as ONE phase
+ *   2. bearbeitung  — the recognition doc set (applicable phase_slots)
+ *   3. visum        — embassy docs: permanent boxes + applicable phase_slots
  *
- * Each phase is weighted; a phase with no defined work drops out and the rest
- * renormalise, so an agency that hasn't set up (say) Bearbeitung slots yet still
- * gets an honest % — and it recalibrates the moment those docs are defined.
- * `arrived` always counts, so nobody reads 100% until they've actually landed.
+ * The UI shows ONE percentage at a time — the phase they're currently in. When
+ * that phase hits 100% it drops away and the next phase's percentage takes over,
+ * so the number is always "how far through the thing they're actually doing now"
+ * rather than a blended score that hides which step they're stuck on.
+ *
+ * Doc-driven: a phase advances when documents are APPROVED, so the bar moves on
+ * real work with no manual checkbox upkeep. A phase with no defined work is
+ * skipped entirely (0-of-0 is meaningless), and it reappears the moment those
+ * docs are defined.
  */
 import { computeChecklist, type DocLike } from "./candidateChecklist";
 import { FILE_KEY_ALL_LABELS } from "./fileKeys";
 
 /** A phase_slot as far as journey-completeness cares. */
 export type JourneySlot = { id: string; type?: string | null; is_required?: boolean | null };
+
+export type JourneyPhaseKey = "papers" | "bearbeitung" | "visum";
+
+export const JOURNEY_PHASE_ORDER: JourneyPhaseKey[] = ["papers", "bearbeitung", "visum"];
+
+export type JourneyPhase = { key: JourneyPhaseKey; done: number; total: number; pct: number };
 
 export type JourneyInputs = {
   /** The candidate's documents (file_type + status). */
@@ -32,19 +38,30 @@ export type JourneyInputs = {
   bearbeitungSlots: JourneySlot[];
   /** Visum slots that apply to this candidate. */
   visumSlots: JourneySlot[];
-  /** candidate_pipeline.arrived_done. */
-  arrived: boolean;
+  /** candidate_pipeline.arrived_done — surfaced, but never part of a phase %. */
+  arrived?: boolean;
 };
 
-export type JourneySegment = { key: string; weight: number; done: number; total: number };
-export type JourneyProgress = { pct: number; segments: JourneySegment[]; arrived: boolean };
+export type JourneyProgress = {
+  phases: JourneyPhase[];
+  /**
+   * The phase to DISPLAY: the first one with outstanding work. If every phase
+   * that has work is complete, this is the last such phase at 100%. null only
+   * when no phase has any work defined at all.
+   */
+  current: JourneyPhase | null;
+  /** Position of `current` in JOURNEY_PHASE_ORDER (-1 when none) — drives sorting. */
+  currentIndex: number;
+  allDone: boolean;
+  arrived: boolean;
+};
 
 /**
  * Permanent embassy (Visum) boxes that count toward completion. Deliberately
  * EXCLUDES:
- *   langcert           — the B2 cert, already counted in the papers phase (would double-count)
- *   cv_visa/letter_visa — builder twins that mirror the Essentials CV/letter
- *   berufserfahrung_visum — optional
+ *   langcert              — the B2 cert, already counted in papers (double-count)
+ *   cv_visa/letter_visa   — builder twins mirroring the Essentials CV/letter
+ *   berufserfahrung_visum — optional (standing rule: Berufserfahrung never counts)
  * Matched by fileKey→label (FILE_KEY_ALL_LABELS), same as papers.
  */
 export const VISUM_PERMANENT_REQUIRED = [
@@ -52,8 +69,6 @@ export const VISUM_PERMANENT_REQUIRED = [
   "vorabzustimmung", "arbeitsvertrag", "mawista", "versicherung",
   "tls_rechnung", "tls_bestaetigungstermin",
 ] as const;
-
-const WEIGHTS = { papers: 35, bearbeitung: 20, visum: 25, arrived: 20 };
 
 /** A permanent box / paper is done when a doc matching its fileKey is approved. */
 function approvedByKey(docs: DocLike[], key: string): boolean {
@@ -81,26 +96,32 @@ function slotCounts(docs: DocLike[], slots: JourneySlot[]): { done: number; tota
   return { total: required.length, done: required.filter(s => slotDone(docs, s)).length };
 }
 
+const asPhase = (key: JourneyPhaseKey, done: number, total: number): JourneyPhase => ({
+  key, done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0,
+});
+
 export function computeJourneyProgress(inp: JourneyInputs): JourneyProgress {
   const chk = computeChecklist(inp.docs, { requiredKeys: inp.requiredKeys ?? null });
   const bearb = slotCounts(inp.docs, inp.bearbeitungSlots);
   const permDone = VISUM_PERMANENT_REQUIRED.filter(k => approvedByKey(inp.docs, k)).length;
   const vSlots = slotCounts(inp.docs, inp.visumSlots);
-  const visum = { done: permDone + vSlots.done, total: VISUM_PERMANENT_REQUIRED.length + vSlots.total };
 
-  const segments: JourneySegment[] = [
-    { key: "papers",      weight: WEIGHTS.papers,      done: chk.requiredComplete, total: chk.requiredTotal },
-    { key: "bearbeitung", weight: WEIGHTS.bearbeitung, done: bearb.done,           total: bearb.total },
-    { key: "visum",       weight: WEIGHTS.visum,       done: visum.done,           total: visum.total },
-    { key: "arrived",     weight: WEIGHTS.arrived,     done: inp.arrived ? 1 : 0,  total: 1 },
+  const phases: JourneyPhase[] = [
+    asPhase("papers", chk.requiredComplete, chk.requiredTotal),
+    asPhase("bearbeitung", bearb.done, bearb.total),
+    asPhase("visum", permDone + vSlots.done, VISUM_PERMANENT_REQUIRED.length + vSlots.total),
   ];
 
-  // Only phases with defined work count; their weights renormalise. `arrived`
-  // always has total 1, so a not-yet-arrived candidate can never read 100%.
-  const active = segments.filter(s => s.total > 0);
-  const sumWeight = active.reduce((a, s) => a + s.weight, 0) || 1;
-  const pct = Math.round(
-    (active.reduce((a, s) => a + s.weight * (s.done / s.total), 0) / sumWeight) * 100,
-  );
-  return { pct, segments, arrived: inp.arrived };
+  // Only phases that actually have work are shown; a 0-of-0 phase is skipped.
+  const withWork = phases.filter(p => p.total > 0);
+  const outstanding = withWork.find(p => p.done < p.total) ?? null;
+  const current = outstanding ?? (withWork.length ? withWork[withWork.length - 1] : null);
+
+  return {
+    phases,
+    current,
+    currentIndex: current ? JOURNEY_PHASE_ORDER.indexOf(current.key) : -1,
+    allDone: withWork.length > 0 && outstanding === null,
+    arrived: inp.arrived === true,
+  };
 }

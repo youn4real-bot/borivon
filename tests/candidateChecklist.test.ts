@@ -110,11 +110,25 @@ describe("computeChecklist", () => {
       expect(c.items.find(i => i.key === "abitur")!.state).toBe("missing");
     });
 
-    it("override can require a normally-optional doc, and drop a normally-required one", () => {
-      // Require ONLY work_experience (default-optional); id (default-required) is excluded.
-      const c = computeChecklist([{ file_type: labelFor("id"), status: "approved" }], { requiredKeys: ["work_experience"] });
+    it("override can drop a normally-required doc", () => {
+      // Require ONLY diploma; id (default-required) is excluded by the override.
+      const c = computeChecklist([{ file_type: labelFor("id"), status: "approved" }], { requiredKeys: ["diploma"] });
       expect(c.requiredTotal).toBe(1);
-      expect(c.pct).toBe(0); // work_experience missing → 0/1
+      expect(c.pct).toBe(0); // diploma missing → 0/1
+    });
+
+    it("STANDING RULE: Berufserfahrung / Ausbildungspraktikum are never required, even if an org override names them", () => {
+      const c = computeChecklist([], { requiredKeys: ["work_experience", "praktikum", "id"] });
+      expect(c.requiredTotal).toBe(1); // only `id` survives
+      expect(c.items.find(i => i.key === "work_experience")!.optional).toBe(true);
+      expect(c.items.find(i => i.key === "praktikum")!.optional).toBe(true);
+    });
+
+    it("STANDING RULE holds with no override: Praktikum never drags the % down", () => {
+      const docs = allApprovedDocs().filter(d =>
+        d.file_type !== labelFor("praktikum") && d.file_type !== labelFor("praktikum_de") &&
+        d.file_type !== labelFor("work_experience") && d.file_type !== labelFor("work_experience_de"));
+      expect(computeChecklist(docs).pct).toBe(100);
     });
 
     it("unknown keys in the override are ignored (can't inflate the denominator)", () => {

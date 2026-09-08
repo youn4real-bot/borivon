@@ -301,12 +301,12 @@ export async function GET(req: NextRequest) {
     batches = rows.map((b) => ({ id: b.id, name: b.name, count: count[b.id] ?? 0 })).sort((a, b) => a.name.localeCompare(b.name));
   } catch { /* pipeline / batches not migrated → no batch tracker */ }
 
-  // ── Whole-journey completion % per candidate ────────────────────────────────
-  // papers → Bearbeitung → Visum → arrived, doc-driven (auto-moves on approvals)
-  // + the arrived_done milestone. Powers the candidate-list % the team watches.
-  // Fully schema-tolerant: any missing table/column just leaves journeyByUser
-  // empty and the list falls back to no badge — never 500s the admin page.
-  const journeyByUser: Record<string, { pct: number }> = {};
+  // ── Current journey PHASE + its % per candidate ─────────────────────────────
+  // Three sequential doc phases (papers → Bearbeitung → Visum). The list shows
+  // ONE percentage: the phase they're in right now. Doc-driven, so it moves on
+  // real approvals. Fully schema-tolerant: any missing table/column just leaves
+  // journeyByUser empty and the list falls back — never 500s the admin page.
+  const journeyByUser: Record<string, { phase: string; pct: number; phaseIndex: number; done: number; total: number; allDone: boolean }> = {};
   try {
     if (userIds.length > 0) {
       const [pipeRes, slotRes, empRes, orgReqRes] = await Promise.all([
@@ -351,7 +351,12 @@ export async function GET(req: NextRequest) {
           visumSlots: applicable("visum", empId, batchOrg),
           arrived: arrivedBy[uid] === true,
         });
-        journeyByUser[uid] = { pct: j.pct };
+        if (j.current) {
+          journeyByUser[uid] = {
+            phase: j.current.key, pct: j.current.pct, phaseIndex: j.currentIndex,
+            done: j.current.done, total: j.current.total, allDone: j.allDone,
+          };
+        }
       }
     }
   } catch (e) { console.warn("[admin GET] journey progress skipped:", e); }

@@ -619,10 +619,10 @@ export default function AdminPage() {
   // Approved org links per candidate (filled from /api/portal/admin response).
   // Used to render a small "Calmaroi" tag under each candidate's email.
   const [candidateOrgs, setCandidateOrgs] = useState<Record<string, { id: string; name: string }[]>>({});
-  // Whole-journey completion % per candidate (papers → Bearbeitung → Visum →
-  // arrived), computed server-side in /api/portal/admin. The at-a-glance "is this
-  // person moving?" signal in the candidate list. [] until the admin payload lands.
-  const [journeyByUser, setJourneyByUser] = useState<Record<string, { pct: number }>>({});
+  // The candidate's CURRENT journey phase + how far through it, computed
+  // server-side in /api/portal/admin. The list shows ONE percentage at a time:
+  // finish Unterlagen and it gives way to Bearbeitung, then Visum.
+  const [journeyByUser, setJourneyByUser] = useState<Record<string, { phase: string; pct: number; phaseIndex: number; done: number; total: number; allDone: boolean }>>({});
   const [loading, setLoading]       = useState(true);
   const [feedbacks, setFeedbacks]     = useState<Record<string, string>>({});
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
@@ -8143,9 +8143,16 @@ export default function AdminPage() {
               visibleIds = searchFilterUids.filter((uid) => !!users[uid]);
             } else if (batchFilterUids) {
               const inBatch = batchFilterUids.filter((uid) => !!users[uid]);
-              // Whole-journey % (server-computed); fall back to the papers-only % if
-              // it didn't compute. Least-progressed first → who needs the caretaker most.
-              const pctMap = new Map(inBatch.map((uid) => [uid, journeyByUser[uid]?.pct ?? computeChecklist(grouped[uid] ?? [], { requiredKeys: requiredKeysForCandidate(uid) }).pct] as const));
+              // Least-progressed FIRST → whoever needs attention floats to the top.
+              // Rank across the whole journey: earlier phase outranks a later one,
+              // then % within that phase. Falls back to the papers % if the server
+              // didn't compute a phase for this candidate.
+              const rankOf = (uid: string) => {
+                const j = journeyByUser[uid];
+                if (j) return j.phaseIndex * 1000 + j.pct;
+                return computeChecklist(grouped[uid] ?? [], { requiredKeys: requiredKeysForCandidate(uid) }).pct;
+              };
+              const pctMap = new Map(inBatch.map((uid) => [uid, rankOf(uid)] as const));
               visibleIds = inBatch.sort((a, b) => (pctMap.get(a) ?? 0) - (pctMap.get(b) ?? 0));
             }
 
@@ -8227,12 +8234,16 @@ export default function AdminPage() {
                   : "";
                 const isExpanded = expandedRow === uid;
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
-                // In batch view, show document completeness at a glance (the point of
-                // batch tracking). Only there — keeps the general list uncluttered.
-                // Always visible (not just in batch view): whoever shepherds these
-                // people needs the movement signal the moment they open the portal.
-                const docPct = journeyByUser[uid]?.pct
+                // ONE percentage at a time: the phase this candidate is in RIGHT NOW.
+                // Unterlagen → (at 100% it gives way to) Bearbeitung → Visum. Always
+                // visible, so whoever shepherds these people sees movement on login.
+                const jrn = journeyByUser[uid] ?? null;
+                const docPct = jrn?.pct
                   ?? (batchActive ? computeChecklist(allDocs, { requiredKeys: requiredKeysForCandidate(uid) }).pct : null);
+                const phaseLabel = !jrn ? null
+                  : jrn.phase === "papers"      ? (lang === "fr" ? "Dossiers" : "Unterlagen")
+                  : jrn.phase === "bearbeitung" ? "Bearbeitung"
+                  : "Visum";
 
                 // B2 — the most-glanced signal. A subtle coloured ring on the avatar
                 // (inner = current B2 stage; red halo = failed at least once). Colour
@@ -8308,11 +8319,19 @@ export default function AdminPage() {
                         );
                       })()}
 
-                      {/* Batch view: document completeness at a glance */}
+                      {/* The phase they're in RIGHT NOW + how far through it. One
+                          percentage at a time — it hands over to the next phase at 100%. */}
                       {docPct !== null && (
-                        <span className="hidden sm:block flex-shrink-0 text-[11px] font-semibold tabular-nums"
-                          title={lang === "de" ? "Dokumente vollständig" : lang === "fr" ? "documents complétés" : "documents complete"}
+                        <span className="hidden sm:flex items-baseline gap-1.5 flex-shrink-0 text-[11px] font-semibold tabular-nums"
+                          title={jrn
+                            ? `${phaseLabel} — ${jrn.done}/${jrn.total}${jrn.allDone ? (lang === "de" ? " · alle Phasen fertig" : lang === "fr" ? " · toutes les phases terminées" : " · all phases done") : ""}`
+                            : (lang === "de" ? "Dokumente vollständig" : lang === "fr" ? "documents complétés" : "documents complete")}
                           style={{ color: docPct === 100 ? "#16a34a" : docPct >= 50 ? "var(--w2)" : "#f59e0b" }}>
+                          {phaseLabel && (
+                            <span className="text-[9.5px] font-medium uppercase tracking-wide" style={{ color: "var(--w3)" }}>
+                              {phaseLabel}
+                            </span>
+                          )}
                           {docPct}%
                         </span>
                       )}
