@@ -91,11 +91,27 @@ export default function AdminProgressPage() {
   }, [router]);
 
   async function load(token: string) {
-    // Reuse the existing admin endpoint — already scoped per LAW #25.
-    const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
+    // Reuse the existing admin endpoint — already scoped per LAW #25. Also pull
+    // the org list so the % is measured against each candidate's agency required
+    // set (e.g. Calmaroi), matching the main admin panel instead of the generic
+    // catalog — otherwise the two boards would disagree on the same candidate.
+    const [res, orgRes] = await Promise.all([
+      fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } }),
+      fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
     const j = await res.json().catch(() => ({}));
     const docs: { user_id: string; file_type: string | null; status: string | null }[] = j.docs ?? [];
     const users: Record<string, { name?: string; email?: string }> = j.users ?? {};
+    const candidateOrgs: Record<string, { id: string }[]> = j.candidateOrgs ?? {};
+    const orgJson = await orgRes.json().catch(() => ({}));
+    const orgReq: Record<string, string[] | null> = {};
+    for (const o of (orgJson.orgs ?? []) as { id: string; requiredDocKeys?: string[] | null }[]) {
+      orgReq[o.id] = o.requiredDocKeys ?? null;
+    }
+    const requiredKeysFor = (uid: string): string[] | null => {
+      const orgId = (candidateOrgs[uid] ?? [])[0]?.id ?? null;
+      return orgId ? (orgReq[orgId] ?? null) : null;
+    };
 
     const byUser: Record<string, { file_type: string | null; status: string | null }[]> = {};
     for (const d of docs) (byUser[d.user_id] ??= []).push({ file_type: d.file_type, status: d.status });
@@ -104,7 +120,7 @@ export default function AdminProgressPage() {
       userId: uid,
       name: users[uid]?.name || users[uid]?.email || uid,
       email: users[uid]?.email || "",
-      checklist: computeChecklist(byUser[uid] ?? []),
+      checklist: computeChecklist(byUser[uid] ?? [], { requiredKeys: requiredKeysFor(uid) }),
     }));
     // Least-complete first → who needs attention bubbles to the top.
     list.sort((a, b) => a.checklist.pct - b.checklist.pct || a.name.localeCompare(b.name));

@@ -173,126 +173,107 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── EMPLOYER-scoped set takes priority (most specific) ─────────────────────
-  // Admin/sub-admin managing a set passes ?employerId (authorized). A candidate
-  // gets THEIR employer set automatically from candidate_profiles.employer_id —
-  // no param, works even when an admin placed them (this is the "fixed docs per
-  // pathway, e.g. Calmaroi → UKSH Lübeck" behaviour).
-  let employerId: string | null = null;
-  if (adminViewingCand) {
-    employerId = adminCandEmployer;
-  } else if (employerIdParam && UUID_RE.test(employerIdParam)) {
+  // ── Resolve the slot set ────────────────────────────────────────────────────
+  // Two modes:
+  //  • MANAGEMENT (?employerId or ?orgId, and NO ?candidateId) → return ONLY that
+  //    single scope's slots, so the admin edits the "UKSH Kiel set" or the
+  //    "Calmaroi batch set" in isolation.
+  //  • CANDIDATE-FACING (admin ?candidateId, or a candidate's own request) →
+  //    COMBINE the batch (the candidate's employer's AGENCY, e.g. Calmaroi) with
+  //    the site set (their employer, e.g. UKSH Kiel), so every assigned candidate
+  //    automatically gets the full list — batch docs first, then site extras.
+  //    Falls back to their own linked org, then the global default.
+
+  // (1) MANAGEMENT — one employer's set.
+  if (!candidateIdParam && employerIdParam && UUID_RE.test(employerIdParam)) {
     const adminAuth = await requireAdminRole(req);
     if (adminAuth.ok && (await canManageEmployer(adminAuth, employerIdParam))) {
-      employerId = employerIdParam;
+      const { data } = await db.from("phase_slots").select("*")
+        .eq("employer_id", employerIdParam).eq("phase", phase).order("position");
+      return NextResponse.json({ slots: (data ?? []) as PhaseSlot[] });
     }
+    return NextResponse.json({ slots: [] });
+  }
+  // (2) MANAGEMENT — one org's (batch) set.
+  if (!candidateIdParam && orgIdParam && UUID_RE.test(orgIdParam)) {
+    const adminAuth = await requireAdminRole(req);
+    let ok = false;
+    if (adminAuth.ok) {
+      // LAW #25: a scoped agency admin may only manage their own org's set.
+      ok = adminAuth.role === "admin" || (await canActOnOrg(adminAuth.role, adminAuth.email, orgIdParam));
+    } else {
+      // A candidate may read an org they self-joined (never an admin-placed one).
+      const { data: link } = await db.from("candidate_organizations").select("org_id")
+        .eq("candidate_user_id", userId).eq("org_id", orgIdParam)
+        .eq("status", "approved").neq("added_by", "admin").maybeSingle();
+      ok = !!link;
+    }
+    if (ok) {
+      const { data } = await db.from("phase_slots").select("*")
+        .eq("org_id", orgIdParam).eq("phase", phase).order("position");
+      return NextResponse.json({ slots: (data ?? []) as PhaseSlot[] });
+    }
+    // not authorized for the param → fall through to the combined/global view.
+  }
+
+  // (3) CANDIDATE-FACING — resolve the candidate's employer + batch org, combine.
+  let cEmployer: string | null = null;
+  let cOrg: string | null = null;
+  if (adminViewingCand) {
+    cEmployer = adminCandEmployer;
+    cOrg = adminCandOrg;
   } else {
     const adminAuth = await requireAdminRole(req);
     if (!adminAuth.ok) {
-      // Candidate: their assigned employer drives the fixed set.
-      const { data: prof } = await db
-        .from("candidate_profiles")
-        .select("employer_id")
-        .eq("user_id", userId)
-        .maybeSingle();
-      employerId = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
+      // Candidate's own request. employer_id is read directly (no admin-placed
+      // exclusion) so a placed candidate still gets their pathway's docs.
+      const { data: prof } = await db.from("candidate_profiles")
+        .select("employer_id").eq("user_id", userId).maybeSingle();
+      cEmployer = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
+      const { data: mem } = await db.from("candidate_organizations")
+        .select("org_id").eq("candidate_user_id", userId)
+        .eq("status", "approved").neq("added_by", "admin").maybeSingle();
+      cOrg = (mem as { org_id: string } | null)?.org_id ?? null;
+    } else if (adminAuth.role === "sub_admin") {
+      // Org admin with no candidate/param → their own org's set (manager default).
+      const { data: m } = await db.from("organization_members")
+        .select("org_id").eq("sub_admin_email", adminAuth.email).maybeSingle();
+      cOrg = (m as { org_id: string } | null)?.org_id ?? null;
     }
+    // Supreme admin with no params → global (both null → global fallback below).
   }
 
-  if (employerId) {
-    const { data } = await db
-      .from("phase_slots")
-      .select("*")
-      .eq("employer_id", employerId)
-      .eq("phase", phase)
-      .order("position");
-    const empSlots = (data ?? []) as PhaseSlot[];
-    // Only short-circuit when the employer actually has a set; otherwise fall
-    // through to org / global so an employer with no custom set still works.
-    if (empSlots.length > 0 || employerIdParam) {
-      return NextResponse.json({ slots: empSlots });
-    }
+  // The BATCH set is the employer's AGENCY (UKSH Kiel/Lübeck → Calmaroi), so a
+  // candidate at ANY site of that agency gets the shared batch docs. No employer
+  // → fall back to the candidate's own linked org as the batch.
+  let batchOrg: string | null = cOrg;
+  if (cEmployer) {
+    const { data: emp } = await db.from("employers").select("agency_id").eq("id", cEmployer).maybeSingle();
+    const agencyId = (emp as { agency_id: string | null } | null)?.agency_id ?? null;
+    if (agencyId) batchOrg = agencyId;
   }
 
-  let orgId: string | null = null;
-  if (adminViewingCand) {
-    // Admin viewing a candidate → that candidate's approved org (or global).
-    orgId = adminCandOrg;
-  } else if (orgIdParam && UUID_RE.test(orgIdParam)) {
-    // SECURITY: a `?orgId=` param must NOT be honored blindly — that let any
-    // authenticated candidate read ANY org's private slot definitions
-    // (instructions, template paths) by guessing org UUIDs. Only an
-    // admin/sub-admin (org tooling) may pass an arbitrary org; a candidate is
-    // restricted to an org they're approved + self-joined to. An unlinked
-    // param is ignored → falls through to auto-detect/global below.
-    const adminAuth = await requireAdminRole(req);
-    if (adminAuth.ok) {
-      // LAW #25: a scoped agency admin must NOT read another org's slot set by
-      // passing ?orgId=. Supreme (role "admin") and true HQ sub-admins pass via
-      // canActOnOrg; an org-scoped admin passing a foreign org is ignored → falls
-      // through to their own org's auto-detected set below.
-      if (adminAuth.role === "admin" || (await canActOnOrg(adminAuth.role, adminAuth.email, orgIdParam))) {
-        orgId = orgIdParam;
-      }
-    } else {
-      const { data: link } = await db
-        .from("candidate_organizations")
-        .select("org_id")
-        .eq("candidate_user_id", userId)
-        .eq("org_id", orgIdParam)
-        .eq("status", "approved")
-        .neq("added_by", "admin")
-        .maybeSingle();
-      if (link) orgId = orgIdParam;
-    }
+  let batchSlots: PhaseSlot[] = [];
+  if (batchOrg) {
+    const { data } = await db.from("phase_slots").select("*")
+      .eq("org_id", batchOrg).eq("phase", phase).order("position");
+    batchSlots = (data ?? []) as PhaseSlot[];
   }
-  if (!orgId && !adminViewingCand) {
-    // Org admin with no explicit scope → THEIR org's slot set (so the slot
-    // manager shows + edits their org's slots, not the global ones).
-    const adminAuth = await requireAdminRole(req);
-    if (adminAuth.ok && adminAuth.role === "sub_admin") {
-      const { data: m } = await db
-        .from("organization_members")
-        .select("org_id")
-        .eq("sub_admin_email", adminAuth.email)
-        .maybeSingle();
-      orgId = (m as { org_id: string } | null)?.org_id ?? null;
-    }
+  let siteSlots: PhaseSlot[] = [];
+  if (cEmployer) {
+    const { data } = await db.from("phase_slots").select("*")
+      .eq("employer_id", cEmployer).eq("phase", phase).order("position");
+    siteSlots = (data ?? []) as PhaseSlot[];
   }
-  if (!orgId && !adminViewingCand) {
-    // Auto-detect: candidate's approved org. Admin-initiated links are
-    // excluded (user request 2026-05: candidate must not see content from
-    // agencies an admin placed them with). Candidate-self-joined orgs
-    // still get their org-specific slot templates.
-    const { data: mem } = await db
-      .from("candidate_organizations")
-      .select("org_id")
-      .eq("candidate_user_id", userId)
-      .eq("status", "approved")
-      .neq("added_by", "admin")
-      .maybeSingle();
-    orgId = (mem as { org_id: string } | null)?.org_id ?? null;
-  }
+  // Batch (Calmaroi) docs first, then the site (Kiel/Lübeck) extras. Re-number
+  // position on the COMBINED list so any position-sort keeps the two groups in
+  // order (the persisted per-scope positions are edited via the manager views).
+  let slots = [...batchSlots, ...siteSlots].map((s, i) => ({ ...s, position: i }));
 
-  let slots: PhaseSlot[] = [];
-  if (orgId) {
-    const { data } = await db
-      .from("phase_slots")
-      .select("*")
-      .eq("org_id", orgId)
-      .eq("phase", phase)
-      .order("position");
-    slots = (data ?? []) as PhaseSlot[];
-  }
-
-  // Global fallback
+  // Global fallback only when the candidate has NEITHER a batch nor a site set.
   if (slots.length === 0) {
-    const { data } = await db
-      .from("phase_slots")
-      .select("*")
-      .is("org_id", null)
-      .eq("phase", phase)
-      .order("position");
+    const { data } = await db.from("phase_slots").select("*")
+      .is("org_id", null).eq("phase", phase).order("position");
     slots = (data ?? []) as PhaseSlot[];
   }
 

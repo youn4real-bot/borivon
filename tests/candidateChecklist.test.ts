@@ -80,4 +80,47 @@ describe("computeChecklist", () => {
     expect(c.counts.pending).toBe(1);
     expect(c.counts.missing).toBe(c.requiredTotal - 1);
   });
+
+  // ── Per-org required-doc override (e.g. Calmaroi) ─────────────────────────
+  describe("requiredKeys override", () => {
+    it("null/empty override falls back to the built-in default set", () => {
+      const base = computeChecklist(allApprovedDocs());
+      expect(computeChecklist(allApprovedDocs(), { requiredKeys: null }).requiredTotal).toBe(base.requiredTotal);
+      expect(computeChecklist(allApprovedDocs(), { requiredKeys: [] }).requiredTotal).toBe(base.requiredTotal);
+    });
+
+    it("only the listed docs count toward the denominator", () => {
+      const c = computeChecklist([], { requiredKeys: ["id", "cv_de", "langcert"] });
+      expect(c.requiredTotal).toBe(3);
+      expect(c.counts.missing).toBe(3);
+    });
+
+    it("100% once exactly the required subset is approved — extra papers don't matter", () => {
+      const req = ["id", "cv_de", "letter", "langcert", "diploma", "transcript", "workcert", "impfung"];
+      const docs: DocLike[] = [];
+      for (const key of req) {
+        docs.push({ file_type: labelFor(key), status: "approved" });
+        const it = CHECKLIST_ITEMS.find(i => i.key === key)!;
+        if (it.hasTranslation) docs.push({ file_type: labelFor(`${key}_de`), status: "approved" });
+      }
+      const c = computeChecklist(docs, { requiredKeys: req });
+      expect(c.requiredTotal).toBe(req.length);
+      expect(c.pct).toBe(100);
+      // Abitur/Praktikum are still MISSING but excluded from the % → no drag-down.
+      expect(c.items.find(i => i.key === "abitur")!.state).toBe("missing");
+    });
+
+    it("override can require a normally-optional doc, and drop a normally-required one", () => {
+      // Require ONLY work_experience (default-optional); id (default-required) is excluded.
+      const c = computeChecklist([{ file_type: labelFor("id"), status: "approved" }], { requiredKeys: ["work_experience"] });
+      expect(c.requiredTotal).toBe(1);
+      expect(c.pct).toBe(0); // work_experience missing → 0/1
+    });
+
+    it("unknown keys in the override are ignored (can't inflate the denominator)", () => {
+      const c = computeChecklist([{ file_type: labelFor("id"), status: "approved" }], { requiredKeys: ["id", "not_a_real_key"] });
+      expect(c.requiredTotal).toBe(1);
+      expect(c.pct).toBe(100);
+    });
+  });
 });

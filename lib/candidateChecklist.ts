@@ -99,8 +99,26 @@ function rollUp(original: ItemStatus, translation: ItemStatus | null): ItemState
   return "missing";
 }
 
-/** Compute the full checklist for one candidate from their documents rows. */
-export function computeChecklist(docs: DocLike[]): Checklist {
+/**
+ * Compute the full checklist for one candidate from their documents rows.
+ *
+ * `opts.requiredKeys` — a per-ORG override of WHICH catalog docs count toward the
+ * completion %. When provided (non-empty), a doc is required iff its key is in the
+ * set — so an agency like Calmaroi, which doesn't need e.g. Abitur or Praktikum,
+ * gets a % measured only against the papers it actually asks for. When absent or
+ * empty, the built-in `optional` flags apply (the default full set). Keys not in
+ * the catalog are ignored; every item is still returned (for display), only the
+ * denominator changes.
+ */
+export function computeChecklist(
+  docs: DocLike[],
+  opts?: { requiredKeys?: readonly string[] | null },
+): Checklist {
+  const overrideSet =
+    opts?.requiredKeys && opts.requiredKeys.length ? new Set(opts.requiredKeys) : null;
+  const isRequired = (def: ChecklistItemDef): boolean =>
+    overrideSet ? overrideSet.has(def.key) : !def.optional;
+
   const items: ChecklistItem[] = CHECKLIST_ITEMS.map(def => {
     const original = statusForKey(docs, def.key);
     const translation = def.hasTranslation ? statusForKey(docs, `${def.key}_de`) : null;
@@ -110,7 +128,7 @@ export function computeChecklist(docs: DocLike[]): Checklist {
   const counts = { complete: 0, pending: 0, rejected: 0, missing: 0 };
   let requiredTotal = 0;
   for (const it of items) {
-    if (it.optional) continue;
+    if (!isRequired(it)) continue;
     requiredTotal++;
     counts[it.state]++;
   }
@@ -118,3 +136,6 @@ export function computeChecklist(docs: DocLike[]): Checklist {
   const pct = requiredTotal === 0 ? 0 : Math.round((requiredComplete / requiredTotal) * 100);
   return { items, requiredTotal, requiredComplete, pct, counts };
 }
+
+/** Catalog keys that CAN be marked required for an org (drives the org editor UI). */
+export const CHECKLIST_KEYS: string[] = CHECKLIST_ITEMS.map(i => i.key);

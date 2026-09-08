@@ -4,6 +4,7 @@ import { requireAdminRole } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
 import { normalizeReq } from "@/lib/impfungJourney";
+import { CHECKLIST_KEYS } from "@/lib/candidateChecklist";
 
 
 /**
@@ -60,13 +61,37 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body?.vaccineReq !== undefined) {
     updates.vaccine_req = normalizeReq(body.vaccineReq);
   }
+  // Which documents count toward this org's completion % (lib/candidateChecklist).
+  // null → reset to the built-in default set; an array → exactly these catalog
+  // keys are required. Unknown keys are dropped so bad input can't skew the %.
+  if (body?.requiredDocKeys !== undefined) {
+    if (body.requiredDocKeys === null) {
+      updates.required_doc_keys = null;
+    } else if (Array.isArray(body.requiredDocKeys)) {
+      const valid = new Set(CHECKLIST_KEYS);
+      updates.required_doc_keys = [
+        ...new Set(body.requiredDocKeys.filter((k: unknown): k is string => typeof k === "string" && valid.has(k))),
+      ];
+    }
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
   const db = getServiceSupabase();
-  const { error } = await db.from("organizations").update(updates).eq("id", id);
+  let { error } = await db.from("organizations").update(updates).eq("id", id);
+  // Schema-tolerant: if required_doc_keys isn't migrated yet, still apply the rest
+  // so renames/branding never break — and tell the client the migration is needed.
+  if (error && (error as { code?: string }).code === "42703" && "required_doc_keys" in updates) {
+    const { required_doc_keys: _omit, ...rest } = updates;
+    void _omit;
+    if (Object.keys(rest).length === 0) {
+      return NextResponse.json({ success: true, migrationNeeded: true });
+    }
+    ({ error } = await db.from("organizations").update(rest).eq("id", id));
+    if (!error) return NextResponse.json({ success: true, migrationNeeded: true });
+  }
   if (error) {
     if ((error as { code?: string }).code === "23505") {
       return NextResponse.json({ error: "Code already in use" }, { status: 409 });

@@ -69,7 +69,7 @@ function getPhaseIdx(fileType: string): number {
   return ADMIN_PHASES.length - 1;
 }
 
-type OrgBasic = { id: string; name: string };
+type OrgBasic = { id: string; name: string; requiredDocKeys?: string[] | null };
 
 type Doc = {
   id: string;
@@ -843,6 +843,35 @@ export default function AdminPage() {
   // Scope currently being fetched per phase — dedupes concurrent loads so the
   // loaded marker is only set on a successful, still-relevant response.
   const slotFetchRef = useRef<Record<string, string>>({});
+  // ── Doc-set SCOPE for the Bearbeitung/Visum manager ─────────────────────────
+  // Define a shared document set ONCE and every assigned candidate inherits it —
+  // no more re-adding the same docs per person. Scope choices:
+  //   • null  → the candidate's COMBINED view (batch ▸ agency + site ▸ employer),
+  //             exactly what the candidate sees. Adds default to their site.
+  //   • {org} → the whole AGENCY batch (e.g. every Calmaroi candidate).
+  //   • {emp} → one SITE (e.g. UKSH Kiel) — all its candidates.
+  type SlotScope = { kind: "org"; id: string; name: string } | { kind: "emp"; id: string; name: string } | null;
+  const [slotScope, setSlotScope] = useState<SlotScope>(null);
+  // null scope keeps TODAY's key ("global", or the candidate uid) so the
+  // bootstrap-loaded global set and existing gates stay valid; org/emp scopes
+  // get their own key so switching scope refetches that single set.
+  const scopeKeyOf = (scope: SlotScope, cand: string | null) =>
+    scope?.kind === "org" ? `org:${scope.id}`
+    : scope?.kind === "emp" ? `emp:${scope.id}`
+    : (cand || "global");
+  // A different candidate → back to their own combined view.
+  useEffect(() => { setSlotScope(null); }, [selectedUser]);
+  // Per-org override of WHICH papers count toward a candidate's completion %.
+  // An agency (e.g. Calmaroi) can require only the docs it actually asks for, so
+  // the % isn't dragged down by papers that don't apply (Abitur, Praktikum, …).
+  // Resolves the candidate's org (the badge on the row) → its required_doc_keys;
+  // null → the built-in default set.
+  const requiredKeysForCandidate = (uid: string | null): string[] | null => {
+    if (!uid) return null;
+    const orgId = (candidateOrgs[uid] ?? [])[0]?.id ?? null;
+    if (!orgId) return null;
+    return allOrgs.find(o => o.id === orgId)?.requiredDocKeys ?? null;
+  };
   // ── Slot CATEGORIES (admin-managed groups for Bearbeitung / Visum) ──────────
   // Global-scoped (org_id null) here, mirroring how the admin slot manager
   // loads global slots. Foldable + reorderable; deleting a category un-groups
@@ -2261,22 +2290,26 @@ export default function AdminPage() {
   // Scope = the open candidate's employer (pathway). When set, the manager
   // loads/edits THAT employer's shared fixed set (e.g. UKSH Lübeck) — applies
   // to every candidate placed there. No employer → the global set (legacy).
-  async function loadPhaseSlots(phase: string) {
-    // Resolve slots by the OPEN CANDIDATE so every admin (Borivon HQ + org)
-    // sees the exact same set as the candidate (employer → their org → global).
-    const scopeKey = selectedUser || "global";
+  async function loadPhaseSlots(phase: string, scopeArg?: SlotScope) {
+    // Resolve slots for the requested SCOPE. null (the default) = the open
+    // candidate's combined view (employer batch + site → their org → global),
+    // exactly what the candidate sees. An org/emp scope loads that single
+    // shared set so the founder can edit "all Calmaroi" or "UKSH Kiel" alone.
+    const scope = scopeArg !== undefined ? scopeArg : slotScope;
+    const scopeKey = scopeKeyOf(scope, selectedUser);
     if (!accessToken) return;
     if (phaseSlotsLoaded[phase] === scopeKey) return;          // data already correct
     if (slotFetchRef.current[phase] === scopeKey) return;      // this scope already fetching
     slotFetchRef.current[phase] = scopeKey;
     void loadSlotCategories(phase);
     try {
-      const url = selectedUser
-        ? `/api/portal/phase-slots?phase=${phase}&candidateId=${selectedUser}`
-        : `/api/portal/phase-slots?phase=${phase}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      // Ignore a stale response if the open candidate changed mid-flight.
-      if ((selectedUser || "global") !== scopeKey) return;
+      const qs = scope?.kind === "org" ? `phase=${phase}&orgId=${scope.id}`
+        : scope?.kind === "emp" ? `phase=${phase}&employerId=${scope.id}`
+        : selectedUser ? `phase=${phase}&candidateId=${selectedUser}`
+        : `phase=${phase}`;
+      const res = await fetch(`/api/portal/phase-slots?${qs}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      // Ignore a stale response if a newer load (scope/candidate switch) supersedes.
+      if (slotFetchRef.current[phase] !== scopeKey) return;
       if (res.ok) {
         const j = await res.json();
         // Sign/fill hidden for now → strip the action flags so every slot is a
@@ -2294,16 +2327,20 @@ export default function AdminPage() {
     if (!accessToken || !label.trim()) return;
     setAddSlotSaving(true);
     try {
-      // Scope the new slot to the open candidate's employer (pathway) so it
-      // joins that employer's shared fixed set. No employer → global slot.
-      const empId = selectedUser ? (employerByUser[selectedUser] ?? null) : null;
+      // Target the SELECTED scope: the whole agency batch (org), one site
+      // (employer), or — in the combined candidate view — default to the
+      // candidate's own site so an extra doc still joins their shared set.
+      const scopeBody: Record<string, string> =
+        slotScope?.kind === "org" ? { orgId: slotScope.id }
+        : slotScope?.kind === "emp" ? { employerId: slotScope.id }
+        : (selectedUser && employerByUser[selectedUser] ? { employerId: employerByUser[selectedUser]! } : {});
       const res = await fetch("/api/portal/phase-slots", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           phase, type: "simple", label: label.trim(),
           instructions: instructions.trim() || undefined,
-          ...(empId ? { employerId: empId } : {}),
+          ...scopeBody,
         }),
       });
       if (res.ok) {
@@ -4029,6 +4066,7 @@ export default function AdminPage() {
               {selectedUser && (() => {
                 const cl = computeChecklist(
                   docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
+                  { requiredKeys: requiredKeysForCandidate(selectedUser) },
                 );
                 // Original and translated are SEPARATE requestable docs — a
                 // qualification ships as an original + its German translation.
@@ -4227,7 +4265,8 @@ export default function AdminPage() {
                               : { title: "Documents", complete: "complete", essentials: "Essentials", qualifications: "Qualifications", trans: "Translation", optional: "optional",
                                   labels: { id: "Passport", cv_de: "CV", letter: "Cover letter", langcert: "B2 certificate", diploma: "Diploma", studyprog: "Study program", transcript: "Transcript", abitur: "Abitur", abitur_transcript: "Abitur transcript", praktikum: "Internship", workcert: "Work permit", work_experience: "Work experience", impfung: "Vaccination" } as Record<string, string> };
                             const cl = computeChecklist(
-                              docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status }))
+                              docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
+                              { requiredKeys: requiredKeysForCandidate(selectedUser) }
                             );
                             const COLOR: Record<ItemStatus, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#ef4444", missing: "#9ca3af" };
                             const Icn = ({ s, size = 15 }: { s: ItemStatus; size?: number }) => (
@@ -5042,6 +5081,7 @@ export default function AdminPage() {
                     {/* ── Dynamic slot management — Bearbeitung / Visum ─────────────────── */}
                     {(activePipelineStage === "recognition" || activePipelineStage === "visum") && (() => {
                       const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : "visum";
+                      const scopeKey = scopeKeyOf(slotScope, selectedUser);
                       const slots = (phaseSlots[slotPhase] ?? []).filter((s): s is PhaseSlot => s != null && !!s.id);
                       const cats = [...(slotCategories[slotPhase] ?? [])].sort((a, b) => a.position - b.position);
                       const slotsInCat = (cid: string | null) =>
@@ -5698,19 +5738,66 @@ export default function AdminPage() {
                         );
                       };
 
+                      // ── Doc-set SCOPE switch ────────────────────────────────
+                      // Resolve the candidate's agency (batch) + every site under
+                      // it, so the founder can define the set once for ALL of them
+                      // or for a single site — instead of re-adding per candidate.
                       const _empId = selectedUser ? (employerByUser[selectedUser] ?? null) : null;
-                      const _empName = _empId ? (allEmployers.find(e => e.id === _empId)?.name ?? null) : null;
+                      const _emp = _empId ? allEmployers.find(e => e.id === _empId) ?? null : null;
+                      const _linkedOrg = selectedUser ? (candidateOrgs[selectedUser] ?? [])[0] ?? null : null;
+                      const _agencyId = _emp?.agencyId ?? _linkedOrg?.id ?? null;
+                      const _agencyName = _agencyId
+                        ? (allOrgs.find(o => o.id === _agencyId)?.name ?? _linkedOrg?.name ?? "Batch")
+                        : null;
+                      const _sites = _agencyId ? allEmployers.filter(e => e.agencyId === _agencyId) : [];
+                      const _directEmp = !_agencyId && _emp ? _emp : null;
+                      const _scopeOpts: { key: string; label: string; scope: SlotScope }[] = [
+                        { key: "cand", label: lang === "de" ? "Diese/r Kandidat/in" : lang === "fr" ? "Ce candidat" : "This candidate", scope: null },
+                        ...(_agencyId && _agencyName
+                          ? [{ key: `org:${_agencyId}`, label: (lang === "de" ? "Alle " : lang === "fr" ? "Tout " : "All ") + _agencyName, scope: { kind: "org", id: _agencyId, name: _agencyName } as SlotScope }]
+                          : []),
+                        ..._sites.map(s => ({ key: `emp:${s.id}`, label: s.name, scope: { kind: "emp", id: s.id, name: s.name } as SlotScope })),
+                        ...(_directEmp ? [{ key: `emp:${_directEmp.id}`, label: _directEmp.name, scope: { kind: "emp", id: _directEmp.id, name: _directEmp.name } as SlotScope }] : []),
+                      ];
+                      const _showScopeSwitch = _scopeOpts.length > 1;
+                      const _activeScopeKey = slotScope?.kind === "org" ? `org:${slotScope.id}` : slotScope?.kind === "emp" ? `emp:${slotScope.id}` : "cand";
                       return (
                         <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                          {_empName && (
+                          {_showScopeSwitch && (
+                            <div className="px-2.5 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                              <div className="flex flex-wrap gap-1.5">
+                                {_scopeOpts.map(o => {
+                                  const on = _activeScopeKey === o.key;
+                                  return (
+                                    <button key={o.key}
+                                      onClick={() => { setSlotScope(o.scope); void loadPhaseSlots(slotPhase, o.scope); }}
+                                      className="px-2.5 py-1.5 rounded-full text-[11px] font-semibold transition-all"
+                                      style={{ background: on ? "var(--gold)" : "var(--bg2)", color: on ? "#1a1205" : "var(--w2)", border: `1px solid ${on ? "var(--gold)" : "var(--border)"}` }}>
+                                      {o.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-[10.5px] mt-2 leading-snug" style={{ color: "var(--w3)" }}>
+                                {slotScope
+                                  ? (lang === "de" ? `Festes Set für ${slotScope.name} — gilt für alle dort. Kandidaten erhalten es automatisch.`
+                                    : lang === "fr" ? `Jeu fixe pour ${slotScope.name} — s'applique à tous. Les candidats le reçoivent automatiquement.`
+                                    : `Fixed set for ${slotScope.name} — applies to everyone there. Candidates get it automatically.`)
+                                  : (lang === "de" ? "Kombinierte Ansicht (Batch + Standort), wie der/die Kandidat/in sie sieht."
+                                    : lang === "fr" ? "Vue combinée (lot + site), telle que le candidat la voit."
+                                    : "Combined view (batch + site) as the candidate sees it.")}
+                              </p>
+                            </div>
+                          )}
+                          {!_showScopeSwitch && _emp && (
                             <div className="px-3 py-2 text-[11px] font-medium" style={{
                               color: "var(--gold)", background: "var(--gdim)",
                               borderBottom: "1px solid var(--border)", borderRadius: "20px 20px 0 0" }}>
                               {lang === "de"
-                                ? `Bearbeite das feste Set für ${_empName} — gilt für alle dortigen Kandidaten.`
+                                ? `Bearbeite das feste Set für ${_emp.name} — gilt für alle dortigen Kandidaten.`
                                 : lang === "fr"
-                                ? `Édition du jeu fixe pour ${_empName} — s'applique à tous ses candidats.`
-                                : `Editing the fixed set for ${_empName} — applies to all its candidates.`}
+                                ? `Édition du jeu fixe pour ${_emp.name} — s'applique à tous ses candidats.`
+                                : `Editing the fixed set for ${_emp.name} — applies to all its candidates.`}
                             </div>
                           )}
                           <div className="px-2 py-2">
@@ -5720,7 +5807,7 @@ export default function AdminPage() {
                               (even before anything is started), preview, download, swap,
                               approve/reject. "Edit" opens the same builder, which on save
                               regenerates BOTH the Essentials original and this twin. ── */}
-                          {slotPhase === "visum" && [
+                          {slotPhase === "visum" && !slotScope && [
                             { key: "cv_visa",     label: t.pTypeCVvisa,     isCv: true  },
                             { key: "letter_visa", label: t.pTypeLetterVisa, isCv: false },
                           ].map((pb, pi) => {
@@ -5863,10 +5950,13 @@ export default function AdminPage() {
                             // sortable, ordered by the shared phase_doc_order (candidates see
                             // the SAME order). Items not in the saved order keep their default
                             // position (perm boxes first, then slots by position).
-                            const slotsReady = phaseSlotsLoaded[slotPhase] === (selectedUser || "global");
+                            const slotsReady = phaseSlotsLoaded[slotPhase] === scopeKey;
                             type VItem = { kind: "perm"; id: string; perm: { key: string; label: string; optional?: boolean } } | { kind: "slot"; id: string; slot: PhaseSlot };
+                            // Perm boxes are the candidate's own always-on Visum docs — shown
+                            // only in the combined candidate view, never when editing a shared
+                            // batch/site template (there we edit slots alone).
                             const vAll: VItem[] = [
-                              ...PLAIN.map((p): VItem => ({ kind: "perm", id: p.key, perm: p })),
+                              ...(slotScope ? [] : PLAIN.map((p): VItem => ({ kind: "perm", id: p.key, perm: p }))),
                               ...(slotsReady ? flat.map((s): VItem => ({ kind: "slot", id: s.id, slot: s })) : []),
                             ];
                             const vRank = (id: string) => { const i = visumDocOrder.indexOf(id); return i === -1 ? 10000 + vAll.findIndex(x => x.id === id) : i; };
@@ -5983,7 +6073,7 @@ export default function AdminPage() {
                           {/* Non-visum phases (Bearbeitung): dynamic slots only, ordered by
                               position. Visum slots are rendered in the unified block above. */}
                           {slotPhase !== "visum" && (
-                            phaseSlotsLoaded[slotPhase] !== (selectedUser || "global") ? (
+                            phaseSlotsLoaded[slotPhase] !== scopeKey ? (
                               <div style={{ minHeight: 8 }} />
                             ) : slots.length === 0 ? (
                               <div style={{ minHeight: 4 }} />
@@ -8048,7 +8138,7 @@ export default function AdminPage() {
               visibleIds = searchFilterUids.filter((uid) => !!users[uid]);
             } else if (batchFilterUids) {
               const inBatch = batchFilterUids.filter((uid) => !!users[uid]);
-              const pctMap = new Map(inBatch.map((uid) => [uid, computeChecklist(grouped[uid] ?? []).pct] as const));
+              const pctMap = new Map(inBatch.map((uid) => [uid, computeChecklist(grouped[uid] ?? [], { requiredKeys: requiredKeysForCandidate(uid) }).pct] as const));
               visibleIds = inBatch.sort((a, b) => (pctMap.get(a) ?? 0) - (pctMap.get(b) ?? 0));
             }
 
@@ -8132,7 +8222,7 @@ export default function AdminPage() {
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
                 // In batch view, show document completeness at a glance (the point of
                 // batch tracking). Only there — keeps the general list uncluttered.
-                const docPct = batchActive ? computeChecklist(allDocs).pct : null;
+                const docPct = batchActive ? computeChecklist(allDocs, { requiredKeys: requiredKeysForCandidate(uid) }).pct : null;
 
                 // B2 — the most-glanced signal. A subtle coloured ring on the avatar
                 // (inner = current B2 stage; red halo = failed at least once). Colour

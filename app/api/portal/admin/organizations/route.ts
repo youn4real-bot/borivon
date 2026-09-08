@@ -55,13 +55,20 @@ export async function GET(req: NextRequest) {
   // org-scoped admin.
   const visibleOrgIds = auth.role === "admin" ? null : await getVisibleOrgIds(auth.email);
   const orgsBase = db.from("organizations").select("id, name, invite_code, member_invite_code, notes, logo_filename, footer_text, vaccine_req, created_at").order("created_at", { ascending: true });
-  const [{ data: orgs }, { data: members }, { data: links }] = await Promise.all([
+  const [{ data: orgs }, { data: members }, { data: links }, { data: reqDocs }] = await Promise.all([
     visibleOrgIds === null
       ? orgsBase
       : orgsBase.in("id", visibleOrgIds.length ? visibleOrgIds : ["00000000-0000-0000-0000-000000000000"]),
     db.from("organization_members").select("org_id, sub_admin_email, role"),
     db.from("candidate_organizations").select("org_id, status"),
+    // Per-org required-doc override — separate + schema-tolerant so a missing
+    // migration just yields null (→ default set) instead of breaking the list.
+    db.from("organizations").select("id, required_doc_keys"),
   ]);
+  const reqDocMap: Record<string, string[] | null> = {};
+  for (const r of (reqDocs ?? []) as { id: string; required_doc_keys: string[] | null }[]) {
+    reqDocMap[r.id] = r.required_doc_keys ?? null;
+  }
 
   type OrgRow = { id: string; name: string; invite_code: string; member_invite_code: string | null; notes: string | null; logo_filename: string | null; footer_text: string | null; created_at: string };
   type MemberRow = { org_id: string; sub_admin_email: string; role: string };
@@ -84,6 +91,7 @@ export async function GET(req: NextRequest) {
     memberCount:    memberCounts[o.id]    ?? 0,
     candidateCount: candidateCounts[o.id] ?? 0,
     pendingCount:   pendingCounts[o.id]   ?? 0,
+    requiredDocKeys: reqDocMap[o.id] ?? null,
   }));
 
   return NextResponse.json({ orgs: decorated });

@@ -8,6 +8,7 @@ import { CheckCircle2 } from "@/components/PortalIcons";
 import { PageLoader, EmptyState, Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
+import { CHECKLIST_ITEMS } from "@/lib/candidateChecklist";
 
 const t = {
   en: {
@@ -228,6 +229,7 @@ type Org = {
   logo_filename: string | null;
   footer_text: string | null;
   vaccine_req: { masern?: number; varizell?: number } | null;
+  requiredDocKeys?: string[] | null;
   created_at: string;
   memberCount: number;
   candidateCount: number;
@@ -1077,6 +1079,15 @@ export default function OrganizationsPage() {
                                 onSaved={() => loadData(accessToken)}
                               />
                             </div>
+                            {/* Which documents count toward this agency's completion %. */}
+                            <RequiredDocsEditor
+                              orgId={org.id}
+                              orgName={org.name}
+                              initial={org.requiredDocKeys}
+                              accessToken={accessToken}
+                              lang={lang}
+                              onSaved={() => loadData(accessToken)}
+                            />
                           </div>
                         )}
 
@@ -1212,6 +1223,114 @@ function VaccineReqEditor({ orgId, initial, accessToken, lang, onSaved }: {
         <span className="text-[11px]" style={{ color: required ? "var(--gold)" : "var(--w3)" }}>
           {required ? L(`Requires ${masern + varizell} dose(s)`, `Benötigt ${masern + varizell} Dosis(en)`, `${masern + varizell} dose(s)`) : L("No Impfung required", "Keine Impfung nötig", "Aucun vaccin requis")}
         </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Which papers count toward THIS agency's completion % ──────────────────────
+// Untick the docs the agency doesn't ask for (e.g. Abitur / Praktikum for a
+// Moroccan-nurse pipeline) and the % is measured only against the rest — instead
+// of every candidate looking stuck against papers that never applied. Empty /
+// default (nothing customised) → the built-in required set.
+const REQ_DOC_LABELS: Record<string, [string, string, string]> = {
+  // [en, de, fr]
+  id:                ["Passport", "Reisepass", "Passeport"],
+  cv_de:             ["CV", "Lebenslauf", "CV"],
+  letter:            ["Cover letter", "Motivationsschreiben", "Lettre de motivation"],
+  langcert:          ["B2 certificate", "B2-Zertifikat", "Certificat B2"],
+  diploma:           ["Diploma", "Diplom", "Diplôme"],
+  studyprog:         ["Study program", "Ausbildungsprogramm", "Programme d'études"],
+  transcript:        ["Transcript", "Notenübersicht", "Relevé de notes"],
+  abitur:            ["Abitur", "Abitur", "Abitur"],
+  abitur_transcript: ["Abitur transcript", "Abitur-Notenübersicht", "Relevé Abitur"],
+  praktikum:         ["Internship", "Praktikum", "Stage"],
+  workcert:          ["Work permit", "Berufserlaubnis", "Autorisation de travail"],
+  work_experience:   ["Work experience", "Berufserfahrung", "Expérience pro."],
+  impfung:           ["Vaccination", "Impfnachweis", "Vaccination"],
+};
+
+function RequiredDocsEditor({ orgId, orgName, initial, accessToken, lang, onSaved }: {
+  orgId: string;
+  orgName: string;
+  initial: string[] | null | undefined;
+  accessToken: string;
+  lang: string;
+  onSaved: () => void;
+}) {
+  const L = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  const DEFAULT_REQUIRED = CHECKLIST_ITEMS.filter(i => !i.optional).map(i => i.key);
+  const isCustom = Array.isArray(initial);
+  const [sel, setSel] = useState<Set<string>>(new Set(initial ?? DEFAULT_REQUIRED));
+  const [custom, setCustom] = useState<boolean>(isCustom);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const label = (k: string) => (REQ_DOC_LABELS[k] ? L(REQ_DOC_LABELS[k][0], REQ_DOC_LABELS[k][1], REQ_DOC_LABELS[k][2]) : k);
+  const toggle = (k: string) => {
+    setCustom(true);
+    setSel(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  };
+
+  async function save(reset = false) {
+    setSaving(true); setSaved(false);
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${orgId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ requiredDocKeys: reset ? null : [...sel] }),
+      });
+      if (res.ok) {
+        setSaved(true); onSaved(); setTimeout(() => setSaved(false), 2000);
+        if (reset) { setSel(new Set(DEFAULT_REQUIRED)); setCustom(false); } else { setCustom(true); }
+      }
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>
+        ✅ {L("Required documents", "Erforderliche Dokumente", "Documents requis")}
+      </label>
+      <p className="text-[11px] mb-3" style={{ color: "var(--w3)" }}>
+        {L(`Tick only the papers ${orgName} actually needs. The completion % is measured against these — untick what doesn't apply.`,
+           `Nur die Papiere ankreuzen, die ${orgName} wirklich braucht. Der Fertig-Prozentsatz zählt nur diese.`,
+           `Cochez uniquement les documents dont ${orgName} a besoin. Le % d'avancement ne compte que ceux-ci.`)}
+      </p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-3">
+        {CHECKLIST_ITEMS.map(item => {
+          const on = sel.has(item.key);
+          return (
+            <button key={item.key} onClick={() => toggle(item.key)} type="button"
+              className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg transition-colors"
+              style={{ background: on ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`, cursor: "pointer" }}>
+              <span className="flex items-center justify-center flex-shrink-0" style={{ width: 16, height: 16, borderRadius: 5, background: on ? "var(--gold)" : "transparent", border: `1.5px solid ${on ? "var(--gold)" : "var(--w3)"}` }}>
+                {on && <Check size={11} strokeWidth={3} color="#131312" />}
+              </span>
+              <span className="text-[12px]" style={{ color: on ? "var(--w)" : "var(--w2)" }}>{label(item.key)}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3">
+        <button onClick={() => save(false)} disabled={saving}
+          className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-2 disabled:opacity-50"
+          style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, border: "none", cursor: "pointer" }}>
+          {saving ? <Spinner size="xs" color="#131312" /> : saved ? <Check size={12} strokeWidth={2} /> : null}
+          {saving ? L("Saving…", "Speichern…", "…") : saved ? L("Saved", "Gespeichert", "Enregistré") : L("Save", "Speichern", "Enregistrer")}
+        </button>
+        <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+          {custom
+            ? L(`${sel.size} required`, `${sel.size} erforderlich`, `${sel.size} requis`)
+            : L("Using the default set", "Standard-Set aktiv", "Ensemble par défaut")}
+        </span>
+        {custom && (
+          <button onClick={() => save(true)} disabled={saving}
+            className="text-[11px] font-medium ml-auto"
+            style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            {L("Reset to default", "Auf Standard zurücksetzen", "Réinitialiser")}
+          </button>
+        )}
       </div>
     </div>
   );
