@@ -86,7 +86,9 @@ export default function AdminAffiliatesPage() {
       if (!alive) return;
       const tk = session?.access_token ?? "";
       setToken(tk);
-      if (!tk) { setForbidden(true); setLoading(false); return; }
+      // Not logged in → send to the portal login, which returns here after auth
+      // (this is where the affiliate portal's "Borivon team log in" button lands).
+      if (!tk) { router.replace("/portal?next=/portal/admin/affiliates"); return; }
       load(tk);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => { if (s?.access_token) setToken(s.access_token); });

@@ -4,7 +4,7 @@
  *  private dashboard link. Its own chrome (global navbar is suppressed on the
  *  affiliate subdomain). Translated FR/EN/DE with a self-contained toggle. */
 import { useState } from "react";
-import { Link2, Mail } from "lucide-react";
+import { Link2, Mail, LogIn } from "lucide-react";
 
 const CONTACT_EMAIL = "contact@borivon.com";
 
@@ -59,6 +59,15 @@ export default function AffiliateLanding() {
             <Mail size={15} /> {L("Contact Borivon", "Contacter Borivon", "Borivon kontaktieren")}
           </a>
           <p className="text-[11.5px] mt-3" style={{ color: "var(--w3)" }}>{CONTACT_EMAIL}</p>
+          {/* Borivon team entry — logs the admin in and lands them on their
+              affiliate management dashboard (create partners, copy links). */}
+          <div className="mt-8 pt-5" style={{ borderTop: "1px solid var(--border)" }}>
+            <a href="https://www.borivon.com/portal?next=/portal/admin/affiliates"
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold no-underline"
+              style={{ color: "var(--w2)" }}>
+              <LogIn size={13} /> {L("Borivon team — log in", "Équipe Borivon — connexion", "Borivon-Team — Anmelden")}
+            </a>
+          </div>
         </div>
       </main>
     </div>

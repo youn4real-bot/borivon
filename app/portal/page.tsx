@@ -98,6 +98,11 @@ function PortalPageInner() {
   const codeFromUrl = params.get("invite") ?? "";
   const codeFromStorage = typeof window !== "undefined" ? (localStorage.getItem("bv_invite_code") ?? "") : "";
   const prefilledCode = codeFromUrl || codeFromStorage;
+  // Optional post-login target, e.g. the affiliate portal's "Borivon team log in"
+  // button → ?next=/portal/admin/affiliates. INTERNAL /portal paths only (never a
+  // protocol-relative // or external URL) so it can't become an open redirect.
+  const rawNext = params.get("next") ?? "";
+  const nextDest = /^\/portal(?:\/|$)/.test(rawNext) && !rawNext.startsWith("//") ? rawNext : "";
 
   const [mode, setMode]               = useState<Mode>(() => params.get("mode") === "register" ? "register" : "login");
   const [firstName, setFirstName]     = useState("");
@@ -166,7 +171,7 @@ function PortalPageInner() {
           dest = (role === "admin" || role === "sub_admin" || role === "org_member") ? "/portal/admin" : "/portal/dashboard";
         } catch { dest = "/portal/dashboard"; }
       }
-      if (!cancelled) router.replace(dest);
+      if (!cancelled) router.replace(nextDest || dest);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,7 +221,7 @@ function PortalPageInner() {
         if (role === "admin" || role === "sub_admin" || role === "org_member") dest = "/portal/admin";
       } catch { /* default candidate dashboard */ }
     }
-    router.replace(dest);
+    router.replace(nextDest || dest);
     return true;
   }
 
@@ -451,7 +456,8 @@ function PortalPageInner() {
     }
 
     router.replace(
-      roleDest ??
+      nextDest ||
+      roleDest ||
       (inviteType === "member"    ? "/portal/admin" :
        inviteType === "sub-admin" ? "/portal/admin" :
                                     "/portal/dashboard"),
