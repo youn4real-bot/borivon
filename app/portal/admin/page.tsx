@@ -619,6 +619,10 @@ export default function AdminPage() {
   // Approved org links per candidate (filled from /api/portal/admin response).
   // Used to render a small "Calmaroi" tag under each candidate's email.
   const [candidateOrgs, setCandidateOrgs] = useState<Record<string, { id: string; name: string }[]>>({});
+  // Whole-journey completion % per candidate (papers → Bearbeitung → Visum →
+  // arrived), computed server-side in /api/portal/admin. The at-a-glance "is this
+  // person moving?" signal in the candidate list. [] until the admin payload lands.
+  const [journeyByUser, setJourneyByUser] = useState<Record<string, { pct: number }>>({});
   const [loading, setLoading]       = useState(true);
   const [feedbacks, setFeedbacks]     = useState<Record<string, string>>({});
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
@@ -1616,6 +1620,7 @@ export default function AdminPage() {
             setUsers(json.users ?? {});
             setProfiles(json.profiles ?? {});
             setCandidateOrgs(json.candidateOrgs ?? {});
+            setJourneyByUser(json.journeyByUser ?? {});
             setBatches(json.batches ?? []);
             setBatchByUid(json.batchByUid ?? {});
             // Default view = "All" (no batch pre-selected). The founder opens the
@@ -8138,7 +8143,9 @@ export default function AdminPage() {
               visibleIds = searchFilterUids.filter((uid) => !!users[uid]);
             } else if (batchFilterUids) {
               const inBatch = batchFilterUids.filter((uid) => !!users[uid]);
-              const pctMap = new Map(inBatch.map((uid) => [uid, computeChecklist(grouped[uid] ?? [], { requiredKeys: requiredKeysForCandidate(uid) }).pct] as const));
+              // Whole-journey % (server-computed); fall back to the papers-only % if
+              // it didn't compute. Least-progressed first → who needs the caretaker most.
+              const pctMap = new Map(inBatch.map((uid) => [uid, journeyByUser[uid]?.pct ?? computeChecklist(grouped[uid] ?? [], { requiredKeys: requiredKeysForCandidate(uid) }).pct] as const));
               visibleIds = inBatch.sort((a, b) => (pctMap.get(a) ?? 0) - (pctMap.get(b) ?? 0));
             }
 
@@ -8222,7 +8229,7 @@ export default function AdminPage() {
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
                 // In batch view, show document completeness at a glance (the point of
                 // batch tracking). Only there — keeps the general list uncluttered.
-                const docPct = batchActive ? computeChecklist(allDocs, { requiredKeys: requiredKeysForCandidate(uid) }).pct : null;
+                const docPct = batchActive ? (journeyByUser[uid]?.pct ?? computeChecklist(allDocs, { requiredKeys: requiredKeysForCandidate(uid) }).pct) : null;
 
                 // B2 — the most-glanced signal. A subtle coloured ring on the avatar
                 // (inner = current B2 stage; red halo = failed at least once). Colour

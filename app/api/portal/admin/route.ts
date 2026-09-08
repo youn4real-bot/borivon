@@ -7,6 +7,7 @@ import { UUID_RE } from "@/lib/uuid";
 // Doc-review + profile-patch mutation logic is shared with the AI assistant
 // (lib/assistantWrites) so both surfaces behave identically — see lib/adminCandidateActions.
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
+import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -175,7 +176,7 @@ export async function GET(req: NextRequest) {
   // simply be absent from the rows; the UI falls back to null gracefully.
   const profRes = await db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, phone, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier, placement_ready, b2_stage, b2_failed, nursing_specialty, years_experience, workplace_pref, cv_use_agency_branding, cv_use_borivon_branding")
+    .select("user_id, first_name, last_name, phone, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier, placement_ready, b2_stage, b2_failed, nursing_specialty, years_experience, workplace_pref, cv_use_agency_branding, cv_use_borivon_branding, employer_id")
     .in("user_id", userIds);
   // An explicit-column select is all-or-nothing: ONE un-migrated column 400s the
   // WHOLE query. Don't let that silently blank EVERY candidate's profile (no crash,
@@ -300,7 +301,62 @@ export async function GET(req: NextRequest) {
     batches = rows.map((b) => ({ id: b.id, name: b.name, count: count[b.id] ?? 0 })).sort((a, b) => a.name.localeCompare(b.name));
   } catch { /* pipeline / batches not migrated → no batch tracker */ }
 
-  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, role });
+  // ── Whole-journey completion % per candidate ────────────────────────────────
+  // papers → Bearbeitung → Visum → arrived, doc-driven (auto-moves on approvals)
+  // + the arrived_done milestone. Powers the candidate-list % the team watches.
+  // Fully schema-tolerant: any missing table/column just leaves journeyByUser
+  // empty and the list falls back to no badge — never 500s the admin page.
+  const journeyByUser: Record<string, { pct: number }> = {};
+  try {
+    if (userIds.length > 0) {
+      const [pipeRes, slotRes, empRes, orgReqRes] = await Promise.all([
+        db.from("candidate_pipeline").select("user_id, arrived_done").in("user_id", userIds),
+        db.from("phase_slots").select("id, type, phase, org_id, employer_id, is_required"),
+        db.from("employers").select("id, agency_id"),
+        db.from("organizations").select("id, required_doc_keys"),
+      ]);
+      const arrivedBy: Record<string, boolean> = {};
+      for (const r of (pipeRes.data ?? []) as { user_id: string; arrived_done: boolean | null }[]) {
+        arrivedBy[r.user_id] = r.arrived_done === true;
+      }
+      type SlotRow = { id: string; type: string | null; phase: string; org_id: string | null; employer_id: string | null; is_required: boolean | null };
+      const allSlots = (slotRes.data ?? []) as SlotRow[];
+      const agencyByEmp: Record<string, string | null> = {};
+      for (const e of (empRes.data ?? []) as { id: string; agency_id: string | null }[]) agencyByEmp[e.id] = e.agency_id ?? null;
+      const reqByOrg: Record<string, string[] | null> = {};
+      for (const o of (orgReqRes.data ?? []) as { id: string; required_doc_keys: string[] | null }[]) reqByOrg[o.id] = o.required_doc_keys ?? null;
+
+      const docsByUser: Record<string, { file_type: string | null; status: string | null }[]> = {};
+      for (const d of activeDocs as { user_id: string; file_type: string | null; status: string | null }[]) {
+        (docsByUser[d.user_id] ??= []).push({ file_type: d.file_type, status: d.status });
+      }
+      // Same scope resolution as GET /api/portal/phase-slots (batch ▸ site, else global).
+      const applicable = (phase: string, empId: string | null, batchOrg: string | null): JourneySlot[] => {
+        const site  = empId    ? allSlots.filter(s => s.phase === phase && s.employer_id === empId)    : [];
+        const batch = batchOrg ? allSlots.filter(s => s.phase === phase && s.org_id === batchOrg)      : [];
+        const combined = [...batch, ...site];
+        const rows = combined.length ? combined : allSlots.filter(s => s.phase === phase && !s.org_id && !s.employer_id);
+        return rows.map(s => ({ id: s.id, type: s.type, is_required: s.is_required }));
+      };
+
+      for (const uid of userIds) {
+        const empId = (profiles[uid] as { employer_id?: string | null } | undefined)?.employer_id ?? null;
+        const orgId = (candidateOrgs[uid] ?? [])[0]?.id ?? null;
+        const batchOrg = (empId && agencyByEmp[empId]) ? agencyByEmp[empId] : orgId;
+        const requiredKeys = orgId ? (reqByOrg[orgId] ?? null) : null;
+        const j = computeJourneyProgress({
+          docs: docsByUser[uid] ?? [],
+          requiredKeys,
+          bearbeitungSlots: applicable("bearbeitung", empId, batchOrg),
+          visumSlots: applicable("visum", empId, batchOrg),
+          arrived: arrivedBy[uid] === true,
+        });
+        journeyByUser[uid] = { pct: j.pct };
+      }
+    }
+  } catch (e) { console.warn("[admin GET] journey progress skipped:", e); }
+
+  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, role });
 }
 
 // POST — review a document (status + feedback) → notify candidate. Shares the
