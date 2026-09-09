@@ -628,6 +628,30 @@ export default function AdminPage() {
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
   const [saving, setSaving]           = useState<Record<string, boolean>>({});
   const [previewDoc, setPreviewDoc] = useState<Doc | null>(null);
+  // The slot's BLANK original, shown in the normal PDF popup (zoom + rotate).
+  const [tplPreview, setTplPreview] = useState<{ label: string; url: string } | null>(null);
+  const [tplPreviewBusy, setTplPreviewBusy] = useState<string | null>(null);
+
+  /** Open a slot's original (unfilled) template in the standard PDF viewer. */
+  async function openSlotTemplate(slotId: string, label: string) {
+    if (!accessToken || tplPreviewBusy) return;
+    setTplPreviewBusy(slotId);
+    try {
+      const res = await fetch(`/api/portal/slot-template?slotId=${slotId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        alert(lang === "de" ? "Kein Originaldokument für diesen Slot."
+          : lang === "fr" ? "Aucun document original pour ce slot."
+          : "No original document attached to this slot.");
+        return;
+      }
+      const blob = await res.blob();
+      setTplPreview({ label, url: URL.createObjectURL(blob) });
+    } catch {
+      alert(lang === "de" ? "Netzwerkfehler." : lang === "fr" ? "Erreur réseau." : "Network error.");
+    } finally { setTplPreviewBusy(null); }
+  }
   // When previewing the no-logo Visa CV, the modal fetches from this render URL
   // instead of the stored file. Cleared on close. (Visa CV = clone of cv_de.)
   const [previewRenderUrl, setPreviewRenderUrl] = useState<string | null>(null);
@@ -5214,19 +5238,16 @@ export default function AdminPage() {
                                                 <MoreHorizontal size={14} strokeWidth={1.8} />
                                               </button>
                                               <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null} anchorRect={menuRect(menuId)}>
+                                                    {/* Sign/fill config, label editing and category moves were
+                                                        removed — documents are built on /portal/admin/documents.
+                                                        What's left: look at the blank original, and delete. */}
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills, pdf_has_native_fields: !!slot.pdf_has_native_fields, is_required: slot.is_required !== false }); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); void openSlotTemplate(slot.id, slot.label); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--gold)" }}>
-                                                      <Zap size={11} strokeWidth={1.8} /> Action
+                                                      <FileText size={11} strokeWidth={1.8} />
+                                                      {lang === "de" ? "Originaldokument ansehen" : lang === "fr" ? "Voir le document original" : "Show original PDF"}
                                                     </button>
-                                                    <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(""); setEditingSlotInstructions(slot.instructions ?? ""); }}
-                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                      style={{ color: "var(--w)" }}>
-                                                      <FilePen size={11} strokeWidth={1.8} /> Edit label
-                                                    </button>
-                                                    {/* "Configure fields" item removed: form-field drawing no longer supported. */}
                                                     {rowSt === "approved" && (
                                                       <button
                                                         onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -5236,26 +5257,7 @@ export default function AdminPage() {
                                                         <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                       </button>
                                                     )}
-                                                    {cats.length > 0 && (
-                                                      <>
-                                                        <div style={{ height: 1, background: "var(--border)" }} />
-                                                        <div className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--w3)" }}>
-                                                          {lang === "de" ? "Verschieben nach" : lang === "fr" ? "Déplacer vers" : "Move to"}
-                                                        </div>
-                                                        {(slot.category_id ?? null) !== null && (
-                                                          <button onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, null); }}
-                                                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
-                                                            <ArrowLeft size={11} strokeWidth={1.8} /> {lang === "de" ? "Ohne Kategorie" : lang === "fr" ? "Sans catégorie" : "Uncategorized"}
-                                                          </button>
-                                                        )}
-                                                        {cats.filter(c => c.id !== (slot.category_id ?? null)).map(c => (
-                                                          <button key={c.id} onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, c.id); }}
-                                                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
-                                                            <ChevronDown size={11} strokeWidth={1.8} style={{ transform: "rotate(-90deg)" }} /> {c.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
-                                                          </button>
-                                                        ))}
-                                                      </>
-                                                    )}
+                                                    <div style={{ height: 1, background: "var(--border)" }} />
                                                     <button
                                                       onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase, slot.label); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -5381,32 +5383,16 @@ export default function AdminPage() {
                                           <MoreHorizontal size={14} strokeWidth={1.8} />
                                         </button>
                                         <DropdownMenu open={revokeMenu?.id === slot.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === slot.id ? revokeMenu.el : null} anchorRect={menuRect(slot.id)}>
+                                              {/* Label editing + category moves removed — that lives on
+                                                  /portal/admin/documents now. Look at the blank original, or delete. */}
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(slot.label_trans ?? ""); setEditingSlotInstructions(slot.instructions ?? ""); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); void openSlotTemplate(slot.id, slot.label); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                style={{ color: "var(--w)" }}>
-                                                <FilePen size={11} strokeWidth={1.8} /> Edit label
+                                                style={{ color: "var(--gold)" }}>
+                                                <FileText size={11} strokeWidth={1.8} />
+                                                {lang === "de" ? "Originaldokument ansehen" : lang === "fr" ? "Voir le document original" : "Show original PDF"}
                                               </button>
-                                              {cats.length > 0 && (
-                                                <>
-                                                  <div style={{ height: 1, background: "var(--border)" }} />
-                                                  <div className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--w3)" }}>
-                                                    {lang === "de" ? "Verschieben nach" : lang === "fr" ? "Déplacer vers" : "Move to"}
-                                                  </div>
-                                                  {(slot.category_id ?? null) !== null && (
-                                                    <button onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, null); }}
-                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
-                                                      <ArrowLeft size={11} strokeWidth={1.8} /> {lang === "de" ? "Ohne Kategorie" : lang === "fr" ? "Sans catégorie" : "Uncategorized"}
-                                                    </button>
-                                                  )}
-                                                  {cats.filter(c => c.id !== (slot.category_id ?? null)).map(c => (
-                                                    <button key={c.id} onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, c.id); }}
-                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
-                                                      <ChevronDown size={11} strokeWidth={1.8} style={{ transform: "rotate(-90deg)" }} /> {c.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
-                                                    </button>
-                                                  ))}
-                                                </>
-                                              )}
+                                              <div style={{ height: 1, background: "var(--border)" }} />
                                               <button
                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase, slot.label); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -5743,68 +5729,12 @@ export default function AdminPage() {
                         );
                       };
 
-                      // ── Doc-set SCOPE switch ────────────────────────────────
-                      // Resolve the candidate's agency (batch) + every site under
-                      // it, so the founder can define the set once for ALL of them
-                      // or for a single site — instead of re-adding per candidate.
-                      const _empId = selectedUser ? (employerByUser[selectedUser] ?? null) : null;
-                      const _emp = _empId ? allEmployers.find(e => e.id === _empId) ?? null : null;
-                      const _linkedOrg = selectedUser ? (candidateOrgs[selectedUser] ?? [])[0] ?? null : null;
-                      const _agencyId = _emp?.agencyId ?? _linkedOrg?.id ?? null;
-                      const _agencyName = _agencyId
-                        ? (allOrgs.find(o => o.id === _agencyId)?.name ?? _linkedOrg?.name ?? "Batch")
-                        : null;
-                      const _sites = _agencyId ? allEmployers.filter(e => e.agencyId === _agencyId) : [];
-                      const _directEmp = !_agencyId && _emp ? _emp : null;
-                      const _scopeOpts: { key: string; label: string; scope: SlotScope }[] = [
-                        { key: "cand", label: lang === "de" ? "Diese/r Kandidat/in" : lang === "fr" ? "Ce candidat" : "This candidate", scope: null },
-                        ...(_agencyId && _agencyName
-                          ? [{ key: `org:${_agencyId}`, label: (lang === "de" ? "Alle " : lang === "fr" ? "Tout " : "All ") + _agencyName, scope: { kind: "org", id: _agencyId, name: _agencyName } as SlotScope }]
-                          : []),
-                        ..._sites.map(s => ({ key: `emp:${s.id}`, label: s.name, scope: { kind: "emp", id: s.id, name: s.name } as SlotScope })),
-                        ...(_directEmp ? [{ key: `emp:${_directEmp.id}`, label: _directEmp.name, scope: { kind: "emp", id: _directEmp.id, name: _directEmp.name } as SlotScope }] : []),
-                      ];
-                      const _showScopeSwitch = _scopeOpts.length > 1;
-                      const _activeScopeKey = slotScope?.kind === "org" ? `org:${slotScope.id}` : slotScope?.kind === "emp" ? `emp:${slotScope.id}` : "cand";
+                      // The scope switch used to live here. It's gone: document sets
+                      // are built on /portal/admin/documents, so the dossier always
+                      // shows the candidate's own combined list (Everyone + agency +
+                      // site) exactly as they see it. slotScope therefore stays null.
                       return (
                         <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                          {_showScopeSwitch && (
-                            <div className="px-2.5 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                              <div className="flex flex-wrap gap-1.5">
-                                {_scopeOpts.map(o => {
-                                  const on = _activeScopeKey === o.key;
-                                  return (
-                                    <button key={o.key}
-                                      onClick={() => { setSlotScope(o.scope); void loadPhaseSlots(slotPhase, o.scope); }}
-                                      className="px-2.5 py-1.5 rounded-full text-[11px] font-semibold transition-all"
-                                      style={{ background: on ? "var(--gold)" : "var(--bg2)", color: on ? "#1a1205" : "var(--w2)", border: `1px solid ${on ? "var(--gold)" : "var(--border)"}` }}>
-                                      {o.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <p className="text-[10.5px] mt-2 leading-snug" style={{ color: "var(--w3)" }}>
-                                {slotScope
-                                  ? (lang === "de" ? `Festes Set für ${slotScope.name} — gilt für alle dort. Kandidaten erhalten es automatisch.`
-                                    : lang === "fr" ? `Jeu fixe pour ${slotScope.name} — s'applique à tous. Les candidats le reçoivent automatiquement.`
-                                    : `Fixed set for ${slotScope.name} — applies to everyone there. Candidates get it automatically.`)
-                                  : (lang === "de" ? "Kombinierte Ansicht (Batch + Standort), wie der/die Kandidat/in sie sieht."
-                                    : lang === "fr" ? "Vue combinée (lot + site), telle que le candidat la voit."
-                                    : "Combined view (batch + site) as the candidate sees it.")}
-                              </p>
-                            </div>
-                          )}
-                          {!_showScopeSwitch && _emp && (
-                            <div className="px-3 py-2 text-[11px] font-medium" style={{
-                              color: "var(--gold)", background: "var(--gdim)",
-                              borderBottom: "1px solid var(--border)", borderRadius: "20px 20px 0 0" }}>
-                              {lang === "de"
-                                ? `Bearbeite das feste Set für ${_emp.name} — gilt für alle dortigen Kandidaten.`
-                                : lang === "fr"
-                                ? `Édition du jeu fixe pour ${_emp.name} — s'applique à tous ses candidats.`
-                                : `Editing the fixed set for ${_emp.name} — applies to all its candidates.`}
-                            </div>
-                          )}
                           <div className="px-2 py-2">
                           {/* ── PERMANENT Visum boxes (all candidates): the auto-generated
                               Lebenslauf Visum + Anschreiben Visum twins. SAME admin
@@ -6100,6 +6030,39 @@ export default function AdminPage() {
                         </div>
                       );
                     })()}
+
+                    {/* ── Blank original preview — the standard PDF popup (zoom +
+                            rotate), same viewer as every other document. LAW #36:
+                            portalled, z-[1100], blur 8, radius 20. ─────────── */}
+                    {tplPreview && typeof window !== "undefined" && createPortal(
+                      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+                        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                        onClick={() => { URL.revokeObjectURL(tplPreview.url); setTplPreview(null); }}>
+                        <div className="w-full max-w-3xl rounded-[20px] overflow-hidden flex flex-col"
+                          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 58px - 96px)" }}
+                          onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{tplPreview.label}</p>
+                              <p className="text-[10.5px]" style={{ color: "var(--w3)" }}>
+                                {lang === "de" ? "Originaldokument (leer)" : lang === "fr" ? "Document original (vierge)" : "Original document (blank)"}
+                              </p>
+                            </div>
+                            <a href={tplPreview.url} download={`${tplPreview.label.replace(/[^\w.\-]+/g, "_")}.pdf`}
+                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full no-underline" style={{ color: "var(--w2)" }}
+                              title={t.aDownload} onClick={e => e.stopPropagation()}>
+                              <Download size={14} strokeWidth={1.8} />
+                            </a>
+                            <button onClick={() => { URL.revokeObjectURL(tplPreview.url); setTplPreview(null); }}
+                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+                              <XCircle size={16} strokeWidth={1.8} />
+                            </button>
+                          </div>
+                          <div className="flex-1 min-h-0 overflow-auto">
+                            <PdfViewer src={tplPreview.url} />
+                          </div>
+                        </div>
+                      </div>, document.body)}
 
                     {/* ── Add slot modal — title-only. The slot is created
                             empty; uploads, actions, instructions all happen
