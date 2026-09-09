@@ -197,6 +197,7 @@ export function ProfileIcon() {
     const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry", "/portal/admin/chase", "/portal/admin/partner-keys"];
     if (!user.isOrgAdmin) routes.push("/portal/admin/bookings");
     if (!user.isOrgAdmin) routes.push("/portal/admin/organizations", "/portal/admin/employers");
+    routes.push("/portal/admin/documents");
     if (user.isSuperAdmin) routes.push("/portal/admin/manage", "/portal/admin/online-courses", "/portal/admin/academy", "/portal/admin/batches");
     for (const r of routes) { try { router.prefetch(r); } catch { /* ignore */ } }
   }, [open, user, router]);
@@ -755,6 +756,20 @@ export function ProfileIcon() {
                       <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                     </svg>
                     {lang === "fr" ? "Expiration des documents" : lang === "de" ? "Dokument-Ablauf" : "Document expiry"}
+                  </button>
+                  {/* Document sets — build the Bearbeitung/Visum lists per agency or site. */}
+                  <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/documents"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+                      <line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/>
+                    </svg>
+                    {lang === "fr" ? "Documents" : lang === "de" ? "Dokumente" : "Documents"}
                   </button>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
