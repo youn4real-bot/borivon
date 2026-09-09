@@ -628,30 +628,9 @@ export default function AdminPage() {
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
   const [saving, setSaving]           = useState<Record<string, boolean>>({});
   const [previewDoc, setPreviewDoc] = useState<Doc | null>(null);
-  // The slot's BLANK original, shown in the normal PDF popup (zoom + rotate).
-  const [tplPreview, setTplPreview] = useState<{ label: string; url: string } | null>(null);
-  const [tplPreviewBusy, setTplPreviewBusy] = useState<string | null>(null);
-
-  /** Open a slot's original (unfilled) template in the standard PDF viewer. */
-  async function openSlotTemplate(slotId: string, label: string) {
-    if (!accessToken || tplPreviewBusy) return;
-    setTplPreviewBusy(slotId);
-    try {
-      const res = await fetch(`/api/portal/slot-template?slotId=${slotId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) {
-        alert(lang === "de" ? "Kein Originaldokument für diesen Slot."
-          : lang === "fr" ? "Aucun document original pour ce slot."
-          : "No original document attached to this slot.");
-        return;
-      }
-      const blob = await res.blob();
-      setTplPreview({ label, url: URL.createObjectURL(blob) });
-    } catch {
-      alert(lang === "de" ? "Netzwerkfehler." : lang === "fr" ? "Erreur réseau." : "Network error.");
-    } finally { setTplPreviewBusy(null); }
-  }
+  // The slot's BLANK original — shown in AdminDocPreviewModal, the SAME popup
+  // used for every other document (zoom + rotate), via its overrideFetchUrl.
+  const [tplPreview, setTplPreview] = useState<{ slotId: string; label: string } | null>(null);
   // When previewing the no-logo Visa CV, the modal fetches from this render URL
   // instead of the stored file. Cleared on close. (Visa CV = clone of cv_de.)
   const [previewRenderUrl, setPreviewRenderUrl] = useState<string | null>(null);
@@ -2356,13 +2335,27 @@ export default function AdminPage() {
     if (!accessToken || !label.trim()) return;
     setAddSlotSaving(true);
     try {
-      // Target the SELECTED scope: the whole agency batch (org), one site
-      // (employer), or — in the combined candidate view — default to the
-      // candidate's own site so an extra doc still joins their shared set.
+      // Scope the new document to THIS candidate: their site if they have one,
+      // otherwise their agency. Never global — a doc added from one person's
+      // dossier must never become a portal-wide document for every agency, which
+      // is exactly what an empty scope used to do. If neither can be resolved,
+      // refuse and point at the Documents page rather than guessing.
+      const _empId = selectedUser ? (employerByUser[selectedUser] ?? null) : null;
+      const _orgId = selectedUser ? ((candidateOrgs[selectedUser] ?? [])[0]?.id ?? null) : null;
+      const _agencyId = _empId ? (allEmployers.find(e => e.id === _empId)?.agencyId ?? null) : null;
       const scopeBody: Record<string, string> =
-        slotScope?.kind === "org" ? { orgId: slotScope.id }
-        : slotScope?.kind === "emp" ? { employerId: slotScope.id }
-        : (selectedUser && employerByUser[selectedUser] ? { employerId: employerByUser[selectedUser]! } : {});
+        _empId ? { employerId: _empId }
+        : (_agencyId ?? _orgId) ? { orgId: (_agencyId ?? _orgId)! }
+        : {};
+      if (!scopeBody.employerId && !scopeBody.orgId) {
+        alert(lang === "de"
+          ? "Dieser Kandidat hat weder Standort noch Agentur. Dokument bitte unter Dokumente anlegen."
+          : lang === "fr"
+          ? "Ce candidat n'a ni site ni agence. Créez le document dans la page Documents."
+          : "This candidate has no site or agency yet. Add the document on the Documents page instead.");
+        setAddSlotSaving(false);
+        return;
+      }
       const res = await fetch("/api/portal/phase-slots", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -3389,6 +3382,27 @@ export default function AdminPage() {
             accessToken={accessToken}
             overrideFetchUrl={`/api/portal/documents/merge-pdf?origDocId=${mergePreview.origDocId}&transDocId=${mergePreview.transDocId}`}
             onClose={() => setMergePreview(null)}
+            noPreviewText={t.aNoPreview}
+          />
+        )}
+
+        {/* A slot's BLANK original — the SAME preview modal as every other
+            document (zoom + rotate), fed through overrideFetchUrl. */}
+        {tplPreview && (
+          <AdminDocPreviewModal
+            doc={{
+              id: tplPreview.slotId,
+              user_id: "",
+              file_name: `${tplPreview.label.replace(/\s+/g, "_")}.pdf`,
+              file_type: tplPreview.label,
+              uploaded_at: new Date().toISOString(),
+              status: "pending",
+              feedback: null,
+              drive_file_id: null,
+            }}
+            accessToken={accessToken}
+            overrideFetchUrl={`/api/portal/slot-template?slotId=${tplPreview.slotId}`}
+            onClose={() => setTplPreview(null)}
             noPreviewText={t.aNoPreview}
           />
         )}
@@ -5242,7 +5256,7 @@ export default function AdminPage() {
                                                         removed — documents are built on /portal/admin/documents.
                                                         What's left: look at the blank original, and delete. */}
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); void openSlotTemplate(slot.id, slot.label); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setTplPreview({ slotId: slot.id, label: slot.label }); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--gold)" }}>
                                                       <FileText size={11} strokeWidth={1.8} />
@@ -5386,7 +5400,7 @@ export default function AdminPage() {
                                               {/* Label editing + category moves removed — that lives on
                                                   /portal/admin/documents now. Look at the blank original, or delete. */}
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); void openSlotTemplate(slot.id, slot.label); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setTplPreview({ slotId: slot.id, label: slot.label }); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--gold)" }}>
                                                 <FileText size={11} strokeWidth={1.8} />
@@ -6030,39 +6044,6 @@ export default function AdminPage() {
                         </div>
                       );
                     })()}
-
-                    {/* ── Blank original preview — the standard PDF popup (zoom +
-                            rotate), same viewer as every other document. LAW #36:
-                            portalled, z-[1100], blur 8, radius 20. ─────────── */}
-                    {tplPreview && typeof window !== "undefined" && createPortal(
-                      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
-                        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
-                        onClick={() => { URL.revokeObjectURL(tplPreview.url); setTplPreview(null); }}>
-                        <div className="w-full max-w-3xl rounded-[20px] overflow-hidden flex flex-col"
-                          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 58px - 96px)" }}
-                          onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{tplPreview.label}</p>
-                              <p className="text-[10.5px]" style={{ color: "var(--w3)" }}>
-                                {lang === "de" ? "Originaldokument (leer)" : lang === "fr" ? "Document original (vierge)" : "Original document (blank)"}
-                              </p>
-                            </div>
-                            <a href={tplPreview.url} download={`${tplPreview.label.replace(/[^\w.\-]+/g, "_")}.pdf`}
-                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full no-underline" style={{ color: "var(--w2)" }}
-                              title={t.aDownload} onClick={e => e.stopPropagation()}>
-                              <Download size={14} strokeWidth={1.8} />
-                            </a>
-                            <button onClick={() => { URL.revokeObjectURL(tplPreview.url); setTplPreview(null); }}
-                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
-                              <XCircle size={16} strokeWidth={1.8} />
-                            </button>
-                          </div>
-                          <div className="flex-1 min-h-0 overflow-auto">
-                            <PdfViewer src={tplPreview.url} />
-                          </div>
-                        </div>
-                      </div>, document.body)}
 
                     {/* ── Add slot modal — title-only. The slot is created
                             empty; uploads, actions, instructions all happen

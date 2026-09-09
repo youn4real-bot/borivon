@@ -309,20 +309,30 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  // EMPLOYER-scoped slot (most specific). org_id stays null on these rows.
+  // ── Resolve the scope. GLOBAL IS NEVER IMPLICIT. ───────────────────────────
+  //
+  // A slot with org_id AND employer_id NULL is shown to EVERY candidate of EVERY
+  // agency (global slots are additive, see the GET). Falling back to that shape
+  // whenever a scope couldn't be worked out meant: add a document while viewing a
+  // candidate who has no site assigned, and it silently became a portal-wide
+  // document — with a template any authenticated user can then download. The same
+  // fall-open hit a sub-admin belonging to two orgs, because `.maybeSingle()`
+  // errors on multiple rows and yielded null = global.
+  //
+  // So global now requires an explicit `global: true` from a supreme admin, and an
+  // unresolvable scope is a 400 the caller must fix, never a silent broadcast.
+  const wantsGlobal = (body as { global?: unknown }).global === true;
   let resolvedEmployerId: string | null = null;
   let resolvedOrgId: string | null = null;
+
   if (employerId && UUID_RE.test(employerId)) {
+    // EMPLOYER-scoped slot (most specific). org_id stays null on these rows.
     if (!(await canManageEmployer(auth, employerId)))
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     resolvedEmployerId = employerId;
-  } else if (auth.role === "admin") {
-    resolvedOrgId = (orgId && UUID_RE.test(orgId)) ? orgId : null;
-  } else {
-    // Org admin. If they passed an explicit orgId, it must be one of theirs.
-    // Otherwise default to their (single) org — so creating a slot from a
-    // candidate's view just works without the client knowing the org id.
-    if (orgId && UUID_RE.test(orgId)) {
+  } else if (orgId && UUID_RE.test(orgId)) {
+    // AGENCY-scoped. Supreme may target any org; a sub-admin only their own.
+    if (auth.role !== "admin") {
       const { data: mem } = await db
         .from("organization_members")
         .select("org_id")
@@ -330,16 +340,33 @@ export async function POST(req: NextRequest) {
         .eq("org_id", orgId)
         .maybeSingle();
       if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      resolvedOrgId = orgId;
-    } else {
-      const { data: mem } = await db
-        .from("organization_members")
-        .select("org_id")
-        .eq("sub_admin_email", auth.email)
-        .maybeSingle();
-      // Org admin → their org. Borivon HQ sub-admin (no org) → global (null).
-      resolvedOrgId = (mem as { org_id: string } | null)?.org_id ?? null;
     }
+    resolvedOrgId = orgId;
+  } else if (wantsGlobal) {
+    // EXPLICIT "Everyone" — supreme admin only, since it crosses every agency.
+    if (auth.role !== "admin")
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    resolvedOrgId = null;
+  } else if (auth.role !== "admin") {
+    // Sub-admin with no explicit scope: derive it ONLY when unambiguous (exactly
+    // one org). Zero orgs (HQ sub-admin) or several → refuse rather than broadcast.
+    const { data: mems } = await db
+      .from("organization_members")
+      .select("org_id")
+      .eq("sub_admin_email", auth.email);
+    const orgIds = [...new Set(((mems ?? []) as { org_id: string }[]).map(m => m.org_id))];
+    if (orgIds.length !== 1) {
+      return NextResponse.json(
+        { error: "Scope required: pass orgId or employerId (your account maps to " + orgIds.length + " organisations)" },
+        { status: 400 },
+      );
+    }
+    resolvedOrgId = orgIds[0];
+  } else {
+    return NextResponse.json(
+      { error: "Scope required: pass employerId, orgId, or global:true" },
+      { status: 400 },
+    );
   }
 
   // Next position — within the resolved scope (employer ▸ org ▸ global).

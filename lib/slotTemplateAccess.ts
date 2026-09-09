@@ -16,11 +16,25 @@ export type SlotTemplateScope = {
   orgId: string | null;
   /** phase_slots.employer_id — the site it belongs to, if any. */
   employerId: string | null;
+  /** employers.agency_id of that site — which agency the site rolls up to. */
+  employerAgencyId?: string | null;
 };
 
 export type SlotTemplateViewer = {
-  /** Supreme admin or any sub-admin. */
-  isStaff: boolean;
+  /**
+   * Staff standing:
+   *   "all"      supreme admin, or a true Borivon-HQ sub-admin — unrestricted.
+   *   string[]   an ORG-SCOPED staff account (agency admin / org member): the
+   *              agencies they actually administer.
+   *   null       not staff (a candidate).
+   *
+   * This is deliberately NOT a boolean. Every org member gets a `sub_admins` row,
+   * so "is there a sub_admins row for this email" is true for all agency-side
+   * accounts — treating that as staff let an admin at one agency download a
+   * COMPETING agency's contract templates by passing its slotId. Slot ids are not
+   * secret (documents.file_type IS the slot id), so this was reachable.
+   */
+  staff: "all" | readonly string[] | null;
   /** candidate_profiles.employer_id — the site they're placed at. */
   employerId: string | null;
   /** employers.agency_id of that site — the agency it rolls up to. */
@@ -30,12 +44,21 @@ export type SlotTemplateViewer = {
 };
 
 export function canReadSlotTemplate(slot: SlotTemplateScope, viewer: SlotTemplateViewer): boolean {
-  if (viewer.isStaff) return true;
+  // Borivon HQ sees everything.
+  if (viewer.staff === "all") return true;
 
-  // Truly global (declared for everyone) → any authenticated candidate.
+  // Truly global (declared for everyone) → any authenticated user.
   if (!slot.orgId && !slot.employerId) return true;
 
-  // Site-scoped → only someone actually placed at that site.
+  // Org-scoped STAFF: their own agencies' documents, and the sites under them.
+  // Never another agency's, and never a site outside their agencies.
+  if (Array.isArray(viewer.staff)) {
+    if (slot.orgId && viewer.staff.includes(slot.orgId)) return true;
+    if (slot.employerAgencyId && viewer.staff.includes(slot.employerAgencyId)) return true;
+    return false;
+  }
+
+  // CANDIDATE. Site-scoped → only someone actually placed at that site.
   if (slot.employerId && viewer.employerId && viewer.employerId === slot.employerId) return true;
 
   // Agency-scoped → an approved link to that agency, or placement at one of its sites.

@@ -7,7 +7,7 @@ const KIEL = "emp-kiel";
 const LUEBECK = "emp-luebeck";
 
 const viewer = (over: Partial<SlotTemplateViewer> = {}): SlotTemplateViewer => ({
-  isStaff: false,
+  staff: null,
   employerId: null,
   employerAgencyId: null,
   approvedOrgIds: [],
@@ -15,8 +15,46 @@ const viewer = (over: Partial<SlotTemplateViewer> = {}): SlotTemplateViewer => (
 });
 
 describe("canReadSlotTemplate (LAW #25 / #34)", () => {
-  it("staff can read anything", () => {
-    expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: KIEL }, viewer({ isStaff: true }))).toBe(true);
+  it("HQ staff can read anything", () => {
+    expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: KIEL }, viewer({ staff: "all" }))).toBe(true);
+  });
+
+  // Every org member gets a sub_admins row, so "is staff" must not mean
+  // "sees everything" — otherwise one agency reads a competitor's contracts.
+  describe("ORG-SCOPED staff are confined to their own agencies", () => {
+    it("can read their OWN agency's template", () => {
+      expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: null }, viewer({ staff: [CALMAROI] }))).toBe(true);
+    });
+
+    it("CANNOT read a competing agency's template", () => {
+      expect(canReadSlotTemplate({ orgId: OTHER_AGENCY, employerId: null }, viewer({ staff: [CALMAROI] }))).toBe(false);
+    });
+
+    it("can read a site template belonging to their own agency", () => {
+      expect(canReadSlotTemplate(
+        { orgId: null, employerId: KIEL, employerAgencyId: CALMAROI },
+        viewer({ staff: [CALMAROI] }),
+      )).toBe(true);
+    });
+
+    it("CANNOT read a site template belonging to another agency", () => {
+      expect(canReadSlotTemplate(
+        { orgId: null, employerId: KIEL, employerAgencyId: OTHER_AGENCY },
+        viewer({ staff: [CALMAROI] }),
+      )).toBe(false);
+    });
+
+    it("CANNOT read an orphan site template whose agency is unknown", () => {
+      // employerAgencyId null must not read as "global" for scoped staff.
+      expect(canReadSlotTemplate(
+        { orgId: null, employerId: KIEL, employerAgencyId: null },
+        viewer({ staff: [CALMAROI] }),
+      )).toBe(false);
+    });
+
+    it("can still read a truly global template", () => {
+      expect(canReadSlotTemplate({ orgId: null, employerId: null }, viewer({ staff: [CALMAROI] }))).toBe(true);
+    });
   });
 
   it("a truly global template (no agency, no site) is readable by any candidate", () => {

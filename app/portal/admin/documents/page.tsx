@@ -101,7 +101,11 @@ export default function AdminDocumentsPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           phase, type: "simple", label,
-          ...(scope.kind === "org" ? { orgId: scope.id } : scope.kind === "emp" ? { employerId: scope.id } : {}),
+          // "Everyone" must be stated outright — the API refuses to infer a
+          // portal-wide slot, since that reaches every agency's candidates.
+          ...(scope.kind === "org" ? { orgId: scope.id }
+            : scope.kind === "emp" ? { employerId: scope.id }
+            : { global: true }),
         }),
       });
       if (res.ok) { setNewLabel(""); await loadSlots(token, scope, phase); }

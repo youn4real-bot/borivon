@@ -3,6 +3,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { canReadSlotTemplate } from "@/lib/slotTemplateAccess";
+import { getVisibleOrgIds } from "@/lib/admin-auth";
 
 // Bucket name MUST match the admin's slot-template POST route. The admin route
 // stores the template in the `slot-templates` bucket at object key
@@ -52,16 +53,32 @@ export async function GET(req: NextRequest) {
   if (slotErr || !slotRow) return new NextResponse("Not found", { status: 404 });
   const slot = slotRow as { org_id: string | null; employer_id: string | null; label: string | null };
 
-  const isStaff = await (async () => {
+  // Staff standing. NOT a boolean: every org member gets a `sub_admins` row, so
+  // "has a sub_admins row" would hand an agency admin every OTHER agency's
+  // contract templates. Only the supreme admin and a true Borivon-HQ sub-admin
+  // (getVisibleOrgIds → null) are unrestricted; an org-scoped account is limited
+  // to the agencies it actually administers.
+  const staff: "all" | readonly string[] | null = await (async () => {
     const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-    if (callerEmail && callerEmail === adminEmail) return true;
-    if (!callerEmail) return false;
+    if (callerEmail && callerEmail === adminEmail) return "all" as const;
+    if (!callerEmail) return null;
     const { data: sub } = await db.from("sub_admins").select("email").eq("email", callerEmail).maybeSingle();
-    return !!sub;
+    if (!sub) return null;
+    const visible = await getVisibleOrgIds(callerEmail);
+    return visible === null ? ("all" as const) : visible;
   })();
 
-  if (!isStaff && (slot.org_id || slot.employer_id)) {
-    // Gather the viewer's placement + agency links, then defer to the pure rule.
+  if (staff !== "all") {
+    // Which agency does the SLOT's site belong to? Needed both to let an agency's
+    // own staff read their sites' templates and to keep everyone else out.
+    let slotEmployerAgencyId: string | null = null;
+    if (slot.employer_id) {
+      const { data: se } = await db
+        .from("employers").select("agency_id").eq("id", slot.employer_id).maybeSingle();
+      slotEmployerAgencyId = (se as { agency_id: string | null } | null)?.agency_id ?? null;
+    }
+
+    // Viewer's own placement + agency links (only meaningful for a candidate).
     const { data: prof } = await db
       .from("candidate_profiles").select("employer_id").eq("user_id", callerId).maybeSingle();
     const employerId = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
@@ -79,8 +96,8 @@ export async function GET(req: NextRequest) {
     const approvedOrgIds = ((links ?? []) as { org_id: string }[]).map(l => l.org_id);
 
     const allowed = canReadSlotTemplate(
-      { orgId: slot.org_id, employerId: slot.employer_id },
-      { isStaff, employerId, employerAgencyId, approvedOrgIds },
+      { orgId: slot.org_id, employerId: slot.employer_id, employerAgencyId: slotEmployerAgencyId },
+      { staff, employerId, employerAgencyId, approvedOrgIds },
     );
     if (!allowed) return new NextResponse("Forbidden", { status: 403 });
   }
