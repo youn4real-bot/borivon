@@ -121,11 +121,16 @@ function rollUp(original: ItemStatus, translation: ItemStatus | null): ItemState
  */
 export function computeChecklist(
   docs: DocLike[],
-  opts?: { requiredKeys?: readonly string[] | null },
+  opts?: { requiredKeys?: readonly string[] | null; excludeKeys?: readonly string[] | null },
 ): Checklist {
   const overrideSet =
     opts?.requiredKeys && opts.requiredKeys.length ? new Set(opts.requiredKeys) : null;
+  // Keys counted by ANOTHER phase (e.g. Impfung now lives in Visum) — still
+  // listed in `items`, just never part of this denominator, so one document is
+  // never counted twice across the journey.
+  const excludeSet = opts?.excludeKeys?.length ? new Set(opts.excludeKeys) : null;
   const isRequired = (def: ChecklistItemDef): boolean => {
+    if (excludeSet?.has(def.key)) return false;
     // Standing rule wins over any per-org override.
     if (ALWAYS_OPTIONAL.has(def.key)) return false;
     return overrideSet ? overrideSet.has(def.key) : !def.optional;

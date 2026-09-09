@@ -142,4 +142,29 @@ describe("computeJourneyProgress — one phase at a time", () => {
   it("phase order is papers → bearbeitung → visum (drives the sort)", () => {
     expect(JOURNEY_PHASE_ORDER).toEqual(["papers", "bearbeitung", "visum"]);
   });
+
+  describe("Impfung is a permanent VISUM box for every candidate", () => {
+    it("counts toward the Visum phase", () => {
+      expect(VISUM_PERMANENT_REQUIRED).toContain("impfung");
+      const j = computeJourneyProgress({ docs: [{ file_type: labelFor("impfung"), status: "approved" }], ...NO_SLOTS });
+      expect(j.phases.find(p => p.key === "visum")!.done).toBe(1);
+    });
+
+    it("does NOT hold the papers phase back (it is scored in Visum, not twice)", () => {
+      // allPapersApproved() includes impfung; papers must still complete without
+      // it, and impfung must not be counted in both phases.
+      const withoutImpfung = allPapersApproved().filter(
+        d => d.file_type !== labelFor("impfung") && d.file_type !== labelFor("impfung_de"));
+      const j = computeJourneyProgress({ docs: withoutImpfung, ...NO_SLOTS });
+      const papers = j.phases.find(p => p.key === "papers")!;
+      expect(papers.pct).toBe(100);
+      expect(j.current!.key).toBe("visum");
+      expect(j.phases.find(p => p.key === "visum")!.done).toBe(0);
+    });
+
+    it("every candidate gets it — Visum total always includes Impfung", () => {
+      const j = computeJourneyProgress({ docs: [], ...NO_SLOTS });
+      expect(j.phases.find(p => p.key === "visum")!.total).toBe(VISUM_PERMANENT_REQUIRED.length);
+    });
+  });
 });

@@ -68,7 +68,16 @@ export const VISUM_PERMANENT_REQUIRED = [
   "ezb", "zusatzblatt_a", "defizitbescheid", "videx", "bildungsplan",
   "vorabzustimmung", "arbeitsvertrag", "mawista", "versicherung",
   "tls_rechnung", "tls_bestaetigungstermin",
+  // Impfnachweis is a PERMANENT Visum box for EVERY candidate.
+  "impfung",
 ] as const;
+
+/**
+ * Catalog papers that have MOVED to a later phase. They stay visible in their
+ * original section but count only where they now live, so a single document is
+ * never counted twice across the journey.
+ */
+export const COUNTED_IN_VISUM = ["impfung"] as const;
 
 /** A permanent box / paper is done when a doc matching its fileKey is approved. */
 function approvedByKey(docs: DocLike[], key: string): boolean {
@@ -101,7 +110,10 @@ const asPhase = (key: JourneyPhaseKey, done: number, total: number): JourneyPhas
 });
 
 export function computeJourneyProgress(inp: JourneyInputs): JourneyProgress {
-  const chk = computeChecklist(inp.docs, { requiredKeys: inp.requiredKeys ?? null });
+  const chk = computeChecklist(inp.docs, {
+    requiredKeys: inp.requiredKeys ?? null,
+    excludeKeys: COUNTED_IN_VISUM, // Impfung is scored in the Visum phase now
+  });
   const bearb = slotCounts(inp.docs, inp.bearbeitungSlots);
   const permDone = VISUM_PERMANENT_REQUIRED.filter(k => approvedByKey(inp.docs, k)).length;
   const vSlots = slotCounts(inp.docs, inp.visumSlots);

@@ -343,6 +343,8 @@ export default function DashboardPage() {
       { key: "versicherung",            label: t.pTypeVersicherung,         hint: "" },
       { key: "tls_rechnung",            label: t.pTypeTlsRechnung,          hint: "" },
       { key: "tls_bestaetigungstermin", label: t.pTypeTlsBestaetigung,      hint: "" },
+      // Impfnachweis is a PERMANENT Visum box for EVERY candidate.
+      { key: "impfung",                 label: t.pTypeImpfung,              hint: "" },
       { key: "berufserfahrung_visum",   label: t.pTypeBerufserfahrungVisum, hint: "", optional: true as const },
       ...dynamicSlots.vis.map(s => ({
         key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,

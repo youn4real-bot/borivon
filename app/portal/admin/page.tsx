@@ -5949,6 +5949,8 @@ export default function AdminPage() {
                               { key: "versicherung",            label: t.pTypeVersicherung },
                               { key: "tls_rechnung",            label: t.pTypeTlsRechnung },
                               { key: "tls_bestaetigungstermin", label: t.pTypeTlsBestaetigung },
+                              // Impfnachweis is a PERMANENT Visum box for EVERY candidate.
+                              { key: "impfung",                 label: t.pTypeImpfung },
                               { key: "berufserfahrung_visum",   label: t.pTypeBerufserfahrungVisum, optional: true },
                             ];
                             // UNIFIED Visum order: permanent boxes + dynamic slots in ONE
