@@ -2,12 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { canReadSlotTemplate } from "@/lib/slotTemplateAccess";
 
 // Bucket name MUST match the admin's slot-template POST route. The admin route
 // stores the template in the `slot-templates` bucket at object key
 // `slot-templates/<slotId>.pdf`; the candidate side fetches the same path.
 const BUCKET = "slot-templates";
 
+/**
+ * The BLANK original of a document slot — the candidate downloads this, fills
+ * and signs it offline or in the portal, then uploads their copy back. The
+ * template is never consumed: it lives in its own bucket, untouched by the
+ * candidate's upload, so it stays permanently downloadable.
+ *
+ * EGRESS: templates are static and re-opened constantly, so this serves a
+ * validator instead of the bytes wherever possible. An `ETag` derived from the
+ * object's own updated_at+size lets a repeat open return **304 with no body**,
+ * which costs a metadata lookup instead of re-streaming a ~400 KB PDF out of
+ * Supabase. `no-cache` (revalidate, don't blind-cache) keeps that correct: swap
+ * a template in the admin panel and the very next open sees the new one.
+ * A daily per-candidate cap backstops anything pathological.
+ */
 export async function GET(req: NextRequest) {
   const header = req.headers.get("authorization") ?? "";
   const m = header.match(/^Bearer\s+(.+)$/i);
@@ -21,43 +36,83 @@ export async function GET(req: NextRequest) {
   const slotId = req.nextUrl.searchParams.get("slotId");
   if (!slotId || !UUID_RE.test(slotId))
     return new NextResponse("slotId required", { status: 400 });
+  const asDownload = req.nextUrl.searchParams.get("dl") === "1";
 
-  const db   = getServiceSupabase();
+  const db = getServiceSupabase();
 
-  // AUTHZ (audit HIGH fix): slot templates are org-scoped contracts (LAW #34).
-  // A logged-in user must NOT read another org's template by guessing a
-  // slotId. Allow only when the slot is global (org_id NULL), OR the caller
-  // is admin/sub_admin, OR a candidate with an APPROVED link to the slot's
-  // org (mirrors the visibility rule in /api/portal/phase-slots).
+  // AUTHZ (LAW #25 / LAW #34): slot templates are scoped contracts. A logged-in
+  // user must NOT read another agency's or another SITE's template by guessing a
+  // slotId.
+  //
+  // employer_id is checked as carefully as org_id: an employer-scoped row keeps
+  // org_id NULL, so an org-only check would classify every site's private
+  // template as "global" and hand it to any authenticated user.
   const { data: slotRow, error: slotErr } = await db
-    .from("phase_slots").select("org_id").eq("id", slotId).maybeSingle();
+    .from("phase_slots").select("org_id, employer_id, label").eq("id", slotId).maybeSingle();
   if (slotErr || !slotRow) return new NextResponse("Not found", { status: 404 });
-  const slotOrgId = (slotRow as { org_id: string | null }).org_id;
-  if (slotOrgId) {
+  const slot = slotRow as { org_id: string | null; employer_id: string | null; label: string | null };
+
+  const isStaff = await (async () => {
     const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-    let allowed = !!callerEmail && callerEmail === adminEmail;
-    if (!allowed && callerEmail) {
-      const { data: sub } = await db
-        .from("sub_admins").select("email").eq("email", callerEmail).maybeSingle();
-      allowed = !!sub;
+    if (callerEmail && callerEmail === adminEmail) return true;
+    if (!callerEmail) return false;
+    const { data: sub } = await db.from("sub_admins").select("email").eq("email", callerEmail).maybeSingle();
+    return !!sub;
+  })();
+
+  if (!isStaff && (slot.org_id || slot.employer_id)) {
+    // Gather the viewer's placement + agency links, then defer to the pure rule.
+    const { data: prof } = await db
+      .from("candidate_profiles").select("employer_id").eq("user_id", callerId).maybeSingle();
+    const employerId = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
+
+    let employerAgencyId: string | null = null;
+    if (employerId) {
+      const { data: emp } = await db
+        .from("employers").select("agency_id").eq("id", employerId).maybeSingle();
+      employerAgencyId = (emp as { agency_id: string | null } | null)?.agency_id ?? null;
     }
-    if (!allowed) {
-      const { data: link } = await db
-        .from("candidate_organizations")
-        .select("org_id")
-        .eq("candidate_user_id", callerId)
-        .eq("org_id", slotOrgId)
-        .eq("status", "approved")
-        .maybeSingle();
-      allowed = !!link;
-    }
+
+    const { data: links } = await db
+      .from("candidate_organizations").select("org_id")
+      .eq("candidate_user_id", callerId).eq("status", "approved");
+    const approvedOrgIds = ((links ?? []) as { org_id: string }[]).map(l => l.org_id);
+
+    const allowed = canReadSlotTemplate(
+      { orgId: slot.org_id, employerId: slot.employer_id },
+      { isStaff, employerId, employerAgencyId, approvedOrgIds },
+    );
     if (!allowed) return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const rl = await enforceUserRateLimit("download", `u:${callerId}`, { limit: 30, windowMs: 60000 });
-  if (!rl.ok) return new NextResponse("Too many requests", { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  // Burst guard (unchanged) + a DAILY ceiling so a runaway client or a scripted
+  // loop can't quietly drain storage egress. Both fail open to the in-process
+  // limiter, so a DB hiccup never blocks a candidate from their paperwork.
+  const burst = await enforceUserRateLimit("download", `u:${callerId}`, { limit: 30, windowMs: 60_000 });
+  if (!burst.ok) return new NextResponse("Too many requests", { status: 429, headers: { "Retry-After": String(burst.retryAfterSec) } });
+  const daily = await enforceUserRateLimit("tpl-day", `u:${callerId}`, { limit: 80, windowMs: 86_400_000 });
+  if (!daily.ok) return new NextResponse("Daily download limit reached", { status: 429, headers: { "Retry-After": String(daily.retryAfterSec) } });
 
   const path = `slot-templates/${slotId}.pdf`;
+
+  // Cheap metadata lookup → conditional request. A match returns 304 and the
+  // PDF bytes never leave Supabase.
+  let etag: string | null = null;
+  try {
+    const { data: listed } = await db.storage.from(BUCKET)
+      .list("slot-templates", { limit: 1, search: `${slotId}.pdf` });
+    const meta = listed?.[0] as { updated_at?: string; metadata?: { size?: number } } | undefined;
+    if (meta) etag = `"${slotId}-${meta.updated_at ?? ""}-${meta.metadata?.size ?? 0}"`;
+  } catch { /* metadata unavailable → fall through and serve the bytes */ }
+
+  const cacheHeaders: Record<string, string> = {
+    "Cache-Control": "private, no-cache, must-revalidate",
+    ...(etag ? { ETag: etag } : {}),
+  };
+
+  if (etag && req.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, { status: 304, headers: cacheHeaders });
+  }
 
   const { data: blob, error } = await db.storage.from(BUCKET).download(path);
   if (error || !blob) {
@@ -65,8 +120,19 @@ export async function GET(req: NextRequest) {
     return new NextResponse(error?.message ?? "Not found", { status: 404 });
   }
 
+  // ASCII-safe filename (umlauts transliterate) so Content-Disposition can't be
+  // broken by a label like "Verzichtserklärung".
+  const safeName = (slot.label ?? "dokument")
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .replace(/Ä/g, "Ae").replace(/Ö/g, "Oe").replace(/Ü/g, "Ue")
+    .replace(/[^\w.\-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "dokument";
+
   const buf = Buffer.from(await blob.arrayBuffer());
   return new NextResponse(buf, {
-    headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline", "Cache-Control": "private, no-store" },
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": asDownload ? `attachment; filename="${safeName}.pdf"` : "inline",
+      ...cacheHeaders,
+    },
   });
 }

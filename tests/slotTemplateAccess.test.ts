@@ -1,0 +1,70 @@
+import { describe, it, expect } from "vitest";
+import { canReadSlotTemplate, type SlotTemplateViewer } from "../lib/slotTemplateAccess";
+
+const CALMAROI = "org-calmaroi";
+const OTHER_AGENCY = "org-other";
+const KIEL = "emp-kiel";
+const LUEBECK = "emp-luebeck";
+
+const viewer = (over: Partial<SlotTemplateViewer> = {}): SlotTemplateViewer => ({
+  isStaff: false,
+  employerId: null,
+  employerAgencyId: null,
+  approvedOrgIds: [],
+  ...over,
+});
+
+describe("canReadSlotTemplate (LAW #25 / #34)", () => {
+  it("staff can read anything", () => {
+    expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: KIEL }, viewer({ isStaff: true }))).toBe(true);
+  });
+
+  it("a truly global template (no agency, no site) is readable by any candidate", () => {
+    expect(canReadSlotTemplate({ orgId: null, employerId: null }, viewer())).toBe(true);
+  });
+
+  // The bug this file exists for: employer-scoped rows keep org_id NULL, so an
+  // org-only check treats a site's private paperwork as global.
+  it("a SITE template is NOT public just because its org_id is null", () => {
+    expect(canReadSlotTemplate({ orgId: null, employerId: KIEL }, viewer())).toBe(false);
+  });
+
+  it("a candidate placed at the site can read that site's template", () => {
+    expect(canReadSlotTemplate({ orgId: null, employerId: KIEL }, viewer({ employerId: KIEL }))).toBe(true);
+  });
+
+  it("a candidate at ANOTHER site of the same agency cannot read a site template", () => {
+    expect(canReadSlotTemplate(
+      { orgId: null, employerId: KIEL },
+      viewer({ employerId: LUEBECK, employerAgencyId: CALMAROI }),
+    )).toBe(false);
+  });
+
+  it("an agency template is readable via an approved agency link", () => {
+    expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: null }, viewer({ approvedOrgIds: [CALMAROI] }))).toBe(true);
+  });
+
+  it("an agency template is readable when placed at one of its sites", () => {
+    expect(canReadSlotTemplate(
+      { orgId: CALMAROI, employerId: null },
+      viewer({ employerId: KIEL, employerAgencyId: CALMAROI }),
+    )).toBe(true);
+  });
+
+  it("another agency's candidate cannot read Calmaroi's template", () => {
+    expect(canReadSlotTemplate(
+      { orgId: CALMAROI, employerId: null },
+      viewer({ approvedOrgIds: [OTHER_AGENCY], employerAgencyId: OTHER_AGENCY }),
+    )).toBe(false);
+  });
+
+  it("an unplaced, unlinked candidate cannot read a scoped template", () => {
+    expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: null }, viewer())).toBe(false);
+    expect(canReadSlotTemplate({ orgId: CALMAROI, employerId: KIEL }, viewer())).toBe(false);
+  });
+
+  it("null placement never matches a null-scoped field (no null==null loophole)", () => {
+    // A candidate with no employer must not satisfy an employer-scoped slot.
+    expect(canReadSlotTemplate({ orgId: null, employerId: LUEBECK }, viewer({ employerId: null }))).toBe(false);
+  });
+});

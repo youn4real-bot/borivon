@@ -671,6 +671,41 @@ export default function DashboardPage() {
   const [showWorkGuide, setShowWorkGuide] = useState(false);
   // ⋯ menu for builder docs (CV / cover letter) — edit lives here, like the admin.
   const [cvMenu, setCvMenu] = useState<{ key: string; el: HTMLElement; rect: { top: number; right: number } } | null>(null);
+  // ⋯ menu on a document slot that has a blank original attached — lets the
+  // candidate pull down the unfilled, unsigned PDF at any time. The template is
+  // never consumed by their upload, so this stays available permanently.
+  const [tplMenu, setTplMenu] = useState<{ key: string; el: HTMLElement; rect: { top: number; right: number } } | null>(null);
+  const [tplBusy, setTplBusy] = useState<string | null>(null);
+
+  /** Download the BLANK original of a slot (fill/sign offline, upload back). */
+  async function downloadOriginalTemplate(slotId: string, label: string) {
+    if (!authToken || tplBusy) return;
+    setTplBusy(slotId);
+    try {
+      const res = await fetch(`/api/portal/slot-template?slotId=${slotId}&dl=1`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.status === 429) {
+        alert(lang === "de" ? "Tageslimit für Downloads erreicht. Bitte morgen erneut versuchen."
+          : lang === "fr" ? "Limite de téléchargements atteinte pour aujourd'hui. Réessayez demain."
+          : "Daily download limit reached. Please try again tomorrow.");
+        return;
+      }
+      if (!res.ok) {
+        alert(lang === "de" ? "Download fehlgeschlagen." : lang === "fr" ? "Échec du téléchargement." : "Download failed.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${label.replace(/[^\w.\-]+/g, "_").slice(0, 80) || "dokument"}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch {
+      alert(lang === "de" ? "Netzwerkfehler." : lang === "fr" ? "Erreur réseau." : "Network error.");
+    } finally { setTplBusy(null); }
+  }
   const [tipPopup, setTipPopup]         = useState<{ itemKey: string; isWorkCert: boolean } | null>(null);
 
   // ── Nationality / country i18n helpers (uses shared @/lib/countries) ─────────
@@ -3445,6 +3480,42 @@ export default function DashboardPage() {
                                 style={{ color: "var(--w)", background: "transparent", border: "none", cursor: "pointer" }}>
                                 <FilePen size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
                                 {lang === "fr" ? "Modifier" : lang === "de" ? "Bearbeiten" : "Edit"}
+                              </button>
+                            </DropdownMenu>
+                          </>
+                        )}
+                        {/* Slot with a blank original attached → ⋯ menu to download it.
+                            Always available, before AND after they upload their signed
+                            copy: the template lives in its own bucket and is never
+                            consumed, so this is the permanent source of the empty form. */}
+                        {"template_pdf_path" in item && (item as { template_pdf_path?: string }).template_pdf_path && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const r = e.currentTarget.getBoundingClientRect();
+                                setTplMenu({ key: item.key, el: e.currentTarget, rect: { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) } });
+                              }}
+                              aria-label={lang === "fr" ? "Options" : lang === "de" ? "Optionen" : "Options"}
+                              title={lang === "fr" ? "Options" : lang === "de" ? "Optionen" : "Options"}
+                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                              style={{ color: "var(--w2)" }}>
+                              <MoreHorizontal size={15} strokeWidth={1.8} />
+                            </button>
+                            <DropdownMenu
+                              open={tplMenu?.key === item.key}
+                              onClose={() => setTplMenu(null)}
+                              anchor={tplMenu?.key === item.key ? tplMenu.el : null}
+                              anchorRect={tplMenu?.key === item.key ? tplMenu.rect : undefined}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setTplMenu(null); void downloadOriginalTemplate(item.key, item.label); }}
+                                disabled={tplBusy === item.key}
+                                className="w-full text-left px-3.5 py-2.5 text-[13px] font-medium flex items-center gap-2 bv-row-hover disabled:opacity-50"
+                                style={{ color: "var(--w)", background: "transparent", border: "none", cursor: "pointer" }}>
+                                <Download size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+                                {lang === "fr" ? "Télécharger le document original"
+                                  : lang === "de" ? "Originaldokument herunterladen"
+                                  : "Download the original document"}
                               </button>
                             </DropdownMenu>
                           </>
