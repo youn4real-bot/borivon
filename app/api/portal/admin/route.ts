@@ -330,13 +330,14 @@ export async function GET(req: NextRequest) {
       for (const d of activeDocs as { user_id: string; file_type: string | null; status: string | null }[]) {
         (docsByUser[d.user_id] ??= []).push({ file_type: d.file_type, status: d.status });
       }
-      // Same scope resolution as GET /api/portal/phase-slots (batch ▸ site, else global).
+      // Same scope resolution as GET /api/portal/phase-slots — MUST stay in sync
+      // or the % would score a different list than the candidate actually sees.
+      // "Everyone" (no org, no employer) is ADDITIVE: everyone → batch → site.
       const applicable = (phase: string, empId: string | null, batchOrg: string | null): JourneySlot[] => {
-        const site  = empId    ? allSlots.filter(s => s.phase === phase && s.employer_id === empId)    : [];
-        const batch = batchOrg ? allSlots.filter(s => s.phase === phase && s.org_id === batchOrg)      : [];
-        const combined = [...batch, ...site];
-        const rows = combined.length ? combined : allSlots.filter(s => s.phase === phase && !s.org_id && !s.employer_id);
-        return rows.map(s => ({ id: s.id, type: s.type, is_required: s.is_required }));
+        const glob  = allSlots.filter(s => s.phase === phase && !s.org_id && !s.employer_id);
+        const batch = batchOrg ? allSlots.filter(s => s.phase === phase && s.org_id === batchOrg)   : [];
+        const site  = empId    ? allSlots.filter(s => s.phase === phase && s.employer_id === empId) : [];
+        return [...glob, ...batch, ...site].map(s => ({ id: s.id, type: s.type, is_required: s.is_required }));
       };
 
       for (const uid of userIds) {

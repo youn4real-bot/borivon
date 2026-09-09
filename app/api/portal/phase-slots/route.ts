@@ -265,17 +265,24 @@ export async function GET(req: NextRequest) {
       .eq("employer_id", cEmployer).eq("phase", phase).order("position");
     siteSlots = (data ?? []) as PhaseSlot[];
   }
-  // Batch (Calmaroi) docs first, then the site (Kiel/Lübeck) extras. Re-number
-  // position on the COMBINED list so any position-sort keeps the two groups in
-  // order (the persisted per-scope positions are edited via the manager views).
-  let slots = [...batchSlots, ...siteSlots].map((s, i) => ({ ...s, position: i }));
+  // "Everyone" docs are ADDITIVE, never a fallback. A slot with no org and no
+  // employer is one the founder declared for EVERY candidate, so it must still
+  // reach someone who ALSO has an agency batch or a site list — otherwise adding
+  // a single Calmaroi doc silently hid the whole global set from that intake.
+  //
+  // employer_id is filtered in JS, not SQL: employer-scoped rows keep org_id NULL,
+  // so `.is("org_id", null)` alone also matches every SITE's private slots and
+  // would hand one employer's documents to unrelated candidates. (Filtering in JS
+  // also stays schema-tolerant if employer_id isn't migrated.)
+  const { data: globalData } = await db.from("phase_slots").select("*")
+    .is("org_id", null).eq("phase", phase).order("position");
+  const globalSlots = ((globalData ?? []) as PhaseSlot[])
+    .filter(s => !(s as { employer_id?: string | null }).employer_id);
 
-  // Global fallback only when the candidate has NEITHER a batch nor a site set.
-  if (slots.length === 0) {
-    const { data } = await db.from("phase_slots").select("*")
-      .is("org_id", null).eq("phase", phase).order("position");
-    slots = (data ?? []) as PhaseSlot[];
-  }
+  // Everyone → batch (Calmaroi) → site (Kiel/Lübeck) extras. Re-number position
+  // across the combined list so a position-sort keeps the three groups in order
+  // (the persisted per-scope positions are edited in the manager views).
+  const slots = [...globalSlots, ...batchSlots, ...siteSlots].map((s, i) => ({ ...s, position: i }));
 
   return NextResponse.json({ slots });
 }
