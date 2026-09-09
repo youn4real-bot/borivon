@@ -231,6 +231,32 @@ describe("isMirrorInWrongBatch — candidate moved batches (feature #3)", () => 
   it("does not flag a doc that was never mirrored (no drive_mirror_id)", () => {
     expect(isMirrorInWrongBatch({ drive_mirror_id: null, drive_mirror_batch_id: A }, B)).toBe(false);
   });
+
+  // "Kein Batch" fallback: a candidate who belongs to an agency but has no batch
+  // is mirrored under a sentinel instead of being silently skipped. Both
+  // transitions must move the copy, which is exactly what NULL could not express.
+  describe("no-batch sentinel", () => {
+    const NONE = "00000000-0000-0000-0000-000000000000";
+
+    it("moves a copy OUT of a real batch folder when the candidate loses their batch", () => {
+      expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: A }, NONE)).toBe(true);
+    });
+
+    it("moves a copy OUT of 'Kein Batch' once the candidate is assigned a batch", () => {
+      expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: NONE }, A)).toBe(true);
+    });
+
+    it("leaves a Kein-Batch copy alone while they are still un-batched", () => {
+      expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: NONE }, NONE)).toBe(false);
+    });
+
+    it("the sentinel is distinguishable from NULL (which means legacy/unknown)", () => {
+      // NULL is the do-nothing default; the sentinel is an assertion about where
+      // the copy lives. Collapsing them would strand files in the wrong folder.
+      expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: null }, A)).toBe(false);
+      expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: NONE }, A)).toBe(true);
+    });
+  });
   it("flags a stamped doc when the candidate now has NO batch (offboarded)", () => {
     expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: A }, null)).toBe(true);
   });

@@ -45,6 +45,25 @@ const NACH_MATCHING = "Nach Matching";
  * shared. Files are still only MOVED, never deleted or trashed (LAW #33).
  */
 const ARCHIV_ROOT = "_Archiv (Borivon intern)";
+/**
+ * Where a candidate who belongs to an agency but is in NO batch gets mirrored.
+ *
+ * Before this existed, `autoMirrorCandidate` returned early for anyone without a
+ * batch_id: their approved documents never reached the agency's Drive at all,
+ * silently and with nothing logged. On this deployment that was 15 of 35 Calmaroi
+ * candidates. Placement in a batch is an admin bookkeeping step that often lags
+ * behind the paperwork, so "not in a batch yet" must not mean "invisible".
+ */
+const NO_BATCH_FOLDER = "Kein Batch";
+/**
+ * Sentinel stamped into documents.drive_mirror_batch_id for copies living in the
+ * "Kein Batch" folder. It must be a real uuid (the column is uuid, no FK) and must
+ * never collide with an actual batch id, so that isMirrorInWrongBatch() correctly
+ * detects BOTH transitions: no-batch → batch, and batch → no-batch. A NULL here
+ * would read as "legacy/unknown = current" and strand the copy in the wrong folder
+ * forever.
+ */
+const NO_BATCH_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
 /** WORK / _Archiv (Borivon intern) / <Candidate> — created only when needed. */
 async function resolveArchivFolder(drive: Drive, candidateName: string): Promise<string> {
@@ -312,6 +331,47 @@ export async function resolveBatchSyncTargets(
   const userIds = [...new Set((pipe ?? []).map((r) => (r as { user_id: string }).user_id))];
 
   return { agencyRootName: agencyRootFolderName(rootBase), batchName: b.name || "Batch", userIds };
+}
+
+/**
+ * Which agency's Drive root does this candidate belong to, independent of any
+ * batch? Used by the no-batch fallback. Order mirrors resolveBatchSyncTargets:
+ * the SITE they're placed at → its agency; a direct employer with no agency uses
+ * the employer's own name; otherwise an approved agency link. Returns null when
+ * the candidate has no affiliation at all (nothing to mirror to).
+ */
+export async function resolveAgencyRootForCandidate(
+  db: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  let base = "";
+  const { data: prof } = await db
+    .from("candidate_profiles").select("employer_id").eq("user_id", userId).maybeSingle();
+  const employerId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
+
+  if (employerId) {
+    const { data: emp } = await db
+      .from("employers").select("name,agency_id").eq("id", employerId).maybeSingle();
+    const e = emp as { name?: string | null; agency_id?: string | null } | null;
+    if (e?.agency_id) {
+      const { data: org } = await db.from("organizations").select("name").eq("id", e.agency_id).maybeSingle();
+      base = (org as { name?: string } | null)?.name?.trim() || "";
+    }
+    if (!base) base = e?.name?.trim() || ""; // direct employer, no agency
+  }
+
+  if (!base) {
+    const { data: link } = await db
+      .from("candidate_organizations").select("org_id")
+      .eq("candidate_user_id", userId).eq("status", "approved").maybeSingle();
+    const orgId = (link as { org_id?: string } | null)?.org_id ?? null;
+    if (orgId) {
+      const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+      base = (org as { name?: string } | null)?.name?.trim() || "";
+    }
+  }
+
+  return base ? agencyRootFolderName(base) : null;
 }
 
 export type CandidateMirrorResult =
@@ -722,10 +782,18 @@ export async function autoMirrorCandidate(userId: string): Promise<void> {
     if (!drive) return; // Workspace/Drive not connected — the manual sync will catch up later
 
     if (!batchId) {
-      // Candidate is in NO batch (never placed, or removed/offboarded). There is
-      // no current folder to write to, but any copies they had in a previous
-      // batch must stop being visible to that agency → retract them all to Archiv.
-      await retractAllCandidateMirrors(db, drive, userId);
+      // Candidate is in NO batch. If we can still resolve WHICH agency they belong
+      // to, mirror into "<Agency> X Borivon / Kein Batch" rather than skipping them
+      // — being un-batched is an admin bookkeeping gap, not a reason for the agency
+      // to never receive their approved paperwork. Only a candidate with no agency
+      // at all (never placed / offboarded) is fully retracted, as before.
+      const agencyRootName = await resolveAgencyRootForCandidate(db, userId);
+      if (!agencyRootName) {
+        await retractAllCandidateMirrors(db, drive, userId);
+        return;
+      }
+      const noBatchFolderId = await ensureBatchFolder(drive, agencyRootName, NO_BATCH_FOLDER);
+      await mirrorCandidateApprovedDocs(db, drive, userId, noBatchFolderId, NO_BATCH_SENTINEL);
       return;
     }
     const targets = await resolveBatchSyncTargets(db, batchId);
