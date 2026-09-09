@@ -69,9 +69,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       updates.required_doc_keys = null;
     } else if (Array.isArray(body.requiredDocKeys)) {
       const valid = new Set(CHECKLIST_KEYS);
-      updates.required_doc_keys = [
+      const keys = [
         ...new Set(body.requiredDocKeys.filter((k: unknown): k is string => typeof k === "string" && valid.has(k))),
       ];
+      // An EMPTY selection is stored as NULL, not as []. computeChecklist reads an
+      // empty override as "no override → use the default set", so persisting []
+      // would mean the writer intended "nothing is required" while every reader
+      // applied the full default — the two sides silently disagreeing about the
+      // completion %. NULL makes both sides say the same thing.
+      updates.required_doc_keys = keys.length ? keys : null;
     }
   }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
-import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit, requestIp } from "@/lib/rateLimit";
 import { canReadSlotTemplate } from "@/lib/slotTemplateAccess";
 import { getVisibleOrgIds } from "@/lib/admin-auth";
 
@@ -109,6 +109,12 @@ export async function GET(req: NextRequest) {
   if (!burst.ok) return new NextResponse("Too many requests", { status: 429, headers: { "Retry-After": String(burst.retryAfterSec) } });
   const daily = await enforceUserRateLimit("tpl-day", `u:${callerId}`, { limit: 80, windowMs: 86_400_000 });
   if (!daily.ok) return new NextResponse("Daily download limit reached", { status: 429, headers: { "Retry-After": String(daily.retryAfterSec) } });
+  // Per-IDENTITY ceilings alone are sidesteppable: registration is self-serve, so
+  // a script can mint accounts and get a fresh 80/day each time. A per-IP ceiling
+  // bounds the aggregate. Set well above any household (several candidates can
+  // share a connection) and, like the others, fails open.
+  const perIp = await enforceUserRateLimit("tpl-ip-day", `ip:${requestIp(req)}`, { limit: 400, windowMs: 86_400_000 });
+  if (!perIp.ok) return new NextResponse("Daily download limit reached", { status: 429, headers: { "Retry-After": String(perIp.retryAfterSec) } });
 
   const path = `slot-templates/${slotId}.pdf`;
 

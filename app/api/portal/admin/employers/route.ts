@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, getVisibleOrgIds } from "@/lib/admin-auth";
 import { isOrgSide } from "@/lib/messagesAuth";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -120,11 +120,28 @@ export async function GET(req: NextRequest) {
   }
 
   // Picker shape (active only). admin + sub_admin.
-  const { data, error } = await db
+  //
+  // SCOPED for org-side callers (LAW #25). The roster of every employer — each
+  // hospital's id, name, slug and PARENT AGENCY — is Borivon's commercial map,
+  // not an agency's. The ?all=1 branch above already refuses them; this picker
+  // handed over the same map, and the new Documents page renders it as a scope
+  // list, so an agency admin could read off every competitor's sites. They now
+  // see only the sites under the agencies they administer.
+  const pickerScope = (await isOrgSide(db, auth.role, auth.email))
+    ? (await getVisibleOrgIds(auth.email)) ?? []
+    : null;
+
+  let pickerQuery = db
     .from("employers")
     .select("id, name, slug, agency_id")
     .eq("active", true)
     .order("name", { ascending: true });
+  if (pickerScope !== null) {
+    // No agencies resolved → no sites, rather than every site.
+    if (pickerScope.length === 0) return NextResponse.json({ employers: [] });
+    pickerQuery = pickerQuery.in("agency_id", pickerScope);
+  }
+  const { data, error } = await pickerQuery;
 
   if (error) {
     console.error("[admin/employers] list failed:", error);

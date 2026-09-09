@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
-import { requireAdminRole, canActOnCandidate, canActOnOrg } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, canActOnOrg, getVisibleOrgIds } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -152,9 +152,16 @@ export async function GET(req: NextRequest) {
   let adminCandEmployer: string | null = null;
   let adminCandOrg: string | null = null;
   let adminViewingCand = false;
+  // null = unrestricted viewer (supreme admin, Borivon HQ sub-admin, or the
+  // candidate themselves). Otherwise the agencies this admin may see — used to
+  // filter the resolved set below, because being allowed to view a CANDIDATE is
+  // not the same as being allowed to read whichever agency's private document
+  // set that candidate happens to be placed under.
+  let viewerOrgIds: string[] | null = null;
   if (candidateIdParam && UUID_RE.test(candidateIdParam)) {
     const adminAuth = await requireAdminRole(req);
     if (adminAuth.ok) {
+      if (adminAuth.role !== "admin") viewerOrgIds = await getVisibleOrgIds(adminAuth.email);
       // LAW #25: an org-scoped sub-admin must NOT read an out-of-scope candidate's
       // employer/org linkage — or, via that linkage, another org's private slot
       // config — by passing ?candidateId=. Gate on the same scope check every
@@ -247,20 +254,30 @@ export async function GET(req: NextRequest) {
   // candidate at ANY site of that agency gets the shared batch docs. No employer
   // → fall back to the candidate's own linked org as the batch.
   let batchOrg: string | null = cOrg;
+  let cEmployerAgency: string | null = null;
   if (cEmployer) {
     const { data: emp } = await db.from("employers").select("agency_id").eq("id", cEmployer).maybeSingle();
-    const agencyId = (emp as { agency_id: string | null } | null)?.agency_id ?? null;
-    if (agencyId) batchOrg = agencyId;
+    cEmployerAgency = (emp as { agency_id: string | null } | null)?.agency_id ?? null;
+    if (cEmployerAgency) batchOrg = cEmployerAgency;
   }
 
+  // LAW #25: an ORG-SCOPED admin may view a candidate who is placed under a
+  // DIFFERENT agency (a transfer, or an admin-set employer). Viewing the person
+  // must not hand over that other agency's private document set — labels, ids and
+  // all — so the batch/site reads are suppressed unless the agency in question is
+  // one this admin actually administers. Globals are unaffected (they are, by
+  // definition, everyone's), and an unrestricted viewer keeps the full set.
+  const mayReadAgency = (agencyId: string | null): boolean =>
+    viewerOrgIds === null || (!!agencyId && viewerOrgIds.includes(agencyId));
+
   let batchSlots: PhaseSlot[] = [];
-  if (batchOrg) {
+  if (batchOrg && mayReadAgency(batchOrg)) {
     const { data } = await db.from("phase_slots").select("*")
       .eq("org_id", batchOrg).eq("phase", phase).order("position");
     batchSlots = (data ?? []) as PhaseSlot[];
   }
   let siteSlots: PhaseSlot[] = [];
-  if (cEmployer) {
+  if (cEmployer && mayReadAgency(cEmployerAgency)) {
     const { data } = await db.from("phase_slots").select("*")
       .eq("employer_id", cEmployer).eq("phase", phase).order("position");
     siteSlots = (data ?? []) as PhaseSlot[];

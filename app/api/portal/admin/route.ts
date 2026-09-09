@@ -8,6 +8,7 @@ import { UUID_RE } from "@/lib/uuid";
 // (lib/assistantWrites) so both surfaces behave identically — see lib/adminCandidateActions.
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -16,6 +17,20 @@ export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const { role, email: token } = auth;
+
+  // This is the heaviest read in the app — every document + profile in scope,
+  // a listUsers sweep, plus the journey block's table reads — and it had no
+  // ceiling at all, so any admin account could loop it and pin the database.
+  // Generous enough for the 8-second dossier poll and a hard refresh, applied
+  // AFTER auth so an unauthenticated caller never spends a bucket. Fails open
+  // (see lib/rateLimit) so a DB hiccup can't lock the team out of the panel.
+  const rl = await enforceUserRateLimit("admin-payload", `e:${token}`, { limit: 90, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const targetUserId = req.nextUrl.searchParams.get("userId") ?? null;
   // Validate to prevent injection via the query param.
@@ -326,6 +341,21 @@ export async function GET(req: NextRequest) {
       const reqByOrg: Record<string, string[] | null> = {};
       for (const o of (orgReqRes.data ?? []) as { id: string; required_doc_keys: string[] | null }[]) reqByOrg[o.id] = o.required_doc_keys ?? null;
 
+      // Org links WITHOUT the admin-placed ones. The candidate's own phase-slots
+      // request excludes `added_by = 'admin'` links, so scoring the % against the
+      // full link list counted documents they are never shown — a candidate could
+      // sit at 40% with no way to move it. Match what they actually see.
+      const selfOrgByUser: Record<string, string> = {};
+      {
+        const { data: selfLinks } = await db
+          .from("candidate_organizations").select("candidate_user_id, org_id, added_by")
+          .eq("status", "approved").in("candidate_user_id", userIds);
+        for (const l of (selfLinks ?? []) as { candidate_user_id: string; org_id: string; added_by: string | null }[]) {
+          if (l.added_by === "admin") continue;
+          selfOrgByUser[l.candidate_user_id] ??= l.org_id;
+        }
+      }
+
       const docsByUser: Record<string, { file_type: string | null; status: string | null }[]> = {};
       for (const d of activeDocs as { user_id: string; file_type: string | null; status: string | null }[]) {
         (docsByUser[d.user_id] ??= []).push({ file_type: d.file_type, status: d.status });
@@ -342,9 +372,13 @@ export async function GET(req: NextRequest) {
 
       for (const uid of userIds) {
         const empId = (profiles[uid] as { employer_id?: string | null } | undefined)?.employer_id ?? null;
-        const orgId = (candidateOrgs[uid] ?? [])[0]?.id ?? null;
-        const batchOrg = (empId && agencyByEmp[empId]) ? agencyByEmp[empId] : orgId;
-        const requiredKeys = orgId ? (reqByOrg[orgId] ?? null) : null;
+        // Same resolution the candidate's own request uses: their site's agency
+        // first, else an org they actually joined (never an admin-placed link).
+        const selfOrgId = selfOrgByUser[uid] ?? null;
+        const batchOrg = (empId && agencyByEmp[empId]) ? agencyByEmp[empId] : selfOrgId;
+        // The required-docs override follows the agency whose set they're scored
+        // against, so the numerator and denominator come from the same place.
+        const requiredKeys = batchOrg ? (reqByOrg[batchOrg] ?? null) : null;
         const j = computeJourneyProgress({
           docs: docsByUser[uid] ?? [],
           requiredKeys,
