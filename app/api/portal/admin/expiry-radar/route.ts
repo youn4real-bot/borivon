@@ -37,25 +37,42 @@ export async function GET(req: NextRequest) {
 
   const now = Date.now();
   const DAY = 86_400_000;
-  type Row = { userId: string; name: string; type: string; expiry: string; daysUntil: number; status: "expired" | "critical" | "soon" | "ok" };
+  type Row = { userId: string; name: string; type: string; expiry: string; daysUntil: number | null; status: "expired" | "critical" | "soon" | "ok" | "unknown" };
   const rows: Row[] = [];
+  // APPROVED passports whose expiry is missing or unreadable. These were dropped
+  // silently, which made them the most dangerous rows on the board: the passport
+  // reads "approved", so it looks handled, while every date check skips it — an
+  // expiry can lapse mid-visa-process with nobody warned. Surfaced separately.
+  const unknown: Row[] = [];
   for (const p of (data ?? []) as { user_id: string; first_name: string | null; last_name: string | null; passport_expiry: string | null; passport_status: string | null }[]) {
+    const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || "—";
     const ms = parseExpiry(p.passport_expiry);
-    if (ms == null) continue;
+    if (ms == null) {
+      if ((p.passport_status ?? "").toLowerCase() === "approved") {
+        unknown.push({
+          userId: p.user_id, name, type: "passport",
+          expiry: (p.passport_expiry ?? "").trim(), daysUntil: null, status: "unknown",
+        });
+      }
+      continue;
+    }
     const daysUntil = Math.round((ms - now) / DAY);
     // Only surface what needs attention — expired or within a year.
     if (daysUntil > 365) continue;
     const status = daysUntil < 0 ? "expired" : daysUntil < 90 ? "critical" : daysUntil < 180 ? "soon" : "ok";
     rows.push({
       userId: p.user_id,
-      name: [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || "—",
+      name,
       type: "passport",
       expiry: p.passport_expiry!.trim(),
       daysUntil,
       status,
     });
   }
-  rows.sort((a, b) => a.daysUntil - b.daysUntil);
+  rows.sort((a, b) => (a.daysUntil ?? 0) - (b.daysUntil ?? 0));
+  // Dated rows first (soonest-first), then the undated approved ones — they need
+  // a human to go read the passport, but they aren't racing a specific date.
+  unknown.sort((a, b) => a.name.localeCompare(b.name));
 
-  return NextResponse.json({ rows, today: new Date(now).toISOString() });
+  return NextResponse.json({ rows: [...rows, ...unknown], today: new Date(now).toISOString() });
 }

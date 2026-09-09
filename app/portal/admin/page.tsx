@@ -3404,6 +3404,7 @@ export default function AdminPage() {
             overrideFetchUrl={`/api/portal/slot-template?slotId=${tplPreview.slotId}`}
             onClose={() => setTplPreview(null)}
             noPreviewText={t.aNoPreview}
+            readOnly
           />
         )}
 

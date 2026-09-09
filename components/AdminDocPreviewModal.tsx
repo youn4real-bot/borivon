@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle2, XCircle } from "@/components/PortalIcons";
-import { X as XIcon, Download } from "lucide-react";
+import { X as XIcon, Download, LayoutGrid } from "lucide-react";
+import { PdfPageOrganizer } from "@/components/PdfPageOrganizer";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { EmbedPdfViewer } from "@/components/EmbedPdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
@@ -79,13 +80,15 @@ type Doc = {
 };
 
 export function AdminDocPreviewModal({
-  doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available",
+  doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available", readOnly = false,
   onShowPassportData, sideBySide = false, overrideFetchUrl,
 }: {
   doc: Doc;
   accessToken: string;
   onClose: () => void;
   onUpdated?: (doc: Doc) => void;
+  /** Hide approve/reject — nothing has been submitted to review (blank templates). */
+  readOnly?: boolean;
   noPreviewText?: string;
   onShowPassportData?: () => void;
   sideBySide?: boolean;
@@ -101,6 +104,7 @@ export function AdminDocPreviewModal({
   }, []);
 
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [organizeOpen, setOrganizeOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedAs, setSavedAs]       = useState<"approved" | "rejected" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -225,7 +229,23 @@ export function AdminDocPreviewModal({
     }
   }
 
-  const canReview = !savedAs && doc.status !== "approved" && !doc.uploaded_by_admin;
+  // `readOnly` = there is nothing to review here. Used for the BLANK original of
+  // a document slot: it is the empty form the candidate still has to download,
+  // fill, sign and send back — approving or rejecting it is meaningless, and the
+  // buttons would act on a synthetic id. Review appears once they submit a copy.
+  const canReview = !readOnly && !savedAs && doc.status !== "approved" && !doc.uploaded_by_admin;
+
+  // Page organiser: only for a REAL stored PDF. Never a passport (LAW #39 —
+  // rewriting the bytes silently strips the MRZ), never a blank template
+  // (readOnly: there is no stored document to rewrite), never a generated
+  // preview (overrideFetchUrl builds its bytes on the fly, so there is nothing
+  // on disk that saving could replace).
+  const isPdf = (doc.file_name?.split(".").pop() ?? "").toLowerCase() === "pdf";
+  const canOrganize =
+    !readOnly && !overrideFetchUrl && isPdf && !!doc.id && !/pass/i.test(doc.file_type ?? "");
+  const orgT = {
+    title: lang === "de" ? "Seiten ordnen" : lang === "fr" ? "Organiser les pages" : "Organise pages",
+  };
 
   // ── iOS parity (sub-admins use iPhones too) ──────────────────────────────
   // iOS WebKit can't paint the pdf.js canvas (blank preview) and won't
@@ -425,6 +445,17 @@ export function AdminDocPreviewModal({
                   : <><XCircle size={13} strokeWidth={1.8} /> {dt.rejected}</>}
               </span>
             )}
+            {/* Organise pages — fix a shuffled/sideways/blank-sheet scan in place.
+                Hidden for passports (LAW #39: rewriting the file destroys the
+                machine-readable data) and for blank templates (nothing submitted). */}
+            {canOrganize && (
+              <button onClick={() => setOrganizeOpen(true)} disabled={submitting}
+                title={orgT.title} aria-label={orgT.title}
+                className="bv-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40"
+                style={{ color: "var(--w2)" }}>
+                <LayoutGrid size={15} strokeWidth={1.8} />
+              </button>
+            )}
             {canReview && (
               <>
                 <button onClick={() => setRejectOpen(true)} disabled={submitting}
@@ -558,6 +589,19 @@ export function AdminDocPreviewModal({
           target={{ label: doc.file_type || doc.file_name, initialFeedback: doc.feedback ?? "" }}
           onCancel={() => setRejectOpen(false)}
           onSubmit={handleRejectSubmit}
+        />
+      )}
+
+      {/* Page organiser — saving replaces this document's bytes everywhere. */}
+      {organizeOpen && (
+        <PdfPageOrganizer
+          docId={doc.id}
+          fetchUrl={`/api/portal/file?docId=${doc.id}`}
+          accessToken={accessToken}
+          label={doc.file_type || doc.file_name || "PDF"}
+          lang={lang}
+          onClose={() => setOrganizeOpen(false)}
+          onSaved={() => { onUpdated?.(doc); onClose(); }}
         />
       )}
     </div>,
