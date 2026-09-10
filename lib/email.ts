@@ -5,6 +5,7 @@
  */
 
 import { Resend } from "resend";
+import { reportError } from "@/lib/reportError";
 
 function getResend(): Resend | null {
   const key = process.env.RESEND_API_KEY;
@@ -34,16 +35,28 @@ function getResend(): Resend | null {
 async function deliver(payload: Parameters<Resend["emails"]["send"]>[0]): Promise<boolean> {
   const r = getResend();
   if (!r) return false;
+  // Context for the alarm: WHO it was for and WHAT it was about. Never the body —
+  // these carry personal data, and the recipient alone is enough to chase it.
+  const ctx = {
+    route: "lib/email deliver",
+    to: Array.isArray(payload.to) ? payload.to.join(",") : String(payload.to ?? ""),
+    subject: String(payload.subject ?? ""),
+  };
   try {
     const { data, error } = await r.emails.send(payload);
     if (error) {
-      // Log the recipient, never the body — these carry personal data.
-      console.error("[email] Resend refused:", (error as { message?: string }).message ?? error);
+      // A refusal used to reach console.error only — and nobody reads Worker
+      // logs, so a candidate simply never learned her document was rejected and
+      // no one at Borivon found out. Route it to the real alarm instead.
+      await reportError(
+        new Error(`Resend refused: ${(error as { message?: string }).message ?? String(error)}`),
+        ctx,
+      );
       return false;
     }
     return !!data;
   } catch (e) {
-    console.error("[email] send threw:", e instanceof Error ? e.message : e);
+    await reportError(e instanceof Error ? e : new Error(String(e)), { ...ctx, note: "send threw" });
     return false;
   }
 }

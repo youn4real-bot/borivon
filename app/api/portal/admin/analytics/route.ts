@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, getVisibleCandidateIds, getVisibleOrgIds, getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { FUNNEL_STAGES } from "@/lib/batchBoard";
+import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,11 +93,38 @@ export async function GET(req: NextRequest) {
   };
 
   // ── B2 readiness — passed / in-progress / failed / not-set. ──
+  //
+  // Read the CERTIFICATE, not just the column. b2_stage is barely maintained —
+  // 81 of 85 rows still hold the 'not_started' default — so counting it raw put
+  // 15 candidates with an approved B2 certificate on file into "in progress",
+  // while the B2 board and the printed PDF (both of which use effectiveB2Stage)
+  // called the same people "passed".
+  const b2CertDocs = new Map<string, { file_type: string | null; status: string | null }[]>();
+  if (realIds.length) {
+    try {
+      const { data: docRows } = await db
+        .from("documents")
+        .select("user_id, file_type, status, superseded_at")
+        .in("user_id", realIds)
+        .eq("status", "approved");
+      for (const d of (docRows ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at: string | null }[]) {
+        if (d.superseded_at) continue; // archived (LAW #33)
+        const list = b2CertDocs.get(d.user_id) ?? [];
+        list.push({ file_type: d.file_type, status: d.status });
+        b2CertDocs.set(d.user_id, list);
+      }
+    } catch { /* documents unreadable → fall back to the stored stage alone */ }
+  }
   const b2 = { passed: 0, inProgress: 0, failed: 0, notSet: 0 };
   for (const p of realProfs) {
-    if (p.b2_stage === "passed") b2.passed++;
+    const stage = effectiveB2Stage(normalizeB2Stage(p.b2_stage), b2CertDocs.get(p.user_id) ?? []);
+    // "Not set" must key off the sentinel, not falsiness: the column DEFAULTS to
+    // the string 'not_started', which is truthy, so `!p.b2_stage` never fired and
+    // this tile was permanently — and silently — zero.
+    const untouched = !p.b2_stage || p.b2_stage === "not_started";
+    if (stage === "passed") b2.passed++;
     else if (p.b2_failed === true) b2.failed++;
-    else if (!p.b2_stage) b2.notSet++;
+    else if (untouched) b2.notSet++;
     else b2.inProgress++;
   }
 

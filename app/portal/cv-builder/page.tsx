@@ -1768,10 +1768,22 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
   // safeguard, only a wall. `onFill` is passed ONLY on fields the candidate
   // legitimately owns (her address, postcode, city, phone) — never on name,
   // birth date, nationality or passport number, where an empty box must stay
-  // locked rather than become a place to type anything she likes. And once she
-  // fills it, `value` is no longer empty, so it locks again on the next render.
-  const candidateMayFill = !onChange && !!onFill && !!hasError && !value?.trim();
-  const edit = onChange ?? (candidateMayFill ? onFill : undefined);
+  // locked rather than become a place to type anything she likes.
+  //
+  // THE UNLOCK MUST LATCH. It used to be recomputed every render from "is the
+  // value still empty", which the original comment treated as a feature: type
+  // one character and the box is no longer empty, so it re-locks. But `edit`
+  // decides between an <input> and a <button> — different element types at the
+  // same position — so React UNMOUNTS the input on that first keystroke. The
+  // field snapped shut mid-word, autosaved the single character, and could not
+  // be reopened (it now has a value, so it is no longer "empty and required").
+  // Nurses ended up with a one-character postcode on a CV sent to German
+  // employers. Latch it once opened: she keeps typing for the rest of the
+  // session, and it re-locks on the next mount, which is what was intended.
+  const mayStartFilling = !onChange && !!onFill && !!hasError && !value?.trim();
+  const [filling, setFilling] = useState(false);
+  useEffect(() => { if (mayStartFilling) setFilling(true); }, [mayStartFilling]);
+  const edit = onChange ?? ((mayStartFilling || filling) && onFill ? onFill : undefined);
   if (edit) {
     return (
       <input
@@ -4076,6 +4088,21 @@ function CVBuilderInner() {
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
                 onChange={canOverrideLocked && adminCandidateId ? v => set("countryOfResidence", v) : undefined}
+                // Required by validation (see the countryOfResidence check) but it
+                // had neither hasError nor onFill: a candidate whose passport record
+                // carries no country of residence saw an un-highlighted padlock, was
+                // blocked by an error she could not act on, and could never produce
+                // her CV at all. She owns this field — it is where she lives.
+                hasError={validationErrors.has("countryOfResidence")}
+                onFill={v => {
+                  // Store the canonical German name when what she typed matches a
+                  // known country in any language, so the flag and the rendered CV
+                  // keep working; otherwise keep her text verbatim.
+                  const typed = v.trim().toLowerCase();
+                  const hit = Object.entries(COUNTRY_MAP).find(([, n]) =>
+                    [n.de, n.en, n.fr].some(x => (x ?? "").toLowerCase() === typed));
+                  set("countryOfResidence", hit ? hit[1].de : v);
+                }}
               />
             </div>
             {/* Phone (left) | Email (right) */}

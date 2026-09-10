@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { filterAlreadyLinked } from "@/lib/suggestedMatches";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -28,7 +29,14 @@ export async function GET(req: NextRequest) {
     .eq("status", "pending")
     .order("suggested_at", { ascending: false });
 
-  const rows = (matches ?? []) as MatchRow[];
+  const allPending = (matches ?? []) as MatchRow[];
+  if (!allPending.length) return NextResponse.json({ matches: [] });
+
+  // Drop suggestions for candidates the agency ALREADY has — nothing cleans the
+  // table when a link is created later, so these accumulate forever and turn a
+  // decision queue into noise. Worse, accepting one force-approves the existing
+  // link. See lib/suggestedMatches.
+  const rows = await filterAlreadyLinked(db, allPending);
   if (!rows.length) return NextResponse.json({ matches: [] });
 
   // Enrich: org names

@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, getVisibleCandidateIds, getVisibleOrgIds, canActOnCandidate, canActOnBatch, resolveAuthNames, getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
+import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
 import { isFunnelStage } from "@/lib/batchBoard";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 
@@ -95,13 +96,35 @@ export async function GET(req: NextRequest) {
   const filled = new Map<string, number>();
   for (const r of pipe as Pipe[]) if (r.batch_id) filled.set(String(r.batch_id), (filled.get(String(r.batch_id)) ?? 0) + 1);
 
+  // An APPROVED B2 certificate beats the b2_stage column, which is almost never
+  // maintained (81 of 85 rows still carry the 'not_started' default). Returning
+  // it raw made the batch summary count a candidate as still studying when her
+  // certificate was already approved and on file — so a batch that was ready to
+  // move read as unready, and interviews got deferred on a false number.
+  const b2Docs = new Map<string, { file_type: string | null; status: string | null }[]>();
+  if (realIds.length) {
+    try {
+      const { data: docRows } = await db
+        .from("documents")
+        .select("user_id, file_type, status, superseded_at")
+        .in("user_id", realIds)
+        .eq("status", "approved");
+      for (const d of (docRows ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at: string | null }[]) {
+        if (d.superseded_at) continue; // archived (LAW #33)
+        const list = b2Docs.get(d.user_id) ?? [];
+        list.push({ file_type: d.file_type, status: d.status });
+        b2Docs.set(d.user_id, list);
+      }
+    } catch { /* documents unreadable → fall back to the stored stage alone */ }
+  }
+
   const candidates = realProfs
     .map((p) => {
       const pr = pipeById.get(p.user_id) ?? {};
       return {
         userId: p.user_id,
         name: profNames.get(p.user_id) || names[p.user_id]?.name || names[p.user_id]?.email || p.user_id,
-        b2Stage: p.b2_stage ?? null,
+        b2Stage: effectiveB2Stage(normalizeB2Stage(p.b2_stage), b2Docs.get(p.user_id) ?? []),
         b2Failed: p.b2_failed === true,
         b2ExamDate: p.b2_exam_date ?? null,
         batchId: (pr.batch_id as string | null) ?? null,

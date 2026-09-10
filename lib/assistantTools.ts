@@ -8,6 +8,7 @@
  *   • returns plain JSON metadata + ids + (for one tool) a short-lived signed link —
  *     never raw document bytes / passport contents.
  */
+import { filterAlreadyLinked } from "@/lib/suggestedMatches";
 import { tool } from "ai";
 import { z } from "zod";
 import { randomUUID } from "crypto";
@@ -3420,7 +3421,11 @@ export function buildAssistantTools(
         if (scope.role !== "admin") return { error: "admin_only" };
         const { data: matches } = await db.from("suggested_matches")
           .select("id, candidate_user_id, org_id, requirement_id, suggested_at").eq("status", "pending").order("suggested_at", { ascending: false });
-        const rows = (matches ?? []) as { id: string; candidate_user_id: string; org_id: string; requirement_id: string | null; suggested_at: string }[];
+        const pendingRows = (matches ?? []) as { id: string; candidate_user_id: string; org_id: string; requirement_id: string | null; suggested_at: string }[];
+        if (!pendingRows.length) return { count: 0, matches: [] };
+        // Same exclusion as the web inbox: never propose a candidate the agency
+        // already has (see lib/suggestedMatches) — the two surfaces must agree.
+        const rows = await filterAlreadyLinked(db, pendingRows);
         if (!rows.length) return { count: 0, matches: [] };
         const orgIds = [...new Set(rows.map((r) => r.org_id))];
         const { data: orgs } = await db.from("organizations").select("id, name").in("id", orgIds);

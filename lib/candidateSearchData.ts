@@ -18,7 +18,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
-import { normalizeB2Stage, isB2CertificateDoc } from "@/lib/b2Journey";
+import { normalizeB2Stage, isB2CertificateDoc, effectiveB2Stage } from "@/lib/b2Journey";
 import { computeChecklist } from "@/lib/candidateChecklist";
 import { extractGerman, type MonthYear } from "@/lib/b2Detail";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -220,7 +220,13 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
       createdAtMs: a.createdAtMs,
       lastSignInMs: a.lastSignInMs,
 
-      b2Stage: normalizeB2Stage(p.b2_stage),
+      // An APPROVED B2 certificate outranks the b2_stage column, which nobody
+      // maintains: 81 of 85 rows still carry the 'not_started' default, including
+      // 15 candidates whose certificate is already approved and on file. Reading
+      // the column raw made the same nurse "passed" on the B2 board and "not
+      // started" in search facets at the same time. The docs are already loaded
+      // and superseded-filtered above, so this costs nothing.
+      b2Stage: effectiveB2Stage(normalizeB2Stage(p.b2_stage), docsByUid.get(uid) ?? []),
       b2Failed: p.b2_failed === true,
       nationality: (p.nationality as string | null) ?? null,
       cityOfBirth: (p.city_of_birth as string | null) ?? null,
