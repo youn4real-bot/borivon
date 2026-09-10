@@ -4005,6 +4005,22 @@ export default function AdminPage() {
                     </button>
                   );
                 })()}
+                {/* Delete candidate. This button was removed by accident in an
+                    unrelated CV-redesign commit (7913156), which left the confirm
+                    dialog and deleteCandidate() orphaned — the feature existed but
+                    could not be reached from anywhere, so duplicate and dead
+                    accounts could never be cleared. Supreme-admin only, matching
+                    the endpoint's own gate. */}
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => { setDeleteCandidateInput(""); setDeleteCandidateConfirm(true); }}
+                    title={lang === "de" ? "Kandidat/in löschen" : lang === "fr" ? "Supprimer le candidat" : "Delete candidate"}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
+                    style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                    <Trash2 size={11} strokeWidth={1.8} />
+                    {lang === "de" ? "Löschen" : lang === "fr" ? "Supprimer" : "Delete"}
+                  </button>
+                )}
               </div>
             </div>
 
