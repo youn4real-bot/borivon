@@ -6093,21 +6093,19 @@ export default function AdminPage() {
                           onClose={() => setAutoFillReview(null)}
                           onSubmit={async (filledBytes, { letCandidateComplete }) => {
                             if (!accessToken) return;
-                            // Replace the slot template with the filled (still editable) PDF.
+                            // Keep the filled PDF for THIS session only. It is filled with
+                            // one candidate's data (name, DOB, passport…), so it must never
+                            // become the shared slot template every candidate downloads —
+                            // that exact path leaked a nurse's filled Vollmacht to every
+                            // Calmaroi candidate (quarantined 2026-09-11). Unreachable today
+                            // (SIGN_FILL_ENABLED=false); if re-enabled, store it per
+                            // candidate instead. Blank templates: Documents workbench only.
                             const filledFile = new File(
                               [new Uint8Array(filledBytes).buffer as ArrayBuffer],
                               af.file.name,
                               { type: "application/pdf" },
                             );
                             localTemplateFileRef.current.set(af.slotId, filledFile);
-                            const tplFd = new FormData();
-                            tplFd.append("file", filledFile);
-                            tplFd.append("slotId", af.slotId);
-                            await fetch("/api/portal/admin/slot-template", {
-                              method: "POST",
-                              headers: { Authorization: `Bearer ${accessToken}` },
-                              body: tplFd,
-                            }).catch(err => console.warn("[autoFill] slot-template POST failed:", err));
                             // Two outcomes: admin-only (printed + physical sig)
                             // OR admin + candidate (candidate completes remaining
                             // native fields in their dashboard fillForm).
