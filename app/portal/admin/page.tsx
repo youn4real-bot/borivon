@@ -992,8 +992,8 @@ export default function AdminPage() {
   // Local cache of the File the admin just uploaded, keyed by slotId. Lets the
   // placement wizard render INSTANTLY without round-tripping to Supabase Storage
   // for the slot-template fetch — we already have the bytes client-side.
-  // The background slot-template POST still runs so subsequent sessions / other
-  // admins get the file from Storage on demand.
+  // Client-only: a per-candidate upload is NEVER posted to the shared slot
+  // template (slot-templates/<slotId>.pdf) — every candidate downloads that.
   const localTemplateFileRef = React.useRef<Map<string, File>>(new Map());
   const [showPassportInfo, setShowPassportInfo] = useState(false);
   // Auto-open passport data alongside the doc preview during the verification
@@ -2566,6 +2566,9 @@ export default function AdminPage() {
 
   async function adminUploadFile(file: File, slotId: string) {
     if (!selectedUser || !accessToken) return;
+    const uploadFailedMsg = lang === "de" ? "Hochladen fehlgeschlagen — das Dokument wurde nicht gespeichert."
+      : lang === "fr" ? "Échec du téléversement — le document n'a pas été enregistré."
+      : "Upload failed — the document was not saved.";
     // Capture whether this slot is brand-new (no previous PDF) BEFORE upload.
     // The action popup auto-fires only on the first upload — never on re-uploads.
     const isFirstUpload = !Object.values(phaseSlots).flat().find(s => s.id === slotId)?.template_pdf_path;
@@ -2581,9 +2584,9 @@ export default function AdminPage() {
     fd.append("fileType", slotId);
     fd.append("forUserId", selectedUser);
     try {
-      // 1) Drive upload (candidate doc, primary action — awaited so spinner
-      // covers the visible work). On localhost without real Drive creds this
-      // fails — we log + warn but DO NOT bail, so the popup still opens.
+      // 1) Upload as THIS candidate's document (primary action — awaited so the
+      // spinner covers the visible work). A failure stops here and is shown:
+      // carrying on used to leave the admin believing it saved when it hadn't.
       const res = await new Promise<{ ok: boolean; status: number; text: string } | null>((resolve) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.addEventListener("progress", (e) => {
@@ -2614,24 +2617,20 @@ export default function AdminPage() {
         if (accessToken) xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
         xhr.send(fd);
       });
-      const driveOk = !!res?.ok;
-      if (!driveOk) {
+      if (!res?.ok) {
         let body: { error?: string } = {};
         try { body = res ? JSON.parse(res.text) : {}; } catch { /* non-JSON */ }
-        console.warn("[adminUploadFile] Drive upload failed (non-fatal):", body);
+        console.error("[adminUploadFile] upload failed:", res?.status, body);
+        showError(uploadFailedMsg);
+        return;
       }
 
       // 2) Cache the file locally so the placement wizard can render INSTANTLY
-      //    without round-tripping to Supabase Storage. Optimistically mark the
-      //    slot as having a template so saveSlotConfig's gate passes.
+      //    without round-tripping to Supabase Storage. Client-only: this file
+      //    belongs to ONE candidate and is never written to the slot's shared
+      //    blank template (slot-templates/<slotId>.pdf), which every candidate
+      //    in the org downloads as "the original document".
       localTemplateFileRef.current.set(slotId, file);
-      const templatePath = `slot-templates/${slotId}.pdf`;
-      setPhaseSlots(prev => {
-        const updated: typeof prev = {};
-        for (const [ph, slots] of Object.entries(prev))
-          updated[ph] = (slots ?? []).map(s => s?.id === slotId ? { ...s, template_pdf_path: templatePath } : s);
-        return updated;
-      });
 
       // 3) Detect native AcroForm fields. If the PDF was authored with > 3
       //    fillable fields (BA EzB, government forms, etc.), branch to the
@@ -2659,12 +2658,10 @@ export default function AdminPage() {
         }
       }
 
-      // 4) Everything else runs in the background — doesn't block the spinner /
-      //    popup. By the time the user picks options + clicks Confirm, these
-      //    have usually finished. If they're fast and Confirm beats the
-      //    slot-template POST, the wizard falls back to the local file cache.
+      // 5) Refresh this candidate's docs in the background — doesn't block the
+      //    spinner / popup.
       void (async () => {
-        if (driveOk && selectedUser) {
+        if (selectedUser) {
           const res2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
             headers: { Authorization: `Bearer ${accessToken}` },
           }).catch(() => null);
@@ -2677,17 +2674,9 @@ export default function AdminPage() {
             ]);
           }
         }
-        const tplFd = new FormData();
-        tplFd.append("file", file);
-        tplFd.append("slotId", slotId);
-        await fetch("/api/portal/admin/slot-template", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: tplFd,
-        }).catch(err => console.warn("[adminUploadFile] slot-template background upload failed:", err));
       })();
     } catch (err) {
-      showError("Upload failed — check your connection and try again.");
+      showError(uploadFailedMsg);
       console.error("[adminUploadFile]", err);
     } finally {
       stopAdminProgressCreep();
@@ -2758,8 +2747,8 @@ export default function AdminPage() {
       //   1. Local cache from the most recent client-side upload (instant).
       //   2. Supabase Storage `slot-templates` bucket (recent uploads).
       //   3. Drive — the admin-uploaded doc for this slot (legacy slots that
-      //      pre-date the slot-templates bucket). We also backfill Storage on
-      //      this path so the next open is fast.
+      //      pre-date the slot-templates bucket). Session-only; never written
+      //      back to the shared template.
       const cachedFile = localTemplateFileRef.current.get(slotId);
       const cvResPromise = selectedUser
         ? fetch(`/api/portal/admin/cv-draft?candidateId=${selectedUser}`, {
@@ -2790,18 +2779,10 @@ export default function AdminPage() {
               headers: { Authorization: `Bearer ${accessToken}` },
             }).catch(() => null);
             if (driveRes?.ok) {
+              // Used for this session only. NOT mirrored into slot-template
+              // Storage: this is one candidate's document, and that key is the
+              // org-wide blank every candidate downloads.
               buf = await driveRes.arrayBuffer();
-              // Backfill: mirror to slot-template Storage so next open is fast.
-              try {
-                const tplFd = new FormData();
-                tplFd.append("file", new Blob([buf], { type: "application/pdf" }), `${slotId}.pdf`);
-                tplFd.append("slotId", slotId);
-                void fetch("/api/portal/admin/slot-template", {
-                  method: "POST",
-                  headers: { Authorization: `Bearer ${accessToken}` },
-                  body: tplFd,
-                });
-              } catch { /* non-fatal */ }
             }
           }
         }
@@ -5206,7 +5187,7 @@ export default function AdminPage() {
                                             onClick={e => e.stopPropagation()}
                                             onMouseDown={e => e.stopPropagation()}>
                                             {/* Admin upload spinner — shows for the FULL upload pipeline
-                                                (Drive + slot-template + state updates + popup open).
+                                                (document upload + state updates + popup open).
                                                 Without this top-level guard, `submitted` flips true after
                                                 Drive completes mid-pipeline and the spinner vanishes for
                                                 ~3s until the popup pops, leaving the admin staring at a
@@ -7349,7 +7330,7 @@ export default function AdminPage() {
                     // LAW #30 Mode 1: skip the fields step when the PDF already
                     // carries native AcroForm fields — the candidate types into
                     // them directly, no box-drawing needed.
-                    if (slot && slot.template_pdf_path) {
+                    if (slot && (slot.template_pdf_path || localTemplateFileRef.current.has(sub.slotId))) {
                       await openPlacementWizard(sub.slotId, {
                         admin: slot.admin_signs,
                         candidate: slot.candidate_signs,

@@ -3079,7 +3079,7 @@ export function buildAssistantTools(
 
     getCandidateThread: tool({
       description:
-        "Read the full message thread with one candidate (their portal chat), oldest → newest, up to 200 messages. Read-only. To reply, use sendCandidateMessage; to clear the unread badge, markThreadRead.",
+        "Read the message thread with one candidate (their portal chat) — the latest 200 messages, oldest → newest. Read-only. To reply, use sendCandidateMessage; to clear the unread badge, markThreadRead.",
       inputSchema: z.object({ candidateUserId: z.string().uuid() }),
       execute: async ({ candidateUserId }) => {
         if (lockedOut) return { error: "out_of_scope" };
@@ -3088,10 +3088,10 @@ export function buildAssistantTools(
           .from("messages")
           .select("id, sender_role, body, kind, created_at, read_by_admin, has_attachment")
           .eq("thread_user_id", candidateUserId)
-          .order("created_at", { ascending: true })
+          .order("created_at", { ascending: false }) // newest 200, reversed below → oldest→newest
           .limit(200);
         if (error) return { error: "load_failed" };
-        return { messages: data ?? [] };
+        return { messages: (data ?? []).reverse() };
       },
     }),
 

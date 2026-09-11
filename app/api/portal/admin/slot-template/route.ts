@@ -85,20 +85,33 @@ export async function POST(req: NextRequest) {
   const path  = `slot-templates/${slotId}.pdf`;
 
   // LAW #33: archive the previous template (if any) before overwriting.
-  // Move it into `slot-templates/archive/<slotId>_<timestamp>.pdf` so prior
-  // versions of the PDF stay recoverable indefinitely.
-  try {
-    const { data: existing } = await db.storage.from(BUCKET).download(path);
-    if (existing) {
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const archivePath = `slot-templates/archive/${slotId}_${stamp}.pdf`;
-      const existingBytes = await existing.arrayBuffer();
-      await db.storage.from(BUCKET).upload(archivePath, existingBytes, {
-        contentType: "application/pdf", upsert: false,
-      });
+  // Copy it into `slot-templates/archive/<slotId>_<timestamp>.pdf` so prior
+  // versions of the PDF stay recoverable indefinitely. supabase-js reports
+  // storage failures in `error` rather than throwing, so every step is checked
+  // and an existing template that can't be archived aborts BEFORE the
+  // overwrite. Existence comes from list(), not from a failed download — a
+  // download error can't be told apart from "no template yet" reliably.
+  const { data: listed, error: listErr } = await db.storage.from(BUCKET)
+    .list("slot-templates", { limit: 100, search: `${slotId}.pdf` });
+  if (listErr) {
+    console.error("[slot-template POST] could not check for an existing template — aborting:", listErr);
+    return NextResponse.json({ error: "Could not archive the previous version" }, { status: 500 });
+  }
+  if ((listed ?? []).some(o => o.name === `${slotId}.pdf`)) {
+    const { data: existing, error: dlErr } = await db.storage.from(BUCKET).download(path);
+    if (dlErr || !existing) {
+      console.error("[slot-template POST] could not read the existing template — aborting:", dlErr);
+      return NextResponse.json({ error: "Could not archive the previous version" }, { status: 500 });
     }
-  } catch (archErr) {
-    console.warn("[slot-template POST] archive step failed (non-fatal):", archErr);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const archivePath = `slot-templates/archive/${slotId}_${stamp}.pdf`;
+    const { error: archErr } = await db.storage.from(BUCKET).upload(archivePath, await existing.arrayBuffer(), {
+      contentType: "application/pdf", upsert: false,
+    });
+    if (archErr) {
+      console.error("[slot-template POST] archive upload failed — aborting:", archErr);
+      return NextResponse.json({ error: "Could not archive the previous version" }, { status: 500 });
+    }
   }
 
   const { error: upErr } = await db.storage
@@ -111,7 +124,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Persist path on the slot
-  await db.from("phase_slots").update({ template_pdf_path: path }).eq("id", slotId);
+  const { error: slotErr } = await db.from("phase_slots").update({ template_pdf_path: path }).eq("id", slotId);
+  if (slotErr) {
+    console.error("[slot-template POST] phase_slots update failed:", slotErr.message);
+    return NextResponse.json({ error: "Template stored but the slot could not be updated" }, { status: 500 });
+  }
 
   return NextResponse.json({ path });
 }

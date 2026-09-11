@@ -50,13 +50,14 @@ export async function GET(req: NextRequest) {
       // cheap has_attachment flag tells the client which bubbles carry an image.
       .select("id, sender_role, body, kind, created_at, read_by_admin, has_attachment")
       .eq("thread_user_id", threadUserId)
-      .order("created_at", { ascending: true })
+      // Newest 200, reversed below → client still gets oldest→newest.
+      .order("created_at", { ascending: false })
       .limit(200);
     if (error) {
       console.error("[admin messages GET thread] failed:", error);
       return NextResponse.json({ error: "Internal error" }, { status: 500 });
     }
-    return NextResponse.json({ messages: data ?? [] });
+    return NextResponse.json({ messages: (data ?? []).reverse() });
   }
 
   // Conversations list — LAW #25: for sub-admins, filter to their visible

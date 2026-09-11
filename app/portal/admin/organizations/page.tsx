@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { meToken } from "@/lib/meApi";
 import { ArrowLeft, Building2, Trash2, Copy, Check, Plus, UserPlus, X as XIcon, AlertCircle, RefreshCw, Crown, User as UserIcon, Settings, Users, FileText, Palette } from "lucide-react";
 import { CheckCircle2 } from "@/components/PortalIcons";
 import { PageLoader, EmptyState, Spinner } from "@/components/ui/states";
@@ -79,6 +80,7 @@ const t = {
     memberEmailPlaceholder: "member@example.com",
     roleMember: "Member",
     roleOwner: "Owner",
+    actionFailed: "Could not save the change — nothing was changed. Try again.",
   },
   fr: {
     organizations: "Agences",
@@ -148,6 +150,7 @@ const t = {
     memberEmailPlaceholder: "membre@exemple.com",
     roleMember: "Membre",
     roleOwner: "Propriétaire",
+    actionFailed: "Modification non enregistrée — rien n'a changé. Réessayez.",
   },
   de: {
     organizations: "Agenturen",
@@ -217,6 +220,7 @@ const t = {
     memberEmailPlaceholder: "mitglied@beispiel.com",
     roleMember: "Mitglied",
     roleOwner: "Inhaber",
+    actionFailed: "Änderung konnte nicht gespeichert werden — nichts wurde geändert. Erneut versuchen.",
   },
 };
 
@@ -290,22 +294,34 @@ export default function OrganizationsPage() {
   const [regenId, setRegenId] = useState<string | null>(null);
   const [qrModal, setQrModal] = useState<{ url: string; label: string } | null>(null);
   const [qrGenerating, setQrGenerating] = useState<string | null>(null); // orgId_type while loading
+  // Org whose delete / requirement-close the server refused — shown in its card.
+  const [actionErrorOrg, setActionErrorOrg] = useState<string | null>(null);
 
   const loadData = useCallback(async (token: string) => {
+    // getSession() refreshes an expired JWT — the caller's copy may be stale.
+    const tk = (await meToken()) || token;
     const [orgsRes, reqRes, candRes] = await Promise.all([
-      fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } }),
-      fetch("/api/portal/admin/organization-requests", { headers: { Authorization: `Bearer ${token}` } }),
-      fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } }),
+      fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${tk}` } }),
+      fetch("/api/portal/admin/organization-requests", { headers: { Authorization: `Bearer ${tk}` } }),
+      fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${tk}` } }),
     ]);
-    const orgsJson = await orgsRes.json();
-    const reqJson = await reqRes.json();
-    const candJson = await candRes.json();
-    setOrgs(orgsJson.orgs ?? []);
-    setPendingRequests(reqJson.requests ?? []);
-    const docs: { user_id: string }[] = candJson.docs ?? [];
-    const users: Record<string, { name: string; email: string }> = candJson.users ?? {};
-    const unique = [...new Set(docs.map(d => d.user_id))];
-    setCandidates(unique.map(uid => ({ userId: uid, name: users[uid]?.name ?? uid, email: users[uid]?.email ?? uid })));
+    // Only replace what actually loaded — a refused read must not blank the
+    // list as if every agency were gone.
+    if (orgsRes.ok) {
+      const orgsJson = await orgsRes.json().catch(() => ({}));
+      setOrgs(orgsJson.orgs ?? []);
+    }
+    if (reqRes.ok) {
+      const reqJson = await reqRes.json().catch(() => ({}));
+      setPendingRequests(reqJson.requests ?? []);
+    }
+    if (candRes.ok) {
+      const candJson = await candRes.json().catch(() => ({}));
+      const docs: { user_id: string }[] = candJson.docs ?? [];
+      const users: Record<string, { name: string; email: string }> = candJson.users ?? {};
+      const unique = [...new Set(docs.map(d => d.user_id))];
+      setCandidates(unique.map(uid => ({ userId: uid, name: users[uid]?.name ?? uid, email: users[uid]?.email ?? uid })));
+    }
   }, []);
 
   useEffect(() => {
@@ -336,18 +352,35 @@ export default function OrganizationsPage() {
     });
   }, [router, loadData]);
 
+  // Keep the JWT fresh — Supabase rotates it ~hourly and a stale copy 401s
+  // every call (it is also passed down to the vaccine / required-docs editors).
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) setAccessToken(session.access_token);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   async function loadOrgDetails(orgId: string) {
+    const tk = (await meToken()) || accessToken;
     const [memRes, candRes, reqRes] = await Promise.all([
-      fetch(`/api/portal/admin/organizations/${orgId}/members`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-      fetch(`/api/portal/admin/organizations/${orgId}/candidates`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-      fetch(`/api/portal/admin/organizations/${orgId}/requirements`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+      fetch(`/api/portal/admin/organizations/${orgId}/members`, { headers: { Authorization: `Bearer ${tk}` } }),
+      fetch(`/api/portal/admin/organizations/${orgId}/candidates`, { headers: { Authorization: `Bearer ${tk}` } }),
+      fetch(`/api/portal/admin/organizations/${orgId}/requirements`, { headers: { Authorization: `Bearer ${tk}` } }),
     ]);
-    const memJson = await memRes.json();
-    const candJson = await candRes.json();
-    const reqJson = await reqRes.json();
-    setOrgMembers(prev => ({ ...prev, [orgId]: memJson.members ?? [] }));
-    setOrgCandidates(prev => ({ ...prev, [orgId]: candJson.candidates ?? [] }));
-    setOrgReqs(prev => ({ ...prev, [orgId]: reqJson.requirements ?? [] }));
+    // Same rule as loadData: a refused read keeps what's on screen.
+    if (memRes.ok) {
+      const memJson = await memRes.json().catch(() => ({}));
+      setOrgMembers(prev => ({ ...prev, [orgId]: memJson.members ?? [] }));
+    }
+    if (candRes.ok) {
+      const candJson = await candRes.json().catch(() => ({}));
+      setOrgCandidates(prev => ({ ...prev, [orgId]: candJson.candidates ?? [] }));
+    }
+    if (reqRes.ok) {
+      const reqJson = await reqRes.json().catch(() => ({}));
+      setOrgReqs(prev => ({ ...prev, [orgId]: reqJson.requirements ?? [] }));
+    }
   }
 
   async function addRequirement(orgId: string) {
@@ -374,11 +407,14 @@ export default function OrganizationsPage() {
   }
 
   async function closeRequirement(orgId: string, reqId: string) {
-    await fetch(`/api/portal/admin/organizations/${orgId}/requirements`, {
+    setActionErrorOrg(null);
+    const res = await fetch(`/api/portal/admin/organizations/${orgId}/requirements`, {
       method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${(await meToken()) || accessToken}` },
       body: JSON.stringify({ requirementId: reqId }),
-    });
+    }).catch(() => null);
+    // Grey the row out only once the server has actually closed it.
+    if (!res || !res.ok) { setActionErrorOrg(orgId); return; }
     setOrgReqs(p => ({ ...p, [orgId]: (p[orgId] ?? []).map(r => r.id === reqId ? { ...r, active: false } : r) }));
   }
 
@@ -403,7 +439,9 @@ export default function OrganizationsPage() {
 
   async function deleteOrg(orgId: string, name: string) {
     if (!confirm(lang === "fr" ? `Supprimer "${name}" ? Cela supprime tous les liens membres et candidats.` : lang === "de" ? `"${name}" löschen? Alle Mitglieder- und Kandidatenverknüpfungen werden entfernt.` : `Delete "${name}"? This removes all member and candidate links.`)) return;
-    await fetch(`/api/portal/admin/organizations/${orgId}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
+    setActionErrorOrg(null);
+    const res = await fetch(`/api/portal/admin/organizations/${orgId}`, { method: "DELETE", headers: { Authorization: `Bearer ${(await meToken()) || accessToken}` } }).catch(() => null);
+    if (!res || !res.ok) { setActionErrorOrg(orgId); return; }
     if (expandedOrgId === orgId) setExpandedOrgId(null);
     await loadData(accessToken);
   }
@@ -809,6 +847,13 @@ export default function OrganizationsPage() {
                       <Trash2 size={12} strokeWidth={1.8} />
                     </button>
                   </div>
+
+                  {actionErrorOrg === org.id && (
+                    <p className="mx-4 mb-3 text-[11.5px] px-3 py-2 rounded-lg"
+                      style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                      {T.actionFailed}
+                    </p>
+                  )}
 
                   {/* Expanded panel */}
                   {isExpanded && (

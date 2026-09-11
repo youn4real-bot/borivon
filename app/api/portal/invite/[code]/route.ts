@@ -312,13 +312,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
         });
         // Borivon HQ + the org admin both get the bell (admin_notifications is
         // global; org admins are scoped to their candidates, now incl. this one).
-        try {
-          await db.from("admin_notifications").insert({
-            type: isFirst ? "org-join" : "org-request",
-            user_email: auth.email, user_name: auth.email,
-            doc_name: org.name, doc_type: status,
-          });
-        } catch { /* best-effort */ }
+        // Best-effort, but supabase-js RESOLVES with { error } on a refusal
+        // (e.g. the type CHECK) instead of throwing — log it, never swallow.
+        const { error: notifErr } = await db.from("admin_notifications").insert({
+          type: isFirst ? "org-join" : "org-request",
+          user_email: auth.email, user_name: auth.email,
+          doc_name: org.name, doc_type: status,
+        });
+        if (notifErr) console.error("[invite redeem] admin notification insert failed:", notifErr);
         // Instant scoped refresh of any open admin bell.
         await serverBroadcast(ASSIGNMENTS_TOPIC, "changed");
       }

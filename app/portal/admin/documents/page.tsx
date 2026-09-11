@@ -9,10 +9,11 @@
  * documents. Every candidate in that scope inherits them automatically:
  * a candidate at UKSH Kiel gets the Calmaroi batch list PLUS Kiel's extras.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Plus, Trash2, Check, X as XIcon, Users, Building2, Globe } from "lucide-react";
+import { meToken } from "@/lib/meApi";
+import { ArrowLeft, Plus, Trash2, Check, X as XIcon, Users, Building2, Globe, FileUp } from "lucide-react";
 import { PageLoader, Spinner, EmptyState } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
@@ -20,7 +21,7 @@ import { FileText } from "lucide-react";
 
 type Org = { id: string; name: string };
 type Employer = { id: string; name: string; agencyId?: string | null };
-type Slot = { id: string; label: string; position: number; is_required?: boolean | null; type?: string | null };
+type Slot = { id: string; label: string; position: number; is_required?: boolean | null; type?: string | null; template_pdf_path?: string | null };
 
 type Scope =
   | { kind: "global" }
@@ -29,6 +30,11 @@ type Scope =
 
 const PHASES = ["bearbeitung", "visum"] as const;
 type Phase = (typeof PHASES)[number];
+
+// The token in state is only the one read at mount — it expires after ~1h.
+// meToken() goes through getSession(), which refreshes an expired JWT, so a
+// tab left open (or reopened later) keeps working instead of 401-ing.
+const freshToken = async (fallback: string) => (await meToken()) || fallback;
 
 export default function AdminDocumentsPage() {
   const router = useRouter();
@@ -45,12 +51,17 @@ export default function AdminDocumentsPage() {
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const [newLabel, setNewLabel] = useState("");
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Blank-form upload: one hidden file input, aimed at whichever slot was clicked.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pendingTplRef = useRef<Slot | null>(null);
 
   // ── Bootstrap: role gate + the scope lists ────────────────────────────────
   useEffect(() => {
@@ -81,10 +92,14 @@ export default function AdminDocumentsPage() {
       const qs = sc.kind === "org" ? `phase=${ph}&orgId=${sc.id}`
         : sc.kind === "emp" ? `phase=${ph}&employerId=${sc.id}`
         : `phase=${ph}`;
-      const res = await fetch(`/api/portal/phase-slots?${qs}`, { headers: { Authorization: `Bearer ${t}` } });
-      const j = res.ok ? await res.json() : { slots: [] };
+      const res = await fetch(`/api/portal/phase-slots?${qs}`, { headers: { Authorization: `Bearer ${await freshToken(t)}` } });
+      // A refused load must not read as "this scope has no documents" — that
+      // invites the admin to re-add what already exists.
+      if (!res.ok) { setSlots([]); setLoadFailed(true); return; }
+      const j = await res.json();
+      setLoadFailed(false);
       setSlots(((j.slots ?? []) as Slot[]).slice().sort((a, b) => a.position - b.position));
-    } catch { setSlots([]); }
+    } catch { setSlots([]); setLoadFailed(true); }
     finally { setSlotsLoading(false); }
   }, []);
 
@@ -94,11 +109,11 @@ export default function AdminDocumentsPage() {
   async function addSlot() {
     const label = newLabel.trim();
     if (!label || !token) return;
-    setAdding(true);
+    setAdding(true); setSaveFailed(false);
     try {
       const res = await fetch("/api/portal/phase-slots", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken(token)}` },
         body: JSON.stringify({
           phase, type: "simple", label,
           // "Everyone" must be stated outright — the API refuses to infer a
@@ -109,36 +124,43 @@ export default function AdminDocumentsPage() {
         }),
       });
       if (res.ok) { setNewLabel(""); await loadSlots(token, scope, phase); }
-    } finally { setAdding(false); }
+      else setSaveFailed(true);
+    } catch { setSaveFailed(true); }
+    finally { setAdding(false); }
   }
 
   async function renameSlot(id: string) {
     const label = editLabel.trim();
     if (!label || !token) { setEditingId(null); return; }
-    setBusyId(id);
+    setBusyId(id); setSaveFailed(false);
     try {
-      await fetch("/api/portal/phase-slots", {
+      const res = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken(token)}` },
         body: JSON.stringify({ id, label }),
       });
-      setSlots(p => p.map(s => (s.id === id ? { ...s, label } : s)));
-    } finally { setBusyId(null); setEditingId(null); }
+      // Only show the new label once the server has it.
+      if (res.ok) setSlots(p => p.map(s => (s.id === id ? { ...s, label } : s)));
+      else setSaveFailed(true);
+    } catch { setSaveFailed(true); }
+    finally { setBusyId(null); setEditingId(null); }
   }
 
   async function toggleRequired(s: Slot) {
     if (!token) return;
     const next = s.is_required === false; // false → make required
-    setBusyId(s.id);
+    const revert = () => setSlots(p => p.map(x => (x.id === s.id ? { ...x, is_required: !next } : x)));
+    setBusyId(s.id); setSaveFailed(false);
     setSlots(p => p.map(x => (x.id === s.id ? { ...x, is_required: next } : x)));
     try {
-      await fetch("/api/portal/phase-slots", {
+      const res = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken(token)}` },
         body: JSON.stringify({ id: s.id, is_required: next }),
       });
+      if (!res.ok) { revert(); setSaveFailed(true); }
     } catch {
-      setSlots(p => p.map(x => (x.id === s.id ? { ...x, is_required: !next } : x))); // revert
+      revert(); setSaveFailed(true);
     } finally { setBusyId(null); }
   }
 
@@ -150,15 +172,54 @@ export default function AdminDocumentsPage() {
       `Supprimer « ${s.label} » pour TOUS les candidats de ce périmètre ? Les fichiers déjà envoyés perdront leur emplacement. Irréversible.`,
     ))) return;
     const before = slots;
+    setSaveFailed(false);
     setSlots(p => p.filter(x => x.id !== s.id));
     try {
       const r = await fetch("/api/portal/phase-slots", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken(token)}` },
         body: JSON.stringify({ id: s.id }),
       });
-      if (!r.ok) setSlots(before);
-    } catch { setSlots(before); }
+      if (!r.ok) { setSlots(before); setSaveFailed(true); }
+    } catch { setSlots(before); setSaveFailed(true); }
+  }
+
+  /**
+   * The BLANK form every candidate in this scope downloads from the slot's ⋯ menu.
+   * This page is the only place a template is set — never from inside one
+   * candidate's dossier, where a filled-in copy once replaced the blank form and
+   * was offered to every Calmaroi candidate (found + quarantined 2026-09-11).
+   * The server archives the previous version before replacing it (LAW #33).
+   */
+  function pickTemplate(s: Slot) {
+    if (!window.confirm(L(
+      `Upload the BLANK "${s.label}" form? Every candidate in ${scopeTitle} will be able to download it — it must not contain anyone's name or personal details.`,
+      `Das LEERE Formular „${s.label}" hochladen? Alle Kandidaten in ${scopeTitle} können es herunterladen — es darf keine Namen oder persönlichen Daten enthalten.`,
+      `Téléverser le formulaire VIERGE « ${s.label} » ? Tous les candidats de ${scopeTitle} pourront le télécharger — il ne doit contenir aucun nom ni donnée personnelle.`,
+    ))) return;
+    pendingTplRef.current = s;
+    fileRef.current?.click();
+  }
+
+  async function uploadTemplate(file: File) {
+    const s = pendingTplRef.current;
+    pendingTplRef.current = null;
+    if (!s || !token) return;
+    setBusyId(s.id); setSaveFailed(false);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("slotId", s.id);
+      const res = await fetch("/api/portal/admin/slot-template", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${await freshToken(token)}` },
+        body: fd,
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) setSlots(p => p.map(x => (x.id === s.id ? { ...x, template_pdf_path: (j as { path?: string }).path ?? `slot-templates/${s.id}.pdf` } : x)));
+      else setSaveFailed(true);
+    } catch { setSaveFailed(true); }
+    finally { setBusyId(null); }
   }
 
   if (loading) return <PageLoader />;
@@ -257,6 +318,12 @@ export default function AdminDocumentsPage() {
 
             {slotsLoading ? (
               <div className="py-10 flex justify-center"><Spinner size="sm" /></div>
+            ) : loadFailed ? (
+              <p className="px-4 py-8 text-center text-[12.5px]" style={{ color: "var(--danger)" }}>
+                {L("Couldn't load the documents — reload the page.",
+                   "Dokumente konnten nicht geladen werden — Seite neu laden.",
+                   "Impossible de charger les documents — rechargez la page.")}
+              </p>
             ) : slots.length === 0 ? (
               <div className="py-8">
                 <EmptyState Icon={FileText}
@@ -300,6 +367,19 @@ export default function AdminDocumentsPage() {
 
                     {editingId !== s.id && (
                       <>
+                        <button onClick={() => pickTemplate(s)} disabled={busyId === s.id}
+                          title={s.template_pdf_path
+                            ? L("Blank form set — click to replace it", "Leeres Formular hinterlegt — klicken zum Ersetzen", "Formulaire vierge en place — cliquer pour le remplacer")
+                            : L("Upload the blank form candidates download", "Leeres Formular zum Herunterladen hochladen", "Téléverser le formulaire vierge à télécharger")}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                          style={{
+                            background: s.template_pdf_path ? "var(--gdim)" : "var(--bg2)",
+                            color: s.template_pdf_path ? "var(--gold)" : "var(--w3)",
+                            border: `1px solid ${s.template_pdf_path ? "var(--border-gold)" : "var(--border)"}`,
+                            cursor: "pointer",
+                          }}>
+                          {busyId === s.id ? <Spinner size="xs" /> : <FileUp size={13} strokeWidth={1.9} />}
+                        </button>
                         <button onClick={() => void toggleRequired(s)} disabled={busyId === s.id}
                           title={optional ? L("Optional — doesn't count toward the %", "Optional — zählt nicht für die %", "Optionnel — ne compte pas dans le %")
                                           : L("Required — counts toward the %", "Erforderlich — zählt für die %", "Requis — compte dans le %")}
@@ -338,6 +418,17 @@ export default function AdminDocumentsPage() {
               </button>
             </div>
           </div>
+
+          {saveFailed && (
+            <p className="text-[12px] mt-3" style={{ color: "var(--danger)" }}>
+              {L("Couldn't save that change — nothing was changed. Try again.",
+                 "Änderung konnte nicht gespeichert werden — nichts wurde geändert. Erneut versuchen.",
+                 "Modification non enregistrée — rien n'a changé. Réessayez.")}
+            </p>
+          )}
+
+          <input ref={fileRef} type="file" accept="application/pdf" hidden
+            onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadTemplate(f); }} />
 
           <p className="text-[11px] mt-3" style={{ color: "var(--w3)" }}>
             {L("Tip: click a name to rename it. Renaming also renames the matching file for every candidate.",

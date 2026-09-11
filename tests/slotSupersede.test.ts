@@ -64,4 +64,37 @@ describe("idsToRetire", () => {
     const stacked = Array.from({ length: 12 }, (_, i) => ({ id: `cv-${i}`, superseded_at: null }));
     expect(idsToRetire(stacked, "cv-11")).toHaveLength(11);
   });
+
+  it("two racing uploads can't archive each other — the newest survives", () => {
+    // Both requests see both new rows. Retiring "everything but mine" let each
+    // archive the other and left the slot empty.
+    const seen = [
+      { id: "old", superseded_at: null, uploaded_at: "2026-09-01T10:00:00.000Z" },
+      { id: "a", superseded_at: null, uploaded_at: "2026-09-11T10:00:00.100Z" },
+      { id: "b", superseded_at: null, uploaded_at: "2026-09-11T10:00:00.200Z" },
+    ];
+    const fromA = idsToRetire(seen, "a");
+    const fromB = idsToRetire(seen, "b");
+    expect(fromA).toEqual(["old"]);
+    expect(fromB.sort()).toEqual(["a", "old"]);
+    expect([...fromA, ...fromB]).not.toContain("b");
+  });
+
+  it("an exact timestamp tie still leaves exactly one live row", () => {
+    const ts = "2026-09-11T10:00:00.000Z";
+    const seen = [
+      { id: "a", superseded_at: null, uploaded_at: ts },
+      { id: "b", superseded_at: null, uploaded_at: ts },
+    ];
+    const retired = new Set([...idsToRetire(seen, "a"), ...idsToRetire(seen, "b")]);
+    expect(retired.size).toBe(1);
+  });
+
+  it("never retires a row newer than the one just inserted", () => {
+    const seen = [
+      { id: "mine", superseded_at: null, uploaded_at: "2026-09-11T10:00:00.000Z" },
+      { id: "newer", superseded_at: null, uploaded_at: "2026-09-11T10:00:05.000Z" },
+    ];
+    expect(idsToRetire(seen, "mine")).toEqual([]);
+  });
 });

@@ -126,6 +126,9 @@ export async function GET(req: NextRequest) {
 
   let userIds = [...new Set(docs.map((d: { user_id: string }) => d.user_id))];
   const users: Record<string, { email: string; name: string; createdAt?: string | null }> = {};
+  // True when the signed-up-but-no-upload scan below failed part-way: the list
+  // still works (doc owners resolve individually) but is NOT complete.
+  let usersPartial = false;
 
   // For full admins, surface candidates who have signed up but not yet
   // uploaded anything — otherwise they're invisible until their first
@@ -142,7 +145,14 @@ export async function GET(req: NextRequest) {
     // arrives, so this just cuts the number of round-trips ~20x on the admin load.
     let page = 1;
     while (true) {
-      const { data: batch } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+      const { data: batch, error: listErr } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+      if (listErr) {
+        // Resolves { users: [] } on error — flag the list partial instead of
+        // silently dropping every no-upload candidate as if they didn't exist.
+        console.error("[admin GET] listUsers failed on page", page, "— candidate list is partial:", listErr);
+        usersPartial = true;
+        break;
+      }
       const list = batch?.users ?? [];
       for (const u of list) {
         if (!u.id || !u.email) continue;
@@ -424,7 +434,7 @@ export async function GET(req: NextRequest) {
     }
   } catch (e) { console.warn("[admin GET] journey progress skipped:", e); }
 
-  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, dupByUser, role });
+  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, dupByUser, role, ...(usersPartial ? { usersPartial: true } : {}) });
 }
 
 // POST — review a document (status + feedback) → notify candidate. Shares the

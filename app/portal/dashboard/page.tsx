@@ -960,21 +960,56 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Realtime: keep pipeline unlock flags in sync when admin changes them
+  // Realtime: keep pipeline unlock flags in sync when admin changes them.
+  // INSERT as well as UPDATE: PATCH /api/portal/pipeline inserts the row when
+  // none exists yet, so a candidate's FIRST unlock arrives as an INSERT.
   useEffect(() => {
     if (!userId) return;
+    const merge = (payload: { new: Partial<Pipeline> }) => {
+      const row = payload.new;
+      setPipeline(prev => prev ? { ...prev, ...row } : (row as Pipeline));
+    };
     const ch = supabase
       .channel(`pipeline-unlock-${userId}`)
       .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = payload.new as Partial<Pipeline>;
-          setPipeline(prev => prev ? { ...prev, ...row } : (row as Pipeline));
-        },
+        merge,
+      )
+      .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
+        merge,
       )
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [userId]);
+
+  // Backstop for the documents + pipeline channels above. Realtime has no
+  // replay, so a change made while the socket was down (backgrounded phone
+  // tab, network blip) is lost until reload. Refetch both when the tab comes
+  // back. Throttled: focus and visibilitychange usually fire together.
+  useEffect(() => {
+    if (!authToken || !userId) return;
+    let last = 0;
+    const refresh = () => {
+      const now = Date.now();
+      if (now - last < 5_000) return;
+      last = now;
+      loadDocs(userId, true);
+      fetch("/api/portal/pipeline/me", { headers: { Authorization: `Bearer ${authToken}` } })
+        .then(r => r.ok ? r.json() : null)
+        // Only a successful read replaces state; a failed one keeps what's on screen.
+        .then(j => { if (j && "pipeline" in j) setPipeline(j.pipeline ?? null); })
+        .catch(() => {});
+    };
+    const onFocus = () => refresh();
+    const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Realtime: LIVE two-way passport-data sync. Edit on one device → the DB
   // draft-save fires → this fires on the other device → the open passport
@@ -1240,14 +1275,21 @@ export default function DashboardPage() {
   }
 
   // When a notification carried a doc_id, open its preview as soon as docs are loaded.
+  // An id missing from the list (e.g. an admin upload-on-behalf realtime missed)
+  // triggers ONE refetch per id — never a loop.
+  const navDocRefetchedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!pendingOpenDocId || docs.length === 0) return;
+    if (!pendingOpenDocId || loading) return;
     const doc = docs.find(d => d.id === pendingOpenDocId);
     if (doc) {
       setPendingOpenDocId(null);
       setPreviewDoc(doc);
+    } else if (userId && navDocRefetchedRef.current !== pendingOpenDocId) {
+      navDocRefetchedRef.current = pendingOpenDocId;
+      loadDocs(userId, true);
     }
-  }, [pendingOpenDocId, docs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOpenDocId, docs, loading, userId]);
 
   // (Candidate side: no auto side-by-side. Passport data popup opens on
   //  upload — candidate confirms — submits. If they click the passport doc

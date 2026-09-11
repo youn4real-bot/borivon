@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { meToken } from "@/lib/meApi";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
@@ -43,11 +44,22 @@ export default function AdminBatchesPage() {
   const [organizations, setOrganizations] = useState<Org[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [form, setForm] = useState({ name: "", seats: 10, employerId: "", orgId: "", targetStart: "", targetEnd: "" });
 
-  const load = useCallback(async (tk: string) => {
-    const res = await fetch("/api/portal/batches", { headers: { Authorization: `Bearer ${tk}` } });
-    if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
+  // The token in state is only the one read at mount — it expires after ~1h.
+  // meToken() goes through getSession(), which refreshes an expired JWT.
+  const freshToken = async () => (await meToken()) || token;
+
+  const load = useCallback(async (tk: string, gate = false) => {
+    const res = await fetch("/api/portal/batches", { headers: { Authorization: `Bearer ${(await meToken()) || tk}` } }).catch(() => null);
+    if (!res || !res.ok) {
+      // Only the first load is the role gate. A refused reload later (blip,
+      // expired session) keeps the board on screen instead of bouncing an
+      // admin to the candidate dashboard.
+      if (gate && res && (res.status === 401 || res.status === 403)) router.replace("/portal/dashboard");
+      return;
+    }
     const j = await res.json().catch(() => ({}));
     setBatches((j.batches ?? []) as Batch[]);
     setCandidates((j.candidates ?? []) as Cand[]);
@@ -67,20 +79,24 @@ export default function AdminBatchesPage() {
       }
       if (cancelled) return;
       setToken(tk);
-      await load(tk);
+      await load(tk, true);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [router, load]);
 
-  // PATCH a candidate's stage and/or batch, then refresh.
+  // PATCH a candidate's stage and/or batch, then refresh (the reload puts the
+  // selects back to the server's value if the change was refused).
   const patchCand = async (candidateUserId: string, patch: { stage?: string; batchId?: string | null }) => {
-    await fetch("/api/portal/batches", {
+    setSaveFailed(false);
+    const res = await fetch("/api/portal/batches", {
       method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${await freshToken()}`, "Content-Type": "application/json" },
       body: JSON.stringify({ candidateUserId, ...patch }),
-    }).catch(() => {});
+    }).catch(() => null);
+    if (!res || !res.ok) setSaveFailed(true);
     await load(token);
+    return !!res?.ok;
   };
 
   const createBatch = async () => {
@@ -88,7 +104,7 @@ export default function AdminBatchesPage() {
     setSaving(true);
     const res = await fetch("/api/portal/batches", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${await freshToken()}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name.trim(), seats: form.seats,
         employerId: form.employerId || undefined,
@@ -101,10 +117,12 @@ export default function AdminBatchesPage() {
   };
 
   const closeBatch = async (batchId: string) => {
-    await fetch("/api/portal/batches", {
-      method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    setSaveFailed(false);
+    const res = await fetch("/api/portal/batches", {
+      method: "PATCH", headers: { Authorization: `Bearer ${await freshToken()}`, "Content-Type": "application/json" },
       body: JSON.stringify({ batchId, close: true }),
-    }).catch(() => {});
+    }).catch(() => null);
+    if (!res || !res.ok) setSaveFailed(true);
     await load(token);
   };
 
@@ -147,6 +165,14 @@ export default function AdminBatchesPage() {
         </div>
         <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-gold inline-flex"><Plus size={15} strokeWidth={2} /> {T("New batch", "Neuer Batch", "Nouveau lot")}</button>
       </div>
+
+      {saveFailed && (
+        <p className="mb-4 text-[12.5px]" style={{ color: "var(--danger)" }}>
+          {T("Couldn't save that change — nothing was changed. Try again.",
+             "Änderung konnte nicht gespeichert werden — nichts wurde geändert. Erneut versuchen.",
+             "Modification non enregistrée — rien n'a changé. Réessayez.")}
+        </p>
+      )}
 
       {openBatches.length === 0 ? (
         <div className="text-center py-12 text-[14px]" style={{ color: "var(--w3)" }}>
@@ -209,7 +235,8 @@ export default function AdminBatchesPage() {
             {notOnFunnel.map((c) => (
               <div key={c.userId} className="flex items-center justify-between gap-2 py-1.5">
                 <span className="text-[13px] min-w-0 truncate" style={{ color: "var(--w2)" }}>{c.name}</span>
-                <select defaultValue="" onChange={(e) => { if (e.target.value) patchCand(c.userId, { stage: e.target.value }); }}
+                {/* Uncontrolled, so the reload can't reset it — put it back by hand if the save was refused. */}
+                <select defaultValue="" onChange={(e) => { const el = e.target; if (el.value) void patchCand(c.userId, { stage: el.value }).then((ok) => { if (!ok) el.value = ""; }); }}
                   className="text-[12px] px-2 py-1 rounded-md flex-shrink-0" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
                   <option value="">{T("add to funnel…", "hinzufügen…", "ajouter…")}</option>
                   {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}

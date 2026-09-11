@@ -10,24 +10,25 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const db = getServiceSupabase();
+  // `?unread=1` (the bell's Unread tab) also returns the newest UNREAD rows, so
+  // unread items older than the newest-40 window stay reachable from the bell.
+  const withUnread = req.nextUrl.searchParams.get("unread") === "1";
 
   // id → email map, built lazily and reused for both the sub-admin scope filter
   // and the photo enrichment below. Avoids paginating the ENTIRE auth.users table
   // on every bell poll — work stays bounded to the handful of rows we serve.
   const emailToId: Record<string, string> = {};
 
-  // Build the query — sub-admins get filtered by their visible candidates' emails
-  let query = db
-    .from("admin_notifications")
-    .select("id, type, user_name, user_email, doc_type, doc_name, read, created_at")
-    .order("created_at", { ascending: false })
-    .limit(40);
+  // Scope — sub-admins get filtered by their visible candidates' emails.
+  // null = no filter (supreme admin / regular sub-admin).
+  let scopeEmails: string[] | null = null;
+  const empty = { notifications: [], unread: [], unreadCount: 0, overdueCount: 0 };
 
   if (auth.role !== "admin") {
     // LAW #25: null = regular sub-admin (sees all notifications), array = org admin scope.
     const visibleIds = await getVisibleCandidateIds(auth.email);
     if (visibleIds !== null) {
-      if (visibleIds.length === 0) return NextResponse.json({ notifications: [] });
+      if (visibleIds.length === 0) return NextResponse.json(empty);
       // Resolve ONLY the visible candidate ids → emails (bounded by the org scope),
       // not the whole user table. getUserById takes the id directly.
       const resolved = await Promise.all(
@@ -38,26 +39,58 @@ export async function GET(req: NextRequest) {
         const u = r?.data?.user;
         if (u?.id && u.email) { emails.push(u.email); emailToId[u.email] = u.id; }
       }
-      if (emails.length === 0) return NextResponse.json({ notifications: [] });
-      query = query.in("user_email", emails);
+      if (emails.length === 0) return NextResponse.json(empty);
+      scopeEmails = emails;
     }
     // Regular sub-admin: no filter — they see all notifications.
   }
 
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("[admin notifications GET] failed:", error);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  const COLS = "id, type, user_name, user_email, doc_type, doc_name, read, created_at";
+  const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  let listQ = db.from("admin_notifications").select(COLS)
+    .order("created_at", { ascending: false }).limit(40);
+  let unreadListQ = db.from("admin_notifications").select(COLS).eq("read", false)
+    .order("created_at", { ascending: false }).limit(40);
+  // Badge + 48h banner come from head-only COUNTS over the whole table, not the
+  // 40 rows above — deriving them client-side capped "Unread" at the window and
+  // hid every overdue item as soon as 40 newer rows existed.
+  let unreadQ  = db.from("admin_notifications").select("id", { count: "exact", head: true })
+    .eq("read", false);
+  let overdueQ = db.from("admin_notifications").select("id", { count: "exact", head: true })
+    .eq("read", false).lte("created_at", cutoff48h);
+  // LAW #25: the SAME scope filter on every query — list AND counts.
+  if (scopeEmails) {
+    listQ       = listQ.in("user_email", scopeEmails);
+    unreadListQ = unreadListQ.in("user_email", scopeEmails);
+    unreadQ     = unreadQ.in("user_email", scopeEmails);
+    overdueQ    = overdueQ.in("user_email", scopeEmails);
   }
 
-  const rows = data ?? [];
+  const [listRes, unreadListRes, unreadRes, overdueRes] = await Promise.all([
+    listQ, withUnread ? unreadListQ : null, unreadQ, overdueQ,
+  ]);
+
+  if (listRes.error) {
+    console.error("[admin notifications GET] failed:", listRes.error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+  // Counts / unread list are additive — on failure the bell falls back to
+  // deriving from the loaded rows, so log and keep serving the feed.
+  if (unreadRes.error || overdueRes.error) {
+    console.error("[admin notifications GET] count failed:", unreadRes.error ?? overdueRes.error);
+  }
+  if (unreadListRes?.error) {
+    console.error("[admin notifications GET] unread list failed:", unreadListRes.error);
+  }
+
+  const rows = listRes.data ?? [];
+  const unreadRows = unreadListRes && !unreadListRes.error ? (unreadListRes.data ?? []) : null;
 
   // Enrich with profile photo + verified status by joining through auth.users.
-  const emails = [...new Set(rows.map(n => n.user_email).filter(Boolean))];
+  const emails = [...new Set([...rows, ...(unreadRows ?? [])].map(n => n.user_email).filter(Boolean))];
   const photoMap: Record<string, { photo: string | null; verified: boolean }> = {};
   if (emails.length > 0) {
-    // Resolve email → id for ONLY the emails these <=40 rows reference. auth.users
+    // Resolve email → id for ONLY the emails these <=80 rows reference. auth.users
     // is not exposed via PostgREST and listUsers has no email filter, so page the
     // Admin API but STOP as soon as every needed email is matched (and hard-cap the
     // walk) — never a guaranteed full-table sweep on this polled route. Any emails
@@ -88,13 +121,19 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const enriched = rows.map(n => ({
+  const enrich = (list: typeof rows) => list.map(n => ({
     ...n,
     user_photo:    photoMap[n.user_email]?.photo    ?? null,
     user_verified: photoMap[n.user_email]?.verified ?? false,
   }));
 
-  return NextResponse.json({ notifications: enriched });
+  return NextResponse.json({
+    notifications: enrich(rows),
+    ...(unreadRows ? { unread: enrich(unreadRows) } : {}),
+    // null = count failed → the bell falls back to counting its loaded rows.
+    unreadCount:  unreadRes.error  ? null : (unreadRes.count  ?? 0),
+    overdueCount: overdueRes.error ? null : (overdueRes.count ?? 0),
+  });
 }
 
 // PATCH — mark notifications as read.

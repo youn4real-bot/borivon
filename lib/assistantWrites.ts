@@ -28,6 +28,8 @@ import { recentChatUploadAttachments } from "@/lib/chatUploads";
 import { stripMarkdown, resolveReplyRecipients } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
+import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
+import { collectUserStorage, removeUserStorage } from "@/lib/deleteUserStorage";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { isFunnelStage } from "@/lib/batchBoard";
 import { UUID_RE } from "@/lib/uuid";
@@ -402,18 +404,50 @@ async function writeStoreDocument(opts: { candidateUserId: string; docKey: strin
     uploaded_by_admin: true,
     status: "pending",
   };
-  const { error } = await db.from("documents").insert({ ...baseRow, file_sha256: opts.sha256 });
+  let insertedId: string | null = null;
+  const { data: inserted, error } = await db.from("documents").insert({ ...baseRow, file_sha256: opts.sha256 }).select("id").maybeSingle();
   if (error) {
     const msg = (error as { message?: string })?.message ?? "";
     // Schema-tolerant: if file_sha256 isn't migrated, retry WITHOUT it but KEEP
     // r2_key (the store of record) — never drop the key (incident 2026-06-09).
     if (/file_sha256|column .* does not exist|schema cache/i.test(msg)) {
-      const { error: retryErr } = await db.from("documents").insert(baseRow);
+      const { data: retryRow, error: retryErr } = await db.from("documents").insert(baseRow).select("id").maybeSingle();
       if (retryErr) return { ok: false, error: "write_failed" };
-      return { ok: true };
+      insertedId = (retryRow as { id: string } | null)?.id ?? null;
+    } else {
+      if ((error as { code?: string }).code === "PGRST205") return { ok: false, error: "documents_not_set_up" };
+      return { ok: false, error: "write_failed" };
     }
-    if ((error as { code?: string }).code === "PGRST205") return { ok: false, error: "documents_not_set_up" };
-    return { ok: false, error: "write_failed" };
+  } else {
+    insertedId = (inserted as { id: string } | null)?.id ?? null;
+  }
+
+  // ONE LIVE DOCUMENT PER SLOT — the same pass the upload route runs: retire the
+  // slot's previous live rows (superseded_at = archive, LAW #33 — never delete),
+  // or the admin queue counts both. Slot matched by canonical fileKey so a prior
+  // row under another language label is caught; "other" stays multi-file.
+  // Best-effort — the new document is already safely stored. uploaded_at lets
+  // idsToRetire retire only OLDER rows, so a racing upload isn't archived.
+  const slotKey = resolveFileKey(fileType);
+  if (insertedId && shouldSupersedePrevious(slotKey)) {
+    try {
+      const { data: allRows } = await db
+        .from("documents")
+        .select("id, superseded_at, file_type, uploaded_at")
+        .eq("user_id", opts.candidateUserId);
+      const sameSlot = ((allRows ?? []) as { id: string; superseded_at?: string | null; file_type: string | null; uploaded_at?: string | null }[])
+        .filter((d) => resolveFileKey(d.file_type) === slotKey);
+      const stale = idsToRetire(sameSlot, insertedId);
+      if (stale.length) {
+        const { error: supErr } = await db
+          .from("documents")
+          .update({ superseded_at: new Date().toISOString() })
+          .in("id", stale);
+        if (supErr) console.warn("[assistant storeDocument] could not retire previous versions:", supErr.message);
+      }
+    } catch (e) {
+      console.warn("[assistant storeDocument] supersede pass threw:", e instanceof Error ? e.message : e);
+    }
   }
   return { ok: true };
 }
@@ -1397,21 +1431,14 @@ async function writeDeleteOrganization(orgId: string): Promise<WriteResult> {
 async function writeDeleteCandidate(userId: string): Promise<WriteResult> {
   if (!UUID_RE.test(userId)) return { ok: false, error: "bad_id" };
   const db = getServiceSupabase();
-  // Capture sign-document Storage blob paths BEFORE the cascade drops their rows
-  // (Storage objects aren't reached by the DB FK cascade).
-  let blobPaths: string[] = [];
-  try {
-    const { data: sigReqs } = await db.from("sign_requests")
-      .select("pdf_storage_path, signed_pdf_path").eq("candidate_user_id", userId);
-    blobPaths = (sigReqs ?? []).flatMap(
-      (r: { pdf_storage_path: string | null; signed_pdf_path: string | null }) =>
-        [r.pdf_storage_path, r.signed_pdf_path].filter(Boolean) as string[],
-    );
-  } catch { /* best-effort */ }
+  // Capture every storage path (R2 documents, sign PDFs, doc-cache, CV preview,
+  // PUBLIC profile + feed photos) BEFORE the cascade drops the rows that name
+  // them — the SAME sweep the website's delete-user route runs.
+  const storage = await collectUserStorage(db, userId);
   const { error } = await db.rpc("app_delete_user", { p_uid: userId });
   if (error) return { ok: false, error: "delete_failed" };
-  // Row gone — drop the now-orphaned Storage blobs (best-effort).
-  if (blobPaths.length) { try { await db.storage.from("sign-documents").remove(blobPaths); } catch { /* ignore */ } }
+  // Rows gone — drop the now-orphaned objects (best-effort, never throws).
+  await removeUserStorage(db, storage);
   return { ok: true };
 }
 

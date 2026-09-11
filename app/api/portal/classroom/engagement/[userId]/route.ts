@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, requireUser, canActOnCandidate, ciEmail } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
+import { readAllRows } from "@/lib/readAllRows";
 import { UUID_RE } from "@/lib/uuid";
 import { computeEngagement, type ClassroomEvent, type ClassroomSession } from "@/lib/classroomEngagement";
 
@@ -52,14 +53,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
   const consented = !!consentRow && !(consentRow as { revoked_at: string | null }).revoked_at;
   if (consentRequired && !consented) return NextResponse.json({ consented: false, row: null });
 
-  // Aggregate just this candidate's ledger.
-  const { data: evRows } = await db
+  // Aggregate just this candidate's ledger — paged, because PostgREST silently
+  // caps a reply at 1000 rows (ascending → the newest sessions were dropped and
+  // the profile froze). A failed read must not pass for "no class data yet".
+  const { data: evRows, error: evErr } = await readAllRows<ClassroomEvent>((from, to) => db
     .from("classroom_events")
     .select("session_id, user_id, display_name, kind, value, at")
     .eq("user_id", userId)
     .order("at", { ascending: true })
-    .limit(20000);
-  const events = (evRows ?? []) as ClassroomEvent[];
+    .order("id", { ascending: true })
+    .range(from, to));
+  if (evErr) { console.error("[classroom/engagement/user] events error:", evErr.message); return NextResponse.json({ error: "load_failed" }, { status: 500 }); }
+  const events = evRows ?? [];
 
   const { data: sessRows } = await db.from("classroom_sessions").select("id, ended_at");
   const sessions = (sessRows ?? []) as ClassroomSession[];

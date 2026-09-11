@@ -41,12 +41,27 @@ export function shouldSupersedePrevious(fileKey: string | null | undefined): boo
  * Pure so the "never retire the row we just created" and "never touch an
  * already-archived row" guarantees are testable without a database. Returns ids
  * only — the caller does the update.
+ *
+ * Only rows OLDER than the one just inserted are retired. Two uploads racing
+ * into the same slot (admin + candidate, two tabs) each read the other's row;
+ * retiring "everything but mine" let each archive the other and left the slot
+ * empty. Ordering by uploaded_at (id breaks an exact tie, so both requests agree)
+ * means the newest upload always survives. Rows without a usable uploaded_at —
+ * or a caller that didn't select it — fall back to the old "retire all others".
  */
 export function idsToRetire(
-  existing: { id: string; superseded_at?: string | null }[],
+  existing: { id: string; superseded_at?: string | null; uploaded_at?: string | null }[],
   justInsertedId: string,
 ): string[] {
+  const mine = existing.find((d) => d.id === justInsertedId);
+  const myTime = mine?.uploaded_at ? Date.parse(mine.uploaded_at) : NaN;
   return existing
-    .filter((d) => d.id !== justInsertedId && !d.superseded_at)
+    .filter((d) => {
+      if (d.id === justInsertedId || d.superseded_at) return false;
+      const t = d.uploaded_at ? Date.parse(d.uploaded_at) : NaN;
+      if (Number.isNaN(myTime) || Number.isNaN(t)) return true;
+      if (t !== myTime) return t < myTime;
+      return d.id < justInsertedId;
+    })
     .map((d) => d.id);
 }

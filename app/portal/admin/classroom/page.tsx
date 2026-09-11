@@ -234,6 +234,9 @@ export default function ClassroomPage() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState("");
+  // Assigned candidates the token route could NOT notify (bell insert failed).
+  // Non-blocking: the class still starts, the admin just has to tell them.
+  const [unnotified, setUnnotified] = useState(0);
   const [showStats, setShowStats] = useState(false);
   const [openToCandidates, setOpenToCandidates] = useState(false);
   // Assign specific candidates → they get a notification + can join this class.
@@ -267,7 +270,7 @@ export default function ClassroomPage() {
   }, [router]);
 
   async function start() {
-    setErr(""); setStarting(true);
+    setErr(""); setUnnotified(0); setStarting(true);
     try {
       const res = await fetch("/api/portal/admin/classroom/token", {
         method: "POST",
@@ -278,22 +281,39 @@ export default function ClassroomPage() {
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { setErr(j.error || T("Could not start", "Start fehlgeschlagen", "Échec")); setStarting(false); return; }
       setConn({ token: j.token, url: j.url, sessionId: j.sessionId ?? null });
+      // `invited` = listed, `notified` = actually got the bell. A gap means the
+      // notification insert failed server-side — say so instead of implying
+      // everyone was told.
+      const invitedN = typeof j.invited === "number" ? j.invited : 0;
+      if (typeof j.notified === "number" && j.notified < invitedN) setUnnotified(invitedN - j.notified);
     } catch { setErr(T("Could not start", "Start fehlgeschlagen", "Échec")); }
     setStarting(false);
   }
 
-  function leave() { setConn(null); }
+  function leave() { setConn(null); setUnnotified(0); }
 
   if (loading) return <PageLoader />;
 
   // ── In the room ──
   if (conn) {
     return (
-      <ClassroomRoom
-        authToken={authToken} connToken={conn.token} url={conn.url}
-        roomName={roomName} sessionId={conn.sessionId} displayName={displayName}
-        lang={lang} onLeave={leave}
-      />
+      <>
+        <ClassroomRoom
+          authToken={authToken} connToken={conn.token} url={conn.url}
+          roomName={roomName} sessionId={conn.sessionId} displayName={displayName}
+          lang={lang} onLeave={leave}
+        />
+        {/* Non-blocking: sits above the full-screen room (z 1400), below its header */}
+        {unnotified > 0 && (
+          <div role="alert" className="flex items-center gap-2 text-[12px] font-semibold px-3 py-2 rounded-xl"
+            style={{ position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 1401, maxWidth: "calc(100% - 32px)", background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+            <span>{T(`${unnotified} assigned candidate(s) were NOT notified — tell them directly.`,
+                     `${unnotified} zugewiesene(r) Kandidat(en) wurde(n) NICHT benachrichtigt — bitte direkt informieren.`,
+                     `${unnotified} candidat(s) assigné(s) n'ont PAS été notifié(s) — prévenez-les directement.`)}</span>
+            <button type="button" onClick={() => setUnnotified(0)} className="bv-press" style={{ lineHeight: 0, color: "var(--danger)" }} aria-label="dismiss"><X size={13} /></button>
+          </div>
+        )}
+      </>
     );
   }
 

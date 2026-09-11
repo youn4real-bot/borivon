@@ -125,7 +125,10 @@ export async function recordCommitments(ownerUserId: string, found: ExtractedCom
         what: c.what.trim().slice(0, 300),
         due_at: c.due_at ?? null,
         promised_at: c.promised_at ?? new Date().toISOString(),
-        source_message_id: c.source_message_id ?? null,
+        // Never null: the unique index is a PLAIN (owner, source_message_id, what)
+        // index with source_message_id NOT NULL DEFAULT ''. A null would be both
+        // refused and never equal to another null, so dedup would silently break.
+        source_message_id: (c.source_message_id ?? "").trim(),
         source_subject: c.source_subject ?? null,
       }));
     if (!rows.length) return 0;
@@ -134,7 +137,10 @@ export async function recordCommitments(ownerUserId: string, found: ExtractedCom
       .from("assistant_commitments")
       .upsert(rows, { onConflict: "owner_user_id,source_message_id,what", ignoreDuplicates: true })
       .select("id");
-    if (error) return 0;
+    if (error) {
+      console.error("[recordCommitments] upsert failed:", error.message);
+      return 0;
+    }
     return (data as { id: number }[] | null)?.length ?? 0;
   } catch { return 0; }
 }

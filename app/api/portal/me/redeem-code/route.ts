@@ -78,16 +78,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 
-  // Notify admin so they can review later (especially for 'pending' requests)
-  try {
-    await db.from("admin_notifications").insert({
-      type: isFirst ? "org-join" : "org-request",
-      user_email: auth.email,
-      user_name: auth.email,
-      doc_name: org.name,
-      doc_type: status,
-    });
-  } catch { /* notifications are best-effort */ }
+  // Notify admin so they can review later (especially for 'pending' requests).
+  // Best-effort, but supabase-js RESOLVES with { error } on a refusal (e.g. the
+  // type CHECK) instead of throwing — a try/catch never saw it. Log it.
+  const { error: notifErr } = await db.from("admin_notifications").insert({
+    type: isFirst ? "org-join" : "org-request",
+    user_email: auth.email,
+    user_name: auth.email,
+    doc_name: org.name,
+    doc_type: status,
+  });
+  if (notifErr) console.error("[redeem-code] admin notification insert failed:", notifErr);
 
   return NextResponse.json({ org, status });
 }

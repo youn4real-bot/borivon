@@ -23,7 +23,13 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allAuthUsers: any[] = [];
   for (let page = 1; page <= 50; page++) {
-    const { data: { users: batch } } = await db.auth.admin.listUsers({ perPage: PER_PAGE, page });
+    // listUsers resolves { users: [] } + error on any GoTrue failure — never
+    // present that as "no users" (an empty/short list shown as complete).
+    const { data: { users: batch }, error } = await db.auth.admin.listUsers({ perPage: PER_PAGE, page });
+    if (error) {
+      console.error("[admin/users GET] listUsers failed on page", page, error);
+      return Response.json({ error: "Could not load users" }, { status: 502 });
+    }
     allAuthUsers.push(...(batch ?? []));
     if ((batch ?? []).length < PER_PAGE) break;
   }

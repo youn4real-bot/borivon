@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
+import { readAllRows } from "@/lib/readAllRows";
 import { computeEngagement, computeSessionSummaries, type ClassroomEvent, type ClassroomSession } from "@/lib/classroomEngagement";
 
 /**
@@ -27,14 +28,22 @@ export async function GET(req: NextRequest) {
     .order("started_at", { ascending: false });
   const sessions = (sessRows ?? []) as { id: string; title: string | null; room_name: string; status: string | null; started_at: string | null; ended_at: string | null }[];
 
-  // Pull the ledger (capped — testing phase). Interval math needs them ordered.
-  const { data: evRows, error: evErr } = await db
-    .from("classroom_events")
-    .select("session_id, user_id, display_name, kind, value, at")
-    .order("at", { ascending: true })
-    .limit(20000);
+  // Per-session drill-down: unknown session → empty (also keeps a non-uuid
+  // ?session= out of the uuid filter below).
+  const sessionId = req.nextUrl.searchParams.get("session");
+  const s = sessionId ? sessions.find((x) => x.id === sessionId) : undefined;
+  if (sessionId && !s) return NextResponse.json({ sessionId, rows: [] });
+
+  // Pull the ledger, paged: PostgREST silently caps a reply at 1000 rows, and
+  // with ascending order the NEWEST events were the ones dropped. Interval math
+  // needs them ordered; `id` is the stable tie-breaker readAllRows requires.
+  const { data: evRows, error: evErr } = await readAllRows<ClassroomEvent>((from, to) => {
+    let q = db.from("classroom_events").select("session_id, user_id, display_name, kind, value, at");
+    if (sessionId) q = q.eq("session_id", sessionId);
+    return q.order("at", { ascending: true }).order("id", { ascending: true }).range(from, to);
+  });
   if (evErr) { console.error("[classroom/engagement] events error:", evErr.message); return NextResponse.json({ error: "load_failed" }, { status: 500 }); }
-  const events = (evRows ?? []) as ClassroomEvent[];
+  const events = evRows ?? [];
 
   // Resolve canonical names (candidate_profiles) for the people in the ledger.
   const ids = Array.from(new Set(events.map((e) => e.user_id).filter((x): x is string => !!x)));
@@ -47,14 +56,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Per-session drill-down: per-person stats for ONE session only.
-  const sessionId = req.nextUrl.searchParams.get("session");
-  if (sessionId) {
-    const s = sessions.find((x) => x.id === sessionId);
-    if (!s) return NextResponse.json({ sessionId, rows: [] });
-    const scoped = events.filter((e) => e.session_id === sessionId);
-    return NextResponse.json({ sessionId, rows: computeEngagement(scoped, [s] as ClassroomSession[], names) });
-  }
+  // Per-session drill-down: per-person stats for ONE session only (the ledger
+  // query above is already scoped to it).
+  if (s) return NextResponse.json({ sessionId, rows: computeEngagement(events, [s] as ClassroomSession[], names) });
 
   const rows = computeEngagement(events, sessions as ClassroomSession[], names);
   const sessionSummaries = computeSessionSummaries(events, sessions as ClassroomSession[], names);

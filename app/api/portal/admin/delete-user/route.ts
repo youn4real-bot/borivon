@@ -3,6 +3,7 @@ import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { makeDriveRestClient } from "@/lib/googleDriveShim";
 import { UUID_RE } from "@/lib/uuid";
+import { deleteUserStorage } from "@/lib/deleteUserStorage";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
@@ -129,53 +130,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 2. Storage blobs (not reachable by a DB cascade) ───────────────────────
-  // sign_requests rows get cascade-deleted below, but the PDFs they point at
-  // live in Storage — remove them first or they orphan forever.
-  try {
-    const { data: sigReqs } = await db
-      .from("sign_requests")
-      .select("pdf_storage_path, signed_pdf_path")
-      .eq("candidate_user_id", userId);
-    const paths = (sigReqs ?? []).flatMap(r => [r.pdf_storage_path, r.signed_pdf_path].filter(Boolean) as string[]);
-    if (paths.length) await db.storage.from("sign-documents").remove(paths).catch(() => {});
-  } catch { /* best-effort */ }
-
-  // ── 2b. R2 objects — the candidate's actual documents (passports, IDs,
-  //        diplomas). These live in Cloudflare R2, NOT Postgres, so the cascade
-  //        delete below removes the documents ROWS but leaves the FILES sitting
-  //        in the bucket forever. "Delete means gone" has to mean the bytes too,
-  //        or a deleted person's passport survives a GDPR erasure request and
-  //        any future bucket exposure. Collect the keys NOW, before the rows are
-  //        gone, then delete the objects. Best-effort per key — one failure must
-  //        not abort the account deletion.
-  try {
-    const { data: docRows } = await db
-      .from("documents").select("r2_key").eq("user_id", userId).not("r2_key", "is", null);
-    const keys = [...new Set(((docRows ?? []) as { r2_key: string | null }[]).map(r => r.r2_key).filter(Boolean) as string[])];
-    // Also sweep by the candidate's key prefix, so any archived/superseded copy
-    // whose row was already removed is caught too.
-    try {
-      const { r2List } = await import("@/lib/r2");
-      const listed = await r2List(`candidates/${userId}/`);
-      for (const o of listed) keys.push(o.key);
-    } catch { /* listing is a bonus; the row-derived keys are the guarantee */ }
-    if (keys.length) {
-      const { r2Delete } = await import("@/lib/r2");
-      for (const k of [...new Set(keys)]) {
-        try { await r2Delete(k); } catch (e) { console.warn("[delete-user] r2 delete failed for", k, e instanceof Error ? e.message : e); }
-      }
-    }
-  } catch (e) {
-    console.warn("[delete-user] R2 sweep threw:", e instanceof Error ? e.message : e);
-  }
-
-  // Profile photo lives in a Supabase Storage bucket keyed by user id.
-  try {
-    for (const ext of ["jpg", "png", "webp", "gif"]) {
-      await db.storage.from("profile-photos").remove([`${userId}.${ext}`]).catch(() => {});
-    }
-  } catch { /* best-effort */ }
+  // ── 2. Storage objects (not reachable by a DB cascade) ─────────────────────
+  // The cascade below removes the ROWS but not the files they point at: R2
+  // documents (passports, IDs, diplomas), sign_request PDFs, legacy doc-cache
+  // copies, the CV preview, and the PUBLIC profile/feed photos. "Delete means
+  // gone" has to mean the bytes too, or a deleted person's passport survives a
+  // GDPR erasure request. Paths are collected NOW, while the rows still exist.
+  // Best-effort — one failure must not abort the account deletion. The bot's
+  // deleteCandidateAccount runs the same sweep (lib/deleteUserStorage.ts).
+  await deleteUserStorage(db, userId);
 
   // ── 3. Email-keyed rows (NOT a FK to auth.users(id) → cascade can't reach) ──
   async function softDelete(table: string, query: PromiseLike<{ error: { message: string } | null }>) {

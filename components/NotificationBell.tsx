@@ -52,6 +52,8 @@ const BELL_T = {
     justSignedUp: "vient de s'inscrire",
     uploadedDoc: "a téléversé un document",
     signedDoc: "a signé un document",
+    joinedOrg: "a rejoint une organisation",
+    requestedOrg: "demande à rejoindre une organisation",
     viewCandidate: "Voir le candidat →",
     quickReview: "Révision rapide →",
     reviewNow: "Réviser maintenant →",
@@ -88,6 +90,8 @@ const BELL_T = {
     justSignedUp: "just signed up",
     uploadedDoc: "uploaded a document",
     signedDoc: "signed a document",
+    joinedOrg: "joined an organization",
+    requestedOrg: "requested to join an organization",
     viewCandidate: "View candidate →",
     quickReview: "Quick review →",
     reviewNow: "Review now →",
@@ -124,6 +128,8 @@ const BELL_T = {
     justSignedUp: "hat sich gerade registriert",
     uploadedDoc: "hat ein Dokument hochgeladen",
     signedDoc: "hat ein Dokument unterschrieben",
+    joinedOrg: "ist einer Organisation beigetreten",
+    requestedOrg: "möchte einer Organisation beitreten",
     viewCandidate: "Kandidaten anzeigen →",
     quickReview: "Schnellprüfung →",
     reviewNow: "Jetzt prüfen →",
@@ -154,7 +160,7 @@ type CandidateNotif = {
 
 type AdminNotif = {
   id: string;
-  type: "signup" | "upload" | "doc-signed";
+  type: "signup" | "upload" | "doc-signed" | "org-join" | "org-request";
   user_name: string;
   user_email: string;
   doc_type: string | null;
@@ -649,9 +655,15 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
 
 function AdminBell({ userId, accessToken }: { userId: string; accessToken: string }) {
   const [notifs, setNotifs]   = useState<AdminNotif[]>([]);
+  // Newest UNREAD rows (Unread tab only) + server-side counts. The 40-row feed
+  // above can't answer "how many unread / overdue" once 40 newer rows exist.
+  const [unreadNotifs, setUnreadNotifs] = useState<AdminNotif[] | null>(null);
+  const [counts, setCounts]   = useState<{ unread: number; overdue: number } | null>(null);
   const [invites, setInvites] = useState<InviteNotif[]>([]);
   const [open, setOpen]       = useState(false);
   const [tab, setTab]         = useState<"all" | "unread">("all");
+  // Read by fetch_ without making it a dep (keeps the poll/realtime effect stable).
+  const tabRef = useRef<"all" | "unread">("all");
   const ref    = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { lang } = useLang();
@@ -663,20 +675,27 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   const fetch_ = useCallback(async () => {
     // Two sources feed the admin bell:
     //   1. admin_notifications — the global candidate-activity feed (signup /
-    //      upload / doc-signed), via the scoped API.
+    //      upload / doc-signed / org-join / org-request), via the scoped API.
     //   2. notifications (action='event_invite') — THIS admin's own calendar
     //      invites, keyed by user_id. This is how a tagged sub-admin gets the
     //      same instant ping + chime as a candidate would.
     const startedAt = Date.now();
+    const onUnreadTab = tabRef.current === "unread";
     const [adminRes, inviteRes] = await Promise.allSettled([
-      fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } }).then(r => (r.ok ? r.json() : null)),
+      fetch(`/api/portal/admin/notifications${onUnreadTab ? "?unread=1" : ""}`, { headers: { Authorization: `Bearer ${accessToken}` } }).then(r => (r.ok ? r.json() : null)),
       getMyNotifications<InviteNotif>("invites"),
     ]);
     if (startedAt < lastMarkAtRef.current) return; // stale — a mark-read happened meanwhile
-    const adminList  = (adminRes.status === "fulfilled" && adminRes.value?.notifications ? adminRes.value.notifications : []) as AdminNotif[];
+    const adminBody  = adminRes.status === "fulfilled" ? adminRes.value : null;
+    const adminList  = (adminBody?.notifications ? adminBody.notifications : []) as AdminNotif[];
     const inviteList = (inviteRes.status === "fulfilled" && !inviteRes.value.error ? (inviteRes.value.data ?? []) : []) as InviteNotif[];
     setNotifs(adminList);
     setInvites(inviteList);
+    // Unread list only while still on that tab (a tab switch mid-flight drops it).
+    if (tabRef.current === "unread" && Array.isArray(adminBody?.unread)) setUnreadNotifs(adminBody.unread as AdminNotif[]);
+    // Server-side counts over the whole scoped table; null → derive from rows.
+    setCounts(typeof adminBody?.unreadCount === "number" && typeof adminBody?.overdueCount === "number"
+      ? { unread: adminBody.unreadCount, overdue: adminBody.overdueCount } : null);
     // Chime + slide-in are driven HERE, not in the realtime callback (realtime
     // is RLS-gated and often doesn't deliver). id-diffing across BOTH sources
     // fires the same sound for a new candidate-activity row OR a new invite.
@@ -720,17 +739,21 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   useDismiss(ref, open, () => setOpen(false), { skipMobile: true });
 
   async function markAllRead() {
-    const prev = notifs, prevInv = invites;
+    const prev = notifs, prevInv = invites, prevUnread = unreadNotifs, prevCounts = counts;
+    const revert = () => { setNotifs(prev); setUnreadNotifs(prevUnread); setCounts(prevCounts); };
     lastMarkAtRef.current = Date.now();
     setNotifs(p => p.map(n => ({ ...n, read: true })));
+    setUnreadNotifs(p => p ? p.map(n => ({ ...n, read: true })) : p);
+    // PATCH without ids clears EVERY unread row server-side → both counts hit 0.
+    setCounts(c => c ? { unread: 0, overdue: 0 } : c);
     setInvites(p => p.map(n => ({ ...n, read: true })));
     try {
       const res = await fetch("/api/portal/admin/notifications", {
         method: "PATCH",
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (!res.ok) setNotifs(prev);
-    } catch { setNotifs(prev); }
+      if (!res.ok) revert();
+    } catch { revert(); }
     // Calendar invites live in a separate table — mark those read too.
     if (prevInv.some(n => !n.read)) {
       const { error } = await markMyNotificationsRead({ all: true, action: "event_invite" });
@@ -738,29 +761,43 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     }
   }
 
-  const unread = notifs.filter(n => !n.read).length + invites.filter(n => !n.read).length;
+  // Unread badge/tab from the SERVER count (whole scoped table); the loaded
+  // 40 rows are only the fallback when the count is unavailable.
+  const unread = (counts?.unread ?? notifs.filter(n => !n.read).length) + invites.filter(n => !n.read).length;
 
   // ── Recency sort + overdue counter ───────────────────────────────────────
   // Newest first. ageHours only feeds the overdue banner (candidate activity).
   const HOUR = 60 * 60 * 1000;
   const ageHours = (iso: string) => (Date.now() - new Date(iso).getTime()) / HOUR;
-  const overdueCount = notifs.filter(n => !n.read && ageHours(n.created_at) >= 48).length;
+  const overdueCount = counts?.overdue ?? notifs.filter(n => !n.read && ageHours(n.created_at) >= 48).length;
 
   // Merge the candidate-activity feed + this admin's own calendar invites,
-  // newest first, so an invite slots in by time like any other row.
+  // newest first, so an invite slots in by time like any other row. The Unread
+  // tab uses the server's unread list (reaches rows older than the 40 window).
   type Row = { t: "admin"; n: AdminNotif } | { t: "invite"; n: InviteNotif };
+  const adminRows = tab === "unread" && unreadNotifs ? unreadNotifs : notifs;
   const merged: Row[] = [
-    ...notifs.map((n): Row => ({ t: "admin", n })),
+    ...adminRows.map((n): Row => ({ t: "admin", n })),
     ...invites.map((n): Row => ({ t: "invite", n })),
   ].sort((a, b) => new Date(b.n.created_at).getTime() - new Date(a.n.created_at).getTime());
   const displayed = tab === "unread" ? merged.filter(r => !r.n.read) : merged;
 
   function toggle() { if (!open) fetch_(); setOpen(o => !o); }
 
+  function changeTab(next: "all" | "unread") {
+    tabRef.current = next;
+    setTab(next);
+    // Unread tab fetches the unread list on demand; leaving it drops back to the feed.
+    if (next === "unread") fetch_(); else setUnreadNotifs(null);
+  }
+
   async function markOneRead(n: AdminNotif) {
     if (n.read) return;
     lastMarkAtRef.current = Date.now();
     setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+    setUnreadNotifs(prev => prev ? prev.map(x => x.id === n.id ? { ...x, read: true } : x) : prev);
+    const wasOverdue = ageHours(n.created_at) >= 48;
+    setCounts(c => c ? { unread: Math.max(0, c.unread - 1), overdue: Math.max(0, c.overdue - (wasOverdue ? 1 : 0)) } : c);
     fetch("/api/portal/admin/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -783,8 +820,15 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     markOneRead(n);
     setOpen(false);
 
-    // Signup → navigate to admin candidate view
-    if (n.type === "signup") {
+    // Pending org request → the organizations page holds the approve/reject
+    // inbox (Borivon team only), so the supreme admin goes straight there.
+    if (n.type === "org-request" && cachedRole(userId) === "admin") {
+      router.push("/portal/admin/organizations");
+      return;
+    }
+
+    // Signup / org join (or request, for other roles) → admin candidate view
+    if (n.type === "signup" || n.type === "org-join" || n.type === "org-request") {
       router.push(`/portal/admin?nav_email=${encodeURIComponent(n.user_email)}`);
       // Also dispatch in case admin is already on the page (router.push
       // doesn't re-run the URL-param effect on the same route).
@@ -844,7 +888,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
       <div ref={ref} className="relative">
         <BellButton unread={unread} open={open} onClick={toggle} />
         {open && (
-          <NotifDropdown label={t.activity} total={notifs.length} unread={unread} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)}
+          <NotifDropdown label={t.activity} total={notifs.length} unread={unread} tab={tab} onTabChange={changeTab} onClose={() => setOpen(false)}
             allTab={t.allTab} unreadTab={t.unreadTab} allCaughtUp={t.allCaughtUp}>
             {/* Overdue banner — shows count of unread items >48h old */}
             {overdueCount > 0 && (
@@ -899,7 +943,9 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
               const n = row.n;
               const isSignup   = n.type === "signup";
               const isDocSigned = n.type === "doc-signed";
-              const iconSt = isSignup
+              // Org membership event (doc_type = link status, not a doc — no doc pill).
+              const isOrg = n.type === "org-join" || n.type === "org-request";
+              const iconSt = isSignup || isOrg
                 ? { bg: "var(--info-bg)",  color: "var(--info)",     border: "1px solid var(--info-border)" }
                 : isDocSigned
                 ? { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
@@ -937,8 +983,16 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
                       </p>
                       {/* Line 2: action text, wraps to multiple lines if needed. */}
                       <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--w2)", wordBreak: "break-word" }}>
-                        {isSignup ? t.justSignedUp : isDocSigned ? t.signedDoc : t.uploadedDoc}
+                        {isSignup ? t.justSignedUp
+                          : isOrg ? (n.type === "org-join" ? t.joinedOrg : t.requestedOrg)
+                          : isDocSigned ? t.signedDoc : t.uploadedDoc}
                       </p>
+                      {isOrg && n.doc_name && (
+                        <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug inline-block truncate"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", maxWidth: "100%" }}>
+                          {n.doc_name}
+                        </p>
+                      )}
                       {/* Optional supporting line: email (signup) or doc pill (upload / sign). */}
                       {isSignup && n.user_email && (
                         <p className="text-[11px] mt-1 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
@@ -950,7 +1004,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
                           <span className="truncate">{cleanLabel(n.doc_name)}</span>
                         </p>
                       )}
-                      {!isSignup && !isDocSigned && n.doc_type && (
+                      {!isSignup && !isDocSigned && !isOrg && n.doc_type && (
                         <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug inline-block truncate"
                           style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", maxWidth: "100%" }}>
                           {cleanLabel(translateDocLabel(n.doc_type, lang as "fr" | "en" | "de"))}
@@ -960,7 +1014,8 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
                         {relativeTimeShort(n.created_at, lang)}
                         <span style={{ color: "var(--border)" }}>·</span>
                         <span style={{ color: "var(--gold)" }}>
-                          {isSignup ? t.viewCandidate : isDocSigned ? t.reviewNow : t.quickReview}
+                          {isSignup || n.type === "org-join" ? t.viewCandidate
+                            : isDocSigned || n.type === "org-request" ? t.reviewNow : t.quickReview}
                         </span>
                       </p>
                     </div>

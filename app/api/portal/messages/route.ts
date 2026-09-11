@@ -32,18 +32,21 @@ export async function GET(req: NextRequest) {
   // megabytes per thread and was re-shipped out of Supabase on every poll. The
   // cheap generated `has_attachment` flag tells the client which messages carry
   // an image; the bytes are fetched lazily, once, via the [id]/attachment route.
+  // Newest 200 (desc + limit), reversed below so the client still gets
+  // oldest→newest. Ascending + limit kept the FIRST 200 ever sent, so past 200
+  // every new message vanished on the next poll.
   const { data, error } = await db
     .from("messages")
     .select("id, sender_role, body, kind, created_at, read_by_candidate, has_attachment")
     .eq("thread_user_id", auth.userId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(200);
 
   if (error) {
     console.error("[messages GET] failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-  return NextResponse.json({ messages: data ?? [] });
+  return NextResponse.json({ messages: (data ?? []).reverse() });
 }
 
 export async function POST(req: NextRequest) {

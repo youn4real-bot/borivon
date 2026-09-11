@@ -906,13 +906,18 @@ export async function POST(req: NextRequest) {
   if (fileKey === "other") {
     // LAW #9: max 5 Sonstiges per candidate. Count all language labels so
     // switching UI language mid-journey can't bypass the cap. DB-based, no Drive.
+    // The cap counts LIVE files only — Remove/Replace archive a row (superseded_at)
+    // rather than delete it (LAW #33), and counting those locked candidates out
+    // of an emptied box. priorCount stays unfiltered: it only numbers the
+    // filename, and archived names must not be reused.
     const dbForCount = getServiceSupabase();
     const { count: priorCount } = await dbForCount
       .from("documents").select("id", { count: "exact", head: true })
       .eq("user_id", userId).eq("file_type", fileType);
     const { count: otherTotalCount } = await dbForCount
       .from("documents").select("id", { count: "exact", head: true })
-      .eq("user_id", userId).in("file_type", ["Autre", "Other", "Sonstiges"]);
+      .eq("user_id", userId).in("file_type", ["Autre", "Other", "Sonstiges"])
+      .is("superseded_at", null);
     if ((otherTotalCount ?? 0) >= 5) {
       return NextResponse.json({ error: "Maximum 5 Dateien für Sonstiges erlaubt." }, { status: 400 });
     }
@@ -1066,11 +1071,13 @@ export async function POST(req: NextRequest) {
         // exact-string match would miss it, leaving two live rows in one slot.
         // resolveFileKey distinguishes originals (diploma) from translations
         // (diploma_de), so this never retires the counterpart document.
+        // uploaded_at lets idsToRetire retire only OLDER rows, so two racing
+        // uploads can't archive each other and leave the slot empty.
         const { data: allRows } = await db
           .from("documents")
-          .select("id, superseded_at, file_type")
+          .select("id, superseded_at, file_type, uploaded_at")
           .eq("user_id", userId);
-        const sameSlot = ((allRows ?? []) as { id: string; superseded_at?: string | null; file_type: string | null }[])
+        const sameSlot = ((allRows ?? []) as { id: string; superseded_at?: string | null; file_type: string | null; uploaded_at?: string | null }[])
           .filter((d) => resolveFileKey(d.file_type) === slotKey);
         const stale = idsToRetire(sameSlot, insertedId);
         if (stale.length) {

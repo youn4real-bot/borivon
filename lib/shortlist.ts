@@ -28,6 +28,8 @@ export type ShortlistCandidateSummary = {
 
 type ProfRow = {
   user_id: string;
+  first_name: string | null;
+  last_name: string | null;
   manually_verified: boolean | null;
   profile_photo: string | null;
   nationality: string | null;
@@ -54,20 +56,24 @@ export async function getCandidateSummaries(userIds: string[]): Promise<Record<s
 
   // Names/emails from auth (auth.users isn't on PostgREST). Shortlists are small,
   // so a per-id getUserById is fine.
+  // NEVER fall back to the email as the name — the public shared page strips
+  // `email` but shows `name`, so an email copied in here would leak to employers.
   const nameMap: Record<string, { name: string; email: string }> = {};
   await Promise.all(ids.map(async (uid) => {
     try {
       const { data } = await db.auth.admin.getUserById(uid);
       if (data?.user) {
-        const full = (data.user.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined;
-        nameMap[uid] = { name: full ?? data.user.email ?? "—", email: data.user.email ?? "" };
+        const full = (data.user.user_metadata as Record<string, unknown> | undefined)?.full_name;
+        const email = data.user.email ?? "";
+        const name = typeof full === "string" ? full.trim() : "";
+        nameMap[uid] = { name: name.includes("@") ? "" : name, email };
       }
     } catch { /* skip */ }
   }));
 
   const { data: profs } = await db
     .from("candidate_profiles")
-    .select("user_id, manually_verified, profile_photo, nationality, city_of_residence, nursing_specialty, b2_stage, years_experience, cv_draft")
+    .select("user_id, first_name, last_name, manually_verified, profile_photo, nationality, city_of_residence, nursing_specialty, b2_stage, years_experience, cv_draft")
     .in("user_id", ids);
   const profById = new Map<string, ProfRow>();
   for (const p of (profs ?? []) as ProfRow[]) profById.set(p.user_id, p);
@@ -90,9 +96,11 @@ export async function getCandidateSummaries(userIds: string[]): Promise<Record<s
   for (const uid of ids) {
     const p = profById.get(uid);
     const a = docAgg[uid] ?? { count: 0, ok: 0, pending: 0 };
+    const profNameRaw = `${p?.first_name ?? ""} ${p?.last_name ?? ""}`.trim();
+    const profName = profNameRaw.includes("@") ? "" : profNameRaw; // never an email (see above)
     out[uid] = {
       userId: uid,
-      name: nameMap[uid]?.name ?? "—",
+      name: nameMap[uid]?.name || profName || "—",
       email: nameMap[uid]?.email ?? "",
       photo: p?.profile_photo ?? null,
       verified: p?.manually_verified === true,

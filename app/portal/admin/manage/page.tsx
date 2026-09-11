@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { meToken } from "@/lib/meApi";
 import { CheckCircle2 } from "@/components/PortalIcons";
 import { ArrowLeft, Trash2, Users, Copy, ChevronDown } from "lucide-react";
 import { PageLoader, EmptyState } from "@/components/ui/states";
@@ -35,6 +36,7 @@ const t = {
     alreadyShares: "Already shares all candidates",
     newCandidates: (n: number, total: number) => `+${n} new candidate${n !== 1 ? "s" : ""} (${total} total)`,
     noCandidates: "No candidates yet.",
+    actionError: "Could not save the change — nothing was changed. Try again.",
   },
   fr: {
     pageTitle: "Gérer les admins",
@@ -61,6 +63,7 @@ const t = {
     alreadyShares: "Partage déjà tous les candidats",
     newCandidates: (n: number, total: number) => `+${n} nouveau${n !== 1 ? "x" : ""} candidat${n !== 1 ? "s" : ""} (${total} au total)`,
     noCandidates: "Aucun candidat pour l'instant.",
+    actionError: "Modification non enregistrée — rien n'a changé. Réessayez.",
   },
   de: {
     pageTitle: "Admins verwalten",
@@ -87,6 +90,7 @@ const t = {
     alreadyShares: "Teilt bereits alle Kandidaten",
     newCandidates: (n: number, total: number) => `+${n} neue${n !== 1 ? "" : "r"} Kandidat${n !== 1 ? "en" : ""} (${total} gesamt)`,
     noCandidates: "Noch keine Kandidaten.",
+    actionError: "Änderung konnte nicht gespeichert werden — nichts wurde geändert. Erneut versuchen.",
   },
 };
 
@@ -110,6 +114,8 @@ export default function ManageAdminsPage() {
   const [newLabel, setNewLabel] = useState("");
   const [adding, setAdding]     = useState(false);
   const [addError, setAddError] = useState("");
+  // A remove / assign the server refused — shown above the list.
+  const [actionError, setActionError] = useState(false);
 
   // Which sub-admin's assignment panel is open
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
@@ -132,25 +138,36 @@ export default function ManageAdminsPage() {
     });
   }, [router]);
 
+  // The token in state is only the one read at mount — it expires after ~1h.
+  // meToken() goes through getSession(), which refreshes an expired JWT.
+  const freshToken = async () => (await meToken()) || accessToken;
+
   async function loadData(token: string) {
+    const tk = (await meToken()) || token;
     const [saRes, candRes] = await Promise.all([
-      fetch("/api/portal/admin/sub-admins", { headers: { Authorization: `Bearer ${token}` } }),
-      fetch("/api/portal/admin",            { headers: { Authorization: `Bearer ${token}` } }),
+      fetch("/api/portal/admin/sub-admins", { headers: { Authorization: `Bearer ${tk}` } }),
+      fetch("/api/portal/admin",            { headers: { Authorization: `Bearer ${tk}` } }),
     ]);
-    const saJson   = await saRes.json();
-    const candJson = await candRes.json();
 
-    setSubAdmins(saJson.subAdmins ?? []);
-    setAssignments(saJson.assignments ?? []);
+    // Only replace what actually loaded — a refused read must not blank the
+    // panel into "no sub-admins, no candidates".
+    if (saRes.ok) {
+      const saJson = await saRes.json().catch(() => ({}));
+      setSubAdmins(saJson.subAdmins ?? []);
+      setAssignments(saJson.assignments ?? []);
+    }
 
-    const docs: { user_id: string }[] = candJson.docs ?? [];
-    const users: Record<string, { name: string; email: string }> = candJson.users ?? {};
-    const unique = [...new Set(docs.map(d => d.user_id))];
-    setCandidates(unique.map(uid => ({
-      userId: uid,
-      name:  users[uid]?.name  ?? uid,
-      email: users[uid]?.email ?? uid,
-    })));
+    if (candRes.ok) {
+      const candJson = await candRes.json().catch(() => ({}));
+      const docs: { user_id: string }[] = candJson.docs ?? [];
+      const users: Record<string, { name: string; email: string }> = candJson.users ?? {};
+      const unique = [...new Set(docs.map(d => d.user_id))];
+      setCandidates(unique.map(uid => ({
+        userId: uid,
+        name:  users[uid]?.name  ?? uid,
+        email: users[uid]?.email ?? uid,
+      })));
+    }
   }
 
   async function addSubAdmin() {
@@ -158,7 +175,7 @@ export default function ManageAdminsPage() {
     setAdding(true); setAddError("");
     const res = await fetch("/api/portal/admin/sub-admins", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken()}` },
       body: JSON.stringify({ email: newEmail.trim(), name: newName.trim(), label: newLabel.trim() }),
     });
     if (!res.ok) { setAddError(T.addError); setAdding(false); return; }
@@ -168,11 +185,13 @@ export default function ManageAdminsPage() {
   }
 
   async function removeSubAdmin(email: string) {
-    await fetch("/api/portal/admin/sub-admins", {
+    setActionError(false);
+    const res = await fetch("/api/portal/admin/sub-admins", {
       method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken()}` },
       body: JSON.stringify({ email }),
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) setActionError(true);
     await loadData(accessToken);
   }
 
@@ -194,17 +213,20 @@ export default function ManageAdminsPage() {
     if (toAdd.length === 0) return;
 
     setCopyingFrom(sourceEmail);
+    setActionError(false);
     try {
+      const tk = await freshToken();
       // Fire in parallel — backend already idempotent via UNIQUE constraint
-      await Promise.all(
+      const results = await Promise.all(
         toAdd.map(uid =>
           fetch("/api/portal/admin/sub-admins/assign", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${tk}` },
             body: JSON.stringify({ subAdminEmail: targetEmail, candidateUserId: uid }),
-          })
+          }).catch(() => null)
         )
       );
+      if (results.some(r => !r || !r.ok)) setActionError(true);
       await loadData(accessToken);
     } finally {
       setCopyingFrom(null);
@@ -214,11 +236,13 @@ export default function ManageAdminsPage() {
 
   async function toggleAssignment(subAdminEmail: string, candidateUserId: string) {
     const exists = assignments.some(a => a.sub_admin_email === subAdminEmail && a.candidate_user_id === candidateUserId);
-    await fetch("/api/portal/admin/sub-admins/assign", {
+    setActionError(false);
+    const res = await fetch("/api/portal/admin/sub-admins/assign", {
       method: exists ? "DELETE" : "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await freshToken()}` },
       body: JSON.stringify({ subAdminEmail, candidateUserId }),
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) setActionError(true);
     await loadData(accessToken);
   }
 
@@ -297,6 +321,13 @@ export default function ManageAdminsPage() {
             </button>
           </div>
         </div>
+
+        {actionError && (
+          <p className="text-[12px] px-3 py-2 rounded-lg mb-4"
+            style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+            {T.actionError}
+          </p>
+        )}
 
         {/* Sub-admin list */}
         {subAdmins.length === 0 ? (
