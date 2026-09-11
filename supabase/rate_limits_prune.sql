@@ -52,7 +52,9 @@ begin
 end;
 $$;
 
-grant execute on function public.rl_hit(text, bigint, bigint) to service_role, authenticated, anon;
+-- Server only: anon/authenticated could otherwise pump anyone's counter (see rl_hit_lockdown.sql).
+revoke all on function public.rl_hit(text, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.rl_hit(text, bigint, bigint) to service_role;
 
 -- One-off catch-up for whatever has already accumulated.
 delete from public.rate_limits where window_start < (extract(epoch from now()) * 1000 - 172800000);
