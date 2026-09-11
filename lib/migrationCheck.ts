@@ -25,6 +25,7 @@ const GATES: { table: string; column: string; file: string; feature: string }[] 
   { table: "assistant_reminders", column: "last_ping_message_id", file: "assistant_reminders_ping.sql", feature: "snoozing a reminder by replying to its ping" },
   { table: "candidate_notes", column: "note", file: "candidate_notes.sql", feature: "candidate notes (the 'x NAME' dossier notes)" },
   { table: "app_settings", column: "key", file: "app_settings.sql", feature: "the Google Sheet candidate mirror" },
+  { table: "candidate_reminders", column: "sent_at", file: "candidate_reminders.sql", feature: "automatic document reminder emails to candidates" },
   { table: "employer_batches", column: "org_id", file: "employer_batches_org.sql", feature: "the agency (Calmaroi) on a batch" },
   { table: "candidate_pipeline", column: "agreement_signed", file: "candidate_pipeline_agreement.sql", feature: "the Agreement step in the Batch Tracker" },
   { table: "candidate_profiles", column: "workplace_pref", file: "candidate_workplace_pref.sql", feature: "the Altenheim/Klinik preference (+ its Google-Sheet column)" },

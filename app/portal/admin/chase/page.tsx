@@ -5,13 +5,19 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, RefreshCw, MessageCircle, Copy, Check, PhoneOff } from "lucide-react";
+import { ArrowLeft, RefreshCw, MessageCircle, Copy, Check, PhoneOff, Mail } from "lucide-react";
 
 type Reason = "passport_expired" | "passport_expiring" | "id_card_not_passport" | "doc_rejected" | "stalled" | "never_confirmed";
 type Row = {
   userId: string; name: string; reason: Reason; detail: string; urgency: number;
   placementReady: boolean; phone: string | null; lang: string; message: string; waLink: string;
   batch: string | null;
+};
+
+/** The automatic email reminders (lib/docRemindersRun) — state + who's next. */
+type Reminders = {
+  enabled: boolean; tableReady: boolean; canToggle: boolean;
+  due: { userId: string; name: string; items: { kind: "rejected" | "missing"; label: string }[] }[];
 };
 
 // Colour carries the urgency, the way status does everywhere else (LAW #4).
@@ -42,6 +48,9 @@ export default function ChasePage() {
   // unusable. Everyone else stays one tap away rather than hidden — a real
   // blocker on an unbatched candidate should still be findable.
   const [filter, setFilter] = useState<Reason | "all" | "action" | "batch">("batch");
+  const [rem, setRem] = useState<Reminders | null>(null);
+  const [remBusy, setRemBusy] = useState(false);
+  const [remOpen, setRemOpen] = useState(false);
 
   const REASON_LABEL: Record<Reason, string> = {
     id_card_not_passport: T("Sent an ID card, not a passport", "Personalausweis statt Reisepass", "A envoyé une carte d'identité, pas un passeport"),
@@ -55,10 +64,28 @@ export default function ChasePage() {
   async function load(tk: string) {
     setBusy(true);
     try {
-      const r = await fetch("/api/portal/admin/chase", { headers: { Authorization: `Bearer ${tk}` } });
+      const [r, rr] = await Promise.all([
+        fetch("/api/portal/admin/chase", { headers: { Authorization: `Bearer ${tk}` } }),
+        fetch(`/api/portal/admin/doc-reminders?lang=${lang}`, { headers: { Authorization: `Bearer ${tk}` } }),
+      ]);
       const j = await r.json().catch(() => ({}));
       setRows(Array.isArray(j?.rows) ? j.rows : []);
+      const rj = rr.ok ? await rr.json().catch(() => null) : null;
+      setRem(rj && Array.isArray(rj.due) ? rj as Reminders : null);
     } finally { setBusy(false); }
+  }
+
+  async function toggleReminders() {
+    if (!rem?.canToggle || !rem.tableReady || remBusy) return;
+    setRemBusy(true);
+    try {
+      const r = await fetch("/api/portal/admin/doc-reminders", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !rem.enabled }),
+      });
+      if (r.ok) setRem(s => (s ? { ...s, enabled: !s.enabled } : s));
+    } finally { setRemBusy(false); }
   }
 
   useEffect(() => {
@@ -118,6 +145,65 @@ export default function ChasePage() {
            "Kandidatinnen in einem Arbeitgeber-Batch, bei denen etwas offen ist, dringendste zuerst. Auf WhatsApp tippen — die Nachricht ist bereits in ihrer Sprache verfasst, du drückst nur auf Senden.",
            "Candidates d'un lot employeur qui bloquent quelque chose, les plus urgentes d'abord. Touchez WhatsApp — le message est déjà rédigé dans sa langue, vous n'avez qu'à l'envoyer.")}
       </p>
+
+      {rem && (
+        <div className="rounded-2xl p-3.5 mb-4" style={{ background: "var(--card)", border: `1px solid ${rem.enabled ? "var(--border-gold)" : "var(--border)"}` }}>
+          <div className="flex items-center gap-3">
+            <Mail size={16} style={{ color: rem.enabled ? "var(--gold)" : "var(--w3)", flexShrink: 0 }} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-bold" style={{ color: "var(--w)" }}>
+                {T("Automatic email reminders", "Automatische E-Mail-Erinnerungen", "Rappels automatiques par e-mail")}
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
+                {T("A missing or refused document gets a short email in her language. At most once a week, 3 times max.",
+                   "Fehlt ein Dokument oder wurde es abgelehnt, kommt eine kurze E-Mail in ihrer Sprache. Höchstens einmal pro Woche, maximal 3-mal.",
+                   "Un document manquant ou refusé déclenche un court e-mail dans sa langue. Au plus une fois par semaine, 3 fois maximum.")}
+              </p>
+            </div>
+            <button role="switch" aria-checked={rem.enabled}
+              aria-label={T("Automatic email reminders", "Automatische E-Mail-Erinnerungen", "Rappels automatiques par e-mail")}
+              onClick={toggleReminders} disabled={!rem.canToggle || !rem.tableReady || remBusy}
+              className="relative flex-shrink-0 rounded-full transition-colors disabled:opacity-40"
+              style={{ width: 40, height: 22, background: rem.enabled ? "var(--gold)" : "var(--bg2)", border: "1px solid var(--border2)" }}>
+              <span className="absolute top-[2px] rounded-full transition-all"
+                style={{ width: 16, height: 16, left: rem.enabled ? 20 : 2, background: rem.enabled ? "#131312" : "var(--w3)" }} />
+            </button>
+          </div>
+
+          {!rem.tableReady && rem.canToggle ? (
+            <p className="text-[11px] mt-2" style={{ color: "var(--gold)" }}>
+              {T("Needs a one-time database setup before it can be turned on.",
+                 "Braucht vor dem Einschalten eine einmalige Datenbank-Einrichtung.",
+                 "Nécessite une configuration unique de la base avant activation.")}
+            </p>
+          ) : rem.due.length > 0 && (
+            <>
+              <button onClick={() => setRemOpen(o => !o)} className="text-[11px] mt-2 hover:underline" style={{ color: "var(--w2)" }}>
+                {rem.enabled
+                  ? T(`${rem.due.length} will get one at 11:00`, `${rem.due.length} bekommen eine um 11:00`, `${rem.due.length} en recevront un à 11h00`)
+                  : T(`${rem.due.length} would get one`, `${rem.due.length} würden eine bekommen`, `${rem.due.length} en recevraient un`)}
+                {" · "}{remOpen ? T("Hide", "Ausblenden", "Masquer") : T("See who", "Wer?", "Qui ?")}
+              </button>
+              {remOpen && (
+                <div className="mt-2 space-y-1.5">
+                  {rem.due.map(d => (
+                    <div key={d.userId} className="text-[11px]" style={{ color: "var(--w3)" }}>
+                      <button onClick={() => router.push(`/portal/admin?candidate=${d.userId}`)}
+                        className="font-semibold hover:underline" style={{ color: "var(--w)" }}>{d.name}</button>
+                      {" — "}
+                      {d.items.map((it, i) => (
+                        <span key={i} style={{ color: it.kind === "rejected" ? "var(--danger)" : undefined }}>
+                          {i > 0 ? ", " : ""}{it.label}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5 mb-4">
         {([

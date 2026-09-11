@@ -58,7 +58,7 @@
     // hit broken documents. Detection is now within the hour; the ALERT is still
     // de-duplicated to at most one message per dependency per 6h inside the route, so
     // hourly checking never turns into hourly pinging. Silent when healthy.
-    "crons": ["* * * * *", "0 * * * *", "0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *", "0 9 * * *"]
+    "crons": ["* * * * *", "0 * * * *", "0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *", "0 9 * * *", "0 10 * * *"]
   },
   // CUTOVER 2026-07-24 — the scheduled() handler in cf-worker.ts stayed dormant
   // while Vercel was still running the same crons (firing both = double pings).

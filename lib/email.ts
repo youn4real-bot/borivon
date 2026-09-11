@@ -376,6 +376,81 @@ export async function sendUnreadMessagesReminderEmail(to: string, firstName: str
   } catch (e) { console.warn("[email] sendUnreadMessagesReminderEmail failed:", e); return false; }
 }
 
+/**
+ * Automatic reminder: documents still refused or missing (lib/docRemindersRun,
+ * daily, only while the founder's switch on the Chase page is on).
+ *
+ * Written to be true for every recipient: it never says "your file is almost
+ * done" — some are far from it — only what is still needed. Refused documents
+ * lead, because those are fixable in a minute. When her language is unknown the
+ * intro is stacked in all three and the list is named in French (most candidates
+ * are Moroccan), matching the fallback order of the other candidate emails.
+ *
+ * Returns true only when Resend accepted it.
+ */
+export async function sendDocReminderEmail(
+  to: string,
+  firstName: string,
+  items: { kind: "rejected" | "missing"; label: string }[],
+  lang?: CandidateLang,
+): Promise<boolean> {
+  if (!getResend() || items.length === 0) return false;
+  const blocks = langBlocks(lang);
+  const one = blocks.length === 1;
+  const listLang = one ? blocks[0] : "fr";
+  const name = esc(firstName.trim());
+  const COPY = {
+    fr: { tag: "FRANÇAIS", h: "Il manque encore quelques documents", hi: name ? `Bonjour ${name},` : "Bonjour,",
+          intro: "pour faire avancer votre dossier, il nous manque encore :", rejected: "refusé — à renvoyer", missing: "à téléverser",
+          more: (k: number) => `+ ${k} autre${k > 1 ? "s" : ""}`, cta: "Compléter mon dossier →",
+          help: "Une question ? Répondez simplement à cet e-mail.", subj: "il manque encore quelques documents" },
+    en: { tag: "ENGLISH", h: "A few documents are still missing", hi: name ? `Hi ${name},` : "Hi,",
+          intro: "to move your file forward, we still need:", rejected: "refused — please re-send", missing: "please upload",
+          more: (k: number) => `+ ${k} more`, cta: "Complete my file →",
+          help: "Questions? Just reply to this email.", subj: "a few documents are still missing" },
+    de: { tag: "DEUTSCH", h: "Es fehlen noch ein paar Dokumente", hi: name ? `Hallo ${name},` : "Hallo,",
+          intro: "damit es mit Ihren Unterlagen weitergeht, fehlt uns noch:", rejected: "abgelehnt — bitte neu hochladen", missing: "bitte hochladen",
+          more: (k: number) => `+ ${k} weitere`, cta: "Unterlagen vervollständigen →",
+          help: "Fragen? Antworten Sie einfach auf diese E-Mail.", subj: "es fehlen noch ein paar Dokumente" },
+  } as const;
+  const L = COPY[listLang];
+  const shown = items.slice(0, 6);
+  const rest = items.length - shown.length;
+  const cell = "padding:10px 0;border-top:1px solid #2a2a28;";
+  const list = `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:2px 0 22px;">
+          ${shown.map((it) => `
+          <tr>
+            <td style="${cell}font-size:14px;color:#fff;">${esc(it.label)}</td>
+            <td align="right" style="${cell}font-size:12px;white-space:nowrap;padding-left:12px;color:${it.kind === "rejected" ? "#ef4444" : "#a0a09a"};">${it.kind === "rejected" ? L.rejected : L.missing}</td>
+          </tr>`).join("")}
+          ${rest > 0 ? `<tr><td colspan="2" style="${cell}font-size:12px;color:#a0a09a;">${L.more(rest)}</td></tr>` : ""}
+        </table>`;
+  return deliver({
+    from: FROM,
+    to,
+    replyTo: REPLY_TO,
+    subject: `📄 ${one ? COPY[blocks[0]].subj : "Documents manquants · Missing documents · Fehlende Dokumente"} · Borivon`,
+    html: baseHtml(`
+        <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">${
+          one ? COPY[blocks[0]].h : blocks.map((b) => COPY[b].h).join(" · ")
+        }</h1>
+        ${blocks.map((b) => `
+        <p style="${LANG_BLOCK_STYLE}">
+          ${one ? "" : `<span style="${LANG_TAG_STYLE}">${COPY[b].tag}</span><br>`}
+          ${COPY[b].hi} ${COPY[b].intro}
+        </p>`).join("")}
+        ${list}
+        <a href="${BASE}/portal/dashboard" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+          ${one ? COPY[blocks[0]].cta : `${COPY.fr.cta.replace(" →", "")} · ${COPY.en.cta}`}
+        </a>
+        <p style="margin:22px 0 0;font-size:12px;color:#6f6f6a;line-height:1.6;">${
+          one ? COPY[blocks[0]].help : blocks.map((b) => COPY[b].help).join("<br>")
+        }</p>
+      `),
+  });
+}
+
 /* ── Booking emails ────────────────────────────────────────────────────────────
  * The Google Calendar invite Google sends is plain and easy to miss. These are
  * the Borivon-branded ones, and — critically — they carry the reschedule/cancel
