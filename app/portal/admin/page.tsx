@@ -4005,22 +4005,6 @@ export default function AdminPage() {
                     </button>
                   );
                 })()}
-                {/* Delete candidate. This button was removed by accident in an
-                    unrelated CV-redesign commit (7913156), which left the confirm
-                    dialog and deleteCandidate() orphaned — the feature existed but
-                    could not be reached from anywhere, so duplicate and dead
-                    accounts could never be cleared. Supreme-admin only, matching
-                    the endpoint's own gate. */}
-                {isSuperAdmin && (
-                  <button
-                    onClick={() => { setDeleteCandidateInput(""); setDeleteCandidateConfirm(true); }}
-                    title={lang === "de" ? "Kandidat/in löschen" : lang === "fr" ? "Supprimer le candidat" : "Delete candidate"}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
-                    style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                    <Trash2 size={11} strokeWidth={1.8} />
-                    {lang === "de" ? "Löschen" : lang === "fr" ? "Supprimer" : "Delete"}
-                  </button>
-                )}
               </div>
             </div>
 
@@ -8299,13 +8283,35 @@ export default function AdminPage() {
                         </span>
                       )}
 
-                      {/* Pending tasks badge */}
+                      {/* Pending tasks badge — COUNT AND AGE.
+                          It used to show only a count, so a document uploaded this
+                          morning and one that had been waiting four months looked
+                          identical. 68 real documents (from ~25 candidates, the
+                          oldest at 115 days) aged out invisibly that way. Past two
+                          weeks the badge turns red and states the wait, so the
+                          longest-ignored person is visible at a glance. */}
                       {(() => {
                         const taskCnt = pendingCnt + (profiles[uid]?.passport_status === "pending" ? 1 : 0);
                         if (!taskCnt) return null;
+                        const oldestMs = pendingDocs.reduce<number | null>((oldest, d) => {
+                          const t = Date.parse(d.uploaded_at);
+                          if (!Number.isFinite(t)) return oldest;
+                          return oldest == null || t < oldest ? t : oldest;
+                        }, null);
+                        const waitingDays = oldestMs == null ? 0 : Math.floor((Date.now() - oldestMs) / 86_400_000);
+                        const stale = waitingDays >= 14;
                         return (
-                          <span className="flex-shrink-0 text-[12px] font-bold" style={{ color: "#f59e0b" }}>
+                          <span className="flex-shrink-0 inline-flex items-baseline gap-1 text-[12px] font-bold"
+                            title={stale
+                              ? (lang === "de" ? `Ältestes Dokument wartet seit ${waitingDays} Tagen`
+                                : lang === "fr" ? `Le plus ancien document attend depuis ${waitingDays} jours`
+                                : `Oldest document has been waiting ${waitingDays} days`)
+                              : (lang === "de" ? "Offene Aufgaben" : lang === "fr" ? "Tâches en attente" : "Waiting for you")}
+                            style={{ color: stale ? "var(--danger)" : "#f59e0b" }}>
                             {taskCnt}
+                            {stale && (
+                              <span className="text-[10px] font-semibold tabular-nums">{waitingDays}d</span>
+                            )}
                           </span>
                         );
                       })()}
