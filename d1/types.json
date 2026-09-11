@@ -1,0 +1,5695 @@
+{
+ "academy_attendance": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "session_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "absent",
+    "generated": false
+   },
+   "joined_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "left_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "minutes_present": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "source": {
+    "pg": "text",
+    "nullable": false,
+    "default": "auto",
+    "generated": false
+   },
+   "recorded_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "session_id",
+    "table": "academy_class_sessions",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_badges": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "key": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "description": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "icon": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "points": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "academy_class_sessions": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "cohort_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "lesson_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "level": {
+    "pg": "text",
+    "nullable": false,
+    "default": "A1",
+    "generated": false
+   },
+   "starts_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "ends_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "meeting_url": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "meeting_provider": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "external_ref": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "cohort_id",
+    "table": "academy_cohorts",
+    "ref": "id"
+   },
+   {
+    "column": "lesson_id",
+    "table": "academy_lessons",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_cohort_members": {
+  "columns": {
+   "cohort_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "current_level": {
+    "pg": "text",
+    "nullable": false,
+    "default": "A1",
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "active",
+    "generated": false
+   },
+   "joined_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "cohort_id",
+   "candidate_user_id"
+  ],
+  "fks": [
+   {
+    "column": "cohort_id",
+    "table": "academy_cohorts",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_cohorts": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "target_level": {
+    "pg": "text",
+    "nullable": false,
+    "default": "B2",
+    "generated": false
+   },
+   "starts_on": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "ends_on": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "active",
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_lessons": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "level": {
+    "pg": "text",
+    "nullable": false,
+    "default": "A1",
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "body": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "media_url": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "position": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "published": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_point_events": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "cohort_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "type": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "points": {
+    "pg": "integer",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "source_kind": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "source_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "meta": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": false,
+    "default": "system",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "cohort_id",
+    "table": "academy_cohorts",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_quizzes": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "cohort_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "lesson_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "level": {
+    "pg": "text",
+    "nullable": false,
+    "default": "A1",
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": "quiz",
+    "generated": false
+   },
+   "questions": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "pass_score": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 60,
+    "generated": false
+   },
+   "points_award": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "due_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "published": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "cohort_id",
+    "table": "academy_cohorts",
+    "ref": "id"
+   },
+   {
+    "column": "lesson_id",
+    "table": "academy_lessons",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_settings": {
+  "columns": {
+   "id": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "masked_all": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "updated_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "academy_student_badges": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "badge_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "awarded_by": {
+    "pg": "text",
+    "nullable": false,
+    "default": "system",
+    "generated": false
+   },
+   "awarded_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "badge_id",
+    "table": "academy_badges",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_submissions": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "quiz_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "answers": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "score": {
+    "pg": "numeric",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "passed": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "on_time": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "submitted_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "graded_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "quiz_id",
+    "table": "academy_quizzes",
+    "ref": "id"
+   }
+  ]
+ },
+ "academy_tab_access": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "visible": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "updated_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": []
+ },
+ "admin_checklist_items": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "scope": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "owner_email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "text": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "position": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "admin_notifications": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "type": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "user_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "user_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "doc_type": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "doc_name": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "read": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "admin_signatures": {
+  "columns": {
+   "admin_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "signature": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "admin_email"
+  ],
+  "fks": []
+ },
+ "affiliate_earnings": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "affiliate_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "amount_eur": {
+    "pg": "numeric",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "owed",
+    "generated": false
+   },
+   "placed_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "paid_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "affiliate_id",
+    "table": "affiliates",
+    "ref": "id"
+   }
+  ]
+ },
+ "affiliates": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "code": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "dash_token_hash": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "phone": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "commission_eur": {
+    "pg": "numeric",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "currency": {
+    "pg": "text",
+    "nullable": false,
+    "default": "EUR",
+    "generated": false
+   },
+   "active": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "clicks": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "terms_accepted_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "terms_version": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "agencies": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "agency_profiles": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "firma": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "strasse": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "hausnummer": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "plz": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "ort": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "kontaktperson": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "telefon": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "telefax": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "betriebsnummer": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": []
+ },
+ "app_settings": {
+  "columns": {
+   "key": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "value": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "key"
+  ],
+  "fks": []
+ },
+ "assistant_chat_summary": {
+  "columns": {
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "summary": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "summarized_through": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "owner_user_id"
+  ],
+  "fks": []
+ },
+ "assistant_chat_turns": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "role": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "content": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "assistant_commitments": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "who_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "who_name": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "what": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "due_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "promised_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "source_message_id": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "source_subject": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "open",
+    "generated": false
+   },
+   "last_nudge_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "nudge_count": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "assistant_memory": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": "preference",
+    "generated": false
+   },
+   "text": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "assistant_pending_actions": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "tool_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "args": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "summary": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "pending",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "expires_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "(now() + '00:10:00'::interval)",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "assistant_reminders": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "text": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "due_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "due_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "notified_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "remind_count": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "recurrence": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "last_ping_message_id": {
+    "pg": "bigint",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "assistant_sent_emails": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "to_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "cc": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "subject": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "body": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_ids": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "doc_ids": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "channel": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "sent_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "assistant_token_usage": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "model": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "source": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "input_tokens": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "output_tokens": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "cache_read_tokens": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "cache_write_tokens": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "automation_settings": {
+  "columns": {
+   "key": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "enabled": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "key"
+  ],
+  "fks": []
+ },
+ "booking_availability": {
+  "columns": {
+   "id": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "week": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "slot_minutes": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 30,
+    "generated": false
+   },
+   "buffer_minutes": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "min_notice_hours": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 12,
+    "generated": false
+   },
+   "horizon_days": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 14,
+    "generated": false
+   },
+   "blackout_dates": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "accepting": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_by": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "booking_event_types": {
+  "columns": {
+   "slug": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "active": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "sort": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "slot_minutes": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "buffer_minutes": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "min_notice_hours": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "horizon_days": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "title_en": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "title_de": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "title_fr": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "blurb_en": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "blurb_de": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "blurb_fr": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "slug"
+  ],
+  "fks": []
+ },
+ "booking_hosts": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "display_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "calendar_id": {
+    "pg": "text",
+    "nullable": false,
+    "default": "primary",
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "active": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "sort": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "bookings": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "phone": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "company": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "selections": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "starts_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "ends_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "calendar_event_id": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "meet_link": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "booked",
+    "generated": false
+   },
+   "outcome": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "lead_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "source": {
+    "pg": "text",
+    "nullable": false,
+    "default": "public",
+    "generated": false
+   },
+   "created_by": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "manage_token": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "reminded_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "rescheduled_from": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "lang": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "host_id": {
+    "pg": "bigint",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "event_type": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "calendar_events": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "description": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "starts_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "ends_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "image_url": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "link_url": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "location": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "vip_only": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "attendee_ids": {
+    "pg": "uuid[]",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "candidate_journey_items": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "text": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "owner": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "done_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "done_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "preset_key": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "position": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "due_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "blocked": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "blocked_reason": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "candidate_notes": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "author_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "source": {
+    "pg": "text",
+    "nullable": false,
+    "default": "telegram",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "candidate_organizations": {
+  "columns": {
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "approved",
+    "generated": false
+   },
+   "added_by": {
+    "pg": "text",
+    "nullable": false,
+    "default": "admin",
+    "generated": false
+   },
+   "added_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "approved_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "approved_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "candidate_user_id",
+   "org_id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "candidate_pipeline": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "interview_link": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview_date": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview_status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "pending",
+    "generated": false
+   },
+   "recognition_unlocked": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "embassy_unlocked": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "visa_granted": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "visa_date": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "flight_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "flight_info": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "docs_approved": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "interview_type": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview_notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "integration_unlocked": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": false,
+    "generated": false
+   },
+   "start_unlocked": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": false,
+    "generated": false
+   },
+   "interview1_status": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview2_status": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "visa_appt_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "housing_done": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview1_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview2_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "contract_done": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "recognition_done": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "vorab_done": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "docs_ready": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "arrived_done": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview1_held": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "interview2_held": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "interview1_date_confirmed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "interview2_date_confirmed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "interview1_result_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview2_result_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "interview1_result_date_confirmed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "interview2_result_date_confirmed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "visa_appt_date_confirmed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "flight_date_confirmed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "interview_link_clicks": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "interview_link_last_clicked_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "batch_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "funnel_stage": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "last_touch_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "employment_start": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "residence_permit_appt_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "agreement_signed": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "board_order": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "pool_contacted": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "pool_call_done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "pool_cv_done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "pool_medical_done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": [
+   {
+    "column": "batch_id",
+    "table": "employer_batches",
+    "ref": "id"
+   }
+  ]
+ },
+ "candidate_profiles": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "first_name": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "last_name": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "dob": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "nationality": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "passport_no": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "passport_expiry": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "raw_mrz": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "place_of_birth": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "issuing_authority": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "address": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "city_of_residence": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "city_of_birth": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "country_of_birth": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "issue_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "address_street": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "address_number": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "address_postal": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "country_of_residence": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "passport_status": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "sex": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "passport_feedback": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "marital_status": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "children_ages": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "manually_verified": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "profile_photo": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "cv_draft": {
+    "pg": "jsonb",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "placement_ready": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "payment_tier": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "saved_signature": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "agency_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "passport_confirmed_fields": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "employer_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "phone": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "cv_use_agency_branding": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": true,
+    "generated": false
+   },
+   "cv_use_borivon_branding": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": true,
+    "generated": false
+   },
+   "cover_letter_body": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "cover_letter_visa_body": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_stage": {
+    "pg": "text",
+    "nullable": false,
+    "default": "not_started",
+    "generated": false
+   },
+   "b2_failed": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "nursing_specialty": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "years_experience": {
+    "pg": "integer",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "current_workplace": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "available_from": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "anerkennung_stage": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "last_msg_email_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_exam_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "classroom_tester": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "is_test_account": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "workplace_pref": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "lang": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "referred_by_affiliate": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": [
+   {
+    "column": "agency_id",
+    "table": "agencies",
+    "ref": "id"
+   },
+   {
+    "column": "employer_id",
+    "table": "employers",
+    "ref": "id"
+   }
+  ]
+ },
+ "candidate_reminders": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": "documents",
+    "generated": false
+   },
+   "items": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "sent_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "candidate_self_reports": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "outcome": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "candidate_status": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "b2_complete": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_cert_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_next_exam_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_next_exam_confirmed": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "b2_exam_written": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_exam_written_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_results_expected_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_planned_exam_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_registration_status": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "b2_notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "vaccines": {
+    "pg": "jsonb",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": []
+ },
+ "classroom_consent": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "version": {
+    "pg": "text",
+    "nullable": false,
+    "default": "v1-2026-06",
+    "generated": false
+   },
+   "consented_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "revoked_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "user_agent": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "classroom_events": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "session_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "room_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "display_name": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "value": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "source": {
+    "pg": "text",
+    "nullable": false,
+    "default": "client",
+    "generated": false
+   },
+   "at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "session_id",
+    "table": "classroom_sessions",
+    "ref": "id"
+   }
+  ]
+ },
+ "classroom_invites": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "session_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "invited_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "session_id",
+    "table": "classroom_sessions",
+    "ref": "id"
+   }
+  ]
+ },
+ "classroom_sessions": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": false,
+    "default": "Live class",
+    "generated": false
+   },
+   "room_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "host_user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "live",
+    "generated": false
+   },
+   "started_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "ended_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "open_to_candidates": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "community_seen": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "seen_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": []
+ },
+ "documents": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "file_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "file_path": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "file_type": {
+    "pg": "text",
+    "nullable": true,
+    "default": "Autre",
+    "generated": false
+   },
+   "uploaded_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": true,
+    "default": "pending",
+    "generated": false
+   },
+   "feedback": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "drive_file_id": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "rotation": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "uploaded_by_admin": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "signed_storage_path": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "r2_key": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "file_sha256": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "superseded_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "drive_mirror_id": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "drive_mirror_sha256": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "drive_mirror_batch_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "email_followup_chase": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "to_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "subject": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "sent_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "last_nudge_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "nudge_count": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "done": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "employer_batches": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "employer_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "seats": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 10,
+    "generated": false
+   },
+   "target_start": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "target_end": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "open",
+    "generated": false
+   },
+   "notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "employer_id",
+    "table": "employers",
+    "ref": "id"
+   },
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "employer_shortlists": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "employer_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "draft",
+    "generated": false
+   },
+   "share_token": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   },
+   {
+    "column": "employer_id",
+    "table": "employers",
+    "ref": "id"
+   }
+  ]
+ },
+ "employers": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "slug": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "address_lines": {
+    "pg": "text[]",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "agency_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "active": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "agency_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "enterprise_leads": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "company": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "role": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "phone": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "headcount": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "situations": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "message": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "lang": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "source": {
+    "pg": "text",
+    "nullable": false,
+    "default": "v2-contact",
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "new",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "feed_comment_likes": {
+  "columns": {
+   "comment_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "comment_id",
+   "user_id"
+  ],
+  "fks": [
+   {
+    "column": "comment_id",
+    "table": "feed_comments",
+    "ref": "id"
+   }
+  ]
+ },
+ "feed_comments": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "post_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "content": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "post_id",
+    "table": "feed_posts",
+    "ref": "id"
+   }
+  ]
+ },
+ "feed_likes": {
+  "columns": {
+   "post_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "post_id",
+   "user_id"
+  ],
+  "fks": [
+   {
+    "column": "post_id",
+    "table": "feed_posts",
+    "ref": "id"
+   }
+  ]
+ },
+ "feed_posts": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "content": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "image_url": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "title": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "pinned": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "gif_url": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "category": {
+    "pg": "text",
+    "nullable": false,
+    "default": "general",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "gmail_signature_token": {
+  "columns": {
+   "owner_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "refresh_token": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "access_token": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "expiry": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "google_email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "signature_html": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "signature_fetched_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "owner_user_id"
+  ],
+  "fks": []
+ },
+ "google_calendar_tokens": {
+  "columns": {
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "refresh_token": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "access_token": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "expiry": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "google_email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "sees_all": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "user_id"
+  ],
+  "fks": []
+ },
+ "inbox_sla_nudges": {
+  "columns": {
+   "key": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "nudged_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "key"
+  ],
+  "fks": []
+ },
+ "interview_proposals": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "round": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 1,
+    "generated": false
+   },
+   "proposed_slots": {
+    "pg": "text[]",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "picked_slot": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "proposed",
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "invite_tokens": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "type": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "code": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "used_by": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "used_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "agency_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "invited_email": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   },
+   {
+    "column": "agency_id",
+    "table": "agencies",
+    "ref": "id"
+   }
+  ]
+ },
+ "leads": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": "person",
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "phone": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "message": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "details": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "new",
+    "generated": false
+   },
+   "converted_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "ref_code": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "messages": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "thread_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "sender_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "sender_role": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "body": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "attachment": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "kind": {
+    "pg": "text",
+    "nullable": false,
+    "default": "message",
+    "generated": false
+   },
+   "read_by_admin": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "read_by_candidate": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "attachment_key": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "attachment_mime": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "has_attachment": {
+    "pg": "boolean",
+    "nullable": true,
+    "default": null,
+    "generated": true
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "notifications": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "doc_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "doc_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "doc_type": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "action": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "feedback": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "read": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "online_course_registrations": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "first_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "last_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "phone": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "address": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "group_slot": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "level": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "org_requirements": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "specialty": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "slots": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 1,
+    "generated": false
+   },
+   "location": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "start_date": {
+    "pg": "date",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "active": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "bundesland": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "facility_type": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "city": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "organization_members": {
+  "columns": {
+   "org_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "sub_admin_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "role": {
+    "pg": "text",
+    "nullable": false,
+    "default": "member",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "org_id",
+   "sub_admin_email"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "organizations": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "invite_code": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "notes": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "logo_filename": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "footer_text": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "member_invite_code": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "agency_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "vaccine_req": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "required_doc_keys": {
+    "pg": "text[]",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "agency_id",
+    "table": "agencies",
+    "ref": "id"
+   }
+  ]
+ },
+ "partner_api_keys": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "key_hash": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "key_prefix": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "label": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "last_used_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "revoked_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "partner_api_log": {
+  "columns": {
+   "id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "key_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "path": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "document_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "integer",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "key_id",
+    "table": "partner_api_keys",
+    "ref": "id"
+   }
+  ]
+ },
+ "partner_shares": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "shared_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "shared_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "revoked_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   }
+  ]
+ },
+ "pdf_field_mappings": {
+  "columns": {
+   "signature": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "mappings": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "field_count": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "created_by": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "signature"
+  ],
+  "fks": []
+ },
+ "phase_doc_order": {
+  "columns": {
+   "phase": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "order_keys": {
+    "pg": "jsonb",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "updated_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "phase"
+  ],
+  "fks": []
+ },
+ "phase_slot_categories": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "phase": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "label": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "position": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "phase_slots": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "phase": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "position": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "type": {
+    "pg": "text",
+    "nullable": false,
+    "default": "simple",
+    "generated": false
+   },
+   "label": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "label_trans": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": "now()",
+    "generated": false
+   },
+   "action_type": {
+    "pg": "text",
+    "nullable": true,
+    "default": "upload",
+    "generated": false
+   },
+   "instructions": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "template_pdf_path": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "form_fields": {
+    "pg": "jsonb",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "admin_signs": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "candidate_signs": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "admin_fills": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "candidate_fills": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "candidate_signature_zone": {
+    "pg": "jsonb",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "pdf_has_native_fields": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   },
+   "category_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "employer_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "is_required": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": true,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "category_id",
+    "table": "phase_slot_categories",
+    "ref": "id"
+   },
+   {
+    "column": "employer_id",
+    "table": "employers",
+    "ref": "id"
+   }
+  ]
+ },
+ "rate_limits": {
+  "columns": {
+   "bucket_key": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "window_start": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "count": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   }
+  },
+  "pk": [
+   "bucket_key",
+   "window_start"
+  ],
+  "fks": []
+ },
+ "shortlist_candidates": {
+  "columns": {
+   "shortlist_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "position": {
+    "pg": "integer",
+    "nullable": false,
+    "default": 0,
+    "generated": false
+   },
+   "admin_note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "added_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "shortlist_id",
+   "candidate_user_id"
+  ],
+  "fks": [
+   {
+    "column": "shortlist_id",
+    "table": "employer_shortlists",
+    "ref": "id"
+   }
+  ]
+ },
+ "sign_requests": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_by_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "document_name": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "note": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "pdf_storage_path": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "pending",
+    "generated": false
+   },
+   "signed_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "signed_pdf_path": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "signature_zone": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "viewed_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "review_status": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "review_feedback": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "sub_admin_assignments": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "sub_admin_email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ },
+ "sub_admins": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "email": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "name": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "label": {
+    "pg": "text",
+    "nullable": false,
+    "default": "",
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "agency_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "is_agency_admin": {
+    "pg": "boolean",
+    "nullable": false,
+    "default": false,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "agency_id",
+    "table": "agencies",
+    "ref": "id"
+   }
+  ]
+ },
+ "suggested_matches": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "org_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "requirement_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "status": {
+    "pg": "text",
+    "nullable": false,
+    "default": "pending",
+    "generated": false
+   },
+   "suggested_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "decided_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "decided_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": [
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id"
+   },
+   {
+    "column": "requirement_id",
+    "table": "org_requirements",
+    "ref": "id"
+   }
+  ]
+ },
+ "telegram_updates": {
+  "columns": {
+   "update_id": {
+    "pg": "bigint",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   },
+   "responded_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   }
+  },
+  "pk": [
+   "update_id"
+  ],
+  "fks": []
+ },
+ "upload_links": {
+  "columns": {
+   "id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": "gen_random_uuid()",
+    "generated": false
+   },
+   "token_hash": {
+    "pg": "text",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "candidate_user_id": {
+    "pg": "uuid",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "doc_keys": {
+    "pg": "text[]",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "uploaded_keys": {
+    "pg": "text[]",
+    "nullable": false,
+    "default": null,
+    "generated": false
+   },
+   "created_by": {
+    "pg": "text",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "expires_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "(now() + '7 days'::interval)",
+    "generated": false
+   },
+   "used_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "revoked_at": {
+    "pg": "timestamptz",
+    "nullable": true,
+    "default": null,
+    "generated": false
+   },
+   "created_at": {
+    "pg": "timestamptz",
+    "nullable": false,
+    "default": "now()",
+    "generated": false
+   }
+  },
+  "pk": [
+   "id"
+  ],
+  "fks": []
+ }
+}
