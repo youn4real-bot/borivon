@@ -18,6 +18,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getMyProfile, meToken } from "@/lib/meApi";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PageLoader, AutosaveIndicator, Spinner } from "@/components/ui/states";
@@ -643,13 +644,14 @@ function MotivationsschreibenPageInner() {
           }
         }
       } catch {
-        // Fallback: anon client read so the page still hydrates if the
-        // dedicated endpoint is offline (shouldn't happen, but defensive).
-        const { data: p } = await supabase
-          .from("candidate_profiles")
-          .select("first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft")
-          .eq("user_id", uid)
-          .maybeSingle();
+        // Fallback: one more try through our own server (/api/portal/me/profile).
+        // It shares an origin with letter-data, so if that threw on a network
+        // fault this usually fails too — then the sender block honestly falls
+        // back to what the auth record knows (name + email), nothing invented.
+        const { data: p } = await getMyProfile(
+          "first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft",
+          { userId: uid },
+        );
         const { data: au2 } = await supabase.auth.getUser();
         const fallbackEmail = au2?.user?.email ?? "";
         const meta = (au2?.user?.user_metadata ?? null) as SignupMeta | null;
@@ -816,9 +818,7 @@ function MotivationsschreibenPageInner() {
       } catch { /* offline */ }
       if (role === "candidate") {
         try {
-          const { data: p } = await supabase
-            .from("candidate_profiles").select("profile_photo, first_name, last_name")
-            .eq("user_id", userId).maybeSingle();
+          const { data: p } = await getMyProfile("profile_photo, first_name, last_name", { userId });
           const row = p as { profile_photo?: string | null; first_name?: string | null; last_name?: string | null } | null;
           if (row?.profile_photo) photo = row.profile_photo;
           if (row?.first_name || row?.last_name) {
@@ -826,14 +826,16 @@ function MotivationsschreibenPageInner() {
           }
         } catch { /* fall back to auth metadata */ }
       } else {
-        // Admin / sub-admin photo lives in admin_profiles keyed by email.
+        // Admin / sub-admin photo: the same endpoint the CV builder and
+        // ProfileIcon use. This used to read an `admin_profiles` table that
+        // does not exist, so an admin never showed a photo here.
         try {
-          const { data: p } = await supabase
-            .from("admin_profiles").select("photo, display_name")
-            .eq("email", email.toLowerCase()).maybeSingle();
-          const row = p as { photo?: string | null; display_name?: string | null } | null;
-          if (row?.photo) photo = row.photo;
-          if (row?.display_name) displayName = row.display_name;
+          const tk = await meToken();
+          const r = await fetch("/api/portal/me/profile-photo", { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
+          if (r.ok) {
+            const j = (await r.json().catch(() => ({}))) as { photo?: string | null };
+            if (j.photo) photo = j.photo;
+          }
         } catch { /* fall back */ }
       }
       if (cancelled) return;

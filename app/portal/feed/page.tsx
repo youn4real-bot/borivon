@@ -20,6 +20,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getMyProfile } from "@/lib/meApi";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -808,11 +809,7 @@ export default function FeedPage() {
         fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${tk}` } })
           .then(r => r.json().catch(() => ({ role: null })))
           .catch(() => ({ role: null })),
-        supabase
-          .from("candidate_profiles")
-          .select("profile_photo, manually_verified")
-          .eq("user_id", session.user.id)
-          .maybeSingle(),
+        getMyProfile("profile_photo, manually_verified", { userId: session.user.id }),
         fetch("/api/portal/feed/communities", { headers: { Authorization: `Bearer ${tk}` } })
           .then(r => r.ok ? r.json() as Promise<{ communities: Community[] }> : { communities: [] })
           .catch(() => ({ communities: [] as Community[] })),

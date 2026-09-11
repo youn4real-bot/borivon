@@ -19,6 +19,7 @@ import { PortalTopNav } from "@/components/PortalTopNav";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getMyProfile } from "@/lib/meApi";
 import { useLang } from "@/components/LangContext";
 import type { CVData, WorkEntry, EduEntry, MonthYear, B2Detail, RegStatus } from "@/components/CVDocument";
 import { COUNTRY_MAP, natToLang, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
@@ -2462,11 +2463,10 @@ function CVBuilderInner() {
   // ── Fetch passport profile (called on demand via "Fill from passport" button)
   async function fetchAndApplyProfile() {
     if (!userId) return;
-    const { data } = await supabase
-      .from("candidate_profiles")
-      .select("first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const { data } = await getMyProfile(
+      "first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages",
+      { userId },
+    );
     if (data) applyProfile(data);
   }
 
@@ -2479,7 +2479,12 @@ function CVBuilderInner() {
   // with the on-open reconciliation — just live.
   const ppSigRef = useRef<string>("");
   useEffect(() => {
-    const ppTargetId = adminCandidateId ?? userId;
+    // The candidate's OWN CV only. An admin editing someone else's CV must
+    // never get this passport-wins overlay: it would revert their deliberate
+    // overrides and autosave the reverted values (LAW #37). Under the old
+    // self-only RLS read this happened to be a no-op for admins; keep it one.
+    if (adminCandidateId) return;
+    const ppTargetId = userId;
     if (!ppTargetId) return;
     const COLS = "first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages";
     const sigOf = (row: Record<string, unknown>) =>
@@ -2487,6 +2492,9 @@ function CVBuilderInner() {
     const maybeApply = (row: Record<string, unknown> | null | undefined) => {
       if (!row) return;
       const sig = sigOf(row);
+      // Never apply against an unseeded signature: if the seed read failed,
+      // the first row we DO get is the baseline, not a change.
+      if (!ppSigRef.current) { ppSigRef.current = sig; return; }
       if (sig === ppSigRef.current) return; // no real change → no flash/churn
       ppSigRef.current = sig;
       applyProfile(row as Parameters<typeof applyProfile>[0]);
@@ -2495,8 +2503,8 @@ function CVBuilderInner() {
     // Seed the signature from the current row WITHOUT applying — the mount
     // bootstrap already reconciled, so we only react to FUTURE changes.
     (async () => {
-      const { data } = await supabase
-        .from("candidate_profiles").select(COLS).eq("user_id", ppTargetId).maybeSingle();
+      // Via our server (/api/portal/me/profile — own row only).
+      const { data } = await getMyProfile(COLS, { userId: ppTargetId });
       if (!cancelled && data) ppSigRef.current = sigOf(data as Record<string, unknown>);
     })();
     const ch = supabase
@@ -2508,8 +2516,7 @@ function CVBuilderInner() {
       .subscribe();
     const tick = async () => {
       if (typeof document !== "undefined" && document.hidden) return;
-      const { data } = await supabase
-        .from("candidate_profiles").select(COLS).eq("user_id", ppTargetId).maybeSingle();
+      const { data } = await getMyProfile(COLS, { userId: ppTargetId });
       if (!cancelled) maybeApply(data as Record<string, unknown> | null);
     };
     const timer = setInterval(tick, 6000);
@@ -2554,11 +2561,7 @@ function CVBuilderInner() {
       if (role === "candidate") {
         // Candidate-only fallback to candidate_profiles names (auth metadata
         // may be empty if they signed up before names were captured).
-        const { data: prof } = await supabase
-          .from("candidate_profiles")
-          .select("first_name, last_name, profile_photo")
-          .eq("user_id", userId)
-          .maybeSingle();
+        const { data: prof } = await getMyProfile("first_name, last_name, profile_photo", { userId });
         const p = prof as { first_name?: string; last_name?: string; profile_photo?: string | null } | null;
         if (!meta?.first_name && !meta?.last_name && (p?.first_name || p?.last_name)) {
           displayName = [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || displayName;
@@ -2969,11 +2972,10 @@ function CVBuilderInner() {
       //    have no data dependency on each other so we can fire both together
       //    and use whichever arrives first inside the merge logic below.
       const [profileResult, serverDraft] = await Promise.all([
-        supabase
-          .from("candidate_profiles")
-          .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier,manually_verified")
-          .eq("user_id", uid)
-          .single(),
+        getMyProfile(
+          "first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier,manually_verified",
+          { userId: uid },
+        ),
         fetch("/api/portal/me/cv-draft", {
           headers: { Authorization: `Bearer ${session.access_token}` },
         })

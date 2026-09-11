@@ -62,12 +62,14 @@ describe("both pages use the same rule", () => {
     // r2_key would be undefined on every row and docHasFile would collapse to
     // the old Drive-only behaviour, silently.
     expect(DASHBOARD).toContain("r2_key");
-    // The column list lives in named constants (FULL / NO_SUPERSEDED) that are
-    // passed to .select(cols), so assert on the list itself rather than on the
-    // call. At least one requested column set must include r2_key AND
+    // The dashboard's documents now come from /api/portal/me/documents
+    // (Supabase → D1 step P0), so the column lists live in that route. They are
+    // named constants (FULL / NO_SUPERSEDED) passed to .select(cols), so assert
+    // on the lists themselves. At least one must include r2_key AND
     // drive_file_id — the fallback that drops r2_key is deliberate and must not
     // be the only one.
-    const columnLists = [...DASHBOARD.matchAll(/"(id, file_name[^"]*)"/g)].map((m) => m[1]);
+    const ROUTE = readFileSync("app/api/portal/me/documents/route.ts", "utf8");
+    const columnLists = [...ROUTE.matchAll(/"(id, file_name[^"]*)"/g)].map((m) => m[1]);
     expect(columnLists.length, "the document column lists should be findable").toBeGreaterThan(0);
     expect(
       columnLists.some((c) => c.includes("r2_key") && c.includes("drive_file_id")),

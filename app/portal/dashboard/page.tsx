@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
+import { getMyProfile, getMyDocuments } from "@/lib/meApi";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -748,11 +749,10 @@ export default function DashboardPage() {
    */
   const reopenPassportData = useCallback(async () => {
     if (!userId) return;
-    const { data } = await supabase
-      .from("candidate_profiles")
-      .select("first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_confirmed_fields")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const { data } = await getMyProfile(
+      "first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_confirmed_fields",
+      { userId },
+    );
     type ProfileRow = Partial<PassportData> & { passport_confirmed_fields?: unknown };
     const p = (data ?? {}) as ProfileRow;
     const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
@@ -1370,11 +1370,7 @@ export default function DashboardPage() {
         // a) Profile (passport / payment tier / verified flag)
         (async () => {
           try {
-            const { data } = await supabase
-              .from("candidate_profiles")
-              .select("passport_status, manually_verified, payment_tier")
-              .eq("user_id", user.id)
-              .maybeSingle();
+            const { data } = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
             if (cancelled) return;
             setPassportStatus(data?.passport_status ?? null);
             setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
@@ -1513,19 +1509,14 @@ export default function DashboardPage() {
       // degrades to an empty page.
       let data: Doc[] | null = null;
       type Row = Doc & { superseded_at?: string | null };
-      const FULL = "id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key, superseded_at";
-      const NO_SUPERSEDED = "id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key";
-      const LEGACY = "id, file_name, file_type, uploaded_at, status, feedback, drive_file_id";
-      const q = (cols: string) => supabase
-        .from("documents").select(cols).eq("user_id", uid)
-        .order("uploaded_at", { ascending: false });
-
-      let res = await q(FULL);
-      let hadSuperseded = true;
-      if (res.error) { res = await q(NO_SUPERSEDED); hadSuperseded = false; }
-      if (res.error) { res = await q(LEGACY); }
+      // Via our server (/api/portal/me/documents, Supabase → D1 step P0): it
+      // runs the same three-step column fallback and reports whether
+      // superseded_at existed. It always reads the CALLER's own documents,
+      // which is what this RLS-guarded query could only ever return anyway.
+      const res = await getMyDocuments<Row>();
+      const hadSuperseded = res.hadSuperseded;
       if (res.error) {
-        console.error("loadDocs error:", res.error.message);
+        console.error("loadDocs error:", res.error, uid);
         // A FAILED read is not an empty document list. Returning [] here made a
         // single mobile-network blip blank every box back to "not submitted" —
         // her work looked erased, and the upload self-heal read the same empty

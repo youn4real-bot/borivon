@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getMyNotifications, markMyNotificationsRead } from "@/lib/meApi";
 import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { Bell, CheckCircle2, XCircle, FilePen, Calendar } from "@/components/PortalIcons";
@@ -333,6 +334,9 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const router = useRouter();
   const { lang } = useLang();
   const bt = BELL_T[lang] ?? BELL_T.fr;
+  // A GET that started before the last mark-read lands with the old unread
+  // flags and brings the badge back. Drop it; the next poll refreshes.
+  const lastMarkAtRef = useRef(0);
   const { newIds, track } = useNewArrivals();
 
   const fetch_ = useCallback(async () => {
@@ -341,20 +345,18 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     // from before the silent-placement switch stay in the DB but never
     // reach the bell. Same goes for the 15s realtime poll below — it
     // calls this same fetch.
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("id, doc_id, doc_name, doc_type, action, feedback, read, created_at")
-      .eq("user_id", userId)
-      .neq("doc_type", "placement")
-      .order("created_at", { ascending: false })
-      .limit(30);
-    // On Supabase error: keep the existing notifications list rather than
+    // Via our server (/api/portal/me/notifications) — own rows only, placement
+    // excluded there. Was a direct Supabase read guarded by RLS alone.
+    const startedAt = Date.now();
+    const { data, error } = await getMyNotifications<CandidateNotif>("all");
+    // On error: keep the existing notifications list rather than
     // wiping it to []. Wiping silently makes the unread badge disappear and
     // the user thinks they're caught up when really the fetch failed.
     if (error) {
-      console.error("[NotificationBell] fetch failed:", error.message);
+      console.error("[NotificationBell] fetch failed:", error);
       return;
     }
+    if (startedAt < lastMarkAtRef.current) return; // stale — a mark-read happened meanwhile
     const list = (data ?? []) as CandidateNotif[];
     setNotifs(list);
     track(list.map(n => n.id), id => !list.find(x => x.id === id)?.read);
@@ -384,12 +386,9 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
 
   async function markAllRead() {
     const prev = notifs;
+    lastMarkAtRef.current = Date.now();
     setNotifs(p => p.map(n => ({ ...n, read: true })));
-    const { error } = await supabase
-      .from("notifications")
-      .update({ read: true })
-      .eq("user_id", userId)
-      .eq("read", false);
+    const { error } = await markMyNotificationsRead({ all: true });
     // Rollback optimistic update if the DB write failed
     if (error) setNotifs(prev);
   }
@@ -404,7 +403,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   async function markOneRead(n: CandidateNotif) {
     if (n.read) return;
     setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
-    supabase.from("notifications").update({ read: true }).eq("id", n.id).then(() => {});
+    lastMarkAtRef.current = Date.now();
+    void markMyNotificationsRead({ ids: [n.id] });
   }
 
   async function handleClick(n: CandidateNotif) {
@@ -656,6 +656,8 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   const router = useRouter();
   const { lang } = useLang();
   const t = BELL_T[lang as keyof typeof BELL_T] ?? BELL_T.en;
+  // Same stale-GET guard as the candidate bell.
+  const lastMarkAtRef = useRef(0);
   const { newIds, track } = useNewArrivals();
 
   const fetch_ = useCallback(async () => {
@@ -665,16 +667,12 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     //   2. notifications (action='event_invite') — THIS admin's own calendar
     //      invites, keyed by user_id. This is how a tagged sub-admin gets the
     //      same instant ping + chime as a candidate would.
+    const startedAt = Date.now();
     const [adminRes, inviteRes] = await Promise.allSettled([
       fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } }).then(r => (r.ok ? r.json() : null)),
-      supabase
-        .from("notifications")
-        .select("id, doc_name, read, created_at")
-        .eq("user_id", userId)
-        .eq("action", "event_invite")
-        .order("created_at", { ascending: false })
-        .limit(20),
+      getMyNotifications<InviteNotif>("invites"),
     ]);
+    if (startedAt < lastMarkAtRef.current) return; // stale — a mark-read happened meanwhile
     const adminList  = (adminRes.status === "fulfilled" && adminRes.value?.notifications ? adminRes.value.notifications : []) as AdminNotif[];
     const inviteList = (inviteRes.status === "fulfilled" && !inviteRes.value.error ? (inviteRes.value.data ?? []) : []) as InviteNotif[];
     setNotifs(adminList);
@@ -723,6 +721,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
 
   async function markAllRead() {
     const prev = notifs, prevInv = invites;
+    lastMarkAtRef.current = Date.now();
     setNotifs(p => p.map(n => ({ ...n, read: true })));
     setInvites(p => p.map(n => ({ ...n, read: true })));
     try {
@@ -734,8 +733,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     } catch { setNotifs(prev); }
     // Calendar invites live in a separate table — mark those read too.
     if (prevInv.some(n => !n.read)) {
-      const { error } = await supabase.from("notifications")
-        .update({ read: true }).eq("user_id", userId).eq("action", "event_invite").eq("read", false);
+      const { error } = await markMyNotificationsRead({ all: true, action: "event_invite" });
       if (error) setInvites(prevInv);
     }
   }
@@ -761,6 +759,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
 
   async function markOneRead(n: AdminNotif) {
     if (n.read) return;
+    lastMarkAtRef.current = Date.now();
     setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
     fetch("/api/portal/admin/notifications", {
       method: "PATCH",
@@ -773,7 +772,8 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   function handleInviteClick(inv: InviteNotif) {
     if (!inv.read) {
       setInvites(prev => prev.map(x => x.id === inv.id ? { ...x, read: true } : x));
-      supabase.from("notifications").update({ read: true }).eq("id", inv.id).then(() => {});
+      lastMarkAtRef.current = Date.now();
+      void markMyNotificationsRead({ ids: [inv.id] });
     }
     setOpen(false);
     router.push("/portal/calendar");
