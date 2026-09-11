@@ -20,6 +20,8 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { normalizeB2Stage, isB2CertificateDoc, effectiveB2Stage } from "@/lib/b2Journey";
 import { computeChecklist } from "@/lib/candidateChecklist";
+import { COUNTED_IN_VISUM } from "@/lib/journeyProgress";
+import { requiredKeysByUser } from "@/lib/requiredDocKeys";
 import { extractGerman, type MonthYear } from "@/lib/b2Detail";
 import type { AssistantScope } from "@/lib/assistantScope";
 import type { SearchableCandidate } from "@/lib/candidateSearch";
@@ -187,6 +189,11 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
     }
   } catch { /* documents unreadable → no pending/cert evidence */ }
 
+  // Which papers count for each candidate — the agency's own list when it has
+  // one. Same resolution as the admin list's %, so "All required complete" here
+  // and "Unterlagen 100%" there always agree.
+  const reqKeys = await requiredKeysByUser(db, ids, (uid) => (profiles.get(uid)?.employer_id as string | null | undefined) ?? null);
+
   // ── Assemble ──
   const out: SearchableCandidate[] = [];
   for (const uid of ids) {
@@ -201,7 +208,9 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
     const b2CertDateMs = ms(s.b2_cert_date) ?? (hasApprovedB2Cert ? approvedB2CertMs.get(uid) ?? null : null);
     // Document checklist roll-up (pure) — powers the doc facets + progress.
     const uidDocs = docsByUid.get(uid) ?? [];
-    const chk = computeChecklist(uidDocs);
+    // Papers phase exactly as the list scores it: the agency's required set, and
+    // Impfung counted in the Visum phase, not here.
+    const chk = computeChecklist(uidDocs, { requiredKeys: reqKeys.get(uid) ?? null, excludeKeys: COUNTED_IN_VISUM });
 
     // Rich B2 detail from the cv_draft German panel (the maintained B2 source).
     const langs = (p as { cv_langs?: unknown; cv_draft?: { langs?: unknown } }).cv_langs
