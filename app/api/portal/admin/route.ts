@@ -9,6 +9,7 @@ import { UUID_RE } from "@/lib/uuid";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { findDuplicateAccounts } from "@/lib/duplicateAccounts";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -206,6 +207,7 @@ export async function GET(req: NextRequest) {
   }
   const profiles: Record<string, {
     first_name: string | null; last_name: string | null;
+    phone?: string | null;
     dob: string | null; sex: string | null; nationality: string | null;
     passport_no: string | null; passport_expiry: string | null;
     city_of_birth: string | null; country_of_birth: string | null;
@@ -232,6 +234,16 @@ export async function GET(req: NextRequest) {
   for (const p of profileRows ?? []) {
     profiles[p.user_id] = p;
   }
+
+  // Possible duplicate accounts (same passport / phone / full name) — computed
+  // only among the candidates this caller can already see, so it can never
+  // reveal an account outside their scope (LAW #25).
+  const dupByUser = findDuplicateAccounts(userIds.map(uid => ({
+    userId: uid,
+    name: users[uid]?.name || [profiles[uid]?.first_name, profiles[uid]?.last_name].filter(Boolean).join(" "),
+    passportNo: profiles[uid]?.passport_no ?? null,
+    phone: profiles[uid]?.phone ?? null,
+  })));
 
   // ── Deduplicate: per (user_id, fileKey) keep only the most-recent doc ─────────
   // Docs are already sorted uploaded_at DESC so first occurrence = latest version.
@@ -396,7 +408,7 @@ export async function GET(req: NextRequest) {
     }
   } catch (e) { console.warn("[admin GET] journey progress skipped:", e); }
 
-  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, role });
+  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, dupByUser, role });
 }
 
 // POST — review a document (status + feedback) → notify candidate. Shares the

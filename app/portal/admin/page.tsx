@@ -22,7 +22,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, Copy as DupIcon } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage, effectiveB2Stage, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -623,6 +623,8 @@ export default function AdminPage() {
   // server-side in /api/portal/admin. The list shows ONE percentage at a time:
   // finish Unterlagen and it gives way to Bearbeitung, then Visum.
   const [journeyByUser, setJourneyByUser] = useState<Record<string, { phase: string; pct: number; phaseIndex: number; done: number; total: number; allDone: boolean }>>({});
+  // Possible duplicate accounts (lib/duplicateAccounts) → a small amber mark by the name.
+  const [dupByUser, setDupByUser] = useState<Record<string, { otherId: string; reasons: ("passport" | "phone" | "name")[] }[]>>({});
   const [loading, setLoading]       = useState(true);
   const [feedbacks, setFeedbacks]     = useState<Record<string, string>>({});
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
@@ -1624,6 +1626,7 @@ export default function AdminPage() {
             setProfiles(json.profiles ?? {});
             setCandidateOrgs(json.candidateOrgs ?? {});
             setJourneyByUser(json.journeyByUser ?? {});
+            setDupByUser(json.dupByUser ?? {});
             setBatches(json.batches ?? []);
             setBatchByUid(json.batchByUid ?? {});
             // Default view = "All" (no batch pre-selected). The founder opens the
@@ -8237,6 +8240,30 @@ export default function AdminPage() {
                         <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                           {user.name}
                           <VerifiedBadge verified={isVerified(profiles[uid])} size="xs" color="gold" />
+                          {(dupByUser[uid]?.length ?? 0) > 0 && (() => {
+                            // Possible duplicate account — tap to jump to the other one.
+                            const d = dupByUser[uid][0];
+                            const why = d.reasons.map(r =>
+                              r === "passport" ? (lang === "de" ? "gleicher Reisepass" : lang === "fr" ? "même passeport" : "same passport")
+                              : r === "phone" ? (lang === "de" ? "gleiche Telefonnummer" : lang === "fr" ? "même numéro" : "same phone")
+                              : (lang === "de" ? "gleicher Name" : lang === "fr" ? "même nom" : "same name")).join(", ");
+                            const head = lang === "de" ? "Mögliches Doppelkonto" : lang === "fr" ? "Compte en double possible" : "Possible duplicate account";
+                            const label = `${head} — ${why}: ${users[d.otherId]?.email ?? users[d.otherId]?.name ?? d.otherId}`;
+                            return (
+                              <button type="button" title={label} aria-label={label}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setSelectedUser(d.otherId); setActivePhase(0);
+                                  setPassportDataFeedback(profiles[d.otherId]?.passport_feedback ?? "");
+                                  window.scrollTo({ top: 0, behavior: "smooth" });
+                                }}
+                                onKeyDown={e => e.stopPropagation()}
+                                className="ml-1 inline-flex items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                                style={{ width: 18, height: 18, background: "rgba(245,158,11,0.14)", color: "#f59e0b" }}>
+                                <DupIcon size={10.5} strokeWidth={2.4} />
+                              </button>
+                            );
+                          })()}
                         </p>
                         <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
                           {user.email}
