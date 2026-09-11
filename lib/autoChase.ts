@@ -13,6 +13,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong, resolveAuthNames } from "@/lib/admin-auth";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { readAllRows } from "@/lib/readAllRows";
 
 const DAY = 86_400_000;
 const REJECT_GRACE_DAYS = 3;
@@ -50,11 +51,14 @@ export async function computeStuckCandidates(
 
   // 1) Latest document is rejected, ≥ grace days old (saw it, didn't re-submit).
   if (candIds.length && includeRejectedDocs) {
-    const { data: docs } = await db
-      .from("documents")
-      .select("*") // '*' so a not-yet-migrated superseded_at column never errors
-      .in("user_id", candIds)
-      .order("uploaded_at", { ascending: false });
+    const { data: docs } = await readAllRows<Record<string, unknown>>((from, to) =>
+      db
+        .from("documents")
+        .select("*") // '*' so a not-yet-migrated superseded_at column never errors
+        .in("user_id", candIds)
+        .order("uploaded_at", { ascending: false })
+        .order("id")
+        .range(from, to));
     const latest = new Map<string, { status: string | null; uploaded_at: string | null }>();
     for (const d of (docs ?? []) as { user_id: string; status: string | null; uploaded_at: string | null; superseded_at?: string | null }[]) {
       // Skip ARCHIVED rows (LAW #33) before picking the newest. Ordering by

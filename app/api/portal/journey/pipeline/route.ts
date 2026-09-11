@@ -8,6 +8,7 @@ import { normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
 import { computeDocPack } from "@/lib/recognitionDocs";
 import { deriveImpfungStage, doseProgress, normalizeReq, NO_REQ, type VaccineReq } from "@/lib/impfungJourney";
 import { resolveFileKey } from "@/lib/fileKeys";
+import { readAllRows } from "@/lib/readAllRows";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -79,10 +80,12 @@ export async function GET(req: NextRequest) {
 
   // Pull every journey row for those candidates in ONE query (no N+1), then
   // group in memory and compute each candidate's status.
-  const { data: itemData, error: itemErr } = await db
+  const { data: itemData, error: itemErr } = await readAllRows<Record<string, unknown>>((from, to) => db
     .from("candidate_journey_items")
     .select("id, candidate_user_id, text, owner, done, done_at, preset_key, position, due_date, blocked, blocked_reason")
-    .in("candidate_user_id", ids);
+    .in("candidate_user_id", ids)
+    .order("id")
+    .range(from, to));
   if (itemErr) {
     console.error("[journey/pipeline] items error:", itemErr.message);
     return NextResponse.json({ error: "load_failed" }, { status: 500 });
@@ -97,10 +100,12 @@ export async function GET(req: NextRequest) {
 
   // Documents (only what the sellable gate needs) for the same candidates — one
   // batched query. Powers the "ready to sell" verdict per candidate.
-  const { data: docData, error: docErr } = await db
+  const { data: docData, error: docErr } = await readAllRows<Record<string, unknown>>((from, to) => db
     .from("documents")
     .select("*") // '*' so a not-yet-migrated superseded_at column never errors
-    .in("user_id", ids);
+    .in("user_id", ids)
+    .order("id")
+    .range(from, to));
   // NEVER let this fail silently again: a bad column here returns null data and
   // would zero out ALL document evidence (CV / diploma / B2 / impfung never
   // auto-advance) — exactly the "approved CV still says needs approval" bug.

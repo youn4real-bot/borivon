@@ -3,6 +3,7 @@ import { requireAdminRole, getVisibleCandidateIds, getStaffUserIdsAmong } from "
 import { getServiceSupabase } from "@/lib/supabase";
 import { normalizeB2Stage, effectiveB2Stage, isB2CertDoc, type B2Stage } from "@/lib/b2Journey";
 import { germanSummary } from "@/lib/b2Detail";
+import { readAllRows } from "@/lib/readAllRows";
 
 /**
  * Rich B2 overview for the admin B2-status page — pulls the REAL German-exam
@@ -48,7 +49,8 @@ export async function GET(req: NextRequest) {
   if (rows.length === 0) return NextResponse.json({ candidates: [] });
 
   const ids = rows.map((p) => p.user_id);
-  const { data: docs } = await db.from("documents").select("*").in("user_id", ids); // '*' so a not-yet-migrated superseded_at never errors
+  const { data: docs } = await readAllRows<Record<string, unknown>>((from, to) =>
+    db.from("documents").select("*").in("user_id", ids).order("id").range(from, to)); // '*' so a not-yet-migrated superseded_at never errors
   const docsByUser = new Map<string, { file_type: string | null; status: string | null }[]>();
   for (const d of (docs ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at?: string | null }[]) {
     if (d.superseded_at) continue; // skip ARCHIVED docs (LAW #33)

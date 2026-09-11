@@ -16,6 +16,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { waNumber, type ChaseReason } from "@/lib/whatsapp";
+import { readAllRows } from "@/lib/readAllRows";
 
 const DAY = 86_400_000;
 const STALL_DAYS = 21;
@@ -151,10 +152,12 @@ export async function computeChaseList(now = Date.now()): Promise<ChaseRow[]> {
   // stalled candidate, and a sub-admin with a profile row would too.
   const staff = await getStaffUserIdsAmong(rows.map(r => String(r.user_id)));
 
-  const { data: docsRaw } = await db
+  const { data: docsRaw } = await readAllRows<Record<string, unknown>>((from, to) => db
     .from("documents")
     .select("*") // '*' so a not-yet-migrated superseded_at column never errors
-    .order("uploaded_at", { ascending: false });
+    .order("uploaded_at", { ascending: false })
+    .order("id")
+    .range(from, to));
   const docs = (docsRaw ?? []) as Record<string, unknown>[];
 
   // Which employer intake each candidate is assigned to. Schema-tolerant: if the

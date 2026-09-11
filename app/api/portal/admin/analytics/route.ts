@@ -15,6 +15,7 @@ import { requireAdminRole, getVisibleCandidateIds, getVisibleOrgIds, getStaffUse
 import { getServiceSupabase } from "@/lib/supabase";
 import { FUNNEL_STAGES } from "@/lib/batchBoard";
 import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
+import { readAllRows } from "@/lib/readAllRows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,11 +103,14 @@ export async function GET(req: NextRequest) {
   const b2CertDocs = new Map<string, { file_type: string | null; status: string | null }[]>();
   if (realIds.length) {
     try {
-      const { data: docRows } = await db
-        .from("documents")
-        .select("user_id, file_type, status, superseded_at")
-        .in("user_id", realIds)
-        .eq("status", "approved");
+      const { data: docRows } = await readAllRows<{ user_id: string; file_type: string | null; status: string | null; superseded_at: string | null }>((from, to) =>
+        db
+          .from("documents")
+          .select("user_id, file_type, status, superseded_at")
+          .in("user_id", realIds)
+          .eq("status", "approved")
+          .order("id")
+          .range(from, to));
       for (const d of (docRows ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at: string | null }[]) {
         if (d.superseded_at) continue; // archived (LAW #33)
         const list = b2CertDocs.get(d.user_id) ?? [];

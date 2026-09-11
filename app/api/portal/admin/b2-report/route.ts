@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
+import { readAllRows } from "@/lib/readAllRows";
 import { UUID_RE } from "@/lib/uuid";
 import { normalizeB2Stage, effectiveB2Stage, B2_STAGE_BY_KEY, isB2CertDoc } from "@/lib/b2Journey";
 import { germanSummary } from "@/lib/b2Detail";
@@ -61,7 +62,8 @@ export async function POST(req: NextRequest) {
   const db = getServiceSupabase();
   const [{ data: profs }, { data: docs }] = await Promise.all([
     db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date, cv_draft").in("user_id", ids),
-    db.from("documents").select("*").in("user_id", ids), // '*' so a not-yet-migrated superseded_at never errors
+    readAllRows<Record<string, unknown>>((from, to) =>
+      db.from("documents").select("*").in("user_id", ids).order("id").range(from, to)), // '*' so a not-yet-migrated superseded_at never errors
   ]);
 
   const docsByUser = new Map<string, { file_type: string | null; status: string | null }[]>();

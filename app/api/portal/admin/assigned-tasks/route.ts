@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
+import { readAllRows } from "@/lib/readAllRows";
 
 /**
  * Admin tracking view: every task an admin has ASSIGNED to candidates (custom
@@ -21,16 +22,17 @@ export async function GET(req: NextRequest) {
   if (Array.isArray(visible) && visible.length === 0) return NextResponse.json({ groups: [] });
 
   const db = getServiceSupabase();
-  let q = db
-    .from("candidate_journey_items")
-    .select("id, candidate_user_id, text, done, done_at, position, created_at")
-    .eq("owner", "candidate")
-    .is("preset_key", null)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (Array.isArray(visible)) q = q.in("candidate_user_id", visible);
-
-  const { data, error } = await q;
+  const { data, error } = await readAllRows<Record<string, unknown>>((from, to) => {
+    let q = db
+      .from("candidate_journey_items")
+      .select("id, candidate_user_id, text, done, done_at, position, created_at")
+      .eq("owner", "candidate")
+      .is("preset_key", null)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (Array.isArray(visible)) q = q.in("candidate_user_id", visible);
+    return q.order("id").range(from, to);
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   type Row = { id: string; candidate_user_id: string; text: string; done: boolean; done_at: string | null };

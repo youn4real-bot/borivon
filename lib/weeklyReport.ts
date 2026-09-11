@@ -14,6 +14,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong, getStaffEmailSet } from "@/lib/admin-auth";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { readAllRows } from "@/lib/readAllRows";
 
 const DAY = 86_400_000;
 
@@ -88,7 +89,8 @@ export async function computeWeeklyReport(windowDays = 7): Promise<WeeklyReport>
   }
 
   // Documents — pending review now + uploaded this week.
-  const { data: docs } = await db.from("documents").select("*"); // '*' so a not-yet-migrated superseded_at never errors
+  const { data: docs } = await readAllRows<Record<string, unknown>>((from, to) =>
+    db.from("documents").select("*").order("id").range(from, to)); // '*' so a not-yet-migrated superseded_at never errors
   const docRows = ((docs ?? []) as { status: string | null; uploaded_at: string | null; superseded_at?: string | null }[])
     .filter((d) => !d.superseded_at); // exclude ARCHIVED docs from the counts (LAW #33)
   const pending = docRows.filter((d) => d.status === "pending").length;

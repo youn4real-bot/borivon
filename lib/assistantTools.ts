@@ -35,6 +35,7 @@ import { mirrorCandidateToDrive } from "@/lib/driveMirror";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
+import { readAllRows } from "@/lib/readAllRows";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -699,11 +700,13 @@ export function buildAssistantTools(
         if (roster.length === 0) return { results: [] };
         const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
         const ids = roster.map((r) => r.userId);
-        const { data, error } = await db
+        const { data, error } = await readAllRows<Record<string, unknown>>((from, to) => db
           .from("documents")
           .select("*") // includes superseded_at when migrated → activeDocs() hides archived
           .in("user_id", ids)
-          .order("uploaded_at", { ascending: false });
+          .order("uploaded_at", { ascending: false })
+          .order("id")
+          .range(from, to));
         if (error) return { error: "load_failed" };
         const needle = (kind ?? "").trim().toLowerCase();
         type Row = { id: string; user_id: string; file_name: string | null; file_type: string | null; status: string | null; uploaded_at: string | null };
@@ -1217,7 +1220,7 @@ export function buildAssistantTools(
         } catch { /* leads table absent → zeros */ }
         let docsCur = 0, docsPrev = 0;
         {
-          const { data } = await db.from("documents").select("*").gte("uploaded_at", new Date(prevFrom).toISOString());
+          const { data } = await readAllRows<Record<string, unknown>>((from, to) => db.from("documents").select("*").gte("uploaded_at", new Date(prevFrom).toISOString()).order("id").range(from, to));
           for (const r of (data ?? []) as { uploaded_at: string | null; superseded_at?: string | null }[]) {
             if (r.superseded_at) continue;
             const b = bucket(r.uploaded_at); if (b === "cur") docsCur++; else if (b === "prev") docsPrev++;
@@ -2804,7 +2807,7 @@ export function buildAssistantTools(
         const [dates, pipeRes, docRes] = await Promise.all([
           authInfoMap(ids),
           db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status").in("user_id", ids),
-          db.from("documents").select("user_id").in("user_id", ids),
+          readAllRows<{ user_id: string }>((from, to) => db.from("documents").select("user_id").in("user_id", ids).order("id").range(from, to)),
         ]);
         const pipeById = new Map(((pipeRes.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
         const hasDocs = new Set(((docRes.data ?? []) as { user_id: string }[]).map((d) => d.user_id));
@@ -2845,7 +2848,7 @@ export function buildAssistantTools(
         const [dates, pipeRes, docRes] = await Promise.all([
           authInfoMap(ids),
           db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status, updated_at").in("user_id", ids),
-          db.from("documents").select("user_id").in("user_id", ids),
+          readAllRows<{ user_id: string }>((from, to) => db.from("documents").select("user_id").in("user_id", ids).order("id").range(from, to)),
         ]);
         const pipeById = new Map(((pipeRes.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
         const hasDocs = new Set(((docRes.data ?? []) as { user_id: string }[]).map((d) => d.user_id));
@@ -2932,7 +2935,7 @@ export function buildAssistantTools(
           safeIn("candidate_pipeline",
             "user_id, funnel_stage, interview1_status, interview2_status, agreement_signed, batch_id",
             "user_id, funnel_stage, interview1_status, interview2_status, batch_id"),
-          db.from("documents").select("user_id, status, superseded_at").in("user_id", ids),
+          readAllRows<{ user_id: string; status: string | null; superseded_at: string | null }>((from, to) => db.from("documents").select("user_id, status, superseded_at").in("user_id", ids).order("id").range(from, to)),
           db.from("candidate_notes").select("candidate_user_id, note, created_at").in("candidate_user_id", ids).order("created_at", { ascending: false }),
           db.from("candidate_status").select("user_id, vaccines").in("user_id", ids),
           db.from("employers").select("id, name"),
@@ -3021,11 +3024,13 @@ export function buildAssistantTools(
         const roster = await candidateRoster();
         if (roster.length === 0) return { candidates: [] };
         const nameById = new Map(roster.map((r) => [r.userId, r.name]));
-        const { data } = await db
+        const { data } = await readAllRows<Record<string, unknown>>((from, to) => db
           .from("candidate_journey_items")
           .select("candidate_user_id, text, owner, done, due_date")
           .in("candidate_user_id", roster.map((r) => r.userId))
-          .is("preset_key", null);
+          .is("preset_key", null)
+          .order("id")
+          .range(from, to));
         let rows = (data ?? []) as { candidate_user_id: string; text: string; owner: string; done: boolean | null; due_date: string | null }[];
         if (onlyOpen) rows = rows.filter((r) => r.done !== true);
         const grouped = new Map<string, { text: string; owner: string; done: boolean; dueDate: string | null }[]>();

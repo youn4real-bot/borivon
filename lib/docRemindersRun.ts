@@ -14,6 +14,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { planReminder, reminderLabel, type ReminderDoc, type ReminderItem } from "@/lib/docReminders";
 import { sendDocReminderEmail } from "@/lib/email";
+import { readAllRows } from "@/lib/readAllRows";
 
 const SETTING_KEY = "candidate_doc_reminders";
 const LOG_TABLE = "candidate_reminders";
@@ -64,19 +65,6 @@ export type DueResult = {
   sentLast7d: number;
 };
 
-/** Read every row of a query in pages — PostgREST caps a response at 1000. */
-async function readAll<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[] | null> {
-  const out: T[] = [];
-  for (let from = 0; from < 50_000; from += 1000) {
-    const { data, error } = await page(from, from + 999);
-    if (error) return null;
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < 1000) break;
-  }
-  return out;
-}
-
 export async function computeDueReminders(now = Date.now()): Promise<DueResult> {
   const db = getServiceSupabase();
   const empty: DueResult = { ok: false, tableReady: false, due: [], slotLabels: new Map(), sentLast7d: 0 };
@@ -92,10 +80,10 @@ export async function computeDueReminders(now = Date.now()): Promise<DueResult> 
   const staff = await getStaffUserIdsAmong(ids);
 
   const [docs, rejNotifs, pipeRes, empRes, orgRes, linkRes, slotRes, logRes] = await Promise.all([
-    readAll<ReminderDoc & { user_id: string }>((a, b) =>
-      db.from("documents").select("id, user_id, file_type, status, uploaded_at, superseded_at").order("id").range(a, b)),
-    readAll<{ doc_id: string | null; created_at: string }>((a, b) =>
-      db.from("notifications").select("doc_id, created_at").eq("action", "rejected").order("id").range(a, b)),
+    readAllRows<ReminderDoc & { user_id: string }>((a, b) =>
+      db.from("documents").select("id, user_id, file_type, status, uploaded_at, superseded_at").order("id").range(a, b)).then((r) => r.data),
+    readAllRows<{ doc_id: string | null; created_at: string }>((a, b) =>
+      db.from("notifications").select("doc_id, created_at").eq("action", "rejected").order("id").range(a, b)).then((r) => r.data),
     db.from("candidate_pipeline").select("user_id, arrived_done, funnel_stage, batch_id"),
     db.from("employers").select("id, agency_id"),
     db.from("organizations").select("id, required_doc_keys"),

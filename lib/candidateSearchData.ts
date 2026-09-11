@@ -17,6 +17,7 @@
  * rather than throwing — losing a facet is fine, 500-ing the search is not.
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { readAllRows } from "@/lib/readAllRows";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { normalizeB2Stage, isB2CertificateDoc, effectiveB2Stage } from "@/lib/b2Journey";
 import { computeChecklist } from "@/lib/candidateChecklist";
@@ -174,7 +175,8 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
   const approvedB2CertMs = new Map<string, number | null>(); // uid → cert doc time (or null if approved but timeless)
   const docsByUid = new Map<string, { file_type: string | null; status: string | null }[]>();
   try {
-    const { data: docs } = await db.from("documents").select("user_id, file_type, status, uploaded_at, superseded_at").in("user_id", ids);
+    const { data: docs } = await readAllRows<Record<string, unknown>>((from, to) =>
+      db.from("documents").select("user_id, file_type, status, uploaded_at, superseded_at").in("user_id", ids).order("id").range(from, to));
     for (const d of (docs ?? []) as Record<string, unknown>[]) {
       if (d.superseded_at) continue; // archived (LAW #33)
       const uid = d.user_id as string;

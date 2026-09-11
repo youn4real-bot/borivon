@@ -10,6 +10,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { findDuplicateAccounts } from "@/lib/duplicateAccounts";
+import { readAllRows } from "@/lib/readAllRows";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -49,12 +50,16 @@ export async function GET(req: NextRequest) {
   let docs;
   if (role === "admin") {
     // Full admin — all docs (or filtered to one user)
-    let q = db
-      .from("documents")
-      .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
-      .order("uploaded_at", { ascending: false });
-    if (filteredUserId) q = q.eq("user_id", filteredUserId);
-    const { data, error } = await q;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows were `any` from the untyped client; keep that
+    const { data, error } = await readAllRows<any>((from, to) => {
+      let q = db
+        .from("documents")
+        .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
+        .order("uploaded_at", { ascending: false })
+        .order("id");
+      if (filteredUserId) q = q.eq("user_id", filteredUserId);
+      return q.range(from, to);
+    });
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
   } else if (auth.isAgencyAdmin && auth.agencyId) {
@@ -69,11 +74,14 @@ export async function GET(req: NextRequest) {
     }
     const allowedIds = filteredUserId ? [filteredUserId].filter(id => agencyIds.includes(id)) : agencyIds;
     if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
-    const { data, error } = await db
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows were `any` from the untyped client; keep that
+    const { data, error } = await readAllRows<any>((from, to) => db
       .from("documents")
       .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
       .in("user_id", allowedIds)
-      .order("uploaded_at", { ascending: false });
+      .order("uploaded_at", { ascending: false })
+      .order("id")
+      .range(from, to));
     if (error) { console.error("[admin GET] documents query (agency) failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
   } else {
@@ -84,22 +92,30 @@ export async function GET(req: NextRequest) {
     // those with no documents yet. Org admins keep their scoped list.
     surfaceAllUsers = visibleIds === null;
 
-    let q = db
-      .from("documents")
-      .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
-      .order("uploaded_at", { ascending: false });
-
-    if (visibleIds === null) {
-      // Regular sub-admin: all candidates, filter only by specific user if requested.
-      if (filteredUserId) q = q.eq("user_id", filteredUserId);
-    } else {
+    // Resolve the scope once (with its early returns); every page below applies it.
+    let scopedIds: string[] | null = null; // null = regular sub-admin, no org scope
+    if (visibleIds !== null) {
       if (visibleIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
       const allowedIds = filteredUserId ? [filteredUserId].filter(id => visibleIds.includes(id)) : visibleIds;
       if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
-      q = q.in("user_id", allowedIds);
+      scopedIds = allowedIds;
     }
 
-    const { data, error } = await q;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows were `any` from the untyped client; keep that
+    const { data, error } = await readAllRows<any>((from, to) => {
+      let q = db
+        .from("documents")
+        .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
+        .order("uploaded_at", { ascending: false })
+        .order("id");
+      if (scopedIds === null) {
+        // Regular sub-admin: all candidates, filter only by specific user if requested.
+        if (filteredUserId) q = q.eq("user_id", filteredUserId);
+      } else {
+        q = q.in("user_id", scopedIds);
+      }
+      return q.range(from, to);
+    });
 
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
