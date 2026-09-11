@@ -22,6 +22,9 @@ create policy "candidates read own notifications"
 
 create policy "candidates mark own notifications read"
   on notifications for update using (auth.uid() = user_id);
+-- The browser may flip `read` and nothing else (rls_tighten_candidate_writes.sql):
+revoke insert, update, delete on notifications from anon, authenticated;
+grant update (read) on notifications to authenticated;
 
 -- real-time so bell updates instantly
 alter publication supabase_realtime add table notifications;

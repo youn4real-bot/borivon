@@ -36,17 +36,12 @@ drop policy if exists "candidates read own thread" on messages;
 create policy "candidates read own thread"
   on messages for select using (auth.uid() = thread_user_id);
 
+-- NO browser writes: every message is sent/marked read through API routes with
+-- the service role. The old INSERT / UPDATE policies let a candidate edit any
+-- column of her thread (admin messages included) — see
+-- rls_tighten_candidate_writes.sql. Do not re-add them.
 drop policy if exists "candidates insert own thread" on messages;
-create policy "candidates insert own thread"
-  on messages for insert with check (
-    auth.uid() = thread_user_id
-    and auth.uid() = sender_user_id
-    and sender_role = 'candidate'
-  );
-
 drop policy if exists "candidates mark own read" on messages;
-create policy "candidates mark own read"
-  on messages for update using (auth.uid() = thread_user_id);
 
 -- Admin reads everything via service-role key in API routes (bypasses RLS).
 -- No direct admin RLS policy needed.
