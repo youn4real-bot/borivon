@@ -16,7 +16,27 @@
  * are never shadowed. Nothing here can change a response: every failure is
  * swallowed, and the comparison runs after the answer is sent (keepAlive).
  */
-import { keepAlive } from "@/lib/keepAlive";
+/**
+ * Background work WITHOUT importing next/server.
+ *
+ * lib/keepAlive uses `after()`, and lib/supabase.ts — which wires this in — is
+ * imported by client components too, so a static or dynamic path to `after`
+ * fails the build ("You're importing a component that needs after"). `after()`
+ * ultimately just calls Cloudflare's ctx.waitUntil, published by OpenNext on
+ * the @next/request-context global (see lib/keepAlive's note), so reach that
+ * directly. Outside a request scope this falls back to fire-and-forget, which
+ * for a sampled comparison only means losing that sample.
+ */
+function scheduleBackground(work: () => Promise<void>): void {
+  try {
+    const holder = (globalThis as Record<symbol, unknown>)[Symbol.for("@next/request-context")] as
+      | { get?: () => { waitUntil?: (p: Promise<unknown>) => void } | undefined }
+      | undefined;
+    const waitUntil = holder?.get?.()?.waitUntil;
+    if (typeof waitUntil === "function") { waitUntil(work().catch(() => {})); return; }
+  } catch { /* no request scope */ }
+  void work().catch(() => {});
+}
 
 export type ShadowDiff = {
   table: string;
@@ -106,7 +126,7 @@ export function withShadowReads(base: typeof fetch): typeof fetch {
 
     // Read the body without consuming the caller's copy.
     const clone = res.clone();
-    keepAlive(async () => {
+    scheduleBackground(async () => {
       try {
         const live = await clone.json();
         const { makeBvFetch } = await import("@/lib/d1/bvFetch");
