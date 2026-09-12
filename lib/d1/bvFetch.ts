@@ -18,6 +18,7 @@ import { buildSql } from "@/lib/d1/pgrest/buildSql";
 import { decodeRows } from "@/lib/d1/pgrest/decode";
 import { toPostgrestError } from "@/lib/d1/pgrest/errors";
 import { respond, errorResponse } from "@/lib/d1/pgrest/respond";
+import { rpcName, callRpc, isRpcError } from "@/lib/d1/pgrest/rpc";
 import { getD1, type D1Runner } from "@/lib/d1/client";
 
 const registry = registryJson as unknown as Registry;
@@ -44,6 +45,18 @@ export function makeBvFetch(opts?: { runner?: D1Runner; passthrough?: typeof fet
       // No D1 here: fall back to the real Supabase rather than failing. A
       // half-answered app is worse than one that simply keeps its old backend.
       return passthrough(input as RequestInfo, init);
+    }
+
+    // db.rpc("name", args) — a database function, not a table query.
+    const fn = rpcName(url);
+    if (fn) {
+      const args = await request.json().catch(() => ({}));
+      const outcome = await callRpc(fn, (args ?? {}) as Record<string, unknown>, runner.run.bind(runner))
+        .catch((err) => toPostgrestError(err, {}));
+      if (isRpcError(outcome)) return errorResponse(outcome);
+      return outcome.status === 204
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify(outcome.body), { status: outcome.status, headers: { "content-type": "application/json; charset=utf-8" } });
     }
 
     const intent = await parseRequest(request, registry);
