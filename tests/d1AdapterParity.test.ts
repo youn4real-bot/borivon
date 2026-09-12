@@ -66,4 +66,36 @@ describe.skipIf(!ENABLED)("adapter answers exactly like Supabase", () => {
       expect(b.data).toEqual(a.data);
     });
   }
+
+  /**
+   * Every table, all columns. The 17 cases above cover the query SHAPES; this
+   * covers the DATA — every column type in every table, as it really is
+   * (timestamps, jsonb, arrays, booleans, numerics, nullable everything).
+   * A decode bug in one rarely-used column would slip past hand-written cases.
+   */
+  it("every table returns identical rows through the adapter", async () => {
+    const registry = JSON.parse(fs.readFileSync("d1/types.json", "utf8")) as Record<string, { columns: Record<string, unknown>; pk: string[] }>;
+    const skip = new Set(["rate_limits"]); // ephemeral counter, changes every second
+    const mismatched: string[] = [];
+
+    for (const table of Object.keys(registry).sort()) {
+      if (skip.has(table)) continue;
+      const pk = registry[table].pk.length ? registry[table].pk : [Object.keys(registry[table].columns)[0]];
+      const run = (db: SupabaseClient) => {
+        let q = db.from(table).select("*");
+        for (const c of pk) q = q.order(c);
+        return q.limit(5);
+      };
+      const a = await run(live);
+      const b = await run(copy);
+      if (JSON.stringify(a.error?.code ?? null) !== JSON.stringify(b.error?.code ?? null)) { mismatched.push(`${table}: error ${a.error?.code} vs ${b.error?.code}`); continue; }
+      if (JSON.stringify(a.data) !== JSON.stringify(b.data)) {
+        const rows = (a.data ?? []) as Record<string, unknown>[];
+        const other = (b.data ?? []) as Record<string, unknown>[];
+        const cols = Object.keys(rows[0] ?? {}).filter((c) => JSON.stringify(rows[0]?.[c]) !== JSON.stringify(other[0]?.[c]));
+        mismatched.push(`${table}: ${rows.length} vs ${other.length} rows, first-row columns differing: ${cols.join(", ") || "(order)"}`);
+      }
+    }
+    expect(mismatched).toEqual([]);
+  }, 600_000);
 });
