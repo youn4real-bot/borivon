@@ -77,7 +77,7 @@ describe.skipIf(!ENABLED)("features answer the same on both backends", () => {
 
   it("candidate search universe (every facet the admin filters on)", async () => {
     loadEnv();
-    const scope = { role: "admin" as const, email: process.env.ADMIN_EMAIL ?? "", userId: "", visibleIds: null };
+    const scope = { role: "admin" as const, email: process.env.ADMIN_EMAIL ?? "", userId: "", visibleIds: null, inScope: () => true } as unknown as import("@/lib/assistantScope").AssistantScope;
     const viaD1 = await withBackend(true, async () => (await import("@/lib/candidateSearchData")).assembleSearchableCandidates(scope));
     const viaSupabase = await withBackend(false, async () => (await import("@/lib/candidateSearchData")).assembleSearchableCandidates(scope));
     expect(viaD1).toEqual(viaSupabase);
