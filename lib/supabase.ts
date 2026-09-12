@@ -29,7 +29,10 @@ function serviceFetch(): typeof fetch | undefined {
   const rate = process.env.SHADOW_D1_RATE;
   if (!rate || rate === "0") return undefined;
   return ((input: RequestInfo | URL, init?: RequestInit) => {
-    _shadowFetch ??= import("@/lib/d1/shadow").then((m) => m.withShadowReads(fetch));
+    // If the adapter can't be loaded for any reason, fall back to the plain
+    // fetch. A testing aid must never be able to take the portal's reads down
+    // with it.
+    _shadowFetch ??= import("@/lib/d1/shadow").then((m) => m.withShadowReads(fetch)).catch(() => fetch);
     return _shadowFetch.then((f) => f(input as RequestInfo, init));
   }) as typeof fetch;
 }

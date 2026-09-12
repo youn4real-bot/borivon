@@ -73,8 +73,16 @@
   // removed, so Cloudflare owns the schedule. Plain var, NOT a secret — it's a
   // boolean feature flag, so it belongs in version control where the state is
   // visible. Set to "false" to park the schedule again without a code change.
+  // SHADOW_D1_RATE — the share of the service client's READS that are replayed
+  // against the D1 copy AFTER the response has been sent, and compared. The
+  // portal still reads Supabase and still returns Supabase's answer; this only
+  // produces "[shadow-d1] …" log lines when the copy disagrees. Set to "0" (or
+  // remove) to stop it. "0.25" = a quarter of reads — enough signal per day to
+  // find shapes the parity tests never thought of, small enough that the extra
+  // work after the response stays negligible.
   "vars": {
-    "CF_CRONS_ENABLED": "true"
+    "CF_CRONS_ENABLED": "true",
+    "SHADOW_D1_RATE": "0.25"
   },
   "observability": {
     "enabled": true

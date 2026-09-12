@@ -96,6 +96,17 @@ export function compareBodies(table: string, a: unknown, b: unknown): ShadowDiff
   return { table, kind: "cells", detail: "shape differs" };
 }
 
+/**
+ * Bodies big enough to cost real CPU are skipped. The comparison runs after
+ * the response is sent, but it still runs inside the same Worker invocation,
+ * and a 5 MB admin listing parsed twice is not worth a CPU-limit kill. The
+ * shapes that matter are covered by the parity tests either way.
+ */
+const MAX_BODY_BYTES = 2_000_000;
+
+/** Agreements logged in this isolate (see the report below). */
+let agreedLogged = 0;
+
 type Reporter = (diff: ShadowDiff) => void;
 
 let report: Reporter = (diff) => {
@@ -123,20 +134,37 @@ export function withShadowReads(base: typeof fetch): typeof fetch {
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const table = readTarget(url, method);
     if (!table || Math.random() >= rate || !res.ok) return res;
+    if (Number(res.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return res;
 
     // Read the body without consuming the caller's copy.
     const clone = res.clone();
+    // Look up the D1 handle HERE, while the request scope still exists: on
+    // Workers the binding comes from the Cloudflare context, and going looking
+    // for it after the response has been sent is a worse place to be. Starting
+    // the lookup now (without awaiting it) keeps the response path untouched.
+    const runnerNow = import("@/lib/d1/client").then((m) => m.getD1()).catch(() => null);
     scheduleBackground(async () => {
       try {
         const live = await clone.json();
         const { makeBvFetch } = await import("@/lib/d1/bvFetch");
         const viaD1 = await makeBvFetch({
+          runner: (await runnerNow) ?? undefined,
           // A missing D1 must never quietly compare Supabase with itself.
           passthrough: (async () => { throw new Error("no d1"); }) as unknown as typeof fetch,
         })(url, { method, headers: init?.headers });
         if (!viaD1.ok) { report({ table, kind: "error", detail: `d1 http ${viaD1.status}` }); return; }
         const diff = compareBodies(table, live, await viaD1.json());
-        if (diff) report(diff);
+        if (diff) { report(diff); return; }
+        // Silence can mean "agreed" or "never ran". Say so for the first few
+        // agreements in each isolate, so the logs prove the path is alive —
+        // table and row count only, never a value.
+        // console.WARN, not log: next.config's compiler.removeConsole strips
+        // console.log from production builds, so a log line here would never
+        // reach `wrangler tail` — the exact silence this is meant to break.
+        if (agreedLogged < 3) {
+          agreedLogged++;
+          console.warn(`[shadow-d1] ok ${table} ${Array.isArray(live) ? live.length : 1} rows`);
+        }
       } catch (e) {
         report({ table, kind: "exception", detail: String(e instanceof Error ? e.message : e).slice(0, 120) });
       }

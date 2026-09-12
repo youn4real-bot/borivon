@@ -7,9 +7,10 @@
  *   • Anywhere else (node scripts, vitest, `next dev`) — Cloudflare's D1 HTTP
  *     API with the account token from the environment.
  *
- * The binding is deliberately NOT declared in wrangler.jsonc yet: while the
- * portal still runs on Supabase, the live Worker must not be able to see the
- * copy at all. Until the cutover the HTTP path is what the tests use.
+ * The binding IS declared in wrangler.jsonc, so the live Worker can reach the
+ * copy — but only the shadow comparison ever asks it anything, and only while
+ * SHADOW_D1_RATE is set. Supabase still answers every request the portal
+ * serves. Node scripts and vitest use the HTTP path.
  */
 
 export type D1Row = Record<string, unknown>;
