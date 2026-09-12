@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compareBodies, withShadowReads, setShadowReporter } from "../lib/d1/shadow";
+import { compareBodies, withShadowReads, setShadowReporter, shapeOf } from "../lib/d1/shadow";
 
 /**
  * The shadow comparison must be exact about real differences and quiet about
@@ -41,6 +41,34 @@ describe("compareBodies", () => {
     const d = compareBodies("candidate_profiles", [{ user_id: "u", passport_no: "AB123456" }], [{ user_id: "u", passport_no: "ZZ999999" }]);
     expect(JSON.stringify(d)).not.toContain("AB123456");
     expect(JSON.stringify(d)).not.toContain("ZZ999999");
+  });
+});
+
+describe("shapeOf", () => {
+  it("keeps the table, columns and operators — and no value", () => {
+    const url = "https://x.supabase.co/rest/v1/documents?select=id,status&user_id=eq.2f9a8b7c-1111-4222-8333-444455556666&order=created_at.desc&limit=50";
+    const shape = shapeOf(url, "documents");
+    expect(shape).toBe("documents limit order=created_at select user_id=eq");
+    expect(shape).not.toContain("2f9a8b7c");
+  });
+
+  it("strips the search term out of an ilike filter", () => {
+    const shape = shapeOf("https://x/rest/v1/candidate_profiles?full_name=ilike.*Fatima*", "candidate_profiles");
+    expect(shape).toBe("candidate_profiles full_name=ilike");
+    expect(shape).not.toContain("Fatima");
+  });
+
+  it("reduces an or() to its operators", () => {
+    const shape = shapeOf("https://x/rest/v1/leads?or=(email.eq.a@b.c,phone.ilike.*212*)", "leads");
+    expect(shape).toBe("leads or=eq|ilike");
+    expect(shape).not.toContain("a@b.c");
+    expect(shape).not.toContain("212");
+  });
+
+  it("is stable across two calls that differ only in their values", () => {
+    const a = shapeOf("https://x/rest/v1/documents?user_id=eq.aaa&select=id", "documents");
+    const b = shapeOf("https://x/rest/v1/documents?user_id=eq.bbb&select=id", "documents");
+    expect(a).toBe(b);
   });
 });
 

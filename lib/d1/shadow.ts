@@ -56,6 +56,35 @@ function readTarget(url: string, method: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * A query's SHAPE: the table, and which filters it used — values stripped.
+ *
+ * `documents?select=…&user_id=eq.<uuid>&order=created_at.desc&limit=50`
+ *   → "documents limit order=created_at select user_id=eq"
+ *
+ * Logged once per distinct shape so the logs answer the question the parity
+ * tests can't: which of the portal's real query shapes have actually been
+ * exercised against the copy. PostgREST puts the operator first in a filter
+ * value (`eq.<value>`), so keeping only that first segment keeps column names
+ * and operators — which are code — and drops every value, which is data.
+ */
+export function shapeOf(url: string, table: string): string {
+  const qs = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+  const parts: string[] = [];
+  for (const [k, v] of new URLSearchParams(qs)) {
+    if (k === "select") { parts.push("select"); continue; }
+    if (k === "or" || k === "and") {
+      // or=(a.eq.x,b.ilike.y) — take the operators, nothing else.
+      const ops = [...v.matchAll(/\.([a-z]+)\./g)].map((m) => m[1]);
+      parts.push(ops.length ? `${k}=${[...new Set(ops)].sort().join("|")}` : k);
+      continue;
+    }
+    const dot = v.indexOf(".");
+    parts.push(dot > 0 ? `${k}=${v.slice(0, dot)}` : k);
+  }
+  return `${table} ${[...new Set(parts)].sort().join(" ")}`.trim();
+}
+
 /** Canonical form so Postgres and SQLite answers compare on meaning, not formatting. */
 function canon(value: unknown): unknown {
   if (value === null || value === undefined) return null;
@@ -106,6 +135,9 @@ const MAX_BODY_BYTES = 2_000_000;
 
 /** Agreements logged in this isolate (see the report below). */
 let agreedLogged = 0;
+/** Shapes already announced in this isolate, so the log stays a map, not a stream. */
+const shapesSeen = new Set<string>();
+const MAX_SHAPES = 40;
 
 type Reporter = (diff: ShadowDiff) => void;
 
@@ -154,6 +186,13 @@ export function withShadowReads(base: typeof fetch): typeof fetch {
         })(url, { method, headers: init?.headers });
         if (!viaD1.ok) { report({ table, kind: "error", detail: `d1 http ${viaD1.status}` }); return; }
         const diff = compareBodies(table, live, await viaD1.json());
+        // Announce each distinct query shape once: over a few days these lines
+        // are the coverage map of what real traffic has proven.
+        const shape = shapeOf(url, table);
+        if (!shapesSeen.has(shape) && shapesSeen.size < MAX_SHAPES) {
+          shapesSeen.add(shape);
+          console.warn(`[shadow-d1] shape ${shape}`);
+        }
         if (diff) { report(diff); return; }
         // Silence can mean "agreed" or "never ran". Say so for the first few
         // agreements in each isolate, so the logs prove the path is alive —
