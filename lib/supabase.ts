@@ -16,11 +16,31 @@ export const supabase = createClient(url, anon);
 // NOTE: typed as any because we don't have a generated Supabase schema file.
 // To add strict typing: run `supabase gen types typescript > types/supabase.ts`
 // and replace `any` with the generated Database type.
+// ─── Shadow reads (Supabase → D1 migration) ───────────────────────────────────
+// Supabase answers every request, exactly as before. When SHADOW_D1_RATE is set
+// on the SERVER (e.g. "0.05"), that share of the service client's READS is also
+// replayed against the D1 copy after the response, and the two answers are
+// compared — real traffic proving the copy, with nothing on the response path.
+// Loaded dynamically and gated on `window` so no part of the adapter, and no
+// server-only import it pulls in, can reach the browser bundle.
+let _shadowFetch: Promise<typeof fetch> | null = null;
+function serviceFetch(): typeof fetch | undefined {
+  if (typeof window !== "undefined") return undefined;
+  const rate = process.env.SHADOW_D1_RATE;
+  if (!rate || rate === "0") return undefined;
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    _shadowFetch ??= import("@/lib/d1/shadow").then((m) => m.withShadowReads(fetch));
+    return _shadowFetch.then((f) => f(input as RequestInfo, init));
+  }) as typeof fetch;
+}
+
 let _serviceClient: SupabaseClient<any, any, any> | null = null;
 export function getServiceSupabase(): SupabaseClient<any, any, any> {
+  const shadow = serviceFetch();
   return (_serviceClient ??= createClient(
     url,
     process.env.SUPABASE_SERVICE_ROLE_KEY ?? "placeholder",
+    shadow ? { global: { fetch: shadow } } : undefined,
   ));
 }
 

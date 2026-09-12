@@ -42,6 +42,13 @@
   "r2_buckets": [
     { "binding": "R2", "bucket_name": "borivon-files" }
   ],
+  // The D1 COPY of the database (Supabase → D1 migration, WEUR). Bound so the
+  // shadow-read comparison can reach it; NOTHING reads it for real work —
+  // Supabase still answers every request, and the adapter only runs when
+  // SHADOW_D1_RATE is set. Binding it changes no behaviour on its own.
+  "d1_databases": [
+    { "binding": "BORIVON_DB", "database_name": "borivon-db", "database_id": "ffb9dcff-a501-4dc2-a94a-e5301e2595f0" }
+  ],
   // Cron triggers — mirror vercel.json "crons" so the bot's proactive automation (briefing,
   // midday/evening nudges, weekly report, auto-chase, inbox reminder + the riding SLA/follow-up
   // chase) runs on Cloudflare too. cf-worker.ts's scheduled() maps each → its /api/cron/* route.
