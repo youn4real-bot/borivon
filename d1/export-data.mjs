@@ -55,6 +55,17 @@ function encode(value, pg) {
   return lit(value);
 }
 
+/** The same value, as a bound parameter for the HTTP import (d1/import.mjs). */
+function encodeParam(value, pg) {
+  if (value === null || value === undefined) return null;
+  if (pg === "boolean") return value ? 1 : 0;
+  if (pg === "jsonb" || pg === "text[]" || pg === "uuid[]") return JSON.stringify(value);
+  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  return value;
+}
+
 const summary = [];
 for (const table of Object.keys(types).sort()) {
   if (SKIP_TABLES.has(table)) { summary.push(`${table}: skipped`); continue; }
@@ -78,6 +89,14 @@ for (const table of Object.keys(types).sort()) {
     out.push(`INSERT INTO ${q(table)} (${cols.map(q).join(",")}) VALUES\n${values.join(",\n")};`);
   }
   fs.writeFileSync(path.join(outDir, `${table}.sql`), out.join("\n") + "\n");
+  // Same rows as bound parameters — d1/import.mjs sends these over the HTTP API,
+  // which is the only way to import rows bigger than D1's ~100 KB statement cap
+  // (candidate_profiles' cv_draft + signatures, messages' inline attachments,
+  // organizations' logo data URL all exceed it).
+  fs.writeFileSync(
+    path.join(outDir, `${table}.json`),
+    JSON.stringify(rows.map((r) => cols.map((c) => encodeParam(r[c], types[table].columns[c].pg)))),
+  );
   summary.push(`${table}: ${rows.length}`);
 }
 fs.writeFileSync(path.join(outDir, "_counts.json"), JSON.stringify(Object.fromEntries(summary.map((s) => s.split(": "))), null, 1) + "\n");
