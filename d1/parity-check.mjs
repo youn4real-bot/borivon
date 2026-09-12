@@ -90,19 +90,30 @@ for (const table of tables) {
     if (page.length < 1000) break;
   }
 
-  const line = (row) => cols.map((c) => norm(row[c], types[table].columns[c].pg)).join("");
-  const a = sbRows.map(line), b = d1Rows.map(line);
+  // Per-column normalised values, so a difference can be named precisely.
+  const cells = (row) => cols.map((c) => norm(row[c], types[table].columns[c].pg));
+  const A = sbRows.map(cells), B = d1Rows.map(cells);
+  const a = A.map((r) => r.join(String.fromCharCode(31))), b = B.map((r) => r.join(String.fromCharCode(31)));
   rowsChecked += a.length;
 
   if (a.length !== b.length) { console.log(`!! ${table}: Supabase ${a.length} rows, D1 ${b.length}`); bad++; continue; }
-  const ha = sha(a.join("\n")), hb = sha(b.join("\n"));
+  const ha = sha(a.join(String.fromCharCode(10))), hb = sha(b.join(String.fromCharCode(10)));
   if (ha === hb) { console.log(`ok  ${table}: ${a.length} rows  ${ha}`); continue; }
 
   bad++;
-  const i = a.findIndex((x, n) => x !== b[n]);
-  const diffCols = i < 0 ? [] : cols.filter((c, n) => a[i].split("")[n] !== b[i].split("")[n]);
-  const key = i < 0 ? "?" : pk.map((c) => String(sbRows[i][c])).join("/");
-  console.log(`!! ${table}: ${a.length} rows differ — first at key ${key}, column(s): ${diffCols.join(", ") || "row order"}`);
+  // WHICH rows and WHICH columns differ — never the values (personal data).
+  const examples = [];
+  const colHits = new Map();
+  let differing = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue;
+    differing++;
+    const changed = cols.filter((c, n) => A[i][n] !== B[i][n]);
+    for (const c of changed) colHits.set(c, (colHits.get(c) ?? 0) + 1);
+    if (examples.length < 3) examples.push(`${pk.map((c) => String(sbRows[i][c])).join("/")} [${changed.join(", ")}]`);
+  }
+  const worst = [...colHits.entries()].sort((x, y) => y[1] - x[1]).map(([c, n]) => `${c}×${n}`).join(", ");
+  console.log(`!! ${table}: ${differing} of ${a.length} rows differ — columns: ${worst || "row order"}; e.g. ${examples.join(" | ")}`);
 }
 
 console.log(`\n${tables.length} tables, ${rowsChecked} rows compared, ${bad} mismatch(es)`);
