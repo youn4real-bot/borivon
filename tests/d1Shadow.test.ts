@@ -29,6 +29,20 @@ describe("compareBodies", () => {
     expect(d).toEqual({ table: "documents", kind: "rows", detail: "supabase 2 rows, d1 1" });
   });
 
+  it("calls the same rows in a different order what it is", () => {
+    const a = [{ id: "1", n: 1 }, { id: "2", n: 2 }, { id: "3", n: 3 }];
+    const b = [{ id: "3", n: 3 }, { id: "1", n: 1 }, { id: "2", n: 2 }];
+    const d = compareBodies("phase_slots", a, b);
+    expect(d?.kind).toBe("order");
+    expect(d?.detail).toContain("3 rows");
+  });
+
+  it("still reports a real difference when the order also differs", () => {
+    const a = [{ id: "1", status: "approved" }, { id: "2", status: "pending" }];
+    const b = [{ id: "2", status: "pending" }, { id: "1", status: "REJECTED" }];
+    expect(compareBodies("documents", a, b)?.kind).toBe("cells");
+  });
+
   it("names the columns that differ, and how often", () => {
     const a = [{ id: "1", status: "approved", note: "x" }, { id: "2", status: "pending", note: "y" }];
     const b = [{ id: "1", status: "rejected", note: "x" }, { id: "2", status: "rejected", note: "y" }];
