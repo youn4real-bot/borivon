@@ -417,7 +417,7 @@ async function signMany(req: Request, bucket: string, store: ObjectStore, prefix
  * rendered inline here would run script with the portal's cookies. Anything
  * else is sent as an opaque download.
  */
-const INLINE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
+export const INLINE_TYPES: ReadonlySet<string> = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 
 function browserResponse(method: string, obj: StoredObject, path: string, cacheControl: string, download: string | null): Response {
   const type = (obj.contentType ?? "").split(";")[0].trim().toLowerCase();
@@ -453,9 +453,12 @@ async function servePublic(method: string, bucket: string, path: string, search:
 }
 
 async function serveSigned(method: string, bucket: string, path: string, search: URLSearchParams, store: ObjectStore, prefix: string): Promise<Response> {
+  // Supabase validates the querystring before anything else (probed live).
+  const token = search.get("token");
+  if (token === null) return storageError("400", "Error", "querystring must have required property 'token'", "InvalidRequest");
   const target = objectKey(prefix, bucket, path);
   if (!target) return invalidKey();
-  const check = checkStorageToken(search.get("token"), bucket, target.path);
+  const check = checkStorageToken(token, bucket, target.path);
   if (check !== "ok") return storageError("400", "InvalidJWT", check === "expired" ? "jwt expired" : "invalid signature", "InvalidJWT");
   const obj = await store.get(target.key);
   if (!obj) return notFound();

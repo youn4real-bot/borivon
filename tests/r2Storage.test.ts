@@ -424,8 +424,10 @@ describe("signed URLs (sign-documents, slot-templates) need a live token for tha
     const good = new URL(data!.signedUrl).searchParams.get("token")!;
     const other = `${BASE}/object/sign/sign-documents/cand-2/req-2.pdf`;
     mem.touched.length = 0;
+    const bare = await serveMediaRequest(new Request(other), "sign", { store: mem.store });
+    expect(bare.status).toBe(400);
+    expect(await bare.json()).toEqual({ statusCode: "400", error: "Error", message: "querystring must have required property 'token'", code: "InvalidRequest" });
     const cases = [
-      other,
       `${other}?token=`,
       `${other}?token=${good}`,
       `${BASE}/object/sign/sign-documents/cand-1/req%201-signed.pdf?token=${good.slice(0, -3)}abc`,
