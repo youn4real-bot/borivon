@@ -16,10 +16,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { parseParityArgs } from "./parity-args.mjs";
 
-const root = process.argv[2];
-const only = process.argv.slice(3);
-if (!root) { console.error("usage: node d1/parity-check.mjs <repo-root> [table…]"); process.exit(1); }
+let parsed;
+try { parsed = parseParityArgs(process.argv.slice(2)); } catch (err) { console.error(String(err.message ?? err)); process.exit(1); }
+const { root, only, ignore } = parsed;
+if (!root) { console.error("usage: node d1/parity-check.mjs <repo-root> [table…] [--ignore=table.column,…]"); process.exit(1); }
 
 const env = Object.fromEntries(
   fs.readFileSync(path.join(root, ".env.local"), "utf8").split(/\r?\n/)
@@ -66,7 +68,9 @@ const tables = (only.length ? only : Object.keys(types).sort()).filter((t) => !S
 let bad = 0, rowsChecked = 0;
 
 for (const table of tables) {
-  const cols = Object.entries(types[table].columns).filter(([, c]) => !c.generated).map(([n]) => n);
+  const skipped = Object.keys(types[table].columns).filter((n) => ignore.has(`${table}.${n}`));
+  if (skipped.length) console.log(`    ${table}: not compared (--ignore): ${skipped.join(", ")}`);
+  const cols = Object.entries(types[table].columns).filter(([n, c]) => !c.generated && !ignore.has(`${table}.${n}`)).map(([n]) => n);
   const pk = types[table].pk.length ? types[table].pk : [cols[0]];
   const order = pk.map((c) => `${c}.asc`).join(",");
 

@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { tgSend } from "@/lib/telegram";
 import { looksLikeAffiliateCode } from "@/lib/affiliates";
+import { isWriteFrozenError, maintenanceResponse } from "@/lib/maintenance";
 
 /**
  * Public lead-capture endpoint for the homepage funnel (components/Funnel.tsx).
@@ -68,6 +69,13 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase();
 
+  // WRITE FREEZE (MAINTENANCE_WRITES, lib/maintenance.ts): for the few minutes of
+  // the final database copy, middleware lets this route run but the service
+  // client refuses its write. A lead is the one thing that must not be lost to a
+  // planned pause, so it still goes to the founder on Telegram (below), and the
+  // answer is the freeze's 503 — see the end of this handler.
+  let notSaved = false;
+
   // De-dupe accidental double-submits: same email + kind within the last hour.
   // Legitimate re-engagement days later still gets through.
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -86,12 +94,13 @@ export async function POST(req: NextRequest) {
     if (Object.keys(details).length) patch.details = details;
     if (Object.keys(patch).length) {
       const { error: updErr } = await db.from("leads").update(patch).eq("id", (dup as { id: string }).id);
-      if (updErr) console.error("[/api/leads] duplicate update failed:", updErr.message);
+      if (isWriteFrozenError(updErr)) notSaved = true;
+      else if (updErr) console.error("[/api/leads] duplicate update failed:", updErr.message);
     }
-    return NextResponse.json({ ok: true, duplicate: true });
+    if (!notSaved) return NextResponse.json({ ok: true, duplicate: true });
   }
 
-  let insErr = (await db.from("leads").insert(row)).error;
+  let insErr = notSaved ? null : (await db.from("leads").insert(row)).error;
   if (insErr && "ref_code" in row && /ref_code|column|schema cache|does not exist/i.test(insErr.message ?? "")) {
     // Pre-migration: leads.ref_code not added yet. NEVER lose a lead over an
     // analytics nicety — retry the insert without it.
@@ -99,7 +108,9 @@ export async function POST(req: NextRequest) {
     delete rest.ref_code;
     insErr = (await db.from("leads").insert(rest)).error;
   }
-  if (insErr) {
+  if (isWriteFrozenError(insErr)) {
+    notSaved = true;
+  } else if (insErr) {
     console.error("[/api/leads] insert error:", insErr.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
@@ -130,6 +141,7 @@ export async function POST(req: NextRequest) {
     const tgText = [
       `${KIND_LABEL[kind] ?? `✉️ Nouveau lead — ${kind}`} — borivon.com`,
       "",
+      notSaved ? "Maintenance : pas encore enregistré dans le portail" : null,
       row.name ? `Nom      : ${row.name}` : null,
       `E-mail   : ${row.email}`,
       row.phone ? `Téléphone: ${row.phone}` : null,
@@ -143,5 +155,10 @@ export async function POST(req: NextRequest) {
     catch (e) { console.error("[/api/leads] telegram ping failed:", e instanceof Error ? e.message : e); }
   }
 
+  // Not in the table yet: answer the freeze's own 503, never "ok". The funnel
+  // (components/Funnel.tsx) keeps a lead that did not get a 2xx in localStorage
+  // and re-sends it on the visitor's next visit, when it lands in the table too;
+  // the visitor's screen is the same either way. The founder already has it above.
+  if (notSaved) return maintenanceResponse(req.headers.get("accept-language"));
   return NextResponse.json({ ok: true });
 }

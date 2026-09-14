@@ -64,6 +64,14 @@ export async function GET(req: Request) {
       const env = getCloudflareContext().env as unknown as Record<string, unknown>;
       deps = { ...deps, cronsEnabled: String(env?.CF_CRONS_ENABLED ?? "") === "true" };
     } catch { deps = { ...deps, cronsEnabled: false }; }
+    // The migration switches (docs/cutover-runbook.md): after a deploy, THIS is
+    // how you prove the flip is actually live — a 200 on a page proves nothing.
+    // Booleans, like everything else in this body.
+    deps = {
+      ...deps,
+      d1Backend: process.env.DATA_BACKEND === "d1",
+      writesFrozen: process.env.MAINTENANCE_WRITES === "1",
+    };
   }
 
   // A failing DEEP probe must not flip the shallow uptime signal: an external

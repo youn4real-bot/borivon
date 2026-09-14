@@ -32,6 +32,10 @@ import { useLang } from "@/components/LangContext";
 const NotificationBell = dynamic(() => import("@/components/NotificationBell").then((m) => m.NotificationBell), { ssr: false });
 const ProfileIcon = dynamic(() => import("@/components/ProfileIcon").then((m) => m.ProfileIcon), { ssr: false });
 const BugReportButton = dynamic(() => import("@/components/BugReportButton").then((m) => m.BugReportButton), { ssr: false });
+// The write-freeze notice (lib/maintenance.ts). On EVERY route, not just the
+// portal: the public lead form saves too. Tiny, renders nothing unless a save
+// was refused by the freeze; lazy so it costs first paint nothing.
+const MaintenanceNotice = dynamic(() => import("@/components/MaintenanceNotice").then((m) => m.MaintenanceNotice), { ssr: false });
 
 function HomeLoginButton() {
   const { lang } = useLang();
@@ -167,6 +171,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
               Public/marketing/login pages never render it so a stale cached
               session can't leak after logout. */}
           {isPortal && <BugReportButton />}
+          <MaintenanceNotice />
         </MobileMenuProvider>
       </LangProvider>
     </ThemeProvider>

@@ -51,6 +51,7 @@ import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
 import { AdminSigSection } from "@/components/admin/AdminSigSection";
+import { reportIfMaintenance } from "@/lib/maintenance";
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
@@ -2620,6 +2621,8 @@ export default function AdminPage() {
       if (!res?.ok) {
         let body: { error?: string } = {};
         try { body = res ? JSON.parse(res.text) : {}; } catch { /* non-JSON */ }
+        // The write freeze: the calm maintenance notice, not an upload error.
+        if (res && reportIfMaintenance(res.status, body)) return;
         console.error("[adminUploadFile] upload failed:", res?.status, body);
         showError(uploadFailedMsg);
         return;

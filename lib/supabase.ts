@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { servicePlan, type ServicePlan } from "@/lib/dataBackend";
 
 const url  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? "https://placeholder.supabase.co";
 const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "placeholder";
@@ -16,35 +17,100 @@ export const supabase = createClient(url, anon);
 // NOTE: typed as any because we don't have a generated Supabase schema file.
 // To add strict typing: run `supabase gen types typescript > types/supabase.ts`
 // and replace `any` with the generated Database type.
-// ─── Shadow reads (Supabase → D1 migration) ───────────────────────────────────
-// Supabase answers every request, exactly as before. When SHADOW_D1_RATE is set
-// on the SERVER (e.g. "0.05"), that share of the service client's READS is also
-// replayed against the D1 copy after the response, and the two answers are
-// compared — real traffic proving the copy, with nothing on the response path.
-// Loaded dynamically and gated on `window` so no part of the adapter, and no
-// server-only import it pulls in, can reach the browser bundle.
-let _shadowFetch: Promise<typeof fetch> | null = null;
+// ─── Which database answers (Supabase → D1 migration) ─────────────────────────
+// Three server-side vars decide what the service client's fetch is
+// (lib/dataBackend.ts servicePlan(), composed in lib/d1/serviceFetch.ts):
+//
+//   DATA_BACKEND="d1"       D1 answers every /rest/v1 read, write and RPC, and
+//                           each successful write is journaled for rollback.
+//                           Auth, storage and realtime keep going to Supabase.
+//   SHADOW_D1_RATE="0.25"   (Supabase backend only) that share of READS is also
+//                           replayed against D1 after the response and compared.
+//   MAINTENANCE_WRITES="1"  data + storage writes are refused (the final copy).
+//
+// All at their defaults → servicePlan() is null → plain fetch, byte-for-byte the
+// client the site has always had. Loaded dynamically and gated on `window` so no
+// part of the adapter, and no server-only import it pulls in, can reach the
+// browser bundle. getAnonVerifyClient / getAuthSchemaClient below never take
+// this fetch: logins stay on Supabase.
+//
+// Why a `typeof window` ternary and not only the runtime check in servicePlan():
+// Next's compiler folds `typeof window` to a constant ("object" in client
+// bundles) before webpack looks for imports, so in the browser build this is
+// `null` and the import() is never seen — the adapter, the write journal and
+// d1/types.json (every table and column name) get no public static chunk. A
+// runtime-only guard still made webpack emit that chunk: 146 KB that no browser
+// requested but anyone holding its URL could download.
+const loadServiceFetch = typeof window === "undefined" ? () => import("@/lib/d1/serviceFetch") : null;
+
+let _serviceFetch: Promise<typeof fetch> | null = null;
 function serviceFetch(): typeof fetch | undefined {
-  if (typeof window !== "undefined") return undefined;
-  const rate = process.env.SHADOW_D1_RATE;
-  if (!rate || rate === "0") return undefined;
+  const plan = servicePlan();
+  if (!plan || !loadServiceFetch) return undefined;
+  const load = loadServiceFetch;
   return ((input: RequestInfo | URL, init?: RequestInit) => {
-    // If the adapter can't be loaded for any reason, fall back to the plain
-    // fetch. A testing aid must never be able to take the portal's reads down
-    // with it.
-    _shadowFetch ??= import("@/lib/d1/shadow").then((m) => m.withShadowReads(fetch)).catch(() => fetch);
-    return _shadowFetch.then((f) => f(input as RequestInfo, init));
+    _serviceFetch ??= load()
+      .then((m) => m.buildServiceFetch(plan, { base: fetch }))
+      .catch((err) => adapterUnavailable(plan, err));
+    return _serviceFetch.then((f) => f(input as RequestInfo, init));
   }) as typeof fetch;
+}
+
+/**
+ * The composition could not be loaded at all.
+ *
+ * On the Supabase backend that only costs a testing aid (shadow reads) or the
+ * second layer of the freeze (middleware still holds the first), so fall back
+ * to the plain fetch — neither may take the portal's reads down with it.
+ *
+ * On D1 a silent fallback would be split-brain: this isolate writing Supabase
+ * while the others write D1. Refuse data requests instead, loudly, and let auth
+ * and storage through.
+ */
+function adapterUnavailable(plan: ServicePlan, err: unknown): typeof fetch {
+  if (plan.backend !== "d1") return fetch;
+  console.error("[d1-backend] adapter failed to load; refusing data requests:", err instanceof Error ? err.message : String(err));
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const u = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!/\/rest\/v1\//.test(u)) return fetch(input as RequestInfo, init);
+    return Promise.resolve(new Response(
+      JSON.stringify({ code: "PGRST000", details: "d1-backend: adapter unavailable", hint: null, message: "Could not connect with the database" }),
+      { status: 503, headers: { "content-type": "application/json; charset=utf-8" } },
+    ));
+  }) as typeof fetch;
+}
+
+/* ═══════════════════════════════ STORAGE HOOK ═══════════════════════════════
+ * Where FILES move to R2. The storage branch (lib/storage/withR2Storage.ts)
+ * composes in here — it has to be the CLIENT, not the fetch: storage-js builds
+ * getPublicUrl() and the URL half of createSignedUrl() from the client's base
+ * URL without any network call, so a fetch-only swap would keep handing out
+ * supabase.co URLs for files that only exist in R2. Wiring, once it lands:
+ *
+ *   return withR2Storage(client);     // itself OFF unless STORAGE_BACKEND=r2
+ *
+ * Keep whatever it imports out of the browser bundle (this file is imported by
+ * client components): the R2 client must not become a static import of
+ * lib/supabase.ts. Note the order it creates: a swapped storage client no
+ * longer passes through the service fetch, so the client-side write freeze
+ * (lib/d1/serviceFetch.ts) stops seeing storage writes — middleware.ts still
+ * refuses every mutating /api request, which is where uploads come from.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function composeStorage(client: SupabaseClient<any, any, any>): SupabaseClient<any, any, any> {
+  return client;
 }
 
 let _serviceClient: SupabaseClient<any, any, any> | null = null;
 export function getServiceSupabase(): SupabaseClient<any, any, any> {
-  const shadow = serviceFetch();
-  return (_serviceClient ??= createClient(
+  // Decided once per isolate: the vars only change with a deploy, and a deploy
+  // is a fresh isolate.
+  if (_serviceClient) return _serviceClient;
+  const custom = serviceFetch();
+  return (_serviceClient = composeStorage(createClient(
     url,
     process.env.SUPABASE_SERVICE_ROLE_KEY ?? "placeholder",
-    shadow ? { global: { fetch: shadow } } : undefined,
-  ));
+    custom ? { global: { fetch: custom } } : undefined,
+  )));
 }
 
 // ─── Anon JWT-verification client ────────────────────────────────────────────

@@ -45,6 +45,7 @@ import { PendingSignatures } from "@/components/PendingSignatures";
 import { InterviewPicker } from "@/components/InterviewPicker";
 import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
 import { SIGN_FILL_ENABLED } from "@/lib/features";
+import { reportIfMaintenance } from "@/lib/maintenance";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -1863,6 +1864,16 @@ export default function DashboardPage() {
                 return;
               }
             } catch { /* not our structured error → fall through to generic */ }
+          }
+          // The write freeze for the database move: a planned pause, not a
+          // failure. Retrying twice into it would only end on "upload failed" —
+          // show the calm notice instead and leave the slot as it was.
+          if (reportIfMaintenance(st, xhr.responseText)) {
+            xhrRef.current = null;
+            stopProgressCreep();
+            replaceDocIdRef.current = null; replaceForKeyRef.current = null;
+            setUploadingKey(null);
+            return;
           }
           void failSettle("errUpload", st === 0 || st === 429 || st >= 500);
           return;
