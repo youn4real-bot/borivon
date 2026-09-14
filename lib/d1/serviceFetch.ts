@@ -1,0 +1,149 @@
+/**
+ * The service client's fetch, composed from the flags (see lib/dataBackend.ts).
+ *
+ * Outermost first:
+ *
+ *   write freeze      MAINTENANCE_WRITES="1" — refuse data/storage writes      (either backend)
+ *   storage handler   STORAGE_HANDLER hook — R2 answers /storage/v1            (d1 only, see below)
+ *   write journal     every successful mutation appended to _write_journal     (d1 only)
+ *   bvFetch           D1 answers /rest/v1 tables + RPC; everything else passes (d1 only)
+ *   shadow reads      a sample of reads replayed against D1 and compared       (supabase only)
+ *   fetch             Supabase: auth, realtime, storage, and data on "supabase"
+ *
+ * Loaded dynamically by lib/supabase.ts, server-side only, so none of this can
+ * reach the browser bundle.
+ */
+import { makeBvFetch, isPostgrestUrl } from "@/lib/d1/bvFetch";
+import { withShadowReads } from "@/lib/d1/shadow";
+import { withWriteJournal, EPHEMERAL_RPCS, type JournalOptions } from "@/lib/d1/writeJournal";
+import { isMutatingMethod } from "@/lib/maintenance";
+import type { ServicePlan } from "@/lib/dataBackend";
+import type { D1Runner } from "@/lib/d1/client";
+
+export type FetchLayer = (next: typeof fetch) => typeof fetch;
+
+/* ═══════════════════════════ STORAGE HANDLER HOOK ═══════════════════════════
+ * The R2-backed /storage/v1 handler is being built on its own branch. It
+ * composes in HERE: replace `null` with that layer, e.g.
+ *
+ *   import { withStorageFromR2 } from "@/lib/r2Storage";
+ *   export const STORAGE_HANDLER: FetchLayer | null = withStorageFromR2;
+ *
+ * Contract: `(next) => fetch` that answers /storage/v1/* itself and hands every
+ * other request to `next` untouched. It sits OUTSIDE the journal and the freeze
+ * sits outside it, so a frozen upload is refused before it reaches R2.
+ * Until it lands, storage keeps going to Supabase Storage even on "d1".
+ * ═══════════════════════════════════════════════════════════════════════════ */
+export const STORAGE_HANDLER: FetchLayer | null = null;
+
+function urlOf(input: RequestInfo | URL): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+}
+
+function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
+  return (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
+}
+
+/**
+ * Is this service-client request a WRITE the final copy would miss?
+ *
+ *   /rest/v1  any mutation, including RPCs — except rl_hit (ephemeral, not copied).
+ *   /storage/v1  any mutation — except the POSTs that only READ: list, list-v2 and
+ *             sign (a download URL). Blocking those would break every document
+ *             preview for the ten minutes of the freeze, for no safety gained.
+ *   anything else (auth, realtime broadcast): not part of the copy — auth stays
+ *             on Supabase through this whole migration.
+ */
+export function isFrozenWrite(method: string, url: string): boolean {
+  if (!isMutatingMethod(method)) return false;
+  let pathname: string;
+  try { pathname = new URL(url, "http://freeze.invalid").pathname; } catch { return false; }
+  if (/\/rest\/v1\//.test(pathname)) {
+    const rpc = pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)/);
+    return !(rpc && EPHEMERAL_RPCS.has(rpc[1]));
+  }
+  if (/\/storage\/v1\//.test(pathname)) {
+    return !/\/storage\/v1\/object\/(list|list-v2|sign)\//.test(pathname);
+  }
+  return false;
+}
+
+/**
+ * The refusal, in the shape each client parses: supabase-js reads a PostgREST
+ * error body `{code, details, hint, message}` straight into `error`; storage-js
+ * reads `message`/`statusCode`. 25006 is Postgres' own "read-only transaction"
+ * code — the honest description of the state, and it matches none of the codes
+ * call sites branch on (23505, 42703, PGRST116…), so it takes their generic
+ * error path rather than being mistaken for "already exists" or "not found".
+ */
+export function frozenResponse(url: string): Response {
+  const storage = /\/storage\/v1\//.test(url);
+  const body = storage
+    ? { statusCode: "503", error: "Service Unavailable", message: "writes are paused for maintenance (MAINTENANCE_WRITES)" }
+    : { code: "25006", details: null, hint: "MAINTENANCE_WRITES is on", message: "cannot execute write: writes are paused for maintenance" };
+  return new Response(JSON.stringify(body), {
+    status: 503,
+    statusText: "Service Unavailable",
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+export function withWriteFreeze(next: typeof fetch): typeof fetch {
+  return async function freezingFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = urlOf(input);
+    if (isFrozenWrite(methodOf(input, init), url)) {
+      console.warn(`[write-freeze] refused ${methodOf(input, init)} ${new URL(url, "http://x").pathname.replace(/^.*\/(rest|storage)\/v1\//, "$1/")}`);
+      return frozenResponse(url);
+    }
+    return next(input as RequestInfo, init);
+  } as typeof fetch;
+}
+
+/**
+ * bvFetch hands a PostgREST request to its passthrough when this runtime has no
+ * D1 (its safe choice while D1 was only a shadow). Once D1 IS the backend that
+ * fallback is split-brain: some isolates writing Supabase, others D1, and a
+ * rollback replay that cannot know about the first kind. So on "d1" a data
+ * request with no D1 FAILS CLOSED with PostgREST's own "database unreachable"
+ * answer, loudly; auth/storage/realtime still pass through.
+ */
+export function failClosedForData(base: typeof fetch): typeof fetch {
+  return async function failClosed(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = urlOf(input);
+    if (!isPostgrestUrl(url)) return base(input as RequestInfo, init);
+    console.error("[d1-backend] DATA REQUEST REFUSED: DATA_BACKEND=d1 but no D1 is reachable from this runtime");
+    return new Response(JSON.stringify({
+      code: "PGRST000",
+      details: "d1-backend: the D1 database is not reachable from this runtime",
+      hint: null,
+      message: "Could not connect with the database",
+    }), { status: 503, statusText: "Service Unavailable", headers: { "content-type": "application/json; charset=utf-8" } });
+  } as typeof fetch;
+}
+
+export type ServiceFetchDeps = {
+  /** The real network fetch (Supabase). */
+  base: typeof fetch;
+  /** Tests inject a D1 runner; production resolves the binding per request. */
+  runner?: D1Runner;
+  /** Journal options, or false to leave it out (tests of the bare switch). */
+  journal?: JournalOptions | false;
+  /** Overrides STORAGE_HANDLER (tests); `null` means none. */
+  storage?: FetchLayer | null;
+};
+
+export function buildServiceFetch(plan: ServicePlan, deps: ServiceFetchDeps): typeof fetch {
+  let f: typeof fetch;
+  if (plan.backend === "d1") {
+    f = makeBvFetch({ runner: deps.runner, passthrough: failClosedForData(deps.base) });
+    if (deps.journal !== false) {
+      const runner = deps.runner;
+      f = withWriteJournal(f, { ...(deps.journal ?? {}), runner: deps.journal?.runner ?? (runner ? async () => runner : undefined) });
+    }
+    const storage = deps.storage === undefined ? STORAGE_HANDLER : deps.storage;
+    if (storage) f = storage(f);
+  } else {
+    f = plan.shadow ? withShadowReads(deps.base) : deps.base;
+  }
+  return plan.freeze ? withWriteFreeze(f) : f;
+}

@@ -80,9 +80,20 @@
   // remove) to stop it. "0.25" = a quarter of reads — enough signal per day to
   // find shapes the parity tests never thought of, small enough that the extra
   // work after the response stays negligible.
+  // DATA_BACKEND — which database answers the portal's data requests
+  // (lib/dataBackend.ts). "supabase" = as always. "d1" = the D1 copy answers
+  // every /rest/v1 read, write and RPC, each successful write is journaled to
+  // _write_journal for a lossless rollback, and shadow reads stop. Logins,
+  // storage and realtime stay on Supabase either way. Only flip it by following
+  // docs/cutover-runbook.md (node d1/cutover.mjs prints the exact edit).
+  // MAINTENANCE_WRITES — "1" freezes writes for the final copy: mutating /api/*
+  // requests answer 503 (FR/EN/DE message), cron jobs skip, data/storage writes
+  // on the service client are refused. GETs keep working. "0" = normal.
   "vars": {
     "CF_CRONS_ENABLED": "true",
-    "SHADOW_D1_RATE": "0.25"
+    "SHADOW_D1_RATE": "0.25",
+    "DATA_BACKEND": "supabase",
+    "MAINTENANCE_WRITES": "0"
   },
   "observability": {
     "enabled": true

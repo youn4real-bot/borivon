@@ -125,6 +125,16 @@ export default {
       console.log(`[cron] dormant (CF_CRONS_ENABLED!=true) — skipped ${event.cron}`);
       return;
     }
+    // WRITE FREEZE for the final Supabase → D1 copy (docs/cutover-runbook.md).
+    // Every cron job writes (reminders sent, chases logged, briefings recorded),
+    // and a write landing between "export" and "D1 answers" is silently lost at
+    // the flip. Don't dispatch at all — the middleware would also answer the
+    // route "skipped", but not running is cheaper than running and discarding,
+    // and it keeps the per-minute trigger from logging a line every minute.
+    if (env.MAINTENANCE_WRITES === "1") {
+      console.warn(`[cron] write freeze (MAINTENANCE_WRITES=1) — skipped ${event.cron}`);
+      return;
+    }
     const path = CRON_ROUTES[event.cron];
     if (!path) {
       // A trigger exists in wrangler.jsonc with no matching CRON_ROUTES entry —
