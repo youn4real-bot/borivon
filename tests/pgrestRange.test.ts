@@ -41,6 +41,20 @@ describe("readInteger — Haskell's readMaybe :: Integer", () => {
     expect(readInteger("99999999999999999999")).toBe(BigInt("99999999999999999999"));
   });
 
+  it("reads any depth of parentheses — the depth is the caller's, and must never overflow the stack", () => {
+    // 8,000 deep threw a RangeError out of the adapter; live PostgREST answered it
+    // as limit 1 (balanced) or ignored it (unbalanced).
+    const deep = 100_000;
+    expect(readInteger(`${"(".repeat(deep)}3${")".repeat(deep)}`)).toBe(BigInt(3));
+    expect(readInteger(`${"( ".repeat(deep)}- 3${" )".repeat(deep)}`)).toBe(BigInt(-3));
+    expect(readInteger(`${"(".repeat(deep)}3`)).toBeNull();
+    expect(readInteger(`${"(".repeat(deep)}3${")".repeat(deep - 1)}`)).toBeNull();
+    expect(readInteger(`${"(".repeat(deep)}3${")".repeat(deep + 1)}`)).toBeNull();
+    expect(windowOf(`order=id.asc&limit=${"(".repeat(deep)}1${")".repeat(deep)}`)).toEqual([undefined, 1]);
+    expect(windowOf(`order=id.asc&offset=${"(".repeat(deep)}1${")".repeat(deep)}`)).toEqual([1, undefined]);
+    expect(windowOf(`order=id.asc&limit=${"(".repeat(deep)}1`)).toEqual([undefined, undefined]);
+  });
+
   it("refuses what GHC refuses", () => {
     const refused = ["", "abc", "3.5", "1e2", "3e0", "3abc", "+3", "0b11", "0x", "1_0", "--3", "3-", "-(3)", "( - (3))",
       "NaN", "Infinity", "\uff13", "\ufeff3", "(3", "3)"];

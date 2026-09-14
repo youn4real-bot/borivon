@@ -40,7 +40,6 @@ export function makeBvFetch(opts?: { runner?: D1Runner; passthrough?: typeof fet
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!isPostgrestUrl(url)) return passthrough(input as RequestInfo, init);
 
-    const request = input instanceof Request && !init ? input : new Request(url, init);
     const runner = opts?.runner ?? (await getD1());
     if (!runner) {
       // No D1 here: fall back to the real Supabase rather than failing. A
@@ -48,43 +47,49 @@ export function makeBvFetch(opts?: { runner?: D1Runner; passthrough?: typeof fet
       return passthrough(input as RequestInfo, init);
     }
 
-    // db.rpc("name", args) — a database function, not a table query.
-    const fn = rpcName(url);
-    if (fn) {
-      const args = await request.json().catch(() => ({}));
-      const outcome = await callRpc(fn, (args ?? {}) as Record<string, unknown>, runner.run.bind(runner))
-        .catch((err) => toPostgrestError(err, {}));
-      if (isRpcError(outcome)) return errorResponse(outcome);
-      return outcome.status === 204
-        ? new Response(null, { status: 204 })
-        : new Response(JSON.stringify(outcome.body), { status: outcome.status, headers: { "content-type": "application/json; charset=utf-8" } });
-    }
+    // Once D1 answers, nothing below may reject. A throw anywhere — parsing
+    // included, which used to sit outside every try (a limit=((((…)))) 8,000 parens
+    // deep overflowed the stack there) — reaches supabase-js as a FetchError, which
+    // it rethrows at the call site instead of handing back the `{ error }` every
+    // route branches on. So the whole answer is one try, and an unexpected failure
+    // is errors.ts's XX000 in PostgREST's error shape.
+    let head = false;
+    let table: string | undefined;
+    try {
+      const request = input instanceof Request && !init ? input : new Request(url, init);
 
-    // A HEAD answer never has a body, errors included (see errorResponse).
-    const head = request.method.toUpperCase() === "HEAD";
-    const intent = await parseRequest(request, registry);
-    if (isError(intent)) return errorResponse(intent, {}, head);
+      // db.rpc("name", args) — a database function, not a table query.
+      const fn = rpcName(url);
+      if (fn) {
+        const args = await request.json().catch(() => ({}));
+        const outcome = await callRpc(fn, (args ?? {}) as Record<string, unknown>, runner.run.bind(runner))
+          .catch((err) => toPostgrestError(err, {}));
+        if (isRpcError(outcome)) return errorResponse(outcome);
+        return outcome.status === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify(outcome.body), { status: outcome.status, headers: { "content-type": "application/json; charset=utf-8" } });
+      }
 
-    // A read can take more than one statement (a count beside the page, a text
-    // sort) — read.ts runs those.
-    if (intent.action === "select") {
-      try {
+      // A HEAD answer never has a body, errors included (see errorResponse).
+      head = request.method.toUpperCase() === "HEAD";
+      const intent = await parseRequest(request, registry);
+      if (isError(intent)) return errorResponse(intent, {}, head);
+      table = intent.table;
+
+      // A read can take more than one statement (a count beside the page, a text
+      // sort) — read.ts runs those.
+      if (intent.action === "select") {
         const read = await runSelect(intent, registry, (sql, params) => runner.run(sql, params));
         if (isError(read)) return errorResponse(read, {}, head);
         return respond(read.rows, { count: read.total, pageCount: read.pageCount }, intent);
-      } catch (err) {
-        return errorResponse(toPostgrestError(err, { table: intent.table }), {}, head);
       }
-    }
 
-    const built = buildSql(intent, registry);
-    if (isError(built)) return errorResponse(built);
-
-    try {
+      const built = buildSql(intent, registry);
+      if (isError(built)) return errorResponse(built);
       const answer = await runner.run(built.sql, built.params);
       return respond(decodeRows(answer.results, intent, registry), { changes: answer.meta?.changes }, intent);
     } catch (err) {
-      return errorResponse(toPostgrestError(err, { table: intent.table }));
+      return errorResponse(toPostgrestError(err, { table }), {}, head);
     }
   } as typeof fetch;
 }

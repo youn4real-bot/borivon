@@ -216,6 +216,35 @@ describe.skipIf(!ENABLED)("reads answer exactly like Supabase", () => {
     expect(await mismatches(cases)).toEqual([]);
   }, 900_000);
 
+  it("a limit or offset nested 8,000 parens deep: read as Supabase reads it, never a thrown fetch", async () => {
+    // Read through node:https: Supabase's answer to these carries ~49 KB of response
+    // headers, past the 16 KB undici's fetch accepts, which would fail the live
+    // side of the comparison rather than the adapter.
+    const https = await import("node:https");
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const liveGet = (path: string) => new Promise<Answer>((resolve, reject) => {
+      https.get(`${url}/rest/v1/${path}`, { headers: { apikey: key, Authorization: `Bearer ${key}` }, maxHeaderSize: 1_000_000 }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => { text += chunk; });
+        res.on("end", () => {
+          let body: unknown = text;
+          try { body = JSON.parse(text); } catch { /* not JSON: compare the text */ }
+          const range = res.headers["content-range"];
+          resolve({ status: res.statusCode ?? 0, range: typeof range === "string" ? range : null, body });
+        });
+      }).on("error", reject);
+    });
+    const deep = 8000;
+    for (const q of [`limit=${"(".repeat(deep)}1${")".repeat(deep)}`, `offset=${"(".repeat(deep)}1${")".repeat(deep)}`, `limit=${"(".repeat(deep)}1`]) {
+      const path = `app_settings?select=key&order=key.asc&${q}`;
+      const [a, b] = await Promise.all([liveGet(path), copy("GET", path)]);
+      expect(a.status, "live must answer, or this case proves nothing").toBe(200);
+      expect(b, q.slice(0, 12)).toEqual(a);
+    }
+  }, 120_000);
+
   it("through supabase-js: a page with its total, an offset past it, .single()'s message", async () => {
     const shape = (r: { data: unknown; error: unknown; count: number | null; status: number; statusText: string }) =>
       JSON.stringify({ data: r.data, error: r.error, count: r.count, status: r.status, statusText: r.statusText });

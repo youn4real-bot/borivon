@@ -70,21 +70,40 @@ function lexInteger(s: string, i: number): { n: bigint; end: number } | null {
   return { n: BigInt(s.slice(i, j)), end: j };
 }
 
-/** GHC.Read's readNumber under `parens`: `n`, `-n`, `- n`, and either inside any depth of parentheses. */
+/**
+ * GHC.Read's readNumber under `parens`: `n`, `-n`, `- n`, and either inside any
+ * depth of parentheses.
+ *
+ * A loop, not the recursion `parens` is written as. The depth is the caller's —
+ * `limit=((((…3))))` straight off the query string — and one stack frame per `(`
+ * threw a RangeError at ~8,000 of them, out of parseRequest and past bvFetch, so
+ * supabase-js got a FetchError instead of an answer. Live PostgREST reads that
+ * request as limit 3 (measured: 8,000 balanced parens → 200 `0-0/*` with
+ * `limit=(…1…)`, 8,000 unbalanced → every row), so any depth must read here too.
+ */
 function readNumberAt(s: string, i: number): { n: bigint; end: number } | null {
+  let depth = 0;
   i = skipSpaces(s, i);
-  if (s[i] === "(") {
-    const inner = readNumberAt(s, i + 1);
-    if (!inner) return null;
-    const j = skipSpaces(s, inner.end);
-    return s[j] === ")" ? { n: inner.n, end: j + 1 } : null;
+  while (s[i] === "(") {
+    depth++;
+    i = skipSpaces(s, i + 1);
   }
+  let num: { n: bigint; end: number } | null;
   if (s[i] === "-") {
     if (isSymbolChar(s[i + 1])) return null;                // `--3`, `-+3`: one symbol lexeme that isn't `-`
-    const num = lexInteger(s, skipSpaces(s, i + 1));
-    return num ? { n: -num.n, end: num.end } : null;
+    const lexed = lexInteger(s, skipSpaces(s, i + 1));
+    num = lexed ? { n: -lexed.n, end: lexed.end } : null;
+  } else {
+    num = lexInteger(s, i);
   }
-  return lexInteger(s, i);
+  if (!num) return null;
+  let end = num.end;
+  for (; depth > 0; depth--) {
+    const j = skipSpaces(s, end);
+    if (s[j] !== ")") return null;
+    end = j + 1;
+  }
+  return { n: num.n, end };
 }
 
 /** `readMaybe s :: Maybe Integer` — what PostgREST does with every limit and offset value. */

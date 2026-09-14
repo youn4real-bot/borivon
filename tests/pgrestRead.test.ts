@@ -160,6 +160,24 @@ describe.skipIf(!DatabaseSync)("runSelect against the real D1 schema", () => {
     expect(pages).toEqual([0, 1000]);
   });
 
+  it("answers every request with a Response, never a rejection — a limit nested 100,000 parens deep included", async () => {
+    const { makeBvFetch } = await import("../lib/d1/bvFetch");
+    const bv = makeBvFetch({
+      runner: { run: (sql, params = []) => run(sql, params) },
+      passthrough: (async () => { throw new Error("offline: must never reach Supabase"); }) as unknown as typeof fetch,
+    });
+    const deep = 100_000;
+    const get = (query: string) => bv(`http://127.0.0.1:9/rest/v1/rate_limits?select=bucket_key&order=bucket_key.asc&${query}`);
+    const balanced = await get(`limit=${"(".repeat(deep)}2${")".repeat(deep)}`);
+    expect([balanced.status, balanced.headers.get("content-range"), (await balanced.json()).length]).toEqual([200, "0-1/*", 2]);
+    const unbalanced = await get(`limit=${"(".repeat(deep)}2`);
+    expect([unbalanced.status, (await unbalanced.json()).length]).toEqual([200, 1000]);
+    // A runner that fails in a way errors.ts has never seen still ends as PostgREST's error body.
+    const broken = makeBvFetch({ runner: { run: async () => { throw Symbol("not an Error"); } }, passthrough: fetch });
+    const res = await broken("http://127.0.0.1:9/rest/v1/rate_limits?select=bucket_key");
+    expect([res.status, Object.keys(await res.json())]).toEqual([500, ["code", "details", "hint", "message"]]);
+  });
+
   it("walks arrow selects out of the whole column, and keeps a star's columns beside them", async () => {
     const one = async (select: string) =>
       ok(await runSelect(request(`select=${encodeURIComponent(select)}`, { table: "candidate_profiles" }), registry, run)).rows[0];
