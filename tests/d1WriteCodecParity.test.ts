@@ -138,6 +138,18 @@ describe.skipIf(!ENABLED)("writes answer like Supabase, against the D1 copy", ()
     const added = await db.from("leads").insert(leads).select("id, details");
     expect(added.error).toBeNull();
     expect((added.data as { details: unknown }[]).map((l) => l.details)).toEqual(leads.map((l) => l.details));
+    // jsonb comes back in jsonb's key order, whatever order the call site built the
+    // object in: a live lead's details, written with its keys reversed, must read
+    // back exactly as Supabase returns them. (Keys and a boolean only in the output.)
+    const liveDetails = ((await liveGet("leads?select=details&details=not.is.null&order=id.asc&limit=50")).body as { details: unknown }[])
+      .map((r) => r.details)
+      .find((d): d is Record<string, unknown> => !!d && typeof d === "object" && !Array.isArray(d) && Object.keys(d).length >= 3);
+    expect(liveDetails).toBeDefined();
+    const scrambled = Object.fromEntries(Object.entries(liveDetails!).reverse());
+    const written = await db.from("leads").insert({ kind: "person", name: MARK, email: `${MARK}-jsonb@example.invalid`, phone: "", message: "", details: scrambled }).select("details").single();
+    const back = (written.data as { details: Record<string, unknown> }).details;
+    expect(Object.keys(back)).toEqual(Object.keys(liveDetails!));
+    expect(JSON.stringify(back) === JSON.stringify(liveDetails)).toBe(true);
 
     // app/api/portal/academy/admin/route.ts add_members: a 200-candidate cohort, then a merge and a re-add.
     const members = (from: number, n: number, level: string) =>
@@ -229,6 +241,10 @@ describe.skipIf(!ENABLED)("writes answer like Supabase, against the D1 copy", ()
     const at = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?\+00:00$/.exec(doc.uploaded_at)!;
     const shifted = new Date(`${at[1]}T${at[2]}:${at[3]}:${at[4]}Z`).getTime() + 2 * 3600e3;
     const plus2 = `${new Date(shifted).toISOString().slice(0, 19)}${at[5] ?? ""}+02:00`;
+    // A live instant on a whole minute, so a datetime-local spelling can name it.
+    const whole = ((await liveGet("calendar_events?select=starts_at&order=starts_at.asc&limit=20")).body as { starts_at: string }[])
+      .map((r) => r.starts_at).find((s) => /T\d{2}:\d{2}:00\+00:00$/.test(s))!;
+    expect(whole).toBeDefined();
     const accepted: [string, unknown, string, [string, string]][] = [
       ["due_date", `${y}-${Number(m)}-${Number(d)}`, due, ["assistant_reminders", "due_date"]],
       ["due_date", `${m}/${d}/${y}`, due, ["assistant_reminders", "due_date"]],
@@ -238,6 +254,12 @@ describe.skipIf(!ENABLED)("writes answer like Supabase, against the D1 copy", ()
       ["due_at", plus2, doc.uploaded_at, ["documents", "uploaded_at"]],
       ["candidate_user_id", doc.id.toUpperCase(), doc.id, ["documents", "id"]],
       ["candidate_user_id", `{${doc.id}}`, doc.id, ["documents", "id"]],
+      // The spellings the codebase itself writes, which must never be refused: a
+      // `datetime-local` value (the pipeline's interview dates), a toISOString(),
+      // and a full instant into a date column.
+      ["due_at", whole.slice(0, 16), whole, ["calendar_events", "starts_at"]],
+      ["due_at", new Date(whole).toISOString(), whole, ["calendar_events", "starts_at"]],
+      ["due_date", `${due}T23:30:00.000Z`, due, ["assistant_reminders", "due_date"]],
     ];
     for (const [col, value, stored, [liveTable, liveCol]] of accepted) {
       const byVariant = await live(liveTable, liveCol, typeof value === "string" ? value : JSON.stringify(value));

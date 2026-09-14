@@ -21,5 +21,12 @@ export default defineConfig({
     // the fast pure-logic tests are unaffected since this is only a ceiling.
     testTimeout: 45_000,
     hookTimeout: 45_000,
+    // The live D1 parity suites (RUN_D1_PARITY=1) share ONE database. The write
+    // suites create marked rows for a few seconds; run in parallel, the read suites
+    // compared whole tables and filter results while those rows existed and failed
+    // on them (d1AdapterParity "every table…", d1FilterParity "operands…" seeing
+    // d1WriteCodecParity's probe reminder), which made a red run mean nothing. So
+    // live runs take the files one at a time; the unit suite stays parallel.
+    fileParallelism: process.env.RUN_D1_PARITY !== "1",
   },
 });

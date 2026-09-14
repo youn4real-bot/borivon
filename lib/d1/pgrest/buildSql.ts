@@ -55,7 +55,7 @@ import type {
 import { encodeValue, selectOutputKey } from "./decode";
 // The write half of Postgres' type checking: what a column's input function makes
 // of a payload value, or the 22P02 / 22007 / 22008 it refuses it with.
-import { isInputError, writeInput } from "./pgInput";
+import { isInputError, jsonbStoredText, writeInput } from "./pgInput";
 
 /* ────────────────────────────── errors ─────────────────────────────── */
 
@@ -870,6 +870,26 @@ function stampColumn(ctx: Ctx): string | undefined {
 const affectsRowTwice = (): PostgrestError => pgErr("21000", "ON CONFLICT DO UPDATE command cannot affect row a second time", 500,
   "Ensure that no rows proposed for insertion within the same command have duplicate constrained values.");
 
+/** now()'s key cell: an array, which no encoded value ever is. */
+const NOW_KEY = ["now()"];
+
+/**
+ * What a conflict column holds, for the 21000 check, in a row that leaves it to
+ * its DEFAULT: null for no default (NULL, which never conflicts), one shared
+ * marker for now() (a single value per statement in Postgres and in SQLite
+ * alike), the encoded literal otherwise. undefined when the value cannot be known
+ * here — gen_random_uuid() is new for every row, so it never collides, and any
+ * other expression is not guessed at.
+ */
+function defaultKeyCell(col: ColumnMeta | undefined): unknown {
+  const def = col?.default;
+  if (!col || def === null || def === undefined) return null;
+  if (def === "now()") return NOW_KEY;
+  if ((typeof def === "string" && /\(|::/.test(def)) || col.pg === "jsonb" || col.pg === "text[]" || col.pg === "uuid[]") return undefined;
+  const typed = writeInput(def, col.pg);
+  return isInputError(typed) ? undefined : encodeParam(typed.value, col.pg);
+}
+
 /**
  * One payload value → its bound parameter: read by the column's input function
  * first (the 22P02 / 22003 / 22007 / 22008 Supabase answers with), then spelled
@@ -878,6 +898,9 @@ const affectsRowTwice = (): PostgrestError => pgErr("21000", "ON CONFLICT DO UPD
 function writeParam(col: ColumnMeta, value: unknown, viaJsonb: boolean): unknown {
   const typed = writeInput(value, col.pg, viaJsonb);
   if (isInputError(typed)) return fail(typed.error);
+  // jsonb is re-ordered the way Postgres stores it (see jsonbStoredText). Only a
+  // WRITE goes this way: a filter operand is a string, which has no keys to order.
+  if (col.pg === "jsonb" && typed.value !== null) return jsonbStoredText(typed.value);
   return encodeParam(typed.value, col.pg);
 }
 
@@ -958,17 +981,6 @@ function buildInsert(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   // a JSON object can mark that cell without ever colliding with a value.
   const DEFAULT_CELL = {};
   const defaulted = new Set<number>();
-  // DO UPDATE may not reach one row twice. Postgres raises 21000 when a row
-  // conflicts with one the same statement already wrote; SQLite just updates it
-  // again, and answered 201 with a representation per input row for one stored
-  // row (academy add_members never de-duplicates its candidateIds). Two rows
-  // collide when every conflict column holds the same non-NULL value — NULLs never
-  // conflict — and the values are canonical by now (a uuid lowercased, a timestamp
-  // respelled), so equal cells are equal keys.
-  const keyAt = upsert && !intent.ignoreDuplicates && target.every((c) => cols.includes(c))
-    ? target.map((c) => cols.indexOf(c))
-    : null;
-  const seen = new Set<string>();
   const cells: unknown[][] = [];
   for (const row of rows) {
     const encoded: unknown[] = new Array(cols.length).fill(null);
@@ -983,15 +995,39 @@ function buildInsert(ctx: Ctx, intent: QueryIntent): BuiltQuery {
         defaulted.add(i);
       }
     }
-    if (keyAt) {
-      const key = keyAt.map((i) => encoded[i]);
-      if (key.every((v) => v !== null && v !== DEFAULT_CELL)) {
-        const k = JSON.stringify(key);
-        if (seen.has(k)) fail(affectsRowTwice());
-        seen.add(k);
-      }
-    }
     cells.push(encoded);
+  }
+
+  // DO UPDATE may not reach one row twice. Postgres raises 21000 when a row
+  // conflicts with one the same statement already wrote; SQLite just updates it
+  // again, and answered 201 with a representation per input row for one stored
+  // row (academy add_members never de-duplicates its candidateIds). Two rows
+  // collide when every conflict column holds the same non-NULL value — NULLs never
+  // conflict — and the values are canonical by now (a uuid lowercased, a timestamp
+  // respelled), so equal cells are equal keys.
+  //
+  // Checked only once EVERY row has been read. json_to_recordset() is a function
+  // scan, which Postgres runs to completion into a tuplestore before the INSERT
+  // pulls its first row (nodeFunctionscan.c), so a value it cannot read anywhere
+  // in the payload is refused before any row gets as far as ON CONFLICT: rows 1
+  // and 2 sharing a key with a bad uuid in row 3 is 22P02, not 21000.
+  if (upsert && !intent.ignoreDuplicates) {
+    const seen = new Set<string>();
+    for (const encoded of cells) {
+      const key: unknown[] = [];
+      for (const c of target) {
+        const i = cols.indexOf(c);
+        // A conflict column the row leaves to the database takes its default, which
+        // Postgres fills in before looking for a conflict.
+        const cell = i >= 0 && encoded[i] !== DEFAULT_CELL ? encoded[i] : defaultKeyCell(ctx.meta.columns[c]);
+        if (cell === null || cell === undefined) break;
+        key.push(cell);
+      }
+      if (key.length < target.length) continue;
+      const k = JSON.stringify(key);
+      if (seen.has(k)) fail(affectsRowTwice());
+      seen.add(k);
+    }
   }
 
   const ROW = `"row$"`;

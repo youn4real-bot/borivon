@@ -932,6 +932,31 @@ export function jsonbText(v: unknown): string {
   return `{${Object.keys(obj).sort(jsonbKeyOrder).map((k) => `${JSON.stringify(k)}: ${jsonbText(obj[k])}`).join(", ")}}`;
 }
 
+/**
+ * A written jsonb value as the copy stores it: compact JSON with every object's
+ * keys in jsonb's order.
+ *
+ * jsonb keeps no insertion order, so Supabase hands `{positions, sector, city}`
+ * back as `{city, sector, positions}`, and d1/export-data.mjs stored every
+ * imported row in that order. Stringifying the caller's object as sent stored the
+ * row in whatever order the call site built it: a lead written through the
+ * adapter came back with its keys in a different order from Supabase, and from
+ * the imported leads next to it. Numbers stay in JSON.stringify's spelling, the
+ * one the import used; they parse to the same value as numeric_out's.
+ */
+export function jsonbStoredText(v: unknown): string {
+  // Round-trip first so a hand-built value (a Date, an undefined property) is
+  // exactly the JSON supabase-js would have put on the wire.
+  const walk = (x: unknown): string => {
+    if (x === null || typeof x !== "object") return JSON.stringify(x);
+    if (Array.isArray(x)) return `[${x.map(walk).join(",")}]`;
+    const obj = x as Record<string, unknown>;
+    return `{${Object.keys(obj).sort(jsonbKeyOrder).map((k) => `${JSON.stringify(k)}:${walk(obj[k])}`).join(",")}}`;
+  };
+  const json = JSON.stringify(v);
+  return json === undefined ? "null" : walk(JSON.parse(json));
+}
+
 /* ── dispatch ─────────────────────────────────────────────────────────────── */
 
 /**

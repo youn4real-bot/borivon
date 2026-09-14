@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  arrayIn, boolIn, dateIn, inputValue, intIn, isInputError, jsonbText, numericIn, numericText, timestamptzIn, uuidIn, writeInput,
+  arrayIn, boolIn, dateIn, inputValue, intIn, isInputError, jsonbStoredText, jsonbText, numericIn, numericText, timestamptzIn, uuidIn, writeInput,
   type InputResult,
 } from "../lib/d1/pgrest/pgInput";
 
@@ -316,6 +316,23 @@ describe("inputValue", () => {
  * text. The input functions are the ones proven above against live filters; what
  * these tests pin is the JSON → text step in front of them.
  */
+describe("jsonbStoredText", () => {
+  it("orders keys the way jsonb stores them — shorter first, then bytewise — at every depth, compact", () => {
+    // The order live Supabase returns a leads.details row in, whatever order it was written in.
+    expect(jsonbStoredText({ positions: ["x"], sector: "Pflege", city: "Kiel" })).toBe('{"city":"Kiel","sector":"Pflege","positions":["x"]}');
+    expect(jsonbStoredText({ service: "x", nested: { bb: 1, a: [{ zz: 1, y: null }] }, format: "y", company: "z", "10": 1 }))
+      .toBe('{"10":1,"format":"y","nested":{"a":[{"y":null,"zz":1}],"bb":1},"company":"z","service":"x"}');
+    // Length and order are UTF-8 bytes: `é` is two bytes, and 0xC3 sorts after `a`.
+    expect(jsonbStoredText({ "é": 1, ab: 2, z: 3 })).toBe('{"z":3,"ab":2,"é":1}');
+  });
+
+  it("writes what supabase-js would have sent for everything that is not an object", () => {
+    expect(jsonbStoredText("abc")).toBe('"abc"');
+    expect(jsonbStoredText([3, { b: 1, a: 2 }])).toBe('[3,{"a":2,"b":1}]');
+    expect(jsonbStoredText({ at: new Date(Date.UTC(2026, 8, 14)), gone: undefined, n: Number.NaN })).toBe('{"n":null,"at":"2026-09-14T00:00:00.000Z"}');
+  });
+});
+
 describe("writeInput", () => {
   it("reads a JSON number or boolean as its literal, so the input function sees `2.5` and `true`", () => {
     expect(failure(writeInput(2.5, "integer"))).toEqual({ code: "22P02", message: 'invalid input syntax for type integer: "2.5"', details: null, hint: null, status: 400 });

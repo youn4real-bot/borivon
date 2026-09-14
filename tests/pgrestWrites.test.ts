@@ -107,6 +107,11 @@ describe("every written value goes through its column's input function", () => {
     }));
     expect(JSON.parse(String(q.params[0]))).toEqual([[U1, "5", "2026-09-04", "2026-03-04T00:00:00+00:00", 1, 7]]);
   });
+
+  it("stores a jsonb object with its keys in jsonb's order, as the imported rows are", () => {
+    const q = ok(intent({ table: "leads", action: "insert", values: [{ kind: "person", name: "N", details: { positions: ["x"], sector: "Pflege", city: "Kiel" } }] }));
+    expect(JSON.parse(String(q.params[0]))).toEqual([["person", "N", '{"city":"Kiel","sector":"Pflege","positions":["x"]}']]);
+  });
 });
 
 describe("an upsert may not reach one row twice", () => {
@@ -133,6 +138,21 @@ describe("an upsert may not reach one row twice", () => {
     ok(intent({ table: "candidate_reminders", action: "upsert", values: [{ user_id: U1, items: [] }, { user_id: U1, items: [] }] }));
     // A plain insert of a duplicate is the database's 23505, not a builder error.
     ok(intent({ table: "academy_cohort_members", action: "insert", values: [member, member] }));
+  });
+
+  it("reads every row before looking for a collision, as Postgres' function scan does", () => {
+    const e = refused(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, member, { ...member, candidate_user_id: "not-a-uuid" }] }));
+    expect(e).toMatchObject({ code: "22P02", message: 'invalid input syntax for type uuid: "not-a-uuid"' });
+  });
+
+  it("counts a conflict column the rows leave to its default", () => {
+    const rows = [{ user_id: U1, items: [] }, { user_id: U1, items: [] }];
+    // candidate_reminders.kind defaults to 'documents', so both rows propose (U1, documents).
+    expect(refused(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], values: rows })).code).toBe("21000");
+    expect(refused(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], columns: ["user_id", "kind", "items"], missingDefault: true, values: [rows[0], { ...rows[1], kind: "documents" }] })).code).toBe("21000");
+    // gen_random_uuid() is new for every row, and a key a row lacks without missing=default is NULL: neither collides.
+    ok(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["id", "user_id"], values: rows }));
+    ok(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], columns: ["user_id", "kind", "items"], values: rows }));
   });
 });
 
@@ -268,6 +288,11 @@ describe.skipIf(!DatabaseSync)("writes run against the real D1 schema", () => {
   it("stores text the way Postgres stores it — never `5.0` or `1.0`", () => {
     const out = all(intent({ table: "assistant_reminders", action: "insert", returning: "representation", select: [{ column: "text" }], values: [{ owner_user_id: U1, text: 5 }, { owner_user_id: U1, text: true }] }));
     expect(out.map((r) => r.text)).toEqual(["5", "true"]);
+  });
+
+  it("stores jsonb in the key order json_each, and so every reader, walks it", () => {
+    const out = all(intent({ table: "leads", action: "insert", returning: "representation", select: [{ column: "details" }], values: [{ kind: "person", name: "N", email: "", phone: "", message: "", details: { positions: 2, sector: "s", city: "c" } }] }));
+    expect(out).toEqual([{ details: '{"city":"c","sector":"s","positions":2}' }]);
   });
 
   it("fills a missing key with the column default under missing=default, and with NULL otherwise", () => {
