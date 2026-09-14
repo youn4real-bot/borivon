@@ -7,17 +7,21 @@
  * Supabase's own "Bucket not found" refusal, so a contract in sign-documents
  * can never be fetched by guessing its path.
  *
- * 404s unless STORAGE_BACKEND=r2 (or STORAGE_MEDIA_ROUTES=on during a
- * rollback), so merging this changes nothing on the live site.
+ * STORAGE_BACKEND "r2": served from R2. "supabase" (rollback): a redirect to
+ * the same object on Supabase, which is the truth again. Unset: 404, so merging
+ * this changes nothing on the live site.
  */
-import { r2MediaRoutesEnabled } from "@/lib/storage/withR2Storage";
+import { r2MediaRoutesEnabled, r2StorageEnabled } from "@/lib/storage/withR2Storage";
 import { serveMediaRequest } from "@/lib/storage/r2StorageFetch";
+import { supabaseRedirects } from "@/lib/storage/supabaseRedirects";
+import { getServiceSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request): Promise<Response> {
   if (!r2MediaRoutesEnabled()) return new Response("Not found", { status: 404 });
-  return serveMediaRequest(req, "public");
+  if (r2StorageEnabled()) return serveMediaRequest(req, "public");
+  return serveMediaRequest(req, "public", { rollback: supabaseRedirects(getServiceSupabase().storage) });
 }
 
 export async function HEAD(req: Request): Promise<Response> {

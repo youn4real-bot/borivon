@@ -53,6 +53,22 @@ const BUCKET_RULES: Record<string, { maxBytes: number; mimeTypes: readonly strin
   "feed-photos": { maxBytes: 5 * 1024 * 1024, mimeTypes: ["image/jpeg", "image/png", "image/webp"] },
 };
 
+/**
+ * Supabase Storage, kept in step while it is still alive and still the rollback
+ * target. Without it, the day R2 starts answering:
+ *   • a cleared profile photo, a deleted feed post or a deleted account loses
+ *     only its R2 copy — the Supabase copy stays publicly downloadable at its
+ *     old supabase.co URL, and contracts stay in the sign-documents bucket;
+ *   • a rollback serves Supabase's pre-switch state: every contract signed while
+ *     R2 was active 404s, and every file deleted in that time comes back.
+ * So every upload and remove that SUCCEEDS on R2 is repeated on Supabase.
+ */
+export type StorageMirror = {
+  /** Always an upsert: afterwards Supabase holds exactly the bytes R2 holds. */
+  upload(bucket: string, path: string, bytes: Uint8Array, contentType: string, cacheControl: string | null): Promise<void>;
+  remove(bucket: string, paths: string[]): Promise<void>;
+};
+
 export type R2StorageOptions = {
   /** Where bytes live. Defaults to the runtime's R2 (lib/storage/objectStore.ts). */
   store?: ObjectStore | null;
@@ -60,7 +76,39 @@ export type R2StorageOptions = {
   passthrough?: typeof fetch;
   /** Key prefix in R2. "supabase" in production; the live test writes under a throwaway one. */
   prefix?: string;
+  /** Repeat successful writes on Supabase Storage (see StorageMirror). Null = R2 only. */
+  mirror?: StorageMirror | null;
+  /** How long a mirror call may hold up the response before it counts as missed. */
+  mirrorTimeoutMs?: number;
 };
+
+type MirrorRun = (op: "upload" | "remove", bucket: string, paths: string[], work: (m: StorageMirror) => Promise<void>) => Promise<void>;
+
+/**
+ * Best effort, and awaited: R2 already holds the truth, so a mirror failure must
+ * never fail the call — but a fire-and-forget promise can be cut off when a
+ * Worker returns its response, which would drop mirrors silently. Awaiting with
+ * a ceiling keeps them reliable without letting a slow Supabase hang an upload.
+ * A miss is logged with its paths: storage/copy-back-to-supabase.mjs repairs it.
+ */
+function mirrorRunner(mirror: StorageMirror | null | undefined, timeoutMs: number): MirrorRun | null {
+  if (!mirror) return null;
+  return async (op, bucket, paths, work) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        work(mirror),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs} ms`)), timeoutMs); }),
+      ]);
+    } catch (err) {
+      const shown = paths.length > 5 ? `${paths.slice(0, 5).join(", ")} (+${paths.length - 5} more)` : paths.join(", ");
+      const why = err instanceof Error ? err.message : typeof err === "object" && err && "message" in err ? String((err as { message: unknown }).message) : String(err);
+      console.error(`[r2-storage] MIRROR MISS ${op} ${bucket}: ${shown} — ${why}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+}
 
 // ── responses ────────────────────────────────────────────────────────────────
 
@@ -138,6 +186,7 @@ export function parseStorageUrl(url: string): { rest: string[]; search: URLSearc
 export function makeR2StorageFetch(opts: R2StorageOptions = {}): typeof fetch {
   const passthrough = opts.passthrough ?? fetch;
   const prefix = normPrefix(opts.prefix);
+  const mirror = mirrorRunner(opts.mirror, opts.mirrorTimeoutMs ?? 15_000);
 
   return async function r2StorageFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -151,7 +200,7 @@ export function makeR2StorageFetch(opts: R2StorageOptions = {}): typeof fetch {
     const store = opts.store ?? (await defaultObjectStore());
     if (!store) return unreachable();
     try {
-      return await dispatch(request, route, store, prefix);
+      return await dispatch(request, route, store, prefix, mirror);
     } catch (err) {
       console.error("[r2-storage]", request.method, route.rest.slice(0, 2).join("/"), err instanceof Error ? err.message : err);
       return internal();
@@ -159,7 +208,7 @@ export function makeR2StorageFetch(opts: R2StorageOptions = {}): typeof fetch {
   } as typeof fetch;
 }
 
-async function dispatch(req: Request, route: { rest: string[]; search: URLSearchParams }, store: ObjectStore, prefix: string): Promise<Response> {
+async function dispatch(req: Request, route: { rest: string[]; search: URLSearchParams }, store: ObjectStore, prefix: string, mirror: MirrorRun | null): Promise<Response> {
   const method = req.method.toUpperCase();
   const [area, op, ...after] = route.rest;
 
@@ -200,9 +249,9 @@ async function dispatch(req: Request, route: { rest: string[]; search: URLSearch
   // /object/<bucket>/<path…>
   const bucket = op;
   const path = after.join("/");
-  if (method === "DELETE" && after.length === 0) return remove(req, bucket, store, prefix);
+  if (method === "DELETE" && after.length === 0) return remove(req, bucket, store, prefix, mirror);
   if (method === "GET" || method === "HEAD") return download(method, bucket, path, store, prefix);
-  if (method === "POST" || method === "PUT") return upload(req, method, bucket, path, store, prefix);
+  if (method === "POST" || method === "PUT") return upload(req, method, bucket, path, store, prefix, mirror);
   return unsupported(`${method} /object`);
 }
 
@@ -236,26 +285,30 @@ async function download(method: string, bucket: string, path: string, store: Obj
   return new Response(obj.body, { status: 200, headers: objectHeaders(obj) });
 }
 
-async function readUpload(req: Request): Promise<{ bytes: Uint8Array; contentType: string }> {
+async function readUpload(req: Request): Promise<{ bytes: Uint8Array; contentType: string; cacheControl: string | null }> {
   const type = req.headers.get("content-type") ?? "";
   if (type.toLowerCase().startsWith("multipart/form-data")) {
     // storage-js sends a Blob/File as FormData: a cacheControl field plus the
     // file under an empty name. The part's own type is the object's mimetype.
     const form = await req.formData();
+    const cc = form.get("cacheControl");
+    const cacheControl = typeof cc === "string" && cc ? cc : null;
     for (const [, value] of form.entries()) {
       if (typeof value !== "string") {
-        return { bytes: new Uint8Array(await value.arrayBuffer()), contentType: value.type || "application/octet-stream" };
+        return { bytes: new Uint8Array(await value.arrayBuffer()), contentType: value.type || "application/octet-stream", cacheControl };
       }
     }
-    return { bytes: new Uint8Array(), contentType: "application/octet-stream" };
+    return { bytes: new Uint8Array(), contentType: "application/octet-stream", cacheControl };
   }
-  return { bytes: new Uint8Array(await req.arrayBuffer()), contentType: type || "application/octet-stream" };
+  // Raw bodies carry it as a header: "cache-control: max-age=<seconds>".
+  const maxAge = /max-age=(\d+)/.exec(req.headers.get("cache-control") ?? "");
+  return { bytes: new Uint8Array(await req.arrayBuffer()), contentType: type || "application/octet-stream", cacheControl: maxAge ? maxAge[1] : null };
 }
 
-async function upload(req: Request, method: "POST" | "PUT", bucket: string, path: string, store: ObjectStore, prefix: string): Promise<Response> {
+async function upload(req: Request, method: "POST" | "PUT", bucket: string, path: string, store: ObjectStore, prefix: string, mirror: MirrorRun | null): Promise<Response> {
   const target = objectKey(prefix, bucket, path);
   if (!target) return invalidKey();
-  const { bytes, contentType } = await readUpload(req);
+  const { bytes, contentType, cacheControl } = await readUpload(req);
 
   const rule = BUCKET_RULES[bucket];
   if (rule) {
@@ -273,6 +326,9 @@ async function upload(req: Request, method: "POST" | "PUT", bucket: string, path
   if (method === "POST" && existing && req.headers.get("x-upsert") !== "true") return duplicate();
 
   await store.put(target.key, bytes, contentType);
+  // Only after R2 accepted it: a refused upload (duplicate, size, type, freeze)
+  // must not land in Supabase either.
+  await mirror?.("upload", bucket, [target.path], (m) => m.upload(bucket, target.path, bytes, contentType, cacheControl));
   return json({ Id: stableObjectId(bucket, target.path), Key: `${bucket}/${target.path}` });
 }
 
@@ -314,14 +370,15 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-async function remove(req: Request, bucket: string, store: ObjectStore, prefix: string): Promise<Response> {
+async function remove(req: Request, bucket: string, store: ObjectStore, prefix: string, mirror: MirrorRun | null): Promise<Response> {
   const body = await readJson(req);
   const prefixes = Array.isArray(body.prefixes) ? body.prefixes.filter((p): p is string => typeof p === "string") : [];
   if (prefixes.length === 0) return badRequest("body/prefixes must NOT have fewer than 1 items");
 
   // Like Supabase: only objects that existed are reported; unknown or refused
   // paths are skipped silently rather than failing the whole batch.
-  const removed = await mapLimit([...new Set(prefixes)], 8, async (p) => {
+  const unique = [...new Set(prefixes)];
+  const removed = await mapLimit(unique, 8, async (p) => {
     const target = objectKey(prefix, bucket, p);
     if (!target) return null;
     const head = await store.head(target.key);
@@ -329,14 +386,55 @@ async function remove(req: Request, bucket: string, store: ObjectStore, prefix: 
     await store.delete(target.key);
     return { bucket_id: bucket, ...fileEntry(bucket, target.path, target.path, head) };
   });
+
+  // Every path the caller named (and the key rules allow), not only those R2
+  // had: Supabase can hold one R2 never got, and "delete" must mean gone there
+  // too. Exactly the caller's paths — the mirror adds no archiving and drops
+  // none (LAW #33).
+  const named = unique.map((p) => objectKey(prefix, bucket, p)?.path).filter((p): p is string => !!p);
+  if (named.length) await mirror?.("remove", bucket, named, (m) => m.remove(bucket, named));
   return json(removed.filter((r) => r !== null));
 }
 
-/** Postgres ILIKE `search%` — `%` any run, `_` any one character, case-insensitive. */
-function startsLike(name: string, search: string): boolean {
+const ANY = 0;
+const ONE = 1;
+
+/**
+ * Postgres ILIKE `search%` — `%` any run, `_` any one character, backslash
+ * escapes the next one (LIKE's default ESCAPE), case-insensitive.
+ *
+ * A matcher, not a RegExp: every `%` became a `.*`, and a search like
+ * "%%%%%%%!" backtracks exponentially — measured 776 ms at six wildcards and
+ * 5.5 s at seven, each extra % multiplying it — where Postgres answers at once.
+ * This is the greedy wildcard walk: at most one backtrack point, so
+ * O(name x search) whatever the input. Runs of % collapse to one.
+ */
+export function ilikePrefix(name: string, search: string): boolean {
   if (!search) return true;
-  const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".");
-  return new RegExp(`^${pattern}`, "is").test(name);
+  const pat: (string | typeof ANY | typeof ONE)[] = [];
+  const chars = Array.from(search.toLowerCase());
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if (c === "\\" && i + 1 < chars.length) pat.push(chars[++i]);
+    else if (c === "%") { if (pat[pat.length - 1] !== ANY) pat.push(ANY); }
+    else if (c === "_") pat.push(ONE);
+    else pat.push(c);
+  }
+  if (pat[pat.length - 1] !== ANY) pat.push(ANY); // the prefix match's trailing %
+  const s = Array.from(name.toLowerCase());
+  let i = 0;
+  let p = 0;
+  let star = -1;
+  let resume = 0;
+  while (i < s.length) {
+    const t = pat[p];
+    if (p < pat.length && t !== ANY && (t === ONE || t === s[i])) { i++; p++; }
+    else if (p < pat.length && t === ANY) { star = p++; resume = i; }
+    else if (star >= 0) { p = star + 1; i = ++resume; }
+    else return false;
+  }
+  while (p < pat.length && pat[p] === ANY) p++;
+  return p === pat.length;
 }
 
 type ListEntry = ReturnType<typeof fileEntry> | { name: string; id: null; updated_at: null; created_at: null; last_accessed_at: null; metadata: null };
@@ -389,7 +487,7 @@ async function list(req: Request, bucket: string, store: ObjectStore, prefix: st
     if (!rel) continue;
     const slash = rel.indexOf("/");
     const name = slash < 0 ? rel : rel.slice(0, slash);
-    if (!startsLike(name, search)) continue;
+    if (!ilikePrefix(name, search)) continue;
     if (slash < 0) entries.set(name, fileEntry(bucket, `${folder}${name}`, name, o));
     else if (!entries.has(name)) entries.set(name, { name, id: null, updated_at: null, created_at: null, last_accessed_at: null, metadata: null });
   }
@@ -480,7 +578,8 @@ async function servePublic(method: string, bucket: string, path: string, search:
   return browserResponse(method, obj, target.path, cache, search.get("download"));
 }
 
-async function serveSigned(method: string, bucket: string, path: string, search: URLSearchParams, store: ObjectStore, prefix: string): Promise<Response> {
+/** The object a signed request may open, or the refusal — token checked before anything is read. */
+function signedTarget(bucket: string, path: string, search: URLSearchParams, prefix: string): { key: string; path: string } | Response {
   // Supabase validates the querystring before anything else (probed live).
   const token = search.get("token");
   if (token === null) return storageError("400", "Error", "querystring must have required property 'token'", "InvalidRequest");
@@ -488,6 +587,12 @@ async function serveSigned(method: string, bucket: string, path: string, search:
   if (!target) return invalidKey();
   const check = checkStorageToken(token, bucket, target.path);
   if (check !== "ok") return storageError("400", "InvalidJWT", check === "expired" ? "jwt expired" : "invalid signature", "InvalidJWT");
+  return target;
+}
+
+async function serveSigned(method: string, bucket: string, path: string, search: URLSearchParams, store: ObjectStore, prefix: string): Promise<Response> {
+  const target = signedTarget(bucket, path, search, prefix);
+  if (target instanceof Response) return target;
   const obj = await store.get(target.key);
   if (!obj) return notFound();
   // Contracts and candidate PDFs: never kept in a shared or disk cache.
@@ -495,25 +600,69 @@ async function serveSigned(method: string, bucket: string, path: string, search:
 }
 
 /**
+ * Where the routes send a browser after a rollback (STORAGE_BACKEND "supabase"),
+ * built by lib/storage/supabaseRedirects.ts. Supabase is the truth again then:
+ * answering from R2 would keep serving a photo cleared, or a contract replaced,
+ * after the rollback.
+ */
+export type SupabaseRedirects = {
+  publicUrl(bucket: string, path: string): string;
+  /** A short-lived Supabase signed URL, or null when Supabase has no such object. */
+  signedUrl(bucket: string, path: string, expiresIn: number, download: string | null): Promise<string | null>;
+};
+
+/** How long the Supabase signed URL a rollback redirect lands on stays valid. */
+const ROLLBACK_SIGNED_TTL_SEC = 60;
+
+function redirect(location: string, cacheControl: string): Response {
+  return new Response(null, { status: 302, headers: { location, "cache-control": cacheControl } });
+}
+
+async function redirectToSupabase(kind: "public" | "sign", bucket: string, path: string, search: URLSearchParams, to: SupabaseRedirects): Promise<Response> {
+  if (kind === "public") {
+    // The same refusals as serving from R2: a private bucket or a climbing path never becomes a redirect.
+    if (!PUBLIC_BUCKETS.has(bucket)) return bucketNotFound();
+    const target = objectKey(STORAGE_KEY_PREFIX, bucket, path);
+    if (!target) return invalidKey();
+    const qs = search.toString();
+    return redirect(`${to.publicUrl(bucket, target.path)}${qs ? `?${qs}` : ""}`, "public, max-age=300");
+  }
+  // Our token still decides who may open the object; Supabase's URL only carries the bytes.
+  const target = signedTarget(bucket, path, search, STORAGE_KEY_PREFIX);
+  if (target instanceof Response) return target;
+  const url = await to.signedUrl(bucket, target.path, ROLLBACK_SIGNED_TTL_SEC, search.get("download"));
+  return url ? redirect(url, "private, no-store") : notFound();
+}
+
+/**
  * Entry point for the two app routes that make getPublicUrl / createSignedUrl
  * URLs work without Supabase. `kind` pins the route to its one job: the public
  * route can never answer a signed or authenticated request, whatever the URL.
+ * With `rollback`, R2 is never asked: the browser is sent to Supabase.
  */
 export async function serveMediaRequest(
   req: Request,
   kind: "public" | "sign",
-  opts: { store?: ObjectStore | null; prefix?: string } = {},
+  opts: { store?: ObjectStore | null; prefix?: string; rollback?: SupabaseRedirects | null } = {},
 ): Promise<Response> {
   const method = req.method.toUpperCase();
   const route = parseStorageUrl(req.url);
   if (!route || (method !== "GET" && method !== "HEAD") || route.rest[0] !== "object" || route.rest[1] !== kind || route.rest.length < 4) {
     return notFound();
   }
+  const bucket = route.rest[2];
+  const path = route.rest.slice(3).join("/");
+  if (opts.rollback) {
+    try {
+      return await redirectToSupabase(kind, bucket, path, route.search, opts.rollback);
+    } catch (err) {
+      console.error("[r2-storage] rollback redirect", kind, err instanceof Error ? err.message : err);
+      return internal();
+    }
+  }
   const store = opts.store ?? (await defaultObjectStore());
   if (!store) return unreachable();
   const prefix = normPrefix(opts.prefix);
-  const bucket = route.rest[2];
-  const path = route.rest.slice(3).join("/");
   try {
     return kind === "public"
       ? await servePublic(method, bucket, path, route.search, store, prefix)

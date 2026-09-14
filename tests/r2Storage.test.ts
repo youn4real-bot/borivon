@@ -537,9 +537,19 @@ describe("app routes: 404 until switched on", () => {
     expect(await s.text()).toBe("%PDF");
     expect((await pub.HEAD(new Request(pubUrl))).status).toBe(200);
 
+    // Rollback: the routes stay up (URLs on our domain are stored in rows) but
+    // send the browser to Supabase — R2 is not even asked, so nothing deleted
+    // on Supabase after the rollback stays downloadable from our domain.
+    mem.touched.length = 0;
+    process.env.STORAGE_BACKEND = "supabase";
+    const back = await pub.GET(new Request(`${pubUrl}?t=7`));
+    expect(back.status).toBe(302);
+    expect(back.headers.get("location")).toMatch(/^https:\/\/[^/]+\/storage\/v1\/object\/public\/profile-photos\/u\.webp\?t=7$/);
+    expect(back.headers.get("location")).not.toContain("borivon.com");
     delete process.env.STORAGE_BACKEND;
     process.env.STORAGE_MEDIA_ROUTES = "on";
-    expect((await pub.GET(new Request(pubUrl))).status).toBe(200);
+    expect((await pub.GET(new Request(pubUrl))).status).toBe(302);
+    expect(mem.touched).toEqual([]);
   });
 });
 
