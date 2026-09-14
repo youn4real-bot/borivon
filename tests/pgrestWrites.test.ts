@@ -277,6 +277,8 @@ describe.skipIf(!DatabaseSync)("writes run against the real D1 schema", () => {
     const members = (from: number, n: number, level: string) =>
       Array.from({ length: n }, (_, i) => ({ cohort_id: U1, candidate_user_id: uuid(from + i), current_level: level, status: "active" }));
     const base = { table: "academy_cohort_members", action: "upsert" as const, onConflict: ["cohort_id", "candidate_user_id"] };
+    // The schema carries academy_cohort_members.cohort_id → academy_cohorts(id) ON DELETE CASCADE, as live.
+    db.prepare(`INSERT INTO academy_cohorts (id, name) VALUES (?, 'B2 cohort')`).run(U1);
     expect(run(intent({ ...base, values: members(0, 200, "A1") }))).toBe(200);
     const merged = all(intent({ ...base, returning: "representation", select: [{ column: "candidate_user_id" }, { column: "current_level" }], values: members(198, 3, "B1") }));
     expect(merged).toEqual([198, 199, 200].map((n) => ({ candidate_user_id: uuid(n), current_level: "B1" })));

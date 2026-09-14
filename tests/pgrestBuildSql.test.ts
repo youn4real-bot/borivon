@@ -708,31 +708,20 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
       }));
       try { db.prepare(q.sql); } catch { failures.push(pair); }
     }
-    // KNOWN GAP #1 (reported, not this module's to fix): supabase/
-    // fix_notification_kinds_and_commitments.sql adds a plain unique index on
-    // (owner_user_id, source_message_id, what), but d1/schema.sql only carries
-    // the older expression index over coalesce(source_message_id,'') — which no
-    // ON CONFLICT target can match. When the schema gains it, this list goes empty
-    // and the expectation below should be changed to [].
-    expect(failures).toEqual(["assistant_commitments|owner_user_id,source_message_id,what"]);
+    // Formerly KNOWN GAP #1: supabase/fix_notification_kinds_and_commitments.sql
+    // added a plain unique index on (owner_user_id, source_message_id, what); the
+    // schema generated from the 2026-09-13 catalog carries it, so every target binds.
+    expect(failures).toEqual([]);
   });
 
-  it("KNOWN GAP #2: NOT NULL jsonb/array columns lost their Postgres DEFAULT", () => {
-    // PostgREST's OpenAPI snapshot omits `default` for jsonb/array columns, so
-    // d1/gen-schema.mjs emitted 20 NOT NULL columns with no DEFAULT that DO have
-    // one live — supabase/passport_confirmed_fields.sql (`NOT NULL DEFAULT '[]'`),
-    // supabase/org_vaccine_req.sql, supabase/upload_links.sql, supabase/
-    // phase_doc_order.sql, supabase/booking_maxx.sql …
-    //
-    // It bites hardest on upsert: SQLite checks NOT NULL BEFORE resolving ON
-    // CONFLICT, while Postgres constrains the FINAL tuple. So the commonest
-    // upsert in the codebase (candidate_profiles on user_id, 27 call sites)
-    // fails on D1 even though U1 already exists and the payload never touches
-    // the column. The SQL below is exactly what Supabase accepts today.
-    // When the generator restores those defaults this test flips to `.run()`
-    // succeeding — change it then, and delete the exception.
+  it("NOT NULL jsonb/array columns keep their Postgres DEFAULT, so the commonest upsert works", () => {
+    // Formerly KNOWN GAP #2. PostgREST's OpenAPI omits jsonb/array defaults;
+    // d1/gen-schema.mjs now fills them from the catalog capture. SQLite checks
+    // NOT NULL BEFORE resolving ON CONFLICT (Postgres constrains the final tuple),
+    // so without the DEFAULT this upsert (candidate_profiles on user_id, 27 call
+    // sites) failed on passport_confirmed_fields while Supabase accepted it.
     const q = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: U1, phone: "+212600000000" }] }));
-    expect(() => db.prepare(q.sql).run(...(q.params as never[])))
-      .toThrow(/NOT NULL constraint failed: candidate_profiles\.passport_confirmed_fields/);
+    expect(() => db.prepare(q.sql).run(...(q.params as never[]))).not.toThrow();
+    expect(db.prepare(`SELECT phone FROM candidate_profiles WHERE user_id = ?`).get(U1)!.phone).toBe("+212600000000");
   });
 });

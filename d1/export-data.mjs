@@ -1,43 +1,64 @@
 /**
  * Export the live Supabase rows as D1-ready SQL (step 2: copy, don't switch).
  *
- * READ-ONLY against Supabase. Writes one .sql file per table into an output
- * directory you pass in — NEVER into the repo: these files contain candidate
- * personal data (passports, addresses, CV drafts). Point it at a scratch
- * directory and delete them when the import is done.
+ * READ-ONLY against Supabase (GET and HEAD only). Writes one .sql + one .json
+ * file per table into an output directory you pass in — NEVER into the repo:
+ * these files contain candidate personal data (passports, addresses, CV drafts).
+ * Point it at a scratch directory and delete it when the import is done.
  *
  *   node d1/export-data.mjs <repo-root> <out-dir>
- *   npx wrangler d1 execute borivon-db --remote --file=<out-dir>/<table>.sql
+ *   node d1/import.mjs <repo-root> <out-dir>        (or d1/rebuild.mjs)
  *
  * Encoding matches d1/types.json and the schema generator:
  *   boolean → 0/1 · jsonb / text[] / uuid[] → JSON text · everything else as-is.
  * Rows are ordered by primary key and paged past PostgREST's 1000-row cap, so
  * nothing is silently dropped (the cap bit us for real — see lib/readAllRows).
  *
+ * _meta.json records, per table, the column order the row arrays use and
+ * Postgres' exact row count, so the importers can refuse an export taken with a
+ * different types.json (positional rows would land in the wrong columns) or one
+ * that raced live writes (see readConsistently).
+ *
  * `rate_limits` is skipped on purpose: an ephemeral spam counter, 24k rows,
  * rebuilt in minutes.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { deleteOrder } from "./fk.mjs";
+import { isInside, tableColumns } from "./importCore.mjs";
+import { generatedProblems, readEnvFile } from "./guards.mjs";
 
 const SKIP_TABLES = new Set(["rate_limits"]);
 const ROWS_PER_STATEMENT = 100;      // keeps each INSERT well under D1's 100 KB statement cap
 const PAGE = 1000;                   // PostgREST hard cap
+const ATTEMPTS = 3;
 
 const root = process.argv[2];
 const outDir = process.argv[3];
 if (!root || !outDir) { console.error("usage: node d1/export-data.mjs <repo-root> <out-dir>"); process.exit(1); }
-if (path.resolve(outDir).startsWith(path.resolve(root))) {
+if (isInside(root, outDir)) {
   console.error("REFUSING: the output directory is inside the repo — these files hold personal data.");
   process.exit(1);
 }
-fs.mkdirSync(outDir, { recursive: true });
+// The export reads exactly the columns d1/types.json lists. If the snapshot was
+// re-captured but the generator never re-run, a new live column would be left
+// out here, _meta.json would agree with the stale types.json, and every later
+// check would pass while D1 silently lacked that column.
+try {
+  const stale = generatedProblems(root);
+  if (stale.length) {
+    console.error("REFUSING: d1/schema.sql / d1/types.json are not what the committed snapshots generate:");
+    for (const s of stale) console.error(`  ${s}`);
+    process.exit(1);
+  }
+} catch (e) {
+  console.error(`REFUSING: could not regenerate the schema to check it is current: ${e.message}`);
+  process.exit(1);
+}
 
-const env = Object.fromEntries(
-  fs.readFileSync(path.join(root, ".env.local"), "utf8").split(/\r?\n/)
-    .filter((l) => l.includes("=") && !l.startsWith("#"))
-    .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^"|"$/g, "")]; }),
-);
+let env;
+try { env = readEnvFile(root); } catch (e) { console.error(`could not read ${path.join(root, ".env.local")}: ${e.message}`); process.exit(1); }
+fs.mkdirSync(outDir, { recursive: true });
 const url = env.NEXT_PUBLIC_SUPABASE_URL, key = env.SUPABASE_SERVICE_ROLE_KEY;
 const headers = { apikey: key, Authorization: `Bearer ${key}` };
 const types = JSON.parse(fs.readFileSync(path.join(root, "d1", "types.json"), "utf8"));
@@ -66,21 +87,68 @@ function encodeParam(value, pg) {
   return value;
 }
 
-const summary = [];
-for (const table of Object.keys(types).sort()) {
-  if (SKIP_TABLES.has(table)) { summary.push(`${table}: skipped`); continue; }
-  const cols = Object.entries(types[table].columns).filter(([, c]) => !c.generated).map(([n]) => n);
-  const pk = types[table].pk.length ? types[table].pk : [cols[0]];
-  const order = pk.map((c) => `${c}.asc`).join(",");
+/** Postgres' own row count (HEAD + Prefer: count=exact → Content-Range "…/N"). */
+async function exactCount(table) {
+  const res = await fetch(`${url}/rest/v1/${table}?select=*&limit=1`, { method: "HEAD", headers: { ...headers, Prefer: "count=exact" } });
+  const total = Number((res.headers.get("content-range") ?? "").split("/")[1]);
+  if (!res.ok || !Number.isFinite(total)) throw new Error(`${table}: count failed ${res.status}`);
+  return total;
+}
 
+async function readAll(table, cols, order) {
   const rows = [];
   for (let from = 0; ; from += PAGE) {
     const res = await fetch(`${url}/rest/v1/${table}?select=${cols.join(",")}&order=${order}&offset=${from}&limit=${PAGE}`, { headers });
-    if (!res.ok) { console.error(`${table}: read failed ${res.status} ${(await res.text()).slice(0, 120)}`); process.exit(1); }
+    if (!res.ok) throw new Error(`${table}: read failed ${res.status} ${(await res.text()).slice(0, 120)}`);
     const page = await res.json();
     rows.push(...page);
     if (page.length < PAGE) break;
   }
+  return rows;
+}
+
+/**
+ * Read a table until one pass is self-consistent: the exact count before and
+ * after the read agree with the rows received, and no primary key repeats.
+ * Offset paging over a live table is not a snapshot — a row inserted ahead of
+ * the cursor shifts the next page, so one row comes back twice (a UNIQUE
+ * failure mid-import) or, after a delete, one is never seen (a silent gap).
+ */
+async function readConsistently(table, cols, pk) {
+  const order = pk.map((c) => `${c}.asc`).join(",");
+  let last;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const before = await exactCount(table);
+    const rows = await readAll(table, cols, order);
+    const after = await exactCount(table);
+    const keys = new Set(rows.map((r) => JSON.stringify(pk.map((c) => r[c]))));
+    last = { rows, live: after, stable: before === after && after === rows.length && keys.size === rows.length };
+    if (last.stable) return last;
+  }
+  return last;
+}
+
+const summary = [];
+const meta = { exportedAt: new Date().toISOString(), columns: {}, liveCounts: {}, unstable: [] };
+// Children before parents. The export reads one table at a time, so rows can
+// change between two reads; read in this order, only a parent DELETE in that
+// window leaves an orphan (a new parent+child pair is caught whole or not at
+// all), and parent deletes are far rarer than inserts. d1/importCore.mjs
+// refuses an export with orphans before it touches anything.
+for (const table of deleteOrder(types)) {
+  if (SKIP_TABLES.has(table)) {
+    meta.liveCounts[table] = await exactCount(table);
+    summary.push(`${table}: skipped`);
+    continue;
+  }
+  const cols = tableColumns(types, table);
+  const pk = types[table].pk.length ? types[table].pk : [cols[0]];
+  let read;
+  try { read = await readConsistently(table, cols, pk); } catch (e) { console.error(e.message); process.exit(1); }
+  const { rows, live, stable } = read;
+  meta.columns[table] = cols;
+  meta.liveCounts[table] = live;
+  if (!stable) meta.unstable.push(table);
 
   const out = [`-- ${table}: ${rows.length} rows, exported ${new Date().toISOString()}`];
   for (let i = 0; i < rows.length; i += ROWS_PER_STATEMENT) {
@@ -100,5 +168,10 @@ for (const table of Object.keys(types).sort()) {
   summary.push(`${table}: ${rows.length}`);
 }
 fs.writeFileSync(path.join(outDir, "_counts.json"), JSON.stringify(Object.fromEntries(summary.map((s) => s.split(": "))), null, 1) + "\n");
+fs.writeFileSync(path.join(outDir, "_meta.json"), JSON.stringify(meta, null, 1) + "\n");
 console.log(summary.join("\n"));
-console.log(`\nwrote ${summary.length} files to ${outDir}`);
+console.log(`\nwrote ${summary.length} tables to ${outDir}`);
+if (meta.unstable.length) {
+  console.log(`!! ${meta.unstable.length} table(s) kept changing while read (${meta.unstable.join(", ")}) — the importers will refuse this export; re-run it`);
+  process.exit(1);
+}
