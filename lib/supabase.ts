@@ -69,16 +69,37 @@ function adapterUnavailable(plan: ServicePlan, err: unknown): typeof fetch {
   }) as typeof fetch;
 }
 
+/* ═══════════════════════════════ STORAGE HOOK ═══════════════════════════════
+ * Where FILES move to R2. The storage branch (lib/storage/withR2Storage.ts)
+ * composes in here — it has to be the CLIENT, not the fetch: storage-js builds
+ * getPublicUrl() and the URL half of createSignedUrl() from the client's base
+ * URL without any network call, so a fetch-only swap would keep handing out
+ * supabase.co URLs for files that only exist in R2. Wiring, once it lands:
+ *
+ *   return withR2Storage(client);     // itself OFF unless STORAGE_BACKEND=r2
+ *
+ * Keep whatever it imports out of the browser bundle (this file is imported by
+ * client components): the R2 client must not become a static import of
+ * lib/supabase.ts. Note the order it creates: a swapped storage client no
+ * longer passes through the service fetch, so the client-side write freeze
+ * (lib/d1/serviceFetch.ts) stops seeing storage writes — middleware.ts still
+ * refuses every mutating /api request, which is where uploads come from.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function composeStorage(client: SupabaseClient<any, any, any>): SupabaseClient<any, any, any> {
+  return client;
+}
+
 let _serviceClient: SupabaseClient<any, any, any> | null = null;
 export function getServiceSupabase(): SupabaseClient<any, any, any> {
   // Decided once per isolate: the vars only change with a deploy, and a deploy
   // is a fresh isolate.
+  if (_serviceClient) return _serviceClient;
   const custom = serviceFetch();
-  return (_serviceClient ??= createClient(
+  return (_serviceClient = composeStorage(createClient(
     url,
     process.env.SUPABASE_SERVICE_ROLE_KEY ?? "placeholder",
     custom ? { global: { fetch: custom } } : undefined,
-  ));
+  )));
 }
 
 // ─── Anon JWT-verification client ────────────────────────────────────────────

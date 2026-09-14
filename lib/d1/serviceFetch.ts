@@ -4,11 +4,14 @@
  * Outermost first:
  *
  *   write freeze      MAINTENANCE_WRITES="1" — refuse data/storage writes      (either backend)
- *   storage handler   STORAGE_HANDLER hook — R2 answers /storage/v1            (d1 only, see below)
  *   write journal     every successful mutation appended to _write_journal     (d1 only)
  *   bvFetch           D1 answers /rest/v1 tables + RPC; everything else passes (d1 only)
  *   shadow reads      a sample of reads replayed against D1 and compared       (supabase only)
  *   fetch             Supabase: auth, realtime, storage, and data on "supabase"
+ *
+ * Files are NOT composed here: the R2 storage branch swaps the whole storage
+ * CLIENT (its getPublicUrl/createSignedUrl build URLs without any fetch), so it
+ * plugs in at the client — see composeStorage() in lib/supabase.ts.
  *
  * Loaded dynamically by lib/supabase.ts, server-side only, so none of this can
  * reach the browser bundle.
@@ -19,22 +22,6 @@ import { withWriteJournal, EPHEMERAL_RPCS, type JournalOptions } from "@/lib/d1/
 import { isMutatingMethod } from "@/lib/maintenance";
 import type { ServicePlan } from "@/lib/dataBackend";
 import type { D1Runner } from "@/lib/d1/client";
-
-export type FetchLayer = (next: typeof fetch) => typeof fetch;
-
-/* ═══════════════════════════ STORAGE HANDLER HOOK ═══════════════════════════
- * The R2-backed /storage/v1 handler is being built on its own branch. It
- * composes in HERE: replace `null` with that layer, e.g.
- *
- *   import { withStorageFromR2 } from "@/lib/r2Storage";
- *   export const STORAGE_HANDLER: FetchLayer | null = withStorageFromR2;
- *
- * Contract: `(next) => fetch` that answers /storage/v1/* itself and hands every
- * other request to `next` untouched. It sits OUTSIDE the journal and the freeze
- * sits outside it, so a frozen upload is refused before it reaches R2.
- * Until it lands, storage keeps going to Supabase Storage even on "d1".
- * ═══════════════════════════════════════════════════════════════════════════ */
-export const STORAGE_HANDLER: FetchLayer | null = null;
 
 function urlOf(input: RequestInfo | URL): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -128,8 +115,6 @@ export type ServiceFetchDeps = {
   runner?: D1Runner;
   /** Journal options, or false to leave it out (tests of the bare switch). */
   journal?: JournalOptions | false;
-  /** Overrides STORAGE_HANDLER (tests); `null` means none. */
-  storage?: FetchLayer | null;
 };
 
 export function buildServiceFetch(plan: ServicePlan, deps: ServiceFetchDeps): typeof fetch {
@@ -140,8 +125,6 @@ export function buildServiceFetch(plan: ServicePlan, deps: ServiceFetchDeps): ty
       const runner = deps.runner;
       f = withWriteJournal(f, { ...(deps.journal ?? {}), runner: deps.journal?.runner ?? (runner ? async () => runner : undefined) });
     }
-    const storage = deps.storage === undefined ? STORAGE_HANDLER : deps.storage;
-    if (storage) f = storage(f);
   } else {
     f = plan.shadow ? withShadowReads(deps.base) : deps.base;
   }

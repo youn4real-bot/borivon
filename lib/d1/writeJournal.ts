@@ -423,47 +423,59 @@ export function withWriteJournal(inner: typeof fetch, opts: JournalOptions = {})
 
     if (!res.ok) return res;   // D1 refused it: nothing happened, nothing to replay
 
-    // Order is taken NOW, when D1 has answered — see JOURNAL_DDL.
-    const atMs = now();
-    const entry: JournalEntry = {
-      at: new Date(atMs).toISOString(),
-      at_ms: atMs,
-      seq: ++seq,
-      method,
-      path: (() => { const u = new URL(prepared.url); return u.pathname + u.search; })(),
-      prefer: headers.get("prefer"),
-      body: prepared.body ?? null,
-      status: res.status,
-      note: prepared.note,
-    };
-    if (text === null) log("error", `[write-journal] LOST ${method} ${label}: body could not be recorded`);
-
-    // Grab the runner while the request scope still exists (the binding comes
-    // from the Cloudflare context), then do the work after the response.
-    const runnerNow = Promise.resolve().then(runnerOf).catch(() => null);
-    schedule(async () => {
-      try {
-        const runner = await runnerNow;
-        if (!runner) throw new Error("no D1 runner");
-        let fill: (Row | null)[] | null = null;
-        if (prepared.fillPlan) {
-          try {
-            fill = await lookupFill(runner, prepared.fillPlan, registry);
-            if (fill.some((f, i) => f === null && prepared.fillPlan!.missing[i].length)) {
-              entry.note = entry.note ?? "fill-partial";
-              log("warn", `[write-journal] fill-partial ${method} ${label}`);
-            }
-          } catch (err) {
-            entry.note = "fill-failed";
-            log("warn", `[write-journal] fill-failed ${method} ${label}: ${String(err instanceof Error ? err.message : err).slice(0, 80)}`);
-          }
-        }
-        await appendEntry(runner, entry, fill);
-        if (okLogged < 3) { okLogged++; log("warn", `[write-journal] ok ${method} ${label}`); }
-      } catch (err) {
-        log("error", `[write-journal] LOST ${method} ${label} status=${entry.status}: ${String(err instanceof Error ? err.message : err).slice(0, 120)}`);
-      }
-    });
+    // From here on the write HAS happened and the caller is owed its response
+    // whatever goes wrong: an exception past this point (a clock, a URL, an
+    // injected scheduler) would turn a saved document into a "save failed" the
+    // nurse retries — a duplicate. Everything is caught and reported as a loss.
+    try {
+      recordAfter(res.status);
+    } catch (err) {
+      log("error", `[write-journal] LOST ${method} ${label} status=${res.status}: ${String(err instanceof Error ? err.message : err).slice(0, 80)}`);
+    }
     return res;
+
+    function recordAfter(status: number): void {
+      // Order is taken NOW, when D1 has answered — see JOURNAL_DDL.
+      const atMs = now();
+      const entry: JournalEntry = {
+        at: new Date(atMs).toISOString(),
+        at_ms: atMs,
+        seq: ++seq,
+        method,
+        path: (() => { const u = new URL(prepared.url); return u.pathname + u.search; })(),
+        prefer: headers.get("prefer"),
+        body: prepared.body ?? null,
+        status,
+        note: prepared.note,
+      };
+      if (text === null) log("error", `[write-journal] LOST ${method} ${label}: body could not be recorded`);
+
+      // Grab the runner while the request scope still exists (the binding comes
+      // from the Cloudflare context), then do the work after the response.
+      const runnerNow = Promise.resolve().then(runnerOf).catch(() => null);
+      schedule(async () => {
+        try {
+          const runner = await runnerNow;
+          if (!runner) throw new Error("no D1 runner");
+          let fill: (Row | null)[] | null = null;
+          if (prepared.fillPlan) {
+            try {
+              fill = await lookupFill(runner, prepared.fillPlan, registry);
+              if (fill.some((f, i) => f === null && prepared.fillPlan!.missing[i].length)) {
+                entry.note = entry.note ?? "fill-partial";
+                log("warn", `[write-journal] fill-partial ${method} ${label}`);
+              }
+            } catch (err) {
+              entry.note = "fill-failed";
+              log("warn", `[write-journal] fill-failed ${method} ${label}: ${String(err instanceof Error ? err.message : err).slice(0, 80)}`);
+            }
+          }
+          await appendEntry(runner, entry, fill);
+          if (okLogged < 3) { okLogged++; log("warn", `[write-journal] ok ${method} ${label}`); }
+        } catch (err) {
+          log("error", `[write-journal] LOST ${method} ${label} status=${entry.status}: ${String(err instanceof Error ? err.message : err).slice(0, 120)}`);
+        }
+      });
+    }
   } as typeof fetch;
 }
