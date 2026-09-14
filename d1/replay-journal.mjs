@@ -5,6 +5,14 @@
  *   node d1/replay-journal.mjs <repo-root> --i-mean-it      send it to Supabase, in order
  *     --limit N       stop after N entries (resume by running again)
  *     --allow-late    see "late entries" below
+ *   node d1/replay-journal.mjs <repo-root> --archive [--i-mean-it]
+ *                   after a COMPLETED rollback: rename the journal tables aside
+ *                   so a later switch attempt starts from an empty journal
+ *
+ * "0 still pending" proves only that every write the journal RECORDED reached
+ * Supabase. A write whose journal insert failed ("[write-journal] LOST") is in
+ * D1 and nowhere else, so the flip back is gated on a row-by-row comparison
+ * too: node d1/cutover.mjs <repo-root> --rollback --i-mean-it.
  *
  * While DATA_BACKEND="d1", every successful write the portal makes lands in D1
  * only, and lib/d1/writeJournal.ts appends each one to `_write_journal`. Flipping
@@ -57,6 +65,18 @@ const NOTE_WARNINGS = {
   "fill-unkeyed": "an upserted row had no conflict key; a newly inserted row gets a new id on Supabase",
   "fill-partial": "some generated values could not be read back; those rows get new ids on Supabase",
   "fill-failed": "generated values could not be read back; newly inserted rows get new ids on Supabase",
+};
+
+/**
+ * Columns Supabase recomputes ITSELF when a replayed write lands, so after a
+ * replay they differ from D1 by design, not by loss. The journal cannot carry
+ * them: a BEFORE UPDATE trigger overwrites whatever value the request sends.
+ * The rollback's parity gate compares everything except exactly these, and
+ * says so (d1/parity-args.mjs). Kept in step with the Supabase catalog's
+ * triggers by tests/parityArgs.test.ts.
+ */
+export const REPLAY_RECOMPUTED = {
+  "employers.updated_at": "Supabase's BEFORE UPDATE trigger employers_set_updated_at stamps it with the replay time",
 };
 
 const isMissingTable = (err) => /no such table/i.test(String(err?.message ?? err));
@@ -303,8 +323,71 @@ export async function replayJournal({ d1, target, registry, dryRun = true, limit
   }
   summary.pending = pending.length - batch.length;
   summary.ok = summary.pending === 0;
-  log(`replayed ${summary.sent} write(s); ${summary.pending} still pending${summary.pending ? " (re-run to continue)" : " — Supabase has every write D1 took."}`);
+  log(`replayed ${summary.sent} write(s); ${summary.pending} still pending${summary.pending
+    ? " (re-run to continue)"
+    : " — every JOURNALED write is replayed. Before flipping back, prove nothing else is missing: node d1/cutover.mjs <repo-root> --rollback --i-mean-it"}`);
   return summary;
+}
+
+export const ARCHIVE_PREFIX = "_archived_";
+const JOURNAL_ORDER_INDEX = `${JOURNAL_TABLE}_order`;
+
+async function existingTables(d1, names) {
+  const rows = (await d1.run(
+    `SELECT "name" FROM sqlite_master WHERE "type" = 'table' AND "name" IN (${names.map(() => "?").join(", ")})`,
+    names,
+  )).results;
+  return new Set(rows.map((r) => String(r.name)));
+}
+
+/**
+ * After a COMPLETED rollback, move the journal aside so the next switch attempt
+ * can start. d1/cutover.mjs refuses to re-copy while `_write_journal` has rows
+ * (an import would erase writes D1 alone holds) — right while a rollback is
+ * pending, but permanent once it is done, leaving hand-dropped tables as the
+ * only way out. Renamed, never dropped: the history of what D1 took stays.
+ *
+ * Refuses unless EVERY entry is marked replayed into this Supabase project.
+ * Order matters for a crash half-way: the journal goes first (its order index
+ * is dropped before, or the next journal's CREATE INDEX IF NOT EXISTS would
+ * find the name taken and skip it), then its parts and marks. A re-run that
+ * finds no journal but those leftovers renames them too — a leftover parts
+ * table would otherwise collide with the next journal's ids.
+ */
+export async function archiveJournal({ d1, target, dryRun = true, now = () => new Date(), log = console.log }) {
+  const targetKey = new URL(target.url).host;
+  const stamp = now().toISOString().replace(/\.\d+Z$/, "").replace(/[-:]/g, "").replace("T", "_");
+  const rename = (t) => `${ARCHIVE_PREFIX}${stamp}${t}`;
+  const present = await existingTables(d1, [JOURNAL_TABLE, JOURNAL_PART_TABLE, REPLAYED_TABLE]);
+
+  let plan;
+  if (present.has(JOURNAL_TABLE)) {
+    const journal = await loadJournal(d1, targetKey);
+    const pending = journal.entries.filter((e) => !journal.applied.has(Number(e.id)));
+    if (pending.length) {
+      log(`REFUSING to archive: ${pending.length} of ${journal.entries.length} journaled write(s) are not replayed into ${targetKey}. Replay them first.`);
+      return { ok: false, archived: false, pending: pending.length };
+    }
+    log(`archive: all ${journal.entries.length} journaled write(s) are replayed into ${targetKey}.`);
+    plan = [JOURNAL_TABLE, JOURNAL_PART_TABLE, REPLAYED_TABLE].filter((t) => present.has(t));
+  } else {
+    plan = [JOURNAL_PART_TABLE, REPLAYED_TABLE].filter((t) => present.has(t));
+    if (!plan.length) {
+      log("archive: no journal tables in D1 — nothing to archive.");
+      return { ok: true, archived: false, pending: 0 };
+    }
+    log("archive: the journal is already archived; its leftover tables are renamed too.");
+  }
+
+  for (const t of plan) log(`  ${dryRun ? "would rename" : "rename"} ${t} -> ${rename(t)}`);
+  if (dryRun) {
+    log("DRY RUN — nothing was renamed. Re-run with --archive --i-mean-it.");
+    return { ok: true, archived: false, pending: 0, tables: plan.map(rename) };
+  }
+  if (plan.includes(JOURNAL_TABLE)) await d1.run(`DROP INDEX IF EXISTS "${JOURNAL_ORDER_INDEX}"`);
+  for (const t of plan) await d1.run(`ALTER TABLE "${t}" RENAME TO "${rename(t)}"`);
+  log(`archived ${plan.length} table(s). A new switch starts with an empty journal.`);
+  return { ok: true, archived: true, pending: 0, tables: plan.map(rename) };
 }
 
 /* ─────────────────────────────── CLI ─────────────────────────────── */
@@ -351,20 +434,26 @@ if (invokedDirectly) {
   const args = process.argv.slice(2);
   const root = args[0] && !args[0].startsWith("--") ? args[0] : null;
   if (!root) {
-    console.error("usage: node d1/replay-journal.mjs <repo-root> [--i-mean-it] [--limit N] [--allow-late]");
+    console.error("usage: node d1/replay-journal.mjs <repo-root> [--i-mean-it] [--limit N] [--allow-late] | --archive [--i-mean-it]");
     process.exit(1);
   }
   const env = readEnv(root);
-  const limitRaw = argValue(args, "--limit");
-  const summary = await replayJournal({
-    d1: httpD1(env),
-    target: { url: env.NEXT_PUBLIC_SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY, fetch },
-    registry: JSON.parse(fs.readFileSync(path.join(root, "d1", "types.json"), "utf8")),
-    dryRun: !args.includes("--i-mean-it"),
-    limit: limitRaw === undefined ? Infinity : Number(limitRaw),
-    allowLate: args.includes("--allow-late"),
-  });
+  const dryRun = !args.includes("--i-mean-it");
+  let ok;
+  if (args.includes("--archive")) {
+    ({ ok } = await archiveJournal({ d1: httpD1(env), target: { url: env.NEXT_PUBLIC_SUPABASE_URL }, dryRun }));
+  } else {
+    const limitRaw = argValue(args, "--limit");
+    ({ ok } = await replayJournal({
+      d1: httpD1(env),
+      target: { url: env.NEXT_PUBLIC_SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY, fetch },
+      registry: JSON.parse(fs.readFileSync(path.join(root, "d1", "types.json"), "utf8")),
+      dryRun,
+      limit: limitRaw === undefined ? Infinity : Number(limitRaw),
+      allowLate: args.includes("--allow-late"),
+    }));
+  }
   // exitCode, not exit(): killing the process while a fetch socket closes trips
   // a libuv assertion on Windows (see d1/shadow-report.mjs).
-  process.exitCode = summary.ok ? 0 : 1;
+  process.exitCode = ok ? 0 : 1;
 }

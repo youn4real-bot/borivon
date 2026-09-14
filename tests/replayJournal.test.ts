@@ -7,8 +7,9 @@ import { appendEntry, resetJournalForTests, JOURNAL_DDL, type JournalEntry } fro
 import { makeBvFetch } from "@/lib/d1/bvFetch";
 import { buildServiceFetch } from "@/lib/d1/serviceFetch";
 import {
-  replayJournal, describeEntry, replayPrefer, mergeFill, redactMessage, REPLAYED_TABLE,
+  replayJournal, describeEntry, replayPrefer, mergeFill, redactMessage, archiveJournal, REPLAYED_TABLE,
 } from "../d1/replay-journal.mjs";
+import { journalRowCount } from "../d1/cutover.mjs";
 import { hasSqlite, openDb, sqliteRunner, type SqliteDb } from "./helpers/sqliteD1";
 
 /**
@@ -246,6 +247,68 @@ describe.skipIf(!hasSqlite)("replayJournal", () => {
     expect(halted).toMatchObject({ ok: false, haltedAt: 3, sent: 1 });
     expect(sb.sent).toHaveLength(2);
     expect(out.lines.some((l) => l.includes("WARN #3") && l.includes("not recorded"))).toBe(true);
+  });
+});
+
+describe.skipIf(!hasSqlite)("archiveJournal: a completed rollback makes room for the next switch", () => {
+  const base = { at: "2026-09-14T10:00:00.000Z", seq: 1, method: "POST", path: "/rest/v1/notifications", prefer: null, status: 201, note: null };
+  const tables = (db: SqliteDb) => db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all().map((r) => String(r.name));
+
+  it("refuses while any entry is unreplayed; once all are, renames the three tables and a new journal starts clean", async () => {
+    resetJournalForTests();
+    const db = openDb();
+    const runner = sqliteRunner(db);
+    for (const ddl of JOURNAL_DDL) await runner.run(ddl);
+    await appendEntry(runner, { ...base, at_ms: 1, body: JSON.stringify({ id: ID(1) }) }, null);
+    await appendEntry(runner, { ...base, at_ms: 2, method: "DELETE", path: `/rest/v1/notifications?id=eq.${ID(1)}`, body: null }, null);
+    const sb = fakeSupabase();
+
+    const early = await archiveJournal({ d1: runner, target: sb.target, dryRun: false, log: quiet().log });
+    expect(early).toMatchObject({ ok: false, archived: false, pending: 2 });
+    expect(await journalRowCount(runner)).toBe(2);             // the cutover gate still refuses a re-copy
+
+    await replayJournal({ d1: runner, target: sb.target, registry, dryRun: false, log: quiet().log });
+    const dry = await archiveJournal({ d1: runner, target: sb.target, log: quiet().log });
+    expect(dry).toMatchObject({ ok: true, archived: false });
+    expect(tables(db)).toContain("_write_journal");
+
+    const at = () => new Date("2026-09-15T03:04:05.678Z");
+    const done = await archiveJournal({ d1: runner, target: sb.target, dryRun: false, now: at, log: quiet().log });
+    expect(done).toMatchObject({ ok: true, archived: true });
+    expect(tables(db)).toEqual(expect.arrayContaining([
+      "_archived_20260915_030405_write_journal",
+      "_archived_20260915_030405_write_journal_part",
+      "_archived_20260915_030405_write_journal_replayed",
+    ]));
+    expect(tables(db).filter((t) => t.startsWith("_write_journal"))).toEqual([]);
+    expect(await journalRowCount(runner)).toBe(0);             // a new switch may run
+    expect(db.prepare(`SELECT count(*) AS n FROM "_archived_20260915_030405_write_journal"`).all()[0].n).toBe(2);
+    expect(sb.sent).toHaveLength(2);                            // archiving itself sent nothing
+
+    // The next switch's journal gets its own tables AND its order index back.
+    resetJournalForTests();
+    for (const ddl of JOURNAL_DDL) await runner.run(ddl);
+    await appendEntry(runner, { ...base, at_ms: 3, body: "{}" }, null);
+    expect(await journalRowCount(runner)).toBe(1);
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = '_write_journal_order'`).all()).toHaveLength(1);
+  });
+
+  it("finishes an archive interrupted after the journal was renamed", async () => {
+    const db = openDb();
+    const runner = sqliteRunner(db);
+    for (const ddl of JOURNAL_DDL) await runner.run(ddl);
+    await runner.run(`CREATE TABLE "${REPLAYED_TABLE}" ("journal_id" INTEGER NOT NULL, "target" TEXT NOT NULL, "at" TEXT NOT NULL, "status" INTEGER NOT NULL, "outcome" TEXT NOT NULL, PRIMARY KEY ("journal_id", "target"))`);
+    await runner.run(`DROP INDEX "_write_journal_order"`);
+    await runner.run(`ALTER TABLE "_write_journal" RENAME TO "_archived_20260915_030405_write_journal"`);
+    const out = await archiveJournal({ d1: runner, target: fakeSupabase().target, dryRun: false, now: () => new Date("2026-09-15T03:10:00Z"), log: quiet().log });
+    expect(out).toMatchObject({ ok: true, archived: true });
+    expect(tables(db).filter((t) => t.startsWith("_write_journal"))).toEqual([]);
+    expect(tables(db)).toContain("_archived_20260915_031000_write_journal_part");
+  });
+
+  it("has nothing to do on a D1 that never took writes", async () => {
+    const out = await archiveJournal({ d1: sqliteRunner(openDb()), target: fakeSupabase().target, dryRun: false, log: quiet().log });
+    expect(out).toMatchObject({ ok: true, archived: false });
   });
 });
 
