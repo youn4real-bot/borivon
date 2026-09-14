@@ -9,3 +9,8 @@
 *.gif  binary
 *.ico  binary
 *.svg  text
+
+# The D1 schema is read line by line by tests (tests/pgrestWrites.test.ts splits on "
+");
+# a CRLF checkout on Windows made that parse find 0 columns and fail.
+d1/schema.sql text eol=lf

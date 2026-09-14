@@ -63,7 +63,20 @@
    {
     "column": "session_id",
     "table": "academy_class_sessions",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_attendance_session_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "candidate_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_attendance_candidate_user_id_fkey"
    }
   ]
  },
@@ -199,12 +212,18 @@
    {
     "column": "cohort_id",
     "table": "academy_cohorts",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_class_sessions_cohort_id_fkey"
    },
    {
     "column": "lesson_id",
     "table": "academy_lessons",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "academy_class_sessions_lesson_id_fkey"
    }
   ]
  },
@@ -249,7 +268,20 @@
    {
     "column": "cohort_id",
     "table": "academy_cohorts",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_cohort_members_cohort_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "candidate_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_cohort_members_candidate_user_id_fkey"
    }
   ]
  },
@@ -317,7 +349,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "academy_cohorts_org_id_fkey"
    }
   ]
  },
@@ -350,7 +385,7 @@
    "body": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "media_url": {
@@ -397,7 +432,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "academy_lessons_org_id_fkey"
    }
   ]
  },
@@ -448,7 +486,7 @@
    "meta": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "note": {
@@ -477,7 +515,20 @@
    {
     "column": "cohort_id",
     "table": "academy_cohorts",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "academy_point_events_cohort_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "candidate_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_point_events_candidate_user_id_fkey"
    }
   ]
  },
@@ -522,7 +573,7 @@
    "questions": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "[]",
     "generated": false
    },
    "pass_score": {
@@ -575,12 +626,18 @@
    {
     "column": "cohort_id",
     "table": "academy_cohorts",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_quizzes_cohort_id_fkey"
    },
    {
     "column": "lesson_id",
     "table": "academy_lessons",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "academy_quizzes_lesson_id_fkey"
    }
   ]
  },
@@ -656,7 +713,20 @@
    {
     "column": "badge_id",
     "table": "academy_badges",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_student_badges_badge_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "candidate_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_student_badges_candidate_user_id_fkey"
    }
   ]
  },
@@ -683,7 +753,7 @@
    "answers": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "[]",
     "generated": false
    },
    "score": {
@@ -724,7 +794,20 @@
    {
     "column": "quiz_id",
     "table": "academy_quizzes",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_submissions_quiz_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "candidate_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_submissions_candidate_user_id_fkey"
    }
   ]
  },
@@ -758,7 +841,17 @@
   "pk": [
    "user_id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "academy_tab_access_user_id_fkey"
+   }
+  ]
  },
  "admin_checklist_items": {
   "columns": {
@@ -968,7 +1061,10 @@
    {
     "column": "affiliate_id",
     "table": "affiliates",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "affiliate_earnings_affiliate_id_fkey"
    }
   ]
  },
@@ -1186,7 +1282,17 @@
   "pk": [
    "user_id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "agency_profiles_user_id_fkey"
+   }
+  ]
  },
  "app_settings": {
   "columns": {
@@ -1330,8 +1436,8 @@
    },
    "source_message_id": {
     "pg": "text",
-    "nullable": true,
-    "default": null,
+    "nullable": false,
+    "default": "",
     "generated": false
    },
    "source_subject": {
@@ -1711,7 +1817,7 @@
    "week": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{\"1\": [\"09:00-13:00\", \"14:00-18:00\"], \"2\": [\"09:00-13:00\", \"14:00-18:00\"], \"3\": [\"09:00-13:00\", \"14:00-18:00\"], \"4\": [\"09:00-13:00\", \"14:00-18:00\"], \"5\": [\"09:00-13:00\", \"14:00-18:00\"]}",
     "generated": false
    },
    "slot_minutes": {
@@ -1741,7 +1847,7 @@
    "blackout_dates": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "[]",
     "generated": false
    },
    "accepting": {
@@ -1969,7 +2075,7 @@
    "selections": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "starts_at": {
@@ -2133,7 +2239,7 @@
    "attendee_ids": {
     "pg": "uuid[]",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "created_by": {
@@ -2250,7 +2356,17 @@
   "pk": [
    "id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "candidate_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "candidate_journey_items_candidate_user_id_fkey"
+   }
+  ]
  },
  "candidate_notes": {
   "columns": {
@@ -2349,7 +2465,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "candidate_organizations_org_id_fkey"
    }
   ]
  },
@@ -2663,7 +2782,10 @@
    {
     "column": "batch_id",
     "table": "employer_batches",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "candidate_pipeline_batch_id_fkey"
    }
   ]
  },
@@ -2864,7 +2986,7 @@
    "passport_confirmed_fields": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "[]",
     "generated": false
    },
    "employer_id": {
@@ -2995,12 +3117,28 @@
    {
     "column": "agency_id",
     "table": "agencies",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "NO ACTION",
+    "on_update": "NO ACTION",
+    "name": "candidate_profiles_agency_id_fkey"
    },
    {
     "column": "employer_id",
     "table": "employers",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "candidate_profiles_employer_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "candidate_profiles_user_id_fkey"
    }
   ]
  },
@@ -3027,7 +3165,7 @@
    "items": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "[]",
     "generated": false
    },
    "sent_at": {
@@ -3170,7 +3308,17 @@
   "pk": [
    "user_id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "candidate_status_user_id_fkey"
+   }
+  ]
  },
  "classroom_consent": {
   "columns": {
@@ -3214,7 +3362,17 @@
   "pk": [
    "id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "classroom_consent_user_id_fkey"
+   }
+  ]
  },
  "classroom_events": {
   "columns": {
@@ -3257,7 +3415,7 @@
    "value": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "source": {
@@ -3280,7 +3438,10 @@
    {
     "column": "session_id",
     "table": "classroom_sessions",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "classroom_events_session_id_fkey"
    }
   ]
  },
@@ -3318,7 +3479,20 @@
    {
     "column": "session_id",
     "table": "classroom_sessions",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "classroom_invites_session_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "classroom_invites_user_id_fkey"
    }
   ]
  },
@@ -3402,7 +3576,17 @@
   "pk": [
    "user_id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "community_seen_user_id_fkey"
+   }
+  ]
  },
  "documents": {
   "columns": {
@@ -3518,7 +3702,17 @@
   "pk": [
    "id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "documents_user_id_fkey"
+   }
+  ]
  },
  "email_followup_chase": {
   "columns": {
@@ -3652,12 +3846,18 @@
    {
     "column": "employer_id",
     "table": "employers",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "employer_batches_employer_id_fkey"
    },
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "employer_batches_org_id_fkey"
    }
   ]
  },
@@ -3729,14 +3929,20 @@
   ],
   "fks": [
    {
-    "column": "org_id",
-    "table": "organizations",
-    "ref": "id"
-   },
-   {
     "column": "employer_id",
     "table": "employers",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "employer_shortlists_employer_id_fkey"
+   },
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "employer_shortlists_org_id_fkey"
    }
   ]
  },
@@ -3804,7 +4010,10 @@
    {
     "column": "agency_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "employers_agency_id_fkey"
    }
   ]
  },
@@ -3917,7 +4126,10 @@
    {
     "column": "comment_id",
     "table": "feed_comments",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "feed_comment_likes_comment_id_fkey"
    }
   ]
  },
@@ -3961,7 +4173,10 @@
    {
     "column": "post_id",
     "table": "feed_posts",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "feed_comments_post_id_fkey"
    }
   ]
  },
@@ -3994,7 +4209,10 @@
    {
     "column": "post_id",
     "table": "feed_posts",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "feed_likes_post_id_fkey"
    }
   ]
  },
@@ -4068,7 +4286,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "feed_posts_org_id_fkey"
    }
   ]
  },
@@ -4182,7 +4403,17 @@
   "pk": [
    "user_id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "google_calendar_tokens_user_id_fkey"
+   }
+  ]
  },
  "inbox_sla_nudges": {
   "columns": {
@@ -4227,7 +4458,7 @@
    "proposed_slots": {
     "pg": "text[]",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "picked_slot": {
@@ -4334,14 +4565,30 @@
   ],
   "fks": [
    {
-    "column": "org_id",
-    "table": "organizations",
-    "ref": "id"
-   },
-   {
     "column": "agency_id",
     "table": "agencies",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "NO ACTION",
+    "on_update": "NO ACTION",
+    "name": "invite_tokens_agency_id_fkey"
+   },
+   {
+    "column": "org_id",
+    "table": "organizations",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "invite_tokens_org_id_fkey"
+   }
+  ],
+  "authFks": [
+   {
+    "column": "used_by",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "NO ACTION",
+    "on_update": "NO ACTION",
+    "name": "invite_tokens_used_by_fkey"
    }
   ]
  },
@@ -4386,7 +4633,7 @@
    "details": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "created_at": {
@@ -4509,7 +4756,25 @@
   "pk": [
    "id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "sender_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "messages_sender_user_id_fkey"
+   },
+   {
+    "column": "thread_user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "messages_thread_user_id_fkey"
+   }
+  ]
  },
  "notifications": {
   "columns": {
@@ -4571,7 +4836,17 @@
   "pk": [
    "id"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "user_id",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "notifications_user_id_fkey"
+   }
+  ]
  },
  "online_course_registrations": {
   "columns": {
@@ -4717,7 +4992,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "org_requirements_org_id_fkey"
    }
   ]
  },
@@ -4756,7 +5034,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "organization_members_org_id_fkey"
    }
   ]
  },
@@ -4819,7 +5100,7 @@
    "vaccine_req": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "required_doc_keys": {
@@ -4836,7 +5117,10 @@
    {
     "column": "agency_id",
     "table": "agencies",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "NO ACTION",
+    "on_update": "NO ACTION",
+    "name": "organizations_agency_id_fkey"
    }
   ]
  },
@@ -4904,7 +5188,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "partner_api_keys_org_id_fkey"
    }
   ]
  },
@@ -4966,7 +5253,10 @@
    {
     "column": "key_id",
     "table": "partner_api_keys",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "partner_api_log_key_id_fkey"
    }
   ]
  },
@@ -5016,7 +5306,10 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "partner_shares_org_id_fkey"
    }
   ]
  },
@@ -5062,7 +5355,17 @@
   "pk": [
    "signature"
   ],
-  "fks": []
+  "fks": [],
+  "authFks": [
+   {
+    "column": "created_by",
+    "table": "auth.users",
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "pdf_field_mappings_created_by_fkey"
+   }
+  ]
  },
  "phase_doc_order": {
   "columns": {
@@ -5075,7 +5378,7 @@
    "order_keys": {
     "pg": "jsonb",
     "nullable": false,
-    "default": null,
+    "default": "[]",
     "generated": false
    },
    "updated_at": {
@@ -5270,12 +5573,18 @@
    {
     "column": "category_id",
     "table": "phase_slot_categories",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "phase_slots_category_fk"
    },
    {
     "column": "employer_id",
     "table": "employers",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "phase_slots_employer_id_fkey"
    }
   ]
  },
@@ -5347,7 +5656,10 @@
    {
     "column": "shortlist_id",
     "table": "employer_shortlists",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "shortlist_candidates_shortlist_id_fkey"
    }
   ]
  },
@@ -5527,7 +5839,10 @@
    {
     "column": "agency_id",
     "table": "agencies",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "NO ACTION",
+    "on_update": "NO ACTION",
+    "name": "sub_admins_agency_id_fkey"
    }
   ]
  },
@@ -5589,12 +5904,18 @@
    {
     "column": "org_id",
     "table": "organizations",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "CASCADE",
+    "on_update": "NO ACTION",
+    "name": "suggested_matches_org_id_fkey"
    },
    {
     "column": "requirement_id",
     "table": "org_requirements",
-    "ref": "id"
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "suggested_matches_requirement_id_fkey"
    }
   ]
  },
@@ -5653,7 +5974,7 @@
    "uploaded_keys": {
     "pg": "text[]",
     "nullable": false,
-    "default": null,
+    "default": "{}",
     "generated": false
    },
    "created_by": {
