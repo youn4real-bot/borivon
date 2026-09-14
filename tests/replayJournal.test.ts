@@ -32,13 +32,13 @@ function json(status: number, body: unknown): Response {
 /** A Supabase stand-in: records every request, answers what the test scripts. */
 function fakeSupabase(answer: (s: Sent) => Response | undefined = () => undefined) {
   const sent: Sent[] = [];
-  const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const h = new Headers(init?.headers);
     const s: Sent = { method: init?.method ?? "GET", url: String(input), body: init?.body as string | undefined, prefer: h.get("prefer"), apikey: h.get("apikey") };
     sent.push(s);
     return answer(s) ?? new Response(null, { status: s.method === "POST" ? 201 : 204 });
   }) as typeof fetch;
-  return { sent, target: { url: SB, key: "service-key", fetch } };
+  return { sent, target: { url: SB, key: "service-key", fetch: fakeFetch } };
 }
 
 const quiet = () => { const lines: string[] = []; return { lines, log: (l: string) => lines.push(l) }; };
@@ -128,7 +128,7 @@ describe.skipIf(!hasSqlite)("replayJournal", () => {
   });
 
   it("replays in order with the service key, byte-identical bodies, and marks each", async () => {
-    const insert = JSON.stringify({ id: ID(1), user_id: U1, doc_name: "cv", doc_type: "t", action: "x" });
+    const insert = JSON.stringify({ id: ID(1), user_id: U1, doc_name: "cv", doc_type: "t", action: "approved" });
     const ids = await journal([
       { at_ms: 2000, seq: 1, method: "PATCH", path: `/rest/v1/notifications?id=eq.${ID(1)}`, body: JSON.stringify({ read: true }), prefer: "return=minimal" },
       { at_ms: 1000, seq: 9, body: insert, prefer: "return=representation" },
@@ -266,7 +266,7 @@ describe.skipIf(!hasSqlite)("a rollback loses nothing: D1 writes → journal →
     });
 
     // A day of portal traffic in miniature.
-    const { data: n1 } = await portal.from("notifications").insert({ user_id: U1, doc_name: "cv", doc_type: "cv_de", action: "uploaded" }).select("id").single();
+    const { data: n1 } = await portal.from("notifications").insert({ user_id: U1, doc_name: "cv", doc_type: "cv_de", action: "verified" }).select("id").single();
     await portal.from("notifications").insert([
       { user_id: U1, doc_name: "passport", doc_type: "passport", action: "approved" },
       { user_id: U1, doc_name: "b2", doc_type: "b2", action: "rejected" },

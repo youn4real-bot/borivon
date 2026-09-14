@@ -57,7 +57,7 @@ describe("prepareWrite", () => {
   });
 
   it("keeps an id the caller chose, and names added columns in columns=", () => {
-    const rows = [{ id: U1, user_id: U1, doc_name: "a", doc_type: "t", action: "x" }, { user_id: U1, doc_name: "b", doc_type: "t", action: "x" }];
+    const rows = [{ id: U1, user_id: U1, doc_name: "a", doc_type: "t", action: "approved" }, { user_id: U1, doc_name: "b", doc_type: "t", action: "approved" }];
     const url = `${N}?columns=${encodeURIComponent('"id","user_id","doc_name","doc_type","action"')}`;
     const out = prepareWrite("POST", url, null, JSON.stringify(rows), registry, gen);
     const sent = JSON.parse(out.body!);
@@ -85,7 +85,7 @@ describe("prepareWrite", () => {
   });
 
   it("prefills only the key of an upsert on its primary key", () => {
-    const body = JSON.stringify({ user_id: U1, doc_name: "a", doc_type: "t", action: "x" });
+    const body = JSON.stringify({ user_id: U1, doc_name: "a", doc_type: "t", action: "approved" });
     const out = prepareWrite("POST", `${SB}/rest/v1/notifications?on_conflict=id`, "resolution=merge-duplicates", body, registry, gen);
     const row = JSON.parse(out.body!);
     expect(row.id).toBe(FIXED_UUID);
@@ -162,7 +162,7 @@ describe.skipIf(!hasSqlite)("withWriteJournal against a real SQLite", () => {
   it("records updates, deletes and a writing RPC, in the order D1 answered them", async () => {
     const db = client();
     d1.prepare(`INSERT INTO upload_links (id, token_hash, candidate_user_id, doc_keys, uploaded_keys, expires_at, created_at) VALUES (?, 'h', ?, '["cv"]', '[]', '2030-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')`).run(FIXED_UUID, U1);
-    const { data } = await db.from("notifications").insert({ user_id: U1, doc_name: "cv", doc_type: "t", action: "x" }).select("id").single();
+    const { data } = await db.from("notifications").insert({ user_id: U1, doc_name: "cv", doc_type: "t", action: "approved" }).select("id").single();
     await db.from("notifications").update({ read: true }).eq("id", data!.id);
     await db.from("notifications").delete().eq("id", data!.id);
     expect((await db.rpc("claim_upload_key", { p_link_id: FIXED_UUID, p_key: "cv" })).data).toEqual(["cv"]);
@@ -187,7 +187,7 @@ describe.skipIf(!hasSqlite)("withWriteJournal against a real SQLite", () => {
   it("answers the write even when the journal cannot be written — and says so, without values", async () => {
     const broken: D1Runner = { run: async () => { throw new Error("D1 overloaded"); } };
     const { data, error } = await client({ runner: async () => broken }).from("notifications")
-      .insert({ user_id: U1, doc_name: "passport", doc_type: "t", action: "x" }).select("id").single();
+      .insert({ user_id: U1, doc_name: "passport", doc_type: "t", action: "approved" }).select("id").single();
     expect(error).toBeNull();
     expect(data!.id).toMatch(/^[0-9a-f-]{36}$/);
     await flush();
@@ -198,13 +198,13 @@ describe.skipIf(!hasSqlite)("withWriteJournal against a real SQLite", () => {
 
   it("answers the write even when the scheduler or the preparation throws", async () => {
     const throwingSchedule = client({ schedule: () => { throw new Error("no waitUntil"); } });
-    const a = await throwingSchedule.from("notifications").insert({ user_id: U1, doc_name: "a", doc_type: "t", action: "x" });
+    const a = await throwingSchedule.from("notifications").insert({ user_id: U1, doc_name: "a", doc_type: "t", action: "approved" });
     expect(a.error).toBeNull();
 
     const exploding = new Proxy({}, { get: () => { throw new Error("registry unreadable"); } }) as Registry;
     const f = withWriteJournal(makeBvFetch({ runner }), { registry: exploding, schedule: (w) => { pending.push(w()); }, log: (_l, line) => logs.push(line) });
     const b = await createClient(SB, "k", { global: { fetch: f }, auth: { persistSession: false } })
-      .from("notifications").insert({ user_id: U1, doc_name: "b", doc_type: "t", action: "x" });
+      .from("notifications").insert({ user_id: U1, doc_name: "b", doc_type: "t", action: "approved" });
     expect(b.error).toBeNull();
     expect(logs.some((l) => l.includes("LOST") && l.includes("could not prepare"))).toBe(true);
     expect(logs.some((l) => l.includes("LOST") && l.includes("no waitUntil"))).toBe(true);

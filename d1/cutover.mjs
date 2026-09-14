@@ -111,6 +111,15 @@ function insideRepo(root, dir) {
  *   exec(script, args) → exit code     run one node script from d1/
  *   fetchImpl                          the freeze probe
  *   d1 { run(sql) → { results } }      the journal count
+ *
+ * @param {{
+ *   root: string, site?: string, outDir?: string, dryRun?: boolean,
+ *   log?: (line: string) => void,
+ *   exec?: (script: string, args: string[]) => number,
+ *   fetchImpl?: typeof fetch,
+ *   d1?: { run(sql: string, params?: unknown[]): Promise<{ results: Record<string, unknown>[] }> },
+ *   exists?: (rel: string) => boolean,
+ * }} opts
  */
 export async function runCutover({
   root, site = SITE_DEFAULT, outDir, dryRun = true, log = console.log,

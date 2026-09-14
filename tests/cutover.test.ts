@@ -107,8 +107,9 @@ describe("runCutover", () => {
     const out = await runCutover({ root: ROOT, dryRun: false, log: h.log, exec: h.exec, fetchImpl: frozenSite, d1: emptyD1, exists: () => true });
     expect(out.ok).toBe(true);
     expect(h.ran).toEqual(["d1/check-drift.mjs 1", "d1/export-data.mjs 2", "d1/import.mjs 2", "d1/parity-check.mjs 1"]);
-    expect(path.relative(os.tmpdir(), out.outDir).startsWith("..")).toBe(false);
-    expect(fs.existsSync(out.outDir)).toBe(false);
+    const dir = String(out.outDir);
+    expect(path.relative(os.tmpdir(), dir).startsWith("..")).toBe(false);
+    expect(fs.existsSync(dir)).toBe(false);
     const text = h.lines.join("\n");
     expect(text).toContain("FLIP");
     expect(text).toContain("ROLLBACK");
