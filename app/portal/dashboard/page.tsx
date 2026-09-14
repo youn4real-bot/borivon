@@ -8,6 +8,8 @@ import { useRouter } from "next/navigation";
 import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
+import { usePolling } from "@/lib/usePolling";
+import { planLiveRowStep, sameJson } from "@/lib/liveRowDiff";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -459,6 +461,9 @@ export default function DashboardPage() {
    *  read FAILS, instead of an empty list that looks like her uploads vanished. */
   const docsRef                   = useRef<Doc[]>([]);
   useEffect(() => { docsRef.current = docs; }, [docs]);
+  // Whether the LAST loadDocs read succeeded. loadDocs keeps the on-screen list
+  // on failure (and returns it), so the live poll reads this to back off.
+  const docsLoadOkRef             = useRef(true);
   const [loading, setLoading]     = useState(true);
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
@@ -943,155 +948,139 @@ export default function DashboardPage() {
   }, [pipeline, upgradeOpen, upgradeTargetStage]);
 
 
-  // Realtime: LIVE documents — the instant an admin/sub-admin approves,
-  // rejects, requests, or uploads-on-behalf (or the candidate uploads on
-  // another device), the doc grid reflects it with NO refresh. keepPhase so
-  // the live update never yanks the phase nav out from under the candidate.
-  useEffect(() => {
-    if (!userId) return;
-    const ch = supabase
-      .channel(`docs-live-${userId}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${userId}` },
-        () => { loadDocs(userId, true); },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
-
-  // Realtime: keep pipeline unlock flags in sync when admin changes them.
-  // INSERT as well as UPDATE: PATCH /api/portal/pipeline inserts the row when
-  // none exists yet, so a candidate's FIRST unlock arrives as an INSERT.
-  useEffect(() => {
-    if (!userId) return;
-    const merge = (payload: { new: Partial<Pipeline> }) => {
-      const row = payload.new;
-      setPipeline(prev => prev ? { ...prev, ...row } : (row as Pipeline));
-    };
-    const ch = supabase
-      .channel(`pipeline-unlock-${userId}`)
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        merge,
-      )
-      .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        merge,
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId]);
-
-  // Backstop for the documents + pipeline channels above. Realtime has no
-  // replay, so a change made while the socket was down (backgrounded phone
-  // tab, network blip) is lost until reload. Refetch both when the tab comes
-  // back. Throttled: focus and visibilitychange usually fire together.
-  useEffect(() => {
-    if (!authToken || !userId) return;
-    let last = 0;
-    const refresh = () => {
-      const now = Date.now();
-      if (now - last < 5_000) return;
-      last = now;
-      loadDocs(userId, true);
+  // LIVE documents + pipeline unlock flags. An admin/sub-admin approves,
+  // rejects, requests, uploads-on-behalf or unlocks a stage (or the candidate
+  // uploads on another device) and the dashboard reflects it with NO refresh:
+  // within one 15s tick while the tab is visible, and at once when she comes
+  // back to the tab (Realtime never replayed what it missed while a phone was
+  // locked; this does). These were Realtime postgres_changes channels on
+  // documents + candidate_pipeline plus a focus backstop. Realtime goes silent
+  // once the rows live in D1, so the poll is the mechanism now.
+  // keepPhase so the live update never yanks the phase nav out from under the
+  // candidate. immediate:false — the bootstrap Promise.allSettled already
+  // loaded both, and a second copy on mount would just double the requests.
+  usePolling(async (signal) => {
+    if (!userId || !authToken) return true;
+    const [, pipelineOk] = await Promise.all([
+      loadDocs(userId, true),
       fetch("/api/portal/pipeline/me", { headers: { Authorization: `Bearer ${authToken}` } })
         .then(r => r.ok ? r.json() : null)
-        // Only a successful read replaces state; a failed one keeps what's on screen.
-        .then(j => { if (j && "pipeline" in j) setPipeline(j.pipeline ?? null); })
-        .catch(() => {});
-    };
-    const onFocus = () => refresh();
-    const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+        .then((j: { pipeline?: Pipeline | null } | null) => {
+          // Only a successful read replaces state; a failed one keeps what's on screen.
+          if (!j || !("pipeline" in j)) return false;
+          const next = j.pipeline ?? null;
+          // Same content → keep identity, so the plan-gate / upgrade effects
+          // keyed on `pipeline` don't re-run every tick.
+          if (!signal.aborted) setPipeline(prev => sameJson(prev, next) ? prev : next);
+          return true;
+        })
+        .catch(() => false),
+    ]);
+    return docsLoadOkRef.current && pipelineOk;
+  }, { intervalMs: 15_000, enabled: !!userId && !!authToken, immediate: false, resetKey: userId });
 
-  // Realtime: LIVE two-way passport-data sync. Edit on one device → the DB
-  // draft-save fires → this fires on the other device → the open passport
-  // modal updates instantly. Same canonical channel pattern as pipeline.
-  useEffect(() => {
-    if (!userId) return;
-    const PP_KEYS: (keyof PassportData)[] = [
-      "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
-      "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
-      "address_number","address_postal","city_of_residence","country_of_residence",
-      "marital_status","children_ages",
-    ];
-    const ch = supabase
-      .channel(`passport-data-${userId}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = (payload.new ?? {}) as Record<string, unknown> & { passport_status?: string | null };
-          // passport_status is admin-driven — always honor it.
-          if (typeof row.passport_status === "string" || row.passport_status === null) {
-            setPassportStatus(row.passport_status ?? null);
-          }
-          // ── Merged in from the old `profile-status-${userId}` channel ──────
-          // That was a SECOND postgres_changes subscription on this same table
-          // with this same filter, so every profile update woke two websockets
-          // and two handlers raced to set passport_status. One channel now
-          // carries both jobs.
-          //
-          // These live ABOVE the local-edit guard below on purpose: the guard
-          // exists to stop an in-flight echo reverting a checkbox the candidate
-          // just toggled, and it must not also swallow an admin flipping her to
-          // verified or a payment landing. That ordering is the whole reason the
-          // first attempt at this merge was reverted.
-          const meta = row as {
-            manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null;
-          };
-          if (meta.payment_tier !== undefined) {
-            setPaymentTier(meta.payment_tier ?? null);
-            window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: meta.payment_tier ?? null } }));
-          }
-          if (meta.profile_photo !== undefined) {
-            window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
-          }
-          if (meta.manually_verified !== undefined) setManuallyVerified(!!meta.manually_verified);
-          if (meta.manually_verified === true) {
-            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
-            try {
-              if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
-            } catch { /* private mode */ }
-          }
-          // Guard: if the user just edited locally (typed / toggled a box),
-          // skip the field + checkbox patch for a short window so an
-          // in-flight echo of the PREVIOUS state can't revert their change
-          // (the fix for "uncheck bounces back to green").
-          if (Date.now() - lastLocalPassportEdit.current < 3000) return;
-          // Only patch the editor when it's open — and only the fields that
-          // actually changed, so the device currently typing isn't disrupted.
-          setPassportModal(prev => {
-            if (!prev) return prev;
-            let changed = false;
-            const next = { ...prev };
-            for (const k of PP_KEYS) {
-              const v = row[k];
-              if (typeof v === "string" && v !== prev[k]) { next[k] = v; changed = true; }
-            }
-            if (!changed) return prev;
-            return { ...next, sex: normalizeSex(next.sex, lang) };
-          });
-          // Live-sync the confirmation checkboxes too.
-          if (Array.isArray(row.passport_confirmed_fields)) {
-            const incoming = (row.passport_confirmed_fields as unknown[])
-              .filter((x): x is keyof PassportData => typeof x === "string");
-            setConfirmedFields(prev => {
-              if (prev.size === incoming.length && incoming.every(k => prev.has(k))) return prev;
-              return new Set(incoming);
-            });
-          }
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId, lang]);
+  // LIVE two-way passport-data sync + the admin-driven account flags. Edit on
+  // one device → the draft-save lands → the other device's open passport modal
+  // updates; an admin flips passport_status / verified, a payment lands, the
+  // photo changes → this device reflects it. This was a Realtime
+  // postgres_changes channel on candidate_profiles. Realtime goes silent once
+  // profiles live in D1, so we poll /api/portal/me/profile (own row only): 5s
+  // while the passport modal is open, 15s otherwise; visible tab only, instant
+  // on return, backoff on errors.
+  //
+  // A poll returns the SAME row every tick, but this handler must act only on
+  // CHANGES — it dispatches window events, can open the verified celebration,
+  // and patches fields the candidate may be typing but hasn't saved. So every
+  // tick is diffed against the last snapshot (lib/liveRowDiff) and only the
+  // moved columns are applied. The first read is the baseline and is never
+  // applied: the bootstrap already loaded that state.
+  const PP_KEYS: (keyof PassportData)[] = [
+    "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
+    "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
+    "address_number","address_postal","city_of_residence","country_of_residence",
+    "marital_status","children_ages",
+  ];
+  const LIVE_META_COLS = ["passport_status", "payment_tier", "profile_photo", "manually_verified"];
+  const LIVE_PASSPORT_COLS: string[] = [...PP_KEYS, "passport_confirmed_fields"];
+  const liveProfileRef = useRef<Record<string, unknown> | null>(null);
+  // A different account starts from a fresh baseline. Declared BEFORE
+  // usePolling so it commits before the poll's first run.
+  useEffect(() => { liveProfileRef.current = null; }, [userId]);
+  usePolling(async (signal) => {
+    if (!userId) return true;
+    const { data, error } = await getMyProfile([...LIVE_META_COLS, ...LIVE_PASSPORT_COLS].join(","), { userId });
+    if (signal.aborted) return true;
+    if (error) return false;
+    const row = (data ?? {}) as Record<string, unknown>;
+    // Guard: if the user just edited locally (typed / toggled a box), hold the
+    // field + checkbox patch back for a short window so an in-flight echo of
+    // the PREVIOUS state can't revert their change (the fix for "uncheck
+    // bounces back to green"). planLiveRowStep leaves those columns
+    // un-advanced, so a genuine change from the other device lands on the next
+    // quiet tick instead of being lost.
+    const { apply: changed, next: nextSnapshot } = planLiveRowStep(liveProfileRef.current, row, {
+      always: LIVE_META_COLS,
+      deferrable: LIVE_PASSPORT_COLS,
+      defer: Date.now() - lastLocalPassportEdit.current < 3000,
+    });
+    liveProfileRef.current = nextSnapshot;
+    if (changed.size === 0) return true;
+
+    // passport_status is admin-driven — always honor it.
+    if (changed.has("passport_status")) setPassportStatus((row.passport_status as string | null | undefined) ?? null);
+    // ── Merged in from the old `profile-status-${userId}` channel ──────
+    // These are `always` columns, outside the local-edit guard on purpose: the
+    // guard exists to stop an in-flight echo reverting a checkbox the candidate
+    // just toggled, and it must not also swallow an admin flipping her to
+    // verified or a payment landing. That separation is the whole reason the
+    // first attempt at this merge was reverted.
+    const meta = row as {
+      manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null;
+    };
+    if (changed.has("payment_tier")) {
+      setPaymentTier(meta.payment_tier ?? null);
+      window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: meta.payment_tier ?? null } }));
+    }
+    if (changed.has("profile_photo")) {
+      window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
+    }
+    if (changed.has("manually_verified")) {
+      setManuallyVerified(!!meta.manually_verified);
+      if (meta.manually_verified === true) {
+        window.dispatchEvent(new CustomEvent("bv-verified-changed"));
+        try {
+          if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
+        } catch { /* private mode */ }
+      }
+    }
+    // Only patch the editor when it's open — and only the fields that
+    // actually changed, so the device currently typing isn't disrupted.
+    const movedFields = PP_KEYS.filter(k => changed.has(k));
+    if (movedFields.length) {
+      setPassportModal(p => {
+        if (!p) return p;
+        let any = false;
+        const next = { ...p };
+        for (const k of movedFields) {
+          const v = row[k];
+          if (typeof v === "string" && v !== p[k]) { next[k] = v; any = true; }
+        }
+        if (!any) return p;
+        return { ...next, sex: normalizeSex(next.sex, lang) };
+      });
+    }
+    // Live-sync the confirmation checkboxes too. This mirrors a HUMAN click made
+    // on another device — it never derives a tick from data (LAW #38).
+    if (changed.has("passport_confirmed_fields") && Array.isArray(row.passport_confirmed_fields)) {
+      const incoming = (row.passport_confirmed_fields as unknown[])
+        .filter((x): x is keyof PassportData => typeof x === "string");
+      setConfirmedFields(cur => {
+        if (cur.size === incoming.length && incoming.every(k => cur.has(k))) return cur;
+        return new Set(incoming);
+      });
+    }
+    return true;
+  }, { intervalMs: passportModal ? 5_000 : 15_000, enabled: !!userId, resetKey: userId });
 
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
@@ -1559,6 +1548,7 @@ export default function DashboardPage() {
       const hadSuperseded = res.hadSuperseded;
       if (res.error) {
         console.error("loadDocs error:", res.error, uid);
+        docsLoadOkRef.current = false;
         // A FAILED read is not an empty document list. Returning [] here made a
         // single mobile-network blip blank every box back to "not submitted" —
         // her work looked erased, and the upload self-heal read the same empty
@@ -1566,6 +1556,7 @@ export default function DashboardPage() {
         // already on screen instead.
         return docsRef.current;
       }
+      docsLoadOkRef.current = true;
       const rows = (res.data ?? []) as unknown as Row[];
       data = hadSuperseded ? rows.filter((d) => !d.superseded_at) : rows;
       // Deduplicate: only keep the latest doc per file slot (fileKey).
@@ -1580,8 +1571,12 @@ export default function DashboardPage() {
         seenKeys.add(fk);
         return true;
       });
-      setDocs(fetched);
+      // The live poll calls this every 15s. Same rows → keep the array
+      // identity, so the four effects keyed on `docs` (preview remap, drop
+      // handler, …) don't re-run on every tick for nothing.
+      setDocs(prev => sameJson(prev, fetched) ? prev : fetched);
     } catch (err) {
+      docsLoadOkRef.current = false;
       console.error("loadDocs exception:", err);
     }
     // Return the freshly-fetched list so callers (e.g. the upload self-heal)

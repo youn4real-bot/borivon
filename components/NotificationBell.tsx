@@ -16,6 +16,7 @@ import { relativeTimeShort } from "@/lib/relativeTime";
 import { playNotifChime } from "@/lib/notifSound";
 import { translateDocLabel } from "@/lib/fileKeys";
 import { useDismiss } from "@/lib/useDismiss";
+import { usePolling } from "@/lib/usePolling";
 
 // ── Minimal bell-specific translations ─────────────────────────────────────────
 const BELL_T = {
@@ -345,12 +346,13 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const lastMarkAtRef = useRef(0);
   const { newIds, track } = useNewArrivals();
 
-  const fetch_ = useCallback(async () => {
+  // Resolves false on a failed read so the poll below backs off.
+  const fetch_ = useCallback(async (): Promise<boolean> => {
     // doc_type='placement' is excluded: candidate must never see an
     // org-match notification (user request 2026-05). Any legacy rows
     // from before the silent-placement switch stay in the DB but never
-    // reach the bell. Same goes for the 15s realtime poll below — it
-    // calls this same fetch.
+    // reach the bell. Same goes for the 15s poll below — it calls this
+    // same fetch.
     // Via our server (/api/portal/me/notifications) — own rows only, placement
     // excluded there. Was a direct Supabase read guarded by RLS alone.
     const startedAt = Date.now();
@@ -360,30 +362,21 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     // the user thinks they're caught up when really the fetch failed.
     if (error) {
       console.error("[NotificationBell] fetch failed:", error);
-      return;
+      return false;
     }
-    if (startedAt < lastMarkAtRef.current) return; // stale — a mark-read happened meanwhile
+    if (startedAt < lastMarkAtRef.current) return true; // stale — a mark-read happened meanwhile
     const list = (data ?? []) as CandidateNotif[];
     setNotifs(list);
     track(list.map(n => n.id), id => !list.find(x => x.id === id)?.read);
+    return true;
   }, [userId, track]);
 
-  useEffect(() => {
-    fetch_();
-    // Poll backstop: realtime can silently not deliver (publication / RLS /
-    // dropped socket). 15s poll guarantees the bell — and the chime, now
-    // driven by fetch_ — fires even with realtime down. Realtime just makes
-    // it instant when it IS up.
-    const timer = setInterval(() => { if (!document.hidden) fetch_(); }, 15_000);
-    const ch = supabase
-      .channel(`notifs-${userId}`)
-      .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
-        () => { fetch_(); }
-      )
-      .subscribe();
-    return () => { clearInterval(timer); supabase.removeChannel(ch); };
-  }, [userId, fetch_]);
+  // Live bell: 15s while the tab is visible, instantly on tab return, backing
+  // off on errors. This used to be a Realtime INSERT subscription on
+  // `notifications` with this poll as backstop; Realtime goes silent once the
+  // rows live in D1, so the poll is the mechanism. The chime still fires — it
+  // is driven by fetch_ (track), not by the transport.
+  usePolling(fetch_, { intervalMs: 15_000, resetKey: userId });
 
   // Outside-press + Esc handled via shared hook (lib/useDismiss).
   // skipMobile=true → phones use a dedicated bottom-sheet backdrop, not the
@@ -662,7 +655,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   const [invites, setInvites] = useState<InviteNotif[]>([]);
   const [open, setOpen]       = useState(false);
   const [tab, setTab]         = useState<"all" | "unread">("all");
-  // Read by fetch_ without making it a dep (keeps the poll/realtime effect stable).
+  // Read by fetch_ without making it a dep (keeps fetch_ stable across tab switches).
   const tabRef = useRef<"all" | "unread">("all");
   const ref    = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -672,7 +665,8 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   const lastMarkAtRef = useRef(0);
   const { newIds, track } = useNewArrivals();
 
-  const fetch_ = useCallback(async () => {
+  // Resolves false when the admin feed read failed so the poll below backs off.
+  const fetch_ = useCallback(async (): Promise<boolean> => {
     // Two sources feed the admin bell:
     //   1. admin_notifications — the global candidate-activity feed (signup /
     //      upload / doc-signed / org-join / org-request), via the scoped API.
@@ -685,7 +679,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
       fetch(`/api/portal/admin/notifications${onUnreadTab ? "?unread=1" : ""}`, { headers: { Authorization: `Bearer ${accessToken}` } }).then(r => (r.ok ? r.json() : null)),
       getMyNotifications<InviteNotif>("invites"),
     ]);
-    if (startedAt < lastMarkAtRef.current) return; // stale — a mark-read happened meanwhile
+    if (startedAt < lastMarkAtRef.current) return true; // stale — a mark-read happened meanwhile
     const adminBody  = adminRes.status === "fulfilled" ? adminRes.value : null;
     const adminList  = (adminBody?.notifications ? adminBody.notifications : []) as AdminNotif[];
     const inviteList = (inviteRes.status === "fulfilled" && !inviteRes.value.error ? (inviteRes.value.data ?? []) : []) as InviteNotif[];
@@ -696,44 +690,37 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     // Server-side counts over the whole scoped table; null → derive from rows.
     setCounts(typeof adminBody?.unreadCount === "number" && typeof adminBody?.overdueCount === "number"
       ? { unread: adminBody.unreadCount, overdue: adminBody.overdueCount } : null);
-    // Chime + slide-in are driven HERE, not in the realtime callback (realtime
-    // is RLS-gated and often doesn't deliver). id-diffing across BOTH sources
-    // fires the same sound for a new candidate-activity row OR a new invite.
+    // Chime + slide-in are driven HERE by id-diffing, independent of how the
+    // refetch was triggered (poll tick, tab return, assignment ping). Diffing
+    // across BOTH sources fires the same sound for a new candidate-activity
+    // row OR a new invite.
     const ids   = [...adminList.map(n => n.id), ...inviteList.map(n => n.id)];
     const byId  = new Map<string, boolean>([...adminList.map(n => [n.id, n.read] as const), ...inviteList.map(n => [n.id, n.read] as const)]);
     track(ids, id => !byId.get(id));
+    return adminBody !== null;
   }, [accessToken, userId, track]);
 
+  // Live bell, both sources: 15s while the tab is visible, instantly on tab
+  // return, backing off on errors. Both used to arrive via Realtime INSERT
+  // subscriptions (admin_notifications, and this admin's OWN calendar invites
+  // in `notifications`) with this poll as backstop. Realtime goes silent once
+  // the rows live in D1, so the poll is the mechanism. Everything is read
+  // through the scoped endpoints, so an org admin still only ever sees their
+  // own org's candidates (LAW #25).
+  const { refresh: refreshBell } = usePolling(fetch_, { intervalMs: 15_000, resetKey: userId });
+
+  // Assignment bus: a candidate (un)assigned to/from an org pings here so an
+  // org admin's SCOPED list drops/regains that candidate instantly. This is a
+  // BROADCAST channel, not postgres_changes — it never depended on the
+  // database, so it stays. The refetch goes through the scoped endpoint, so
+  // this is safe for every role.
   useEffect(() => {
-    fetch_();
-    // 15s poll backstop (was 60s) so the bell stays live even when the
-    // realtime socket is down — the common case for admin_notifications.
-    const timer = setInterval(() => { if (!document.hidden) fetch_(); }, 15_000);
-    const channel = supabase
-      .channel("admin-notifs-bell")
-      .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "admin_notifications" },
-        () => { fetch_(); },
-      )
-      .subscribe();
-    // Assignment bus: a candidate (un)assigned to/from an org pings here so an
-    // org admin's SCOPED list drops/regains that candidate instantly. The
-    // refetch goes through the scoped endpoint, so this is safe for every role.
     const assignCh = supabase
       .channel(ASSIGNMENTS_TOPIC)
-      .on("broadcast", { event: "changed" }, () => { fetch_(); })
+      .on("broadcast", { event: "changed" }, () => { refreshBell(); })
       .subscribe();
-    // This admin's OWN calendar invites land in `notifications` (per-user) —
-    // subscribe so a tagged sub-admin gets the ping the instant it's created.
-    const inviteCh = supabase
-      .channel(`admin-invites-${userId}`)
-      .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
-        () => { fetch_(); },
-      )
-      .subscribe();
-    return () => { clearInterval(timer); supabase.removeChannel(channel); supabase.removeChannel(assignCh); supabase.removeChannel(inviteCh); };
-  }, [fetch_, userId]);
+    return () => { supabase.removeChannel(assignCh); };
+  }, [refreshBell]);
 
   // Outside-press + Esc handled via shared hook (lib/useDismiss).
   useDismiss(ref, open, () => setOpen(false), { skipMobile: true });

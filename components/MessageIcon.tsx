@@ -27,6 +27,7 @@ import { Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTime, dayLabel, clockTime } from "@/lib/relativeTime";
 import { useDismiss } from "@/lib/useDismiss";
+import { usePolling } from "@/lib/usePolling";
 
 type Role = "candidate" | "admin";
 type Kind = "message" | "bug";
@@ -865,49 +866,30 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   const candidateInitial = (candidateName || "?").charAt(0).toUpperCase();
   const loadAttachment = useAttachmentLoader("/api/portal/messages", accessToken);
 
-  const fetchMsgs = useCallback(async () => {
+  // Resolves false on a failed read so the poll below backs off.
+  const fetchMsgs = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/portal/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const json = await res.json();
       const next: Msg[] = json.messages ?? [];
       setMsgs(next);
       setUnread(next.filter(m => m.sender_role === "admin" && !m.read_by_candidate).length);
-    } catch { /* offline / hot-reload */ }
+      return true;
+    } catch { return false; /* offline / hot-reload */ }
   }, [accessToken]);
 
-  // EGRESS: this background poll runs on EVERY portal page (GlobalChrome). Realtime
-  // (below) covers live updates; skip the poll while the tab is hidden.
-  useEffect(() => { fetchMsgs(); const t = setInterval(() => { if (!document.hidden) fetchMsgs(); }, 30_000); return () => clearInterval(t); }, [fetchMsgs]);
-
-  // Live updates via Supabase Realtime (RLS lets candidate subscribe to own thread).
-  useEffect(() => {
-    let cancelled = false;
-    const channel = supabase
-      // Per-user channel name so two simultaneous mounts (e.g. dev hot-reload
-      // or a future preview view) won't collide on the same global key.
-      .channel(`messages-candidate-${userId}`)
-      .on(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        "postgres_changes" as any,
-        { event: "INSERT", schema: "public", table: "messages" },
-        () => { if (!cancelled) fetchMsgs(); },
-      )
-      .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(channel); };
-  }, [fetchMsgs, userId]);
-
-  // Refetch on focus / visibility regain.
-  useEffect(() => {
-    const onFocus = () => fetchMsgs();
-    const onVis = () => { if (document.visibilityState === "visible") fetchMsgs(); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [fetchMsgs]);
+  // Live thread + unread badge. The Realtime INSERT subscription that used to
+  // push admin replies is gone: it stops firing once messages live in D1, so the
+  // poll is the mechanism. EGRESS: this runs on EVERY portal page (GlobalChrome),
+  // so the cadence follows what is on screen — 2s while the thread is open (the
+  // same fast poll that backed Realtime up before), 5s while the inbox dropdown
+  // previews the last message, 30s for the badge alone. Hidden tabs don't poll;
+  // coming back to the tab (focus / visibility) refetches at once.
+  usePolling(fetchMsgs, {
+    intervalMs: threadOpen ? 2_000 : inboxOpen ? 5_000 : 30_000,
+    resetKey: userId,
+  });
 
   // Click-outside / Esc → close the inbox dropdown via shared hook.
   // skipMobile=true: the mobile portal backdrop handles dismissal itself.
@@ -925,13 +907,6 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
       fetch("/api/portal/messages", { method: "PATCH", headers: { Authorization: `Bearer ${accessToken}` } });
     }
   }
-
-  // While the modal is OPEN, fast-poll as a Realtime fallback.
-  useEffect(() => {
-    if (!threadOpen) return;
-    const t = setInterval(() => { if (!document.hidden) fetchMsgs(); }, 2_000);
-    return () => clearInterval(t);
-  }, [threadOpen, fetchMsgs]);
 
   // Auto-scroll behaviour is handled inside ThreadModal — keeps the user's
   // scroll position when they scroll up, only sticks to bottom when they're

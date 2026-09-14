@@ -1,5 +1,44 @@
 import { describe, it, expect } from "vitest";
-import { changedKeys, sameJson } from "@/lib/liveRowDiff";
+import { changedKeys, sameJson, planLiveRowStep } from "@/lib/liveRowDiff";
+
+describe("planLiveRowStep — the dashboard's live passport/profile poll", () => {
+  const cols = (defer: boolean) => ({ always: ["passport_status", "manually_verified"], deferrable: ["first_name", "passport_confirmed_fields"], defer });
+  const base = { passport_status: null, manually_verified: false, first_name: "Amina", passport_confirmed_fields: [] };
+
+  it("the first read is a baseline: nothing applied (no re-fired celebration on mount)", () => {
+    const step = planLiveRowStep(null, { ...base, manually_verified: true }, cols(false));
+    expect([...step.apply]).toEqual([]);
+    expect(step.next.manually_verified).toBe(true);
+  });
+
+  it("an unchanged poll applies nothing", () => {
+    const step = planLiveRowStep(base, { ...base, passport_confirmed_fields: [] }, cols(false));
+    expect(step.apply.size).toBe(0);
+  });
+
+  it("admin-driven columns apply even while the candidate is typing", () => {
+    const step = planLiveRowStep(base, { ...base, passport_status: "approved", first_name: "Amina B" }, cols(true));
+    expect([...step.apply]).toEqual(["passport_status"]);
+  });
+
+  it("a field change held back while typing is applied on the next quiet poll, not lost", () => {
+    const moved = { ...base, first_name: "Amina B", passport_confirmed_fields: ["dob"] };
+    const busy = planLiveRowStep(base, moved, cols(true));
+    expect(busy.apply.size).toBe(0);
+    expect(busy.next.first_name).toBe("Amina");        // snapshot NOT advanced
+    const quiet = planLiveRowStep(busy.next, moved, cols(false));
+    expect([...quiet.apply].sort()).toEqual(["first_name", "passport_confirmed_fields"]);
+    const after = planLiveRowStep(quiet.next, moved, cols(false));
+    expect(after.apply.size).toBe(0);                  // applied once, not every tick
+  });
+
+  it("an admin change applied during typing is not re-applied on the quiet poll", () => {
+    const moved = { ...base, passport_status: "rejected" };
+    const busy = planLiveRowStep(base, moved, cols(true));
+    expect([...busy.apply]).toEqual(["passport_status"]);
+    expect(planLiveRowStep(busy.next, moved, cols(false)).apply.size).toBe(0);
+  });
+});
 
 describe("changedKeys — only-on-change semantics for polled rows", () => {
   const KEYS = ["first_name", "passport_status", "passport_confirmed_fields", "manually_verified"] as const;
