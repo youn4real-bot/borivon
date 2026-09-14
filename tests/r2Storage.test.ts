@@ -96,6 +96,13 @@ describe("withR2Storage — off unless STORAGE_BACKEND is exactly r2", () => {
     expect(r2StorageBaseUrl({ PUBLIC_BASE_URL: "https://preview.example/" })).toBe("https://preview.example/api/storage/v1");
   });
 
+  it("is safe to import from lib/supabase.ts (browser bundle): no runtime import of the handler", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("lib/storage/withR2Storage.ts", "utf8");
+    const runtimeImports = src.split(/\r?\n/).filter((l) => /^\s*import\s/.test(l) && !/^\s*import\s+type\s/.test(l));
+    expect(runtimeImports).toEqual([]);
+  });
+
   it("getPublicUrl points at our route once on", () => {
     const { store } = memoryStore();
     const db = r2Client(store);

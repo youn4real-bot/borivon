@@ -19,6 +19,11 @@
  * STORAGE_HANDLER hook on its own: a fetch layer there answers the operations
  * but leaves both URL builders on supabase.co.
  *
+ * Safe to import from lib/supabase.ts, which is in the BROWSER bundle: this
+ * file imports nothing at runtime. The handler (crypto, lib/r2, the AWS SDK)
+ * is loaded on the first storage call, server-side only — a static import here
+ * would ship all of that to every portal page (tests/r2Storage.test.ts guards it).
+ *
  * OFF unless STORAGE_BACKEND is exactly "r2". Wiring (for the orchestrator, in
  * lib/supabase.ts getServiceSupabase):
  *   withR2Storage(createClient(...))                       // or, with the write freeze:
@@ -28,7 +33,7 @@
  * active keep loading.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { makeR2StorageFetch, type R2StorageOptions } from "@/lib/storage/r2StorageFetch";
+import type { R2StorageOptions } from "@/lib/storage/r2StorageFetch";
 
 type Fetch = typeof globalThis.fetch;
 type StorageClientLike = SupabaseClient["storage"];
@@ -91,7 +96,18 @@ export function withR2Storage<C extends { storage: StorageClientLike }>(client: 
   if (!opts.force && !r2StorageEnabled()) return client;
   const { force: _force, baseUrl, wrap, ...storageOpts } = opts;
   void _force;
-  const handler = makeR2StorageFetch({ ...storageOpts, passthrough: storageOpts.passthrough ?? refuseNetwork });
+
+  // Loaded once, on the first storage call. If the module cannot load, the call
+  // rejects and storage-js hands it back as `error` — never a silent fall back
+  // to Supabase, where a write would land in the backend being left.
+  let loaded: Promise<Fetch> | null = null;
+  const handler = ((input: RequestInfo | URL, init?: RequestInit) => {
+    loaded ??= import("@/lib/storage/r2StorageFetch").then((m) =>
+      m.makeR2StorageFetch({ ...storageOpts, passthrough: storageOpts.passthrough ?? refuseNetwork }),
+    );
+    return loaded.then((f) => f(input as RequestInfo, init));
+  }) as Fetch;
+
   // Built from the existing instance's class, so no direct dependency on
   // @supabase/storage-js (a transitive package) is needed. No headers: nothing
   // leaves the process, so the service-role key has nowhere to go.
