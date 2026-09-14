@@ -546,6 +546,7 @@ function MotivationsschreibenPageInner() {
       try {
         const r = await fetch(`/api/portal/me/letter-data${qs}`, {
           headers: { Authorization: `Bearer ${authToken}` },
+          signal, // a read the poll gave up on is cancelled, not left to land late
         });
         if (r.ok) {
           const j = await r.json() as {
@@ -575,6 +576,7 @@ function MotivationsschreibenPageInner() {
       try {
         const er = await fetch(`/api/portal/me/employer${qs}`, {
           headers: { Authorization: `Bearer ${authToken}` },
+          signal,
         });
         if (er.ok) {
           const ej = await er.json();

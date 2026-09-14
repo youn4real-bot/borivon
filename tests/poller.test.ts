@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createPoller, backoffDelay, MIN_INTERVAL_MS, type PollRun } from "@/lib/poller";
+import { createPoller, backoffDelay, runDeadline, MIN_INTERVAL_MS, type PollRun } from "@/lib/poller";
 
 /**
  * The polling loop that replaced Supabase Realtime postgres_changes. Every rule
@@ -168,7 +168,8 @@ describe("createPoller — no overlap", () => {
   it("never starts a second request while one is in flight", async () => {
     const f = fakeEnv();
     const d = deferredRun();
-    const p = createPoller({ run: d.run, intervalMs: 2_000, env: f.env });
+    // A deadline above the wait: this is slow-but-alive, not hung (see below).
+    const p = createPoller({ run: d.run, intervalMs: 2_000, timeoutMs: 60_000, env: f.env });
     p.start();
     await vi.advanceTimersByTimeAsync(30_000); // a very slow cold start
     f.focus();
@@ -254,6 +255,136 @@ describe("createPoller — backoff", () => {
     await vi.advanceTimersByTimeAsync(3_000);
     expect(run).toHaveBeenCalledTimes(4);
     p.stop();
+  });
+});
+
+describe("createPoller — a request that never answers", () => {
+  // Browser fetch has no timeout. Before the deadline, ONE dead socket froze
+  // the loop for good: tab return, focus and refresh() all bailed on inFlight.
+  it("runDeadline: 3x the interval, never below 15 s, overridable", () => {
+    expect(runDeadline(2_000)).toBe(15_000);
+    expect(runDeadline(15_000)).toBe(45_000);
+    expect(runDeadline(5_000, 1_000)).toBe(1_000);
+    expect(runDeadline(5_000, 0)).toBe(MIN_INTERVAL_MS);
+  });
+
+  it("is abandoned at the deadline: signal aborted, counted as a failure, loop moves on", async () => {
+    const f = fakeEnv();
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    const run = vi.fn<PollRun>((s) => {
+      signals.push(s);
+      calls++;
+      return calls === 1 ? new Promise<boolean>(() => {}) : Promise.resolve(true);
+    });
+    const p = createPoller({ run, intervalMs: 5_000, env: f.env }); // deadline = 15 s
+    p.start();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(signals[0].aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);            // deadline hits at 15 s
+    expect(signals[0].aborted).toBe(true);           // a fetch given this signal is cancelled
+    await vi.advanceTimersByTimeAsync(9_999);        // failure -> backoff 2x interval
+    expect(run).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(run).toHaveBeenCalledTimes(2);            // recovered at 25 s
+    await vi.advanceTimersByTimeAsync(5_000);        // success snaps back to the base cadence
+    expect(run).toHaveBeenCalledTimes(3);
+    p.stop();
+  });
+
+  it("a late answer from the abandoned run changes nothing", async () => {
+    const f = fakeEnv();
+    const d = deferredRun();
+    const p = createPoller({ run: d.run, intervalMs: 5_000, timeoutMs: 3_000, env: f.env });
+    p.start();
+    await vi.advanceTimersByTimeAsync(3_000);        // run #1 abandoned (failure)
+    await vi.advanceTimersByTimeAsync(10_000);       // run #2 starts at 13 s and hangs too...
+    expect(d.run).toHaveBeenCalledTimes(2);
+    d.release(true);                                 // ...#1 answers late
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.run).toHaveBeenCalledTimes(2);          // no extra run, no reschedule
+    d.release(true);                                 // #2 answers in time
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.run).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5_000);        // #2's success is what drives the cadence
+    expect(d.run).toHaveBeenCalledTimes(3);
+    p.stop();
+  });
+
+  it("trigger() during a hung run is honoured once the deadline frees the loop", async () => {
+    const f = fakeEnv();
+    const d = deferredRun();
+    const p = createPoller({ run: d.run, intervalMs: 30_000, timeoutMs: 4_000, env: f.env });
+    p.start();
+    await vi.advanceTimersByTimeAsync(0);
+    p.trigger();
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(d.run).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(d.run).toHaveBeenCalledTimes(2);
+    p.stop();
+  });
+
+  it("tab return restarts a request that was already out when the tab was hidden", async () => {
+    const f = fakeEnv();
+    const d = deferredRun();
+    const p = createPoller({ run: d.run, intervalMs: 5_000, env: f.env });
+    p.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    const first = d.run.mock.calls[0][0];
+    f.setHidden(true);                               // phone locked, socket dies
+    await vi.advanceTimersByTimeAsync(5_000);
+    f.setHidden(false);
+    f.focus();                                       // both events: still ONE restart
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.run).toHaveBeenCalledTimes(2);
+    expect(first.aborted).toBe(true);
+    d.release(true);                                 // the stale one answering late is ignored
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.run).toHaveBeenCalledTimes(2);
+    p.stop();
+  });
+
+  it("focus without a hide does not cut a slow-but-alive request short", async () => {
+    const f = fakeEnv();
+    const d = deferredRun();
+    const p = createPoller({ run: d.run, intervalMs: 5_000, env: f.env });
+    p.start();
+    await vi.advanceTimersByTimeAsync(4_000);        // a cold Worker, still answering
+    f.focus();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.run).toHaveBeenCalledTimes(1);
+    expect(d.run.mock.calls[0][0].aborted).toBe(false);
+    p.stop();
+  });
+
+  it("stop() during a hung run leaves no timer behind", async () => {
+    const f = fakeEnv();
+    const d = deferredRun();
+    const p = createPoller({ run: d.run, intervalMs: 5_000, env: f.env });
+    p.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    p.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(d.run.mock.calls[0][0].aborted).toBe(true);
+  });
+
+  it("each run gets its own signal; starting the next aborts the previous one", async () => {
+    const f = fakeEnv();
+    const signals: AbortSignal[] = [];
+    const run = vi.fn<PollRun>(async (s) => { signals.push(s); return true; });
+    const p = createPoller({ run, intervalMs: 1_000, env: f.env });
+    p.start();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    p.stop();
+    expect(signals[1].aborted).toBe(true);
   });
 });
 

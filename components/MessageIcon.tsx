@@ -867,11 +867,14 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   const loadAttachment = useAttachmentLoader("/api/portal/messages", accessToken);
 
   // Resolves false on a failed read so the poll below backs off.
-  const fetchMsgs = useCallback(async (): Promise<boolean> => {
+  // `signal` from the poll: a read it let go of (timed out, superseded, unmounted) never sets state.
+  const fetchMsgs = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
     try {
-      const res = await fetch("/api/portal/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
+      const res = await fetch("/api/portal/messages", { headers: { Authorization: `Bearer ${accessToken}` }, signal });
+      if (signal?.aborted) return true;
       if (!res.ok) return false;
       const json = await res.json();
+      if (signal?.aborted) return true;
       const next: Msg[] = json.messages ?? [];
       setMsgs(next);
       setUnread(next.filter(m => m.sender_role === "admin" && !m.read_by_candidate).length);

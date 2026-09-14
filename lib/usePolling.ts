@@ -9,7 +9,7 @@ import { createPoller, type Poller, type PollRun } from "@/lib/poller";
  * the timing rules: visible-only, refetch on return, single-flight, backoff).
  *
  *   const { refresh } = usePolling(async (signal) => {
- *     const r = await fetch("/api/portal/…", { headers: { Authorization: `Bearer ${accessToken}` } });
+ *     const r = await fetch("/api/portal/…", { headers: { Authorization: `Bearer ${accessToken}` }, signal });
  *     if (signal.aborted || !r.ok) return false;
  *     setThing(await r.json());
  *   }, { intervalMs: 15_000, enabled: !!accessToken, resetKey: userId });

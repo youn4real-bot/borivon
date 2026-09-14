@@ -39,22 +39,25 @@ const errOf = (j: unknown) => (j as { error?: string } | null)?.error ?? "reques
  * the old query filtered on) but must be the caller's own — the route refuses
  * anyone else's, exactly like the self-only RLS it replaces.
  */
+// `signal` (optional, on the readers): a live poll passes its AbortSignal so a
+// read stuck on a dead connection is really cancelled when the poll gives up on
+// it, instead of lingering and landing over a newer answer.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getMyProfile<T = any>(
   cols: string,
-  opts?: { userId?: string | null },
+  opts?: { userId?: string | null; signal?: AbortSignal },
 ): Promise<{ data: T | null; error: string | null }> {
   const qs = new URLSearchParams({ cols: cols.replace(/\s+/g, "") });
   if (opts?.userId) qs.set("userId", opts.userId);
-  const r = await call(`/api/portal/me/profile?${qs}`);
+  const r = await call(`/api/portal/me/profile?${qs}`, { signal: opts?.signal });
   if (!r.ok) return { data: null, error: errOf(r.json) };
   return { data: ((r.json as { profile?: T | null } | null)?.profile ?? null), error: null };
 }
 
 /** The caller's own documents, newest first (archived rows still included). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getMyDocuments<T = any>(): Promise<{ data: T[] | null; hadSuperseded: boolean; error: string | null }> {
-  const r = await call("/api/portal/me/documents");
+export async function getMyDocuments<T = any>(opts?: { signal?: AbortSignal }): Promise<{ data: T[] | null; hadSuperseded: boolean; error: string | null }> {
+  const r = await call("/api/portal/me/documents", { signal: opts?.signal });
   if (!r.ok) return { data: null, hadSuperseded: false, error: errOf(r.json) };
   const j = r.json as { docs?: T[]; hadSuperseded?: boolean } | null;
   return { data: j?.docs ?? [], hadSuperseded: j?.hadSuperseded === true, error: null };
@@ -62,8 +65,8 @@ export async function getMyDocuments<T = any>(): Promise<{ data: T[] | null; had
 
 /** The caller's own bell rows ("all") or calendar invites ("invites"). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getMyNotifications<T = any>(kind: "all" | "invites"): Promise<{ data: T[] | null; error: string | null }> {
-  const r = await call(`/api/portal/me/notifications?kind=${kind}`);
+export async function getMyNotifications<T = any>(kind: "all" | "invites", opts?: { signal?: AbortSignal }): Promise<{ data: T[] | null; error: string | null }> {
+  const r = await call(`/api/portal/me/notifications?kind=${kind}`, { signal: opts?.signal });
   if (!r.ok) return { data: null, error: errOf(r.json) };
   return { data: (r.json as { notifications?: T[] } | null)?.notifications ?? [], error: null };
 }

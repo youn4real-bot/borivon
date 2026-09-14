@@ -2493,7 +2493,7 @@ function CVBuilderInner() {
   usePolling(async (signal) => {
     if (!ppLive) return true;
     // Via our server (/api/portal/me/profile — own row only).
-    const { data, error } = await getMyProfile(PP_SYNC_COLS, { userId });
+    const { data, error } = await getMyProfile(PP_SYNC_COLS, { userId, signal });
     if (signal.aborted) return true;
     if (error) return false;
     const row = data as Record<string, unknown> | null;

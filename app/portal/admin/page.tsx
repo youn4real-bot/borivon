@@ -1365,6 +1365,7 @@ export default function AdminPage() {
     if (!uid || !accessToken) return true;
     const r = await fetch(`/api/portal/admin?userId=${uid}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal, // a read the poll gave up on is cancelled, not left to land late
     }).catch(() => null);
     if (signal.aborted) return true;
     if (!r || !r.ok) return false;

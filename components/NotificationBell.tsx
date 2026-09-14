@@ -347,7 +347,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const { newIds, track } = useNewArrivals();
 
   // Resolves false on a failed read so the poll below backs off.
-  const fetch_ = useCallback(async (): Promise<boolean> => {
+  const fetch_ = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
     // doc_type='placement' is excluded: candidate must never see an
     // org-match notification (user request 2026-05). Any legacy rows
     // from before the silent-placement switch stay in the DB but never
@@ -356,7 +356,9 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     // Via our server (/api/portal/me/notifications) — own rows only, placement
     // excluded there. Was a direct Supabase read guarded by RLS alone.
     const startedAt = Date.now();
-    const { data, error } = await getMyNotifications<CandidateNotif>("all");
+    const { data, error } = await getMyNotifications<CandidateNotif>("all", { signal });
+    // The poll let go of this read (stopped, timed out, superseded): not an error, not ours to apply.
+    if (signal?.aborted) return true;
     // On error: keep the existing notifications list rather than
     // wiping it to []. Wiping silently makes the unread badge disappear and
     // the user thinks they're caught up when really the fetch failed.
@@ -666,7 +668,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
   const { newIds, track } = useNewArrivals();
 
   // Resolves false when the admin feed read failed so the poll below backs off.
-  const fetch_ = useCallback(async (): Promise<boolean> => {
+  const fetch_ = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
     // Two sources feed the admin bell:
     //   1. admin_notifications — the global candidate-activity feed (signup /
     //      upload / doc-signed / org-join / org-request), via the scoped API.
@@ -676,9 +678,11 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     const startedAt = Date.now();
     const onUnreadTab = tabRef.current === "unread";
     const [adminRes, inviteRes] = await Promise.allSettled([
-      fetch(`/api/portal/admin/notifications${onUnreadTab ? "?unread=1" : ""}`, { headers: { Authorization: `Bearer ${accessToken}` } }).then(r => (r.ok ? r.json() : null)),
-      getMyNotifications<InviteNotif>("invites"),
+      fetch(`/api/portal/admin/notifications${onUnreadTab ? "?unread=1" : ""}`, { headers: { Authorization: `Bearer ${accessToken}` }, signal }).then(r => (r.ok ? r.json() : null)),
+      getMyNotifications<InviteNotif>("invites", { signal }),
     ]);
+    // The poll let go of this read (stopped, timed out, superseded): not ours to apply.
+    if (signal?.aborted) return true;
     if (startedAt < lastMarkAtRef.current) return true; // stale — a mark-read happened meanwhile
     const adminBody  = adminRes.status === "fulfilled" ? adminRes.value : null;
     const adminList  = (adminBody?.notifications ? adminBody.notifications : []) as AdminNotif[];
