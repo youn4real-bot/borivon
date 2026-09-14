@@ -42,6 +42,10 @@ export function tableColumns(types, table) {
 /**
  * What an import of `requested` (all exported tables when empty) will do —
  * no IO beyond the counts. `refused` lists why it must not start.
+ *
+ * @param {Record<string, any>} types
+ * @param {Record<string, number | string>} counts
+ * @param {string[]} [requested]
  */
 export function planImport(types, counts, requested = []) {
   const exported = (t) => counts[t] !== undefined && counts[t] !== "skipped";
@@ -68,11 +72,48 @@ export function planImport(types, counts, requested = []) {
 }
 
 /**
- * Everything that can be known before a single write: the plan and the orphan
- * check. An export with orphans would fail halfway, after tables were emptied.
+ * Rows that repeat a primary key, per table (counts only). The export pages with
+ * offset over a live table; a row inserted mid-read shifts the next page and the
+ * last row of one page comes back again. Imported, that is a UNIQUE failure
+ * halfway through — after the tables were emptied.
  */
-export function preflight({ types, dir, requested = [] }) {
+export function duplicateKeys(types, tables, rowsOf) {
+  const out = [];
+  for (const t of tables) {
+    const rows = rowsOf(t);
+    const pk = types[t].pk ?? [];
+    if (!rows || !pk.length) continue;
+    const idx = pk.map((c) => tableColumns(types, t).indexOf(c));
+    if (idx.some((i) => i < 0)) continue;
+    const seen = new Set();
+    let n = 0;
+    for (const r of rows) {
+      const k = JSON.stringify(idx.map((i) => r[i]));
+      if (seen.has(k)) n++; else seen.add(k);
+    }
+    if (n) out.push({ table: t, count: n });
+  }
+  return out;
+}
+
+/**
+ * Everything that can be known before a single write. `refusals` is every
+ * reason the import must not start, as log lines without row values:
+ *   • the plan's own refusals (unknown or unexported tables);
+ *   • the export was taken with a different d1/types.json — its rows are
+ *     positional arrays, so a column added or reordered since would shift every
+ *     value into the wrong column without a single error;
+ *   • a row file missing or not holding the count recorded for it;
+ *   • tables export-data.mjs could not read consistently (_meta.json unstable);
+ *   • duplicate primary keys, and orphan child rows.
+ * `requireMeta` refuses exports older than _meta.json (the rebuild insists).
+ *
+ * @param {{ types: Record<string, any>, dir: string, requested?: string[], requireMeta?: boolean }} opts
+ */
+export function preflight({ types, dir, requested = [], requireMeta = false }) {
   const counts = JSON.parse(fs.readFileSync(path.join(dir, "_counts.json"), "utf8"));
+  const metaFile = path.join(dir, "_meta.json");
+  const meta = fs.existsSync(metaFile) ? JSON.parse(fs.readFileSync(metaFile, "utf8")) : null;
   const plan = planImport(types, counts, requested);
   const cache = new Map();
   const rowsOf = (t) => {
@@ -82,20 +123,45 @@ export function preflight({ types, dir, requested = [] }) {
     }
     return cache.get(t);
   };
-  const orphans = plan.refused.length ? [] : findOrphans(types, plan.tables, rowsOf, (t) => tableColumns(types, t));
-  return { counts, rowsOf, plan, orphans };
+
+  const refusals = [...plan.refused];
+  let orphans = [];
+  if (!plan.refused.length) {
+    if (!meta && requireMeta) refusals.push("_meta.json missing: the export predates column tracking — re-export with d1/export-data.mjs");
+    for (const t of plan.tables) {
+      if (meta?.columns) {
+        const want = tableColumns(types, t), got = meta.columns[t];
+        if (!got) refusals.push(`${t}: no column list in _meta.json — re-export`);
+        else if (JSON.stringify(got) !== JSON.stringify(want)) {
+          const added = want.filter((c) => !got.includes(c)), gone = got.filter((c) => !want.includes(c));
+          refusals.push(`${t}: exported columns differ from d1/types.json (${added.length ? `new: ${added.join(",")}` : ""}${added.length && gone.length ? "; " : ""}${gone.length ? `gone: ${gone.join(",")}` : ""}${!added.length && !gone.length ? "order changed" : ""}) — re-export`);
+        }
+      }
+      if ((meta?.unstable ?? []).includes(t)) refusals.push(`${t}: its row count kept changing while it was exported — re-export`);
+      const rows = rowsOf(t);
+      if (!rows) refusals.push(`${t}: ${t}.json missing from the export`);
+      else if (rows.length !== Number(counts[t])) refusals.push(`${t}: _counts.json says ${counts[t]}, ${t}.json holds ${rows.length}`);
+    }
+    if (refusals.length === plan.refused.length) {
+      for (const d of duplicateKeys(types, plan.tables, rowsOf)) {
+        refusals.push(`${d.table}: ${d.count} row(s) repeat a primary key (rows were written while it was paged) — re-export`);
+      }
+      orphans = findOrphans(types, plan.tables, rowsOf, (t) => tableColumns(types, t));
+      for (const o of orphans) refusals.push(`${o.table}.${o.column} → ${o.parent}.${o.ref}: ${o.count} row(s), ${o.reason}`);
+    }
+  }
+  return { counts, meta, rowsOf, plan, orphans, refusals };
 }
 
+/**
+ * @param {{ run: (sql: string, params?: unknown[]) => any, types: Record<string, any>, dir: string, requested?: string[], log?: (m: string) => void }} opts
+ */
 export async function importTables({ run, types, dir, requested = [], log = console.log }) {
-  const { counts, rowsOf, plan, orphans } = preflight({ types, dir, requested });
-  if (plan.refused.length) {
-    for (const r of plan.refused) log(`!! ${r}`);
-    return { problems: plan.refused.length, plan, orphans };
-  }
-  if (orphans.length) {
-    for (const o of orphans) log(`!! ${o.table}.${o.column} → ${o.parent}.${o.ref}: ${o.count} row(s), ${o.reason}`);
-    log("!! nothing was changed — re-export (the export reads one table at a time, so a write in between can leave this) and retry");
-    return { problems: orphans.length, plan, orphans };
+  const { counts, rowsOf, plan, orphans, refusals } = preflight({ types, dir, requested });
+  if (refusals.length) {
+    for (const r of refusals) log(`!! ${r}`);
+    if (!plan.refused.length) log("!! nothing was changed — re-export (the export reads one table at a time, so a write in between can leave this) and retry");
+    return { problems: refusals.length, plan, orphans };
   }
   if (plan.added.length) log(`also refreshing ${plan.added.join(", ")} — their rows reference a table being refreshed`);
 
