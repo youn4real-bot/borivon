@@ -259,6 +259,20 @@ describe("storage-js operations against R2", () => {
     expect(await names("a.b")).toEqual([]);
   });
 
+  it("list order is Supabase's measured one: case-insensitive bytes, then bytes — not plain byte order, not ICU", async () => {
+    // The shapes of the live doc-cache folder's Drive ids where byte order and ICU disagreed with Supabase.
+    const names = ["1ZRGa", "1_Xya", "1znGa", "10aba", "1ZEpa", "1Zdza", "1zdza"];
+    for (const n of names) mem.seed(`supabase/sign-documents/doc-cache/${n}`, "x", "application/pdf");
+    const expected = ["10aba", "1_Xya", "1Zdza", "1zdza", "1ZEpa", "1znGa", "1ZRGa"];
+    const asc = await db.storage.from("sign-documents").list("doc-cache", { sortBy: { column: "name", order: "asc" } });
+    expect(asc.data!.map((o) => o.name)).toEqual(expected);
+    const desc = await db.storage.from("sign-documents").list("doc-cache", { sortBy: { column: "name", order: "desc" } });
+    expect(desc.data!.map((o) => o.name)).toEqual([...expected].reverse());
+    // Paging must cut the same sequence Supabase pages through.
+    const page2 = await db.storage.from("sign-documents").list("doc-cache", { limit: 3, offset: 3 });
+    expect(page2.data!.map((o) => o.name)).toEqual(expected.slice(3, 6));
+  });
+
   it("list honours limit, offset and descending order", async () => {
     for (const n of ["a", "b", "c", "d"]) mem.seed(`supabase/feed-photos/${n}.jpg`, n, "image/jpeg");
     const { data } = await db.storage.from("feed-photos").list("", { limit: 2, offset: 1, sortBy: { column: "name", order: "desc" } });

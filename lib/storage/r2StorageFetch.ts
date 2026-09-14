@@ -341,6 +341,32 @@ function startsLike(name: string, search: string): boolean {
 
 type ListEntry = ReturnType<typeof fileEntry> | { name: string; id: null; updated_at: null; created_at: null; last_accessed_at: null; metadata: null };
 
+const SORT_COLUMNS = ["name", "updated_at", "created_at", "last_accessed_at"] as const;
+
+/** Code-point order (UTF-8 byte order). JS `<` compares UTF-16 units, which misplaces astral characters. */
+function codePointCompare(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const x = a.codePointAt(i)!;
+    const y = b.codePointAt(i)!;
+    if (x !== y) return x - y;
+    if (x > 0xffff) i++;
+  }
+  return a.length - b.length;
+}
+
+/**
+ * The order Supabase's list answers names in, measured on the live project
+ * (all 10 folders, 560 names, ascending and descending): lower-cased names in
+ * byte order, then the names' own bytes. Plain byte order put the doc-cache
+ * folder's mixed-case Drive ids in a different sequence ("1ZRG…" before
+ * "1znG…"), and ICU collation disagreed wherever "_" met a digit. Anyone paging
+ * with limit/offset would otherwise get different pages from R2 than from Supabase.
+ */
+export function compareListNames(a: string, b: string): number {
+  return codePointCompare(a.toLowerCase(), b.toLowerCase()) || codePointCompare(a, b);
+}
+
 async function list(req: Request, bucket: string, store: ObjectStore, prefix: string): Promise<Response> {
   const body = await readJson(req);
   if (!objectKey(prefix, bucket, "x")) return invalidKey();
@@ -348,7 +374,7 @@ async function list(req: Request, bucket: string, store: ObjectStore, prefix: st
   const offset = Number.isFinite(Number(body.offset)) ? Math.max(0, Math.floor(Number(body.offset))) : 0;
   const search = typeof body.search === "string" ? body.search : "";
   const sortBy = (body.sortBy ?? {}) as { column?: unknown; order?: unknown };
-  const column = ["name", "updated_at", "created_at", "last_accessed_at"].includes(String(sortBy.column)) ? String(sortBy.column) as "name" : "name";
+  const column = SORT_COLUMNS.find((c) => c === sortBy.column) ?? "name";
   const desc = String(sortBy.order ?? "").toLowerCase() === "desc";
 
   // Supabase lists one folder level: "slot-templates" means "slot-templates/".
@@ -368,12 +394,14 @@ async function list(req: Request, bucket: string, store: ObjectStore, prefix: st
     else if (!entries.has(name)) entries.set(name, { name, id: null, updated_at: null, created_at: null, last_accessed_at: null, metadata: null });
   }
 
-  // Byte order for names (Postgres "C" collation); NULLS LAST ascending and
-  // NULLS FIRST descending, as Postgres sorts folder rows' null timestamps.
+  // Folders and files interleave by name, and descending reverses the whole
+  // comparison. NULLS LAST ascending and NULLS FIRST descending for a folder
+  // row's null timestamps, as Postgres sorts them.
   const rows = [...entries.values()].sort((a, b) => {
+    if (column === "name") return desc ? -compareListNames(a.name, b.name) : compareListNames(a.name, b.name);
     const x = a[column];
     const y = b[column];
-    if (x === y) return 0;
+    if (x === y) return compareListNames(a.name, b.name);
     if (x === null) return desc ? -1 : 1;
     if (y === null) return desc ? 1 : -1;
     const cmp = x < y ? -1 : 1;
