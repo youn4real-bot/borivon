@@ -18,6 +18,7 @@ import { buildSql } from "@/lib/d1/pgrest/buildSql";
 import { decodeRows } from "@/lib/d1/pgrest/decode";
 import { toPostgrestError } from "@/lib/d1/pgrest/errors";
 import { respond, errorResponse } from "@/lib/d1/pgrest/respond";
+import { runSelect } from "@/lib/d1/pgrest/read";
 import { rpcName, callRpc, isRpcError } from "@/lib/d1/pgrest/rpc";
 import { getD1, type D1Runner } from "@/lib/d1/client";
 
@@ -59,21 +60,29 @@ export function makeBvFetch(opts?: { runner?: D1Runner; passthrough?: typeof fet
         : new Response(JSON.stringify(outcome.body), { status: outcome.status, headers: { "content-type": "application/json; charset=utf-8" } });
     }
 
+    // A HEAD answer never has a body, errors included (see errorResponse).
+    const head = request.method.toUpperCase() === "HEAD";
     const intent = await parseRequest(request, registry);
-    if (isError(intent)) return errorResponse(intent);
+    if (isError(intent)) return errorResponse(intent, {}, head);
+
+    // A read can take more than one statement (a count beside the page, a text
+    // sort) — read.ts runs those.
+    if (intent.action === "select") {
+      try {
+        const read = await runSelect(intent, registry, (sql, params) => runner.run(sql, params));
+        if (isError(read)) return errorResponse(read, {}, head);
+        return respond(read.rows, { count: read.total, pageCount: read.pageCount }, intent);
+      } catch (err) {
+        return errorResponse(toPostgrestError(err, { table: intent.table }), {}, head);
+      }
+    }
 
     const built = buildSql(intent, registry);
     if (isError(built)) return errorResponse(built);
 
     try {
       const answer = await runner.run(built.sql, built.params);
-      // A count request answers with COUNT(*) as its only value, whatever the
-      // builder named the column.
-      const count = intent.count && intent.head && answer.results[0]
-        ? Number(Object.values(answer.results[0])[0])
-        : undefined;
-      const rows = intent.head ? [] : decodeRows(answer.results, intent, registry);
-      return respond(rows, { count, changes: answer.meta?.changes }, intent);
+      return respond(decodeRows(answer.results, intent, registry), { changes: answer.meta?.changes }, intent);
     } catch (err) {
       return errorResponse(toPostgrestError(err, { table: intent.table }));
     }

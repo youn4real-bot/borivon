@@ -14,9 +14,10 @@
  *
  * ONLY what this codebase actually uses is in scope (measured, not guessed):
  * filters eq/neq/gt/gte/lt/lte/in/is/like/ilike/not/or, order, limit, range,
- * single/maybeSingle, count:exact+head, insert/update/delete/upsert with
- * onConflict + ignoreDuplicates, mutations returning rows, and ONE json path
- * alias (`cv_langs:cv_draft->langs`). No embedded joins, no text search, no csv.
+ * single/maybeSingle, count:exact (with or without head), insert/update/delete/
+ * upsert with onConflict + ignoreDuplicates, mutations returning rows, and arrow
+ * selects (`cv_langs:cv_draft->langs`, `->>`, indexes). No embedded joins, no
+ * text search, no csv.
  */
 
 /** Postgres type of a column, from d1/types.json (the generated registry). */
@@ -28,8 +29,18 @@ export type ColumnMeta = { pg: PgType; nullable: boolean; default: unknown; gene
 export type TableMeta = { columns: Record<string, ColumnMeta>; pk: string[]; fks: { column: string; table: string; ref: string }[] };
 export type Registry = Record<string, TableMeta>;
 
-/** One requested output column. `jsonPath` is set only for `alias:col->key`. */
-export type SelectItem = { column: string; alias?: string; jsonPath?: string };
+/**
+ * One step of an arrow path: `->key`, `->>key`, `->0`, `->>-1`. `->>` is the TEXT
+ * operator — it hands back a string where `->` hands back JSON — and an index is
+ * an int4 PostgREST casts the digits to, so it is already range-checked here.
+ */
+export type JsonOp = { arrow: "->" | "->>"; key: string } | { arrow: "->" | "->>"; index: number };
+
+/**
+ * One requested output column. `column` is `"*"` for a star that sits among other
+ * items (`*,x:cv_draft->langs`); a select that is ONLY a star stays the plain `"*"`.
+ */
+export type SelectItem = { column: string; alias?: string; jsonPath?: JsonOp[] };
 
 export type FilterOp =
   | "eq" | "neq" | "gt" | "gte" | "lte" | "lt"
@@ -65,6 +76,12 @@ export type QueryIntent = {
   order: OrderBy[];
   limit?: number;
   offset?: number;
+  /**
+   * The offset in full when it is past 2^53 (`offset`, clamped, can't carry it).
+   * Both answers it shapes quote it verbatim: the 416 "An offset of … was
+   * requested" and, past bigint, Postgres' 22003.
+   */
+  offsetText?: string;
   /** `Accept: application/vnd.pgrst.object+json` — .single() / .maybeSingle(). */
   singleObject?: boolean;
   /** true when .single() must fail on 0 rows (PGRST116); false for maybeSingle. */
@@ -87,7 +104,15 @@ export type QueryIntent = {
   missingDefault?: boolean;
 };
 
-export type BuiltQuery = { sql: string; params: unknown[] };
+/** One ORDER BY term the adapter applies itself, read from the row under `key`. */
+export type SortKey = { key: string; text: boolean; ascending: boolean; nullsFirst: boolean };
+
+/**
+ * `sort` is set when the ORDER BY touches a text column, which SQLite cannot sort
+ * the way Postgres does: the SQL then fetches only each matching row's rowid and
+ * sort keys, and lib/d1/pgrest/read.ts orders, windows and fetches the page.
+ */
+export type BuiltQuery = { sql: string; params: unknown[]; sort?: SortKey[] };
 
 /** What a failed query must look like to callers (PostgREST's error body). */
 export type PostgrestError = {

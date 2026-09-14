@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
-import { decodeRows, decodeValue, encodeValue, selectOutputKey } from "@/lib/d1/pgrest/decode";
-import type { PgType, QueryIntent, Registry, SelectItem } from "@/lib/d1/pgrest/types";
+import { decodeRows, decodeValue, encodeValue, jsonbText, jsonPathValue, selectOutputKey } from "@/lib/d1/pgrest/decode";
+import type { JsonOp, PgType, QueryIntent, Registry, SelectItem } from "@/lib/d1/pgrest/types";
 
 /**
  * The PostgREST→D1 value codec (Supabase → D1 migration, step 3).
@@ -19,8 +19,9 @@ const REGISTRY = JSON.parse(fs.readFileSync("d1/types.json", "utf8")) as Registr
 function intent(over: Partial<QueryIntent> & { table: string; select: SelectItem[] | "*" }): QueryIntent {
   return { action: "select", where: [], order: [], returning: "representation", ...over };
 }
-const col = (column: string, alias?: string, jsonPath?: string): SelectItem =>
-  jsonPath ? { column, alias, jsonPath } : alias ? { column, alias } : { column };
+/** A select item; `key` makes it the arrow item `alias:column->key`. */
+const col = (column: string, alias?: string, key?: string): SelectItem =>
+  key ? { column, alias, jsonPath: [{ arrow: "->", key }] } : alias ? { column, alias } : { column };
 
 /* ───────────────────────────── decodeValue ───────────────────────────── */
 
@@ -104,11 +105,14 @@ describe("decodeValue — text-shaped types are byte-identical", () => {
 /* ──────────────────────────── selectOutputKey ──────────────────────────── */
 
 describe("selectOutputKey", () => {
-  it("uses the column, the alias, or the last json key — in that order", () => {
+  it("uses the alias, else the last KEY of an arrow path (indexes skipped), else the column", () => {
     expect(selectOutputKey(col("user_id"))).toBe("user_id");
     expect(selectOutputKey(col("cv_draft", "cv_langs", "langs"))).toBe("cv_langs");
-    expect(selectOutputKey({ column: "cv_draft", jsonPath: "langs" })).toBe("langs");
-    expect(selectOutputKey({ column: "cv_draft", jsonPath: "a->b" })).toBe("b");
+    expect(selectOutputKey({ column: "cv_draft", jsonPath: [{ arrow: "->", key: "langs" }] })).toBe("langs");
+    expect(selectOutputKey({ column: "cv_draft", jsonPath: [{ arrow: "->", key: "a" }, { arrow: "->>", key: "b" }] })).toBe("b");
+    // live: `cv_draft->langs->0` comes back under `langs`, and `cv_draft->0` under `cv_draft`
+    expect(selectOutputKey({ column: "cv_draft", jsonPath: [{ arrow: "->", key: "langs" }, { arrow: "->", index: 0 }] })).toBe("langs");
+    expect(selectOutputKey({ column: "cv_draft", jsonPath: [{ arrow: "->", index: 0 }] })).toBe("cv_draft");
   });
 });
 
@@ -188,23 +192,21 @@ describe("decodeRows — the one json-path alias, cv_langs:cv_draft->langs", () 
   });
   const langs = [{ name: "Deutsch", level: "B2", detail: { written: "yes" } }];
 
-  it("parses the extracted sub-tree and returns it under the alias", () => {
-    const out = decodeRows([{ user_id: "u1", b2_stage: "b2_passed", cv_langs: JSON.stringify(langs) }], it_, REGISTRY);
+  it("walks the fetched column and returns the sub-tree under the alias", () => {
+    // buildSql fetches the whole column under `json$<position>`.
+    const out = decodeRows([{ user_id: "u1", b2_stage: "b2_passed", "json$2": JSON.stringify({ langs, city: "x" }) }], it_, REGISTRY);
     expect(out).toEqual([{ user_id: "u1", b2_stage: "b2_passed", cv_langs: langs }]);
   });
-  it("handles the `->` form, which quotes scalars", () => {
-    const out = decodeRows([{ cv_langs: '"Deutsch"' }], intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] }), REGISTRY);
-    expect(out[0].cv_langs).toBe("Deutsch");
-  });
-  it("handles the json_extract form, which returns raw scalars", () => {
-    const one = intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] });
-    expect(decodeRows([{ cv_langs: "Deutsch" }], one, REGISTRY)[0].cv_langs).toBe("Deutsch");
-    expect(decodeRows([{ cv_langs: 3 }], one, REGISTRY)[0].cv_langs).toBe(3);
-  });
   it("gives null for a missing path — the callers branch on `!== undefined`, so null must not be dropped", () => {
-    const out = decodeRows([{ cv_langs: null }], intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] }), REGISTRY);
+    const out = decodeRows([{ user_id: "u1", b2_stage: null, "json$2": "{}" }], it_, REGISTRY);
     expect(out[0].cv_langs).toBe(null);
     expect("cv_langs" in out[0]).toBe(true);
+  });
+  it("names an un-aliased path after its last key, and keeps a star's columns beside it", () => {
+    const select: SelectItem[] = [{ column: "*" }, { column: "cv_draft", jsonPath: [{ arrow: "->", key: "langs" }, { arrow: "->", index: 0 }] }];
+    const draft = JSON.stringify({ langs: [{ name: "Deutsch" }] });
+    const out = decodeRows([{ user_id: "u1", cv_draft: draft, "json$1": draft }], intent({ table: "candidate_profiles", select }), REGISTRY)[0];
+    expect(out).toEqual({ user_id: "u1", cv_draft: { langs: [{ name: "Deutsch" }] }, langs: { name: "Deutsch" } });
   });
   it("never falls back to the source column — that would return the whole CV draft", () => {
     // The alias fallback exists for plain columns. For a json path the source
@@ -223,8 +225,73 @@ describe("decodeRows — the one json-path alias, cv_langs:cv_draft->langs", () 
   it("does NOT decode the sub-tree as the parent column's type by accident", () => {
     // cv_draft is jsonb; a path that lands on a boolean must stay a boolean,
     // not be run through the boolean 0/1 rules.
-    const out = decodeRows([{ cv_langs: "false" }], intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] }), REGISTRY);
+    const out = decodeRows([{ "json$0": '{"langs":false}' }], intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] }), REGISTRY);
     expect(out[0].cv_langs).toBe(false);
+  });
+});
+
+describe("jsonPathValue — `->` and `->>` as Postgres answers them", () => {
+  // Every expectation is the live Supabase answer for the same select.
+  const k = (key: string, arrow: "->" | "->>" = "->"): JsonOp => ({ arrow, key });
+  const n = (index: number, arrow: "->" | "->>" = "->"): JsonOp => ({ arrow, index });
+  const draft = JSON.stringify({
+    postalCode: "51000", city: "EL HAJEB", zero: 0, off: false,
+    langs: [{ name: "Arabisch", level: "Muttersprache" }, { name: "Deutsch", level: "B2" }],
+  });
+
+  it("keeps a JSON string a string, even one that looks like a number", () => {
+    // cv_draft->postalCode is "51000"; json_extract + JSON.parse made it the number 51000.
+    expect(jsonPathValue(draft, "jsonb", [k("postalCode")])).toBe("51000");
+    expect(jsonPathValue(draft, "jsonb", [k("postalCode", "->>")])).toBe("51000");
+    expect(jsonPathValue(draft, "jsonb", [k("zero")])).toBe(0);
+    expect(jsonPathValue(draft, "jsonb", [k("off")])).toBe(false);
+  });
+
+  it("answers `->>` with TEXT: jsonb's own rendering of an object or array", () => {
+    expect(jsonPathValue(draft, "jsonb", [k("langs", "->>")]))
+      .toBe('[{"name": "Arabisch", "level": "Muttersprache"}, {"name": "Deutsch", "level": "B2"}]');
+    expect(jsonPathValue(draft, "jsonb", [k("langs"), n(0, "->>")])).toBe('{"name": "Arabisch", "level": "Muttersprache"}');
+    expect(jsonPathValue(draft, "jsonb", [k("zero", "->>")])).toBe("0");
+    expect(jsonPathValue(draft, "jsonb", [k("off", "->>")])).toBe("false");
+    // booking_availability: week->>"1" is the string ["09:00-13:00", "14:00-18:00"]
+    expect(jsonPathValue('{"1":["09:00-13:00","14:00-18:00"]}', "jsonb", [k("1", "->>")])).toBe('["09:00-13:00", "14:00-18:00"]');
+    expect(jsonPathValue('{"a":null}', "jsonb", [k("a", "->>")])).toBe(null);
+  });
+
+  it("indexes arrays from either end, and reads a scalar as a one-element array", () => {
+    expect(jsonPathValue(draft, "jsonb", [k("langs"), n(-1), k("level")])).toBe("B2");
+    expect(jsonPathValue(draft, "jsonb", [k("langs"), n(-3)])).toBe(null);
+    expect(jsonPathValue(draft, "jsonb", [k("langs"), n(2)])).toBe(null);
+    // cv_draft->city->0 and ->-1 are the city; ->1 is null
+    expect(jsonPathValue(draft, "jsonb", [k("city"), n(0)])).toBe("EL HAJEB");
+    expect(jsonPathValue(draft, "jsonb", [k("city"), n(-1)])).toBe("EL HAJEB");
+    expect(jsonPathValue(draft, "jsonb", [k("city"), n(1)])).toBe(null);
+    // an object has no index, an array has no key
+    expect(jsonPathValue(draft, "jsonb", [n(0)])).toBe(null);
+    expect(jsonPathValue(draft, "jsonb", [k("langs"), k("name")])).toBe(null);
+  });
+
+  it("starts from to_jsonb(col) for a column that is not JSON — null, never a 500", () => {
+    // first_name->a is null; app_settings value->0 is "hold"; phase_slots position->0
+    // is 8 and ->>0 "8"; documents uploaded_by_admin->>0 is "true", uploaded_at->0 the timestamp.
+    expect(jsonPathValue("Yassine", "text", [k("a")])).toBe(null);
+    expect(jsonPathValue("hold", "text", [n(0)])).toBe("hold");
+    expect(jsonPathValue(8, "integer", [n(0)])).toBe(8);
+    expect(jsonPathValue(8, "integer", [n(0, "->>")])).toBe("8");
+    expect(jsonPathValue(1, "boolean", [n(0, "->>")])).toBe("true");
+    expect(jsonPathValue("2026-08-04T15:11:21.452251+00:00", "timestamptz", [n(0)])).toBe("2026-08-04T15:11:21.452251+00:00");
+    expect(jsonPathValue('["zusatzblatt_a","langcert","tls_bestaetigungstermin"]', "text[]", [n(-1)])).toBe("tls_bestaetigungstermin");
+    expect(jsonPathValue(null, "jsonb", [k("langs")])).toBe(null);
+  });
+});
+
+describe("jsonbText", () => {
+  it("prints the way jsonb's output function does", () => {
+    expect(jsonbText({ bb: 1, a: [1, "x", null, true], ccc: {} })).toBe('{"a": [1, "x", null, true], "bb": 1, "ccc": {}}');
+    expect(jsonbText(JSON.parse('{"b":1,"10":2,"a":3}'))).toBe('{"a": 3, "b": 1, "10": 2}');   // shorter keys first, then bytes
+    expect(jsonbText(1e-7)).toBe("0.0000001");
+    expect(jsonbText(1e21)).toBe("1000000000000000000000");
+    expect(jsonbText("a\"b\n")).toBe('"a\\"b\\n"');
   });
 });
 
@@ -443,8 +510,8 @@ describe.skipIf(!DatabaseSync)("decodeRows on values a real SQLite produces", ()
     expect(out).toEqual([{ id: "d1", file_type: "passport", rotation: 90, uploaded_by_admin: true, superseded_at: null }]);
   });
 
-  it("restores the cv_langs sub-tree from SQLite's `->` operator", () => {
-    const row = db!.prepare(`select "user_id", "cv_draft" -> '$.langs' as "cv_langs" from candidate_profiles`).get()!;
+  it("walks the cv_langs sub-tree out of the whole column buildSql fetches", () => {
+    const row = db!.prepare(`select "user_id", "cv_draft" as "json$1" from candidate_profiles`).get()!;
     const out = decodeRows([row], intent({
       table: "candidate_profiles",
       select: [col("user_id"), col("cv_draft", "cv_langs", "langs")],
@@ -452,19 +519,12 @@ describe.skipIf(!DatabaseSync)("decodeRows on values a real SQLite produces", ()
     expect(out).toEqual([{ user_id: "u1", cv_langs: draft.langs }]);
   });
 
-  it("proves buildSql must use `->`, not json_extract, for the json-path alias", () => {
-    // `->` keeps the JSON encoding for every kind of value, which is exactly what
-    // PostgREST's jsonb-returning `->` does…
-    const arrow = db!.prepare(`select "cv_draft" -> '$.note' as a, "cv_draft" -> '$.count' as b, "cv_draft" -> '$.done' as c from candidate_profiles`).get()!;
-    expect([arrow.a, arrow.b, arrow.c]).toEqual(['"hi"', "7", "false"]);
+  it("shows why the path is not json_extract's: it unquotes strings and turns false into 0", () => {
+    const extracted = db!.prepare(`select json_extract("cv_draft",'$.note') as a, json_extract("cv_draft",'$.done') as c from candidate_profiles`).get()!;
+    expect([extracted.a, extracted.c]).toEqual(["hi", 0]);
+    const whole = db!.prepare(`select "cv_draft" as "json$0", "cv_draft" as "json$1", "cv_draft" as "json$2" from candidate_profiles`).get()!;
     const sel = intent({ table: "candidate_profiles", select: [col("cv_draft", "a", "note"), col("cv_draft", "b", "count"), col("cv_draft", "c", "done")] });
-    expect(decodeRows([arrow], sel, REGISTRY)).toEqual([{ a: "hi", b: 7, c: false }]);
-
-    // …whereas json_extract unwraps scalars, and a JSON `false` comes back as the
-    // number 0 — indistinguishable from a JSON `0` by the time it reaches us.
-    const extracted = db!.prepare(`select json_extract("cv_draft",'$.done') as c from candidate_profiles`).get()!;
-    expect(extracted.c).toBe(0);
-    expect(decodeRows([extracted], intent({ table: "candidate_profiles", select: [col("cv_draft", "c", "done")] }), REGISTRY)[0].c).toBe(0);
+    expect(decodeRows([whole], sel, REGISTRY)).toEqual([{ a: "hi", b: 7, c: false }]);
   });
 
   it("round-trips an encoded row through real storage", () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
 import { buildSql, isPostgrestError, encodeParam, likePatternToGlob, normalizeTimestamp } from "../lib/d1/pgrest/buildSql";
-import { selectOutputKey } from "../lib/d1/pgrest/decode";
+import { decodeRows, selectOutputKey } from "../lib/d1/pgrest/decode";
 import type { BuiltQuery, Condition, FilterOp, QueryIntent, Registry, Where } from "../lib/d1/pgrest/types";
 
 /**
@@ -54,36 +54,30 @@ describe("select", () => {
     })).sql).toBe(`SELECT "id", "file_name" FROM "documents"`);
   });
 
-  it("aliases a column, and reads a json path (the `cv_langs:cv_draft->langs` form)", () => {
+  it("aliases a column, and fetches an arrow item's whole column for decode.ts to walk", () => {
     expect(ok(intent({ table: "documents", select: [{ column: "file_name", alias: "n" }] })).sql)
       .toBe(`SELECT "file_name" AS "n" FROM "documents"`);
     const q = ok(intent({
       table: "candidate_profiles",
-      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: "langs" }],
+      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] }],
     }));
-    expect(q.sql).toBe(`SELECT "user_id", json_extract("cv_draft", ?) AS "cv_langs" FROM "candidate_profiles"`);
-    expect(q.params).toEqual(["$.langs"]);   // bound, never interpolated
+    // No json_extract: it unquoted `"51000"` into a number, has no `->>`, and
+    // raised "malformed JSON" (a 500) on a text column. The path is walked in decode.ts.
+    expect(q.sql).toBe(`SELECT "user_id", "cv_draft" AS "json$1" FROM "candidate_profiles"`);
+    expect(q.params).toEqual([]);
   });
 
-  it("names a json path column the way decode.ts will read it back", () => {
-    // parseRequest always supplies the alias, but if it ever stopped, emitting
-    // `AS "cv_draft"` while decodeRows() looks for `langs` would hand every
-    // caller null — a json-path item gets no fallback to the source column, by
-    // decode.ts's design (that fallback would leak the whole CV draft).
-    const item = { column: "cv_draft", jsonPath: "langs" };
-    expect(selectOutputKey(item)).toBe("langs");
-    expect(ok(intent({ table: "candidate_profiles", select: [item] })).sql)
-      .toBe(`SELECT json_extract("cv_draft", ?) AS "langs" FROM "candidate_profiles"`);
-    // A chained path walks every segment — `$."a->b"` would simply never match.
-    expect(ok(intent({ table: "candidate_profiles", select: [{ column: "cv_draft", alias: "x", jsonPath: "a->b" }] })).params)
-      .toEqual(["$.a.b"]);
-    expect(ok(intent({ table: "candidate_profiles", select: [{ column: "cv_draft", alias: "x", jsonPath: "langs->0->name" }] })).params)
-      .toEqual(["$.langs[0].name"]);
-    // `->` takes a KEY, never a JSONPath: a key spelled `$.langs` is looked up
-    // literally (what Postgres does) instead of becoming a live path expression
-    // — which is also what keeps a malformed one out of json_extract's throat.
-    expect(ok(intent({ table: "candidate_profiles", select: [{ column: "cv_draft", alias: "x", jsonPath: "$.langs" }] })).params)
-      .toEqual([`$."$.langs"`]);
+  it("names every item the way decode.ts will read it back, star lists included", () => {
+    const langs0 = { column: "cv_draft", jsonPath: [{ arrow: "->" as const, key: "langs" }, { arrow: "->" as const, index: 0 }] };
+    expect(selectOutputKey(langs0)).toBe("langs");     // PostgREST's last KEY, not the index
+    expect(ok(intent({ table: "candidate_profiles", select: [langs0] })).sql)
+      .toBe(`SELECT "cv_draft" AS "json$0" FROM "candidate_profiles"`);
+    // `*` among other items: every column under its own name, so a plain item gets
+    // a positional name that an alias like `value:key` can't collide with.
+    expect(ok(intent({ table: "app_settings", select: [{ column: "key", alias: "value" }, { column: "*" }] })).sql)
+      .toBe(`SELECT "key" AS "sel$0", * FROM "app_settings"`);
+    expect(ok(intent({ table: "app_settings", select: [{ column: "*" }, { column: "value", alias: "v", jsonPath: [{ arrow: "->", index: 0 }] }] })).sql)
+      .toBe(`SELECT *, "value" AS "json$1" FROM "app_settings"`);
   });
 
   it("emits every comparison filter with one placeholder per value", () => {
@@ -174,9 +168,18 @@ describe("select", () => {
     // NOT NULL column → no emulation term needed.
     expect(ok(intent({ table: "documents", order: [{ column: "rotation", ascending: true }] })).sql)
       .toBe(`SELECT * FROM "documents" ORDER BY "rotation" ASC`);
-    // Plain text sorts under a case-insensitive collation, like Supabase's en_US.UTF-8.
-    expect(ok(intent({ table: "documents", order: [{ column: "file_name", ascending: true }] })).sql)
-      .toBe(`SELECT * FROM "documents" ORDER BY "file_name" COLLATE NOCASE ASC`);
+    // A text column can't be sorted in SQL (no ICU; NOCASE folds ASCII only): the
+    // query fetches each matching row's rowid and raw keys, and read.ts sorts them.
+    const text = ok(intent({
+      table: "documents", where: [cmp("user_id", "eq", "u1")],
+      order: [{ column: "file_name", ascending: false }, { column: "uploaded_at", ascending: true, nullsFirst: true }],
+    }));
+    expect(text.sql).toBe(`SELECT rowid AS "rowid$", "file_name" AS "sort$0", "uploaded_at" AS "sort$1" FROM "documents" WHERE "user_id" = ? LIMIT ?`);
+    expect(text.params).toEqual(["u1", 100_001]);
+    expect(text.sort).toEqual([
+      { key: "sort$0", text: true, ascending: false, nullsFirst: true },
+      { key: "sort$1", text: false, ascending: true, nullsFirst: true },
+    ]);
   });
 
   it("binds limit and range, and gives a bare offset the LIMIT -1 SQLite needs", () => {
@@ -459,10 +462,10 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
       .toEqual(["d3", "d1", "d2"]);
   });
 
-  it("sorts text case-insensitively, like Supabase's collation", () => {
-    // Byte order would file "C.pdf" (0x43) before both lowercase names.
-    expect(names(run(intent({ table: "documents", order: [{ column: "file_name", ascending: true }] }))))
-      .toEqual(["a_b.pdf", "axb.pdf", "C.pdf"]);
+  it("fetches rowid and raw sort keys for a text ORDER BY, for read.ts to sort", () => {
+    const rows = run(intent({ table: "documents", order: [{ column: "file_name", ascending: true }] }));
+    expect(rows.map((r) => String(r["sort$0"])).sort()).toEqual(["C.pdf", "a_b.pdf", "axb.pdf"]);
+    expect(rows.every((r) => typeof r["rowid$"] === "number")).toBe(true);
   });
 
   it("matches ilike case-insensitively while honouring ciEmail()'s escapes", () => {
@@ -544,11 +547,11 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
   });
 
   it("reads a json path into an alias", () => {
-    const rows = run(intent({
+    const i = intent({
       table: "candidate_profiles",
-      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: "langs" }],
-    }));
-    expect(JSON.parse(String(rows[0].cv_langs))).toEqual([{ name: "Arabe", level: "C2" }]);
+      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] }],
+    });
+    expect(decodeRows(run(i), i, registry)).toEqual([{ user_id: U1, cv_langs: [{ name: "Arabe", level: "C2" }] }]);
   });
 
   it("does array containment on a JSON-text array, NULL included", () => {

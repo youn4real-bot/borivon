@@ -69,23 +69,25 @@ describe("respond — reads", () => {
     expect(res.headers.get("content-range")).toBe("10-12/*");
   });
 
-  it("head + count:exact → no body, count in the header", async () => {
-    const res = respond([], { count: 137 }, intent({ count: "exact", head: true }));
+  it("head + count:exact → no body; the header describes the page and the total", async () => {
+    // live: HEAD documents?select=id with count=exact → 200, 0-760/761
+    const res = respond([], { count: 137, pageCount: 137 }, intent({ count: "exact", head: true }));
     expect(res.status).toBe(200);
     expect(await body(res)).toBe("");
-    expect(res.headers.get("content-range")).toBe("*/137");
+    expect(res.headers.get("content-range")).toBe("0-136/137");
   });
 
   it("head + a count of zero still publishes the number, not '*'", async () => {
-    const res = respond([], { count: 0 }, intent({ count: "exact", head: true }));
+    const res = respond([], { count: 0, pageCount: 0 }, intent({ count: "exact", head: true }));
     // `*/0` must stay `0`: parseInt("0") is 0, while `*` would leave count null
     // and every `count ?? 0` call site would read the same thing by accident.
     expect(res.headers.get("content-range")).toBe("*/0");
   });
 
   it("head without a count leaves the total unknown", async () => {
-    const res = respond([], NO_META, intent({ head: true }));
-    expect(res.headers.get("content-range")).toBe("*/*");
+    expect(respond([], NO_META, intent({ head: true })).headers.get("content-range")).toBe("*/*");
+    // live: HEAD ?limit=5 → 0-4/*
+    expect(respond([], { pageCount: 5 }, intent({ head: true, limit: 5 })).headers.get("content-range")).toBe("0-4/*");
   });
 
   it("head with a count the runner couldn't produce says unknown, not 0", async () => {
@@ -95,9 +97,38 @@ describe("respond — reads", () => {
     expect(res.headers.get("content-range")).toBe("*/*");
   });
 
-  it("a non-head select with count:exact reports the rows it returned", async () => {
-    const res = respond([{ id: "a" }, { id: "b" }], NO_META, intent({ count: "exact" }));
-    expect(res.headers.get("content-range")).toBe("0-1/2");
+  it("a counted page reports the TOTAL, and 206 when the page is not all of it", async () => {
+    // live: documents?limit=5 with count=exact → 206, 0-4/761 (the adapter said 200, 0-4/5)
+    const res = respond([{ id: "a" }, { id: "b" }], { count: 761 }, intent({ count: "exact", offset: 10, limit: 2 }));
+    expect(res.status).toBe(206);
+    expect(res.statusText).toBe("Partial Content");
+    expect(res.headers.get("content-range")).toBe("10-11/761");
+    const whole = respond([{ id: "a" }, { id: "b" }], { count: 2 }, intent({ count: "exact" }));
+    expect([whole.status, whole.headers.get("content-range")]).toEqual([200, "0-1/2"]);
+    // an empty page that still starts inside the total (live: offset=761) → 206, */761
+    const edge = respond([], { count: 761 }, intent({ count: "exact", offset: 761 }));
+    expect([edge.status, edge.headers.get("content-range")]).toEqual([206, "*/761"]);
+  });
+
+  it("an offset past the total is PGRST103 / 416, with the total still in the header", async () => {
+    const res = respond([], { count: 761 }, intent({ count: "exact", offset: 5000, limit: 20 }));
+    expect(res.status).toBe(416);
+    expect(res.statusText).toBe("Range Not Satisfiable");
+    expect(res.headers.get("content-range")).toBe("*/761");
+    expect(JSON.parse(await body(res))).toEqual({
+      code: "PGRST103", details: "An offset of 5000 was requested, but there are only 761 rows.",
+      hint: null, message: "Requested range not satisfiable",
+    });
+    // without a count there is no total to be past: 200 and an empty page (live)
+    expect(respond([], NO_META, intent({ offset: 5000 })).status).toBe(200);
+    // .single() is judged first (live: 406, not 416)
+    expect(respond([], { count: 761 }, intent({ count: "exact", offset: 5000, singleObject: true, requireExactlyOne: true })).status).toBe(406);
+    // a HEAD gets the status and the header, never a body
+    const head = respond([], { count: 761, pageCount: 0 }, intent({ count: "exact", head: true, offset: 5000 }));
+    expect([head.status, head.headers.get("content-range"), await body(head)]).toEqual([416, "*/761", ""]);
+    // an offset past 2^53 is quoted exactly
+    const huge = respond([], { count: 761 }, intent({ count: "exact", offset: Number.MAX_SAFE_INTEGER, offsetText: "9223372036854775807" }));
+    expect(JSON.parse(await body(huge)).details).toBe("An offset of 9223372036854775807 was requested, but there are only 761 rows.");
   });
 });
 
@@ -112,11 +143,12 @@ describe("respond — single / maybeSingle", () => {
     const res = respond([], NO_META, intent({ singleObject: true, requireExactlyOne: true }));
     expect(res.status).toBe(406);
     expect(res.statusText).toBe("Not Acceptable");
+    // live: app_settings?key=eq.zzz-no-such-key with the object Accept header
     expect(JSON.parse(await body(res))).toEqual({
       code: "PGRST116",
       details: "The result contains 0 rows",
       hint: null,
-      message: "JSON object requested, multiple (or no) rows returned",
+      message: "Cannot coerce the result to a single JSON object",
     });
   });
 
@@ -239,6 +271,14 @@ describe("errorResponse", () => {
     const parsed = JSON.parse(await body(res));
     expect(parsed).toEqual({ code: "23505", details: "Key (id)=(d1) already exists.", hint: null, message: dup.message });
     expect("status" in parsed).toBe(false);
+  });
+
+  it("sends no body for a HEAD, whatever the error", async () => {
+    // supabase-js parses a failed body into `error`, and turns an EMPTY 404 into a
+    // 204 with no error — a body would give a HEAD caller an error Supabase never does.
+    const res = errorResponse(dup, {}, true);
+    expect(res.status).toBe(409);
+    expect(await body(res)).toBe("");
   });
 
   it("keeps missing details/hint as explicit nulls", async () => {

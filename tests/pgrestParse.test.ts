@@ -83,18 +83,73 @@ describe("select lists", () => {
     expect(q.select).toEqual([
       { column: "user_id" },
       { column: "b2_stage" },
-      { column: "cv_draft", alias: "cv_langs", jsonPath: "langs" },
+      { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] },
     ]);
   });
 
-  it("names an un-aliased json path after its last key, like PostgREST", () => {
-    expect(intent(get("select=cv_draft->langs", {}, "candidate_profiles")).select).toEqual([
-      { column: "cv_draft", alias: "langs", jsonPath: "langs" },
+  it("reads an arrow path step by step: `->` apart from `->>`, keys apart from indexes", () => {
+    const sel = (s: string, table = "candidate_profiles") => intent(get(`select=${encodeURIComponent(s)}`, {}, table)).select;
+    expect(sel("cv_draft->>langs")).toEqual([{ column: "cv_draft", jsonPath: [{ arrow: "->>", key: "langs" }] }]);
+    expect(sel("cv_draft->langs->-1->>level")).toEqual([{ column: "cv_draft", jsonPath: [
+      { arrow: "->", key: "langs" }, { arrow: "->", index: -1 }, { arrow: "->>", key: "level" },
+    ] }]);
+    // `"1"` is a key and `01` an index; `1a` and `+0` are keys; a key keeps inner spaces and dashes.
+    expect(sel('week->"1",b:week->01,week->1a,week->+0,week->a b-c', "booking_availability")).toEqual([
+      { column: "week", jsonPath: [{ arrow: "->", key: "1" }] },
+      { column: "week", alias: "b", jsonPath: [{ arrow: "->", index: 1 }] },
+      { column: "week", jsonPath: [{ arrow: "->", key: "1a" }] },
+      { column: "week", jsonPath: [{ arrow: "->", key: "+0" }] },
+      { column: "week", jsonPath: [{ arrow: "->", key: "a b-c" }] },
     ]);
-    // ->> only changes the returned type; the adapter reads the same key.
-    expect(intent(get("select=cv_draft->>langs", {}, "candidate_profiles")).select).toEqual([
-      { column: "cv_draft", alias: "langs", jsonPath: "langs" },
-    ]);
+    // `*` beside other items is every column plus the rest; alone it stays "*".
+    expect(sel("*,x:cv_draft->langs")).toEqual([{ column: "*" }, { column: "cv_draft", alias: "x", jsonPath: [{ arrow: "->", key: "langs" }] }]);
+    expect(sel("*")).toBe("*");
+  });
+
+  it("refuses an arrow Postgres has no operator for, or an index past int4, with Supabase's body", () => {
+    expect(error(get("select=key,value->>0->x", {}, "app_settings"))).toEqual({
+      code: "42883", message: "operator does not exist: text -> unknown", details: null, status: 404,
+      hint: "No operator matches the given name and argument types. You might need to add explicit type casts.",
+    });
+    expect(error(get("select=a:order_keys->>0->>1", {}, "phase_doc_order")).message).toBe("operator does not exist: text ->> integer");
+    // the missing operator is found before the overflowing index after it
+    expect(error(get("select=a:order_keys->>0->2147483648", {}, "phase_doc_order")).message).toBe("operator does not exist: text -> integer");
+    expect(error(get("select=a:order_keys->2147483648", {}, "phase_doc_order"))).toMatchObject({
+      code: "22003", message: 'value "+2147483648" is out of range for type integer', status: 400,
+    });
+    expect(error(get("select=a:order_keys->-2147483649", {}, "phase_doc_order")).message).toBe('value "-2147483649" is out of range for type integer');
+    expect(intent(get("select=a:order_keys->2147483647", {}, "phase_doc_order")).select)
+      .toEqual([{ column: "order_keys", alias: "a", jsonPath: [{ arrow: "->", index: 2147483647 }] }]);
+    // a column that doesn't exist is reported before any arrow after it
+    expect(error(get("select=nope->2147483648,key->>0->x", {}, "app_settings")).code).toBe("42703");
+  });
+
+  it("reports a malformed select the way PostgREST's parser does", () => {
+    expect(error(get("select=key,value->,key", {}, "app_settings"))).toMatchObject({
+      code: "PGRST100", status: 400,
+      message: '"failed to parse select parameter (key,value->,key)" (line 1, column 12)',
+      details: 'unexpected "," expecting "-", digit or any non reserved character different from: .,>()',
+    });
+    expect(error(get("select=a:order_keys->", {}, "phase_doc_order"))).toMatchObject({
+      message: '"failed to parse select parameter (a:order_keys->)" (line 1, column 15)',
+      details: 'unexpected end of input expecting "-", digit or any non reserved character different from: .,>()',
+    });
+    expect(error(get("select=id,x:value->-x", {}, "classroom_events"))).toMatchObject({
+      message: '"failed to parse select parameter (id,x:value->-x)" (line 1, column 14)',
+      details: 'unexpected "x" expecting digit',
+    });
+    expect(error(get("select=key,value->(x", {}, "app_settings")).details)
+      .toBe('unexpected "(" expecting "-", digit or any non reserved character different from: .,>()');
+    expect(error(get('select=a:order_keys->"a"b', {}, "phase_doc_order"))).toMatchObject({
+      message: '"failed to parse select parameter (a:order_keys->"a"b)" (line 1, column 18)',
+      details: `unexpected 'b' expecting "->>", "->", "::", ".", ")", "," or end of input`,
+    });
+    expect(error(get("select=id,"))).toMatchObject({
+      message: '"failed to parse select parameter (id,)" (line 1, column 4)',
+      details: 'unexpected end of input expecting "...", field name (* or [a..z0..9_$]), "*" or "count()"',
+    });
+    // syntax is judged before the table is looked for (live: this is not a PGRST205)
+    expect(error(get("select=a->", {}, "nosuchtable")).code).toBe("PGRST100");
   });
 
   it("refuses an unknown column with 42703 (the code schema-tolerant reads look for)", () => {
@@ -476,15 +531,36 @@ describe("modifiers", () => {
     const q = intent(await sent((db) => db.from("documents").select("*").order("id").range(100, 199)));
     expect([q.offset, q.limit]).toEqual([100, 100]);
     expect(intent(await sent((db) => db.from("documents").select("*").limit(5))).limit).toBe(5);
-    expect(error(get("limit=-1")).code).toBe("PGRST100");
-    expect(error(get("offset=abc")).code).toBe("PGRST100");
   });
 
-  it("also honours a Range header (PostgREST does; postgrest-js never sends one)", () => {
-    expect([intent(get("", { Range: "0-9" })).offset, intent(get("", { Range: "0-9" })).limit]).toEqual([0, 10]);
-    // explicit params win over the header
+  it("reads limit/offset as PostgREST does: ignores what it can't read, 416s a negative window", () => {
+    // live: limit=-1 → 416; offset=abc → every row; limit=abc&offset=5 → 416
+    // (tests/pgrestRange.test.ts pins the whole grammar)
+    expect(error(get("limit=-1"))).toEqual({
+      code: "PGRST103", message: "Requested range not satisfiable", details: "Limit should be greater than or equal to zero.", hint: null, status: 416,
+    });
+    const ignored = intent(get("offset=abc"));
+    expect([ignored.offset, ignored.limit]).toEqual([undefined, undefined]);
+    expect(error(get("limit=abc&offset=5")).code).toBe("PGRST103");
+    const hex = intent(get("limit=0x3&offset=(5)"));
+    expect([hex.offset, hex.limit]).toEqual([5, 3]);
+    // a range error outranks the table, the columns and the operands, but not a syntax error
+    expect(error(get("select=nope&id=eq.bad&limit=-1", {}, "nosuchtable")).code).toBe("PGRST103");
+    expect(error(get("or=(&limit=-1")).code).toBe("PGRST100");
+    // an offset past 2^53 travels exactly, for the 22003 and the 416 message that quote it
+    expect(intent(get("offset=99999999999999999999"))).toMatchObject({ offset: Number.MAX_SAFE_INTEGER, offsetText: "99999999999999999999" });
+  });
+
+  it("also honours a Range header on GET (PostgREST does; postgrest-js never sends one)", () => {
+    expect([intent(get("", { Range: "0-9" })).offset, intent(get("", { Range: "0-9" })).limit]).toEqual([undefined, 10]);
+    // the query-string window is intersected with the header's
     const q = intent(get("limit=3&offset=6", { Range: "0-9" }));
     expect([q.offset, q.limit]).toEqual([6, 3]);
+    expect(error(get("", { Range: "5-2" })).details)
+      .toBe("The lower boundary must be lower than or equal to the upper boundary in the Range header.");
+    // a HEAD ignores it (live: HEAD with Range 5-2 is a 200 over every row)
+    const head = intent(parseParts({ method: "HEAD", url: `${BASE}/documents?select=id`, headers: { Range: "5-2" } }, registry));
+    expect([head.offset, head.limit]).toEqual([undefined, undefined]);
   });
 
   it("maps .single() to singleObject, and leaves .maybeSingle() a plain list read", async () => {
@@ -591,7 +667,7 @@ describe("routing and failure modes", () => {
   });
 
   it("never throws — every bad input comes back as a PostgrestError value", () => {
-    for (const q of ["user_id=", "user_id=eq", "or=", "or=(", "limit=", "select=:", "user_id=in.a,b"]) {
+    for (const q of ["user_id=", "user_id=eq", "or=", "or=(", "limit=-1", "select=:", "user_id=in.a,b"]) {
       const out = get(q);
       expect(isPgrestError(out)).toBe(true);
       expect(typeof error(out).code).toBe("string");

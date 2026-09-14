@@ -45,14 +45,14 @@
 
 import type {
   BuiltQuery, ColumnMeta, Condition, FilterOp, Group, OrderBy, PgType,
-  PostgrestError, QueryIntent, Registry, SelectItem, TableMeta, Where,
+  PostgrestError, QueryIntent, Registry, SelectItem, SortKey, TableMeta, Where,
 } from "./types";
 // decode.ts owns the value codec and the output-key rule for both directions.
 // Re-deriving either here would be a second copy of a rule that has to agree
 // byte-for-byte with the rows d1/export-data.mjs already wrote — and a
 // disagreement is invisible: the filter simply stops matching. Both imports are
 // pure functions; nothing else of decode.ts is used.
-import { encodeValue, selectOutputKey } from "./decode";
+import { encodeValue, selectSqlKey } from "./decode";
 // The write half of Postgres' type checking: what a column's input function makes
 // of a payload value, or the 22P02 / 22007 / 22008 it refuses it with.
 import { isInputError, jsonbStoredText, writeInput } from "./pgInput";
@@ -185,46 +185,23 @@ function requireColumn(ctx: Ctx, name: string): ColumnMeta {
 }
 
 /**
- * PostgREST's arrow path → an SQLite JSON path. `cv_langs:cv_draft->langs` is
- * the one form this codebase uses, but parseRequest hands the whole tail over
- * for a chained `col->a->b`, so every segment is walked.
+ * The requested output columns. Also used for a mutation's RETURNING.
  *
- * Each segment is a KEY, never a path expression — PostgREST's `->` takes an
- * object key or an array index and nothing else, so a key that happens to be
- * spelled `$.x` must be looked up literally (Postgres returns NULL for it) and
- * can never turn into an SQLite "JSON path error" at run time.
- */
-function jsonPath(key: string): string {
-  return key.split(/->>?/).map((raw) => raw.trim()).filter((s) => s !== "").reduce((path, seg) => {
-    if (/^\d+$/.test(seg)) return `${path}[${seg}]`;                       // `col->0` — array index
-    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(seg) ? `${path}.${seg}` : `${path}."${seg.replace(/"/g, '\\"')}"`;
-  }, "$");
-}
-
-/**
- * The requested output columns. Also used for a mutation's RETURNING, so it
- * MUST be called at the point the clause is emitted — it pushes params (the
- * json path) and those have to land in SQL-text order.
- *
- * The output name comes from decode.ts's selectOutputKey(), which is also what
- * decodeRows() reads the row back under. Computing it here instead would
- * silently drop a column the moment the two rules disagree — an un-aliased
- * `col->langs` is `langs` to PostgREST, and decode gives a json-path item no
- * fallback to the source column (that would hand a caller the whole CV draft
- * instead of the one key it asked for).
+ * Each item is named by decode.ts's selectSqlKey(), which is also what
+ * decodeRows() reads the row back under — computing it here instead would
+ * silently drop a column the moment the two rules disagree. An arrow item
+ * fetches its WHOLE column, and decode.ts walks the path (jsonPathValue):
+ * SQLite's JSON functions unquote a string (`"51000"` came back as a number),
+ * have no `->>` that returns jsonb's text, and raise "malformed JSON" — a 500 for
+ * the whole query — on a column that isn't JSON, where PostgREST answers null.
  */
 function selectList(ctx: Ctx, select: SelectItem[] | "*"): string {
   if (select === "*" || select.length === 0) return "*";   // `.select()` after a mutation = return everything
-  return select.map((item: SelectItem) => {
+  return select.map((item, i) => {
+    if (item.column === "*") return "*";
     requireColumn(ctx, item.column);
-    const ref = qi(item.column);
-    const key = selectOutputKey(item);
-    if (item.jsonPath === undefined) {
-      return key !== item.column ? `${ref} AS ${qi(key)}` : ref;
-    }
-    // Bound, not interpolated: the path is caller text like any other value.
-    ctx.params.push(jsonPath(item.jsonPath));
-    return `json_extract(${ref}, ?) AS ${qi(key)}`;
+    const key = selectSqlKey(select, i)!;
+    return key !== item.column ? `${qi(item.column)} AS ${qi(key)}` : qi(item.column);
   }).join(", ");
 }
 
@@ -699,6 +676,11 @@ function whereClause(ctx: Ctx, where: Where[]): string {
 
 /* ──────────────────────── ORDER BY / LIMIT ─────────────────────────── */
 
+/**
+ * ORDER BY for a sort SQLite can do exactly: no text column in it (buildSelect
+ * sends a text order to read.ts instead). uuid, date and timestamptz are stored
+ * as fixed-shape ASCII, so byte order is Postgres' order for them.
+ */
 function orderClause(ctx: Ctx, order: OrderBy[]): string {
   if (!order.length) return "";
   const terms: string[] = [];
@@ -708,31 +690,61 @@ function orderClause(ctx: Ctx, order: OrderBy[]): string {
     // is the exact opposite, so a nullable column always gets the explicit term.
     const nullsFirst = o.nullsFirst ?? !o.ascending;
     if (col.nullable) terms.push(`(${qi(o.column)} IS NULL) ${nullsFirst ? "DESC" : "ASC"}`);
-    // Supabase's text columns sort under en_US.UTF-8 (case-insensitive-ish);
-    // SQLite's default is raw byte order, which would file "Zahra" before
-    // "ahmed" in every candidate list. NOCASE is the closest available match.
-    // Only plain text — uuid/date/timestamptz are ASCII-fixed and index-backed.
-    const collate = col.pg === "text" ? " COLLATE NOCASE" : "";
-    terms.push(`${qi(o.column)}${collate} ${o.ascending ? "ASC" : "DESC"}`);
+    terms.push(`${qi(o.column)} ${o.ascending ? "ASC" : "DESC"}`);
   }
   return ` ORDER BY ${terms.join(", ")}`;
 }
 
+/**
+ * Supabase's db-max-rows: no read returns more rows than this, whatever it asked
+ * for. Live on rate_limits, an unbounded select, `limit=2000` and
+ * `Range: 0-1999` all answer `0-999/25152`; the adapter returned every row, so a
+ * list that ends at 1000 on Supabase would not end on D1. PostgREST applies it
+ * in its plan, after the request is read (Plan.hs treeRestrictRange), and so
+ * does the adapter: read.ts caps every read it runs, and the SQL built here is
+ * the request as written. lib/readAllRows.ts pages in exactly this size.
+ */
+export const MAX_ROWS = 1000;
+
+/**
+ * How many matching rows a text ORDER BY sorts in memory. Only each row's rowid
+ * and sort keys are held — the page itself is fetched by rowid — so this bounds
+ * a few megabytes. Past it the read is refused (read.ts) rather than answered in
+ * an order Supabase would not give.
+ */
+export const SORT_ROW_LIMIT = 100_000;
+
+/** Postgres' bigint ceiling, which an OFFSET is cast to. */
+const BIGINT_MAX = BigInt("9223372036854775807");
+
+/** The rows a read returns: from `offset`, at most `limit`, already capped at MAX_ROWS. */
+export function pageWindow(intent: QueryIntent): { offset: number; limit: number } {
+  return { offset: intent.offset ?? 0, limit: Math.min(intent.limit ?? MAX_ROWS, MAX_ROWS) };
+}
+
+/**
+ * Refuses a window parseRequest could never have produced, and the one it can:
+ * an offset past bigint. PostgREST binds the offset as text and Postgres casts
+ * it, so `offset=99999999999999999999` is a 22003 quoting the digits — after
+ * every filter operand has been read (live: a bad uuid filter wins).
+ */
+function checkWindow(intent: QueryIntent): void {
+  for (const [what, n] of [["limit", intent.limit], ["offset", intent.offset]] as const) {
+    if (n !== undefined && (!Number.isInteger(n) || n < 0)) fail(pgErr("PGRST103", `Requested range not satisfiable (${what} ${n})`, 416));
+  }
+  if (intent.offsetText !== undefined && BigInt(intent.offsetText) > BIGINT_MAX) {
+    fail(pgErr("22003", `value "${intent.offsetText}" is out of range for type bigint`, 400));
+  }
+}
+
 function limitClause(ctx: Ctx, intent: QueryIntent): string {
-  const check = (n: number | undefined, what: string) => {
-    if (n === undefined) return undefined;
-    if (!Number.isInteger(n) || n < 0) fail(pgErr("PGRST103", `Requested range not satisfiable (${what} ${n})`, 416));
-    return n;
-  };
-  const limit = check(intent.limit, "limit");
-  const offset = check(intent.offset, "offset");
   let sql = "";
-  if (limit !== undefined) { sql += " LIMIT ?"; ctx.params.push(limit); }
+  if (intent.limit !== undefined) { sql += " LIMIT ?"; ctx.params.push(intent.limit); }
   // SQLite has no bare OFFSET — it only parses as part of a LIMIT clause.
-  if (offset) {
-    if (limit === undefined) sql += " LIMIT -1";
+  if (intent.offset) {
+    if (intent.limit === undefined) sql += " LIMIT -1";
     sql += " OFFSET ?";
-    ctx.params.push(offset);
+    ctx.params.push(intent.offset);
   }
   return sql;
 }
@@ -740,22 +752,54 @@ function limitClause(ctx: Ctx, intent: QueryIntent): string {
 /* ───────────────────────────── statements ──────────────────────────── */
 
 function buildSelect(ctx: Ctx, intent: QueryIntent): BuiltQuery {
-  // head:true is only ever paired with count:"exact" here (19 call sites): the
-  // body is empty and the total comes from Content-Range, so limit/order are
-  // irrelevant and the count must span ALL matching rows, not just the page.
-  // (A count WITHOUT head needs both the page and the total — build the second
-  // query as buildSql({ ...intent, head: true }, registry) and run the two.)
+  checkWindow(intent);
+  // A HEAD sends no rows, but its Content-Range still describes the page
+  // (`0-999/*`), and count=exact adds the total. Both come from this one COUNT:
+  // read.ts works the page size out from it and the window.
   if (intent.head) {
     return { sql: `SELECT COUNT(*) AS "count" FROM ${qi(ctx.table)}${whereClause(ctx, intent.where)}`, params: ctx.params };
   }
-  // NOTE: .single()/.maybeSingle() deliberately do NOT add `LIMIT 1` — PostgREST
-  // fails with PGRST116 when more than one row matches, and that only works if
-  // the executor can SEE the second row. Detecting it is respond()'s job.
+  // A text column in the ORDER BY: SQLite has no ICU, and its NOCASE folds ASCII
+  // only — `PRÉFECTURE` filed after every `PREFECTURE`, `….PDF` before `….pdf`,
+  // `a@` after `a4`. Postgres' order is reproduced in JavaScript (collate.ts), so
+  // this fetches just the rowid and the sort keys of every matching row; read.ts
+  // sorts them, takes the window, and fetches that page by rowid.
+  const cols = intent.order.map((o) => requireColumn(ctx, o.column));
+  if (cols.some((col) => col.pg === "text")) {
+    const sort: SortKey[] = intent.order.map((o, i) => ({
+      key: `sort$${i}`, text: cols[i].pg === "text", ascending: o.ascending, nullsFirst: o.nullsFirst ?? !o.ascending,
+    }));
+    const keys = intent.order.map((o, i) => `${qi(o.column)} AS ${qi(`sort$${i}`)}`).join(", ");
+    const sql = `SELECT rowid AS "rowid$", ${keys} FROM ${qi(ctx.table)}${whereClause(ctx, intent.where)} LIMIT ?`;
+    ctx.params.push(SORT_ROW_LIMIT + 1);
+    return { sql, params: ctx.params, sort };
+  }
+  // NOTE: .single() deliberately gets no `LIMIT 1` — PostgREST fails with
+  // PGRST116 when more than one row matches, and that only works if the executor
+  // can SEE the second row. Detecting it is respond()'s job.
   const sql = `SELECT ${selectList(ctx, intent.select)} FROM ${qi(ctx.table)}`
     + whereClause(ctx, intent.where)
     + orderClause(ctx, intent.order)
     + limitClause(ctx, intent);
   return { sql, params: ctx.params };
+}
+
+/**
+ * The page of a text-sorted read, by the rowids read.ts put in order. `rowid$`
+ * rides along so the rows can be put back in that order; decode never shows it.
+ */
+export function buildRowsByRowid(intent: QueryIntent, registry: Registry, rowids: readonly number[]): BuiltQuery | PostgrestError {
+  const meta = registry[intent.table];
+  if (!meta) return missingTable(intent.table);
+  const ctx: Ctx = { table: intent.table, meta, params: [] };
+  try {
+    const list = selectList(ctx, intent.select);
+    ctx.params.push(JSON.stringify(rowids));
+    return { sql: `SELECT rowid AS "rowid$", ${list} FROM ${qi(ctx.table)} WHERE rowid IN (SELECT value FROM json_each(?))`, params: ctx.params };
+  } catch (e) {
+    if (e instanceof BuildError) return e.pg;
+    return pgErr("XX000", e instanceof Error ? e.message : "Unknown query build error", 500);
+  }
 }
 
 /**

@@ -38,10 +38,11 @@
  * comes back as a PostgrestError value with those exact codes and phrasings.
  */
 import type {
-  ColumnMeta, Condition, FilterOp, OrderBy, PostgrestError,
+  ColumnMeta, Condition, FilterOp, JsonOp, OrderBy, PostgrestError,
   QueryIntent, Registry, SelectItem, Where,
 } from "./types";
 import { arrayIn, inputValue, isInputError, pgTypeName } from "./pgInput";
+import { resolveRange } from "./range";
 
 /** The request, already read off the wire — lets the parser stay pure/sync. */
 export type RequestParts = {
@@ -199,8 +200,12 @@ type OpExpr = { negate: boolean; op: string; quant?: "any" | "all"; language?: s
 type RawFilter = { column: string; jsonPath: boolean; expr: OpExpr };
 type RawGroup = { kind: "and" | "or"; negate: boolean; children: RawNode[] };
 type RawNode = RawFilter | RawGroup;
-/** Where, and against what, a parse failed — the furthest failure wins, like parsec's. */
-type Failure = { at: number; expecting: string };
+/**
+ * Where, and against what, a parse failed — the furthest failure wins, like
+ * parsec's. `quote` is how parsec prints the unexpected character: `"x"` from a
+ * failed match, `'x'` from a failed lookahead (the end-of-item check).
+ */
+type Failure = { at: number; expecting: string; quote?: "'" };
 
 const isFailure = (x: object): x is Failure => "at" in x;
 /** parsec's `spaces` (Haskell isSpace). */
@@ -210,9 +215,10 @@ const isSpace = (c: string | undefined) => c !== undefined && /\s/.test(c);
  * PostgREST's parse-error body: the parameter value in the message, a 1-based
  * column into the text the parser saw, and what it expected there.
  */
-function parseFailure(what: "filter" | "logic tree" | "columns parameter", shown: string, text: string, f: Failure): PostgrestError {
+function parseFailure(what: "filter" | "logic tree" | "columns parameter" | "select parameter", shown: string, text: string, f: Failure): PostgrestError {
   const ch = text[f.at];
-  const unexpected = ch === undefined ? "end of input" : `"${ch}"`;
+  const q = f.quote ?? '"';
+  const unexpected = ch === undefined ? "end of input" : `${q}${ch}${q}`;
   return pgErr("PGRST100", `"failed to parse ${what} (${shown})" (line 1, column ${f.at + 1})`, 400,
     `unexpected ${unexpected} expecting ${f.expecting}`);
 }
@@ -597,58 +603,171 @@ function resolveNode(table: string, registry: Registry, node: RawNode): Where | 
 
 /* --------------------------------------------------------------- select ---- */
 
-/**
- * `"user_id, b2_stage, cv_langs:cv_draft->langs"` → SelectItem[].
- * Aliases and the single json-path form are the only shapes this codebase uses;
- * embedded resources (`org:organizations(name)`) are out of scope by measurement.
+/*
+ * A select item is `[alias:]field[->key|->>key|->n …]`, or `*` (QueryParams.hs
+ * pFieldSelect, pJsonPath). The arrow path used to be collapsed into one string
+ * with `->>` read as `->` — which answered the TEXT operator with parsed JSON —
+ * and named after its literal last segment, so `cv_draft->langs->0` came back
+ * under `0`. It is read here step by step, as PostgREST reads it:
+ *
+ *  - an operand is an index when it is `-?digits` followed by the next arrow, a
+ *    cast, an aggregate or the end; otherwise it is a key — a quoted string, or
+ *    any run of characters but `(-:.,>)` (inner dashes joined, ends trimmed);
+ *  - `*` may sit among other items (`*,x:cv_draft->langs`): every column, plus
+ *    the rest. Collapsing the list to `*` dropped `x`.
  */
-function parseSelect(raw: string, table: string, registry: Registry): SelectItem[] | "*" | PostgrestError {
-  const text = raw.trim();
-  if (text === "" || text === "*") return "*";
 
-  const items: SelectItem[] = [];
-  for (const piece of splitTop(text, ",")) {
-    let part = piece.trim();
-    if (part === "") continue;
-    if (part === "*") return "*"; // `*` anywhere means "every column"
-    if (part.includes("(")) return errUnsupported(`embedded resource '${part}' is not implemented`);
-    if (part.includes("::")) return errUnsupported(`cast '${part}' is not implemented`);
+/** A select item as written, before the registry is consulted. */
+type RawJsonOp = { arrow: "->" | "->>"; key: string } | { arrow: "->" | "->>"; indexText: string };
+type RawSelectItem =
+  | { star: true }
+  | { column: string; alias?: string; ops: RawJsonOp[]; unsupported?: string };
 
-    let alias: string | undefined;
-    const colon = part.indexOf(":");
-    if (colon > 0) { alias = part.slice(0, colon).trim(); part = part.slice(colon + 1).trim(); }
+const SELECT_ITEM_EXPECTED = '"...", field name (* or [a..z0..9_$]), "*" or "count()"';
+const JSON_OPERAND_EXPECTED = '"-", digit or any non reserved character different from: .,>()';
+const ITEM_END_EXPECTED = '"->>", "->", "::", ".", ")", "," or end of input';
+const NO_OPERATOR_HINT = "No operator matches the given name and argument types. You might need to add explicit type casts.";
+// Constructed, not written as literals: the tree compiles below ES2020.
+const INT4_MIN = BigInt(-2147483648);
+const INT4_MAX = BigInt(2147483647);
 
-    let jsonPath: string | undefined;
-    // `->` and `->>` differ only in the returned type; this codebase reads the one
-    // `cv_draft->langs` and json-parses it either way, so they collapse here.
-    const m = /^(.*?)->>?(.*)$/.exec(part);
-    if (m) {
-      part = m[1].trim();
-      jsonPath = m[2].trim().replace(/->>/g, "->").replace(/"/g, "");
-      // PostgREST names an un-aliased json path after its last key.
-      if (!alias) alias = jsonPath.split("->").pop()!.trim();
-    }
+/** postgrest-js keeps double quotes around identifiers that need them; the registry stores the bare name. */
+const unquoteIdent = (s: string) => (s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s);
 
-    // postgrest-js keeps double quotes around identifiers that need them
-    // (`select('"odd name"')`) — the registry stores the bare name.
-    if (part.length >= 2 && part.startsWith('"') && part.endsWith('"')) part = part.slice(1, -1);
+/** One item spanning text[from, to). Positions stay absolute, so an error's column is the parameter's. */
+function parseSelectItem(text: string, from: number, to: number): RawSelectItem | Failure {
+  let p = from;
+  while (p < to && isSpace(text[p])) p++;
+  let end = to;
+  while (end > p && isSpace(text[end - 1])) end--;
+  if (p === end) return { at: p, expecting: SELECT_ITEM_EXPECTED };
+  if (text.slice(p, end) === "*") return { star: true };
 
-    if (!own(registry[table].columns, part)) return errNoColumn(table, part);
-    items.push({ column: part, ...(alias ? { alias } : {}), ...(jsonPath ? { jsonPath } : {}) });
+  // `alias:` — one colon (two are a cast), before any arrow.
+  const arrowAt = text.indexOf("->", p);
+  const head = text.slice(p, arrowAt >= p && arrowAt < end ? arrowAt : end);
+  const colon = head.search(/(?<!:):(?!:)/);
+  let alias: string | undefined;
+  if (colon > 0) {
+    alias = unquoteIdent(head.slice(0, colon).trim());
+    p += colon + 1;
+    while (p < end && isSpace(text[p])) p++;
   }
-  return items.length ? items : "*";
+
+  // The field: a quoted identifier, or everything up to an arrow, a cast, an aggregate or a paren.
+  let q = p;
+  let column: string;
+  const quoted = text[q] === '"' ? readQuoted(text.slice(0, end), q) : null;
+  if (quoted) {
+    column = quoted.value;
+    q = quoted.end;
+  } else {
+    while (q < end && !text.startsWith("->", q) && !text.startsWith("::", q) && text[q] !== "." && text[q] !== "(") q++;
+    column = unquoteIdent(text.slice(p, q).trim());
+  }
+
+  const ops: RawJsonOp[] = [];
+  while (q < end && text.startsWith("->", q)) {
+    const arrow = text.startsWith("->>", q) ? "->>" : "->";
+    q += arrow.length;
+    const index = /^(-?)(\d+)/.exec(text.slice(q, end));
+    if (index) {
+      const after = q + index[0].length;
+      if (after === end || text.startsWith("->", after) || text.startsWith("::", after) || text[after] === ".") {
+        // PostgREST keeps the sign it read (`+` when there was none): Postgres
+        // quotes exactly that text when the cast to int overflows.
+        ops.push({ arrow, indexText: `${index[1] || "+"}${index[2]}` });
+        q = after;
+        continue;
+      }
+    }
+    // A key can't start with `-`, so the index parse that failed after it is the
+    // furthest failure (live: `value->-x` is `unexpected "x" expecting digit`).
+    if (text[q] === "-" && !index) return { at: q + 1, expecting: "digit" };
+    if (text[q] === '"') {
+      const key = readQuoted(text.slice(0, end), q);
+      if (!key) return { at: end, expecting: '"\\""' };
+      ops.push({ arrow, key: key.value });
+      q = key.end;
+      continue;
+    }
+    const segments: string[] = [];
+    for (;;) {
+      const start = q;
+      while (q < end && !"(-:.,>)".includes(text[q])) q++;
+      if (q === start) return { at: q, expecting: JSON_OPERAND_EXPECTED };
+      segments.push(text.slice(start, q).trim());
+      if (text[q] === "-" && text[q + 1] !== ">") { q++; continue; }
+      break;
+    }
+    ops.push({ arrow, key: segments.join("-") });
+  }
+
+  // What is left: a paren, a cast or an aggregate (all refused by name once the
+  // request is known to be valid), or nothing at all.
+  const written = text.slice(from, to).trim();
+  let unsupported: string | undefined;
+  if (text[q] === "(") unsupported = `embedded resource '${written}' is not implemented`;
+  else if (text.startsWith("::", q)) unsupported = `cast '${written}' is not implemented`;
+  else if (text[q] === ".") unsupported = `aggregate '${written}' is not implemented`;
+  else if (q < end) return { at: q, expecting: ITEM_END_EXPECTED, quote: "'" };
+  return { column, ...(alias !== undefined ? { alias } : {}), ops, ...(unsupported ? { unsupported } : {}) };
+}
+
+/** `?select=` → its items, syntax only: PostgREST reports a malformed select before it looks for the table. */
+function parseSelectSyntax(raw: string): RawSelectItem[] | PostgrestError {
+  if (raw.trim() === "") return [];
+  const items: RawSelectItem[] = [];
+  let from = 0;
+  for (const piece of splitTop(raw, ",")) {
+    const item = parseSelectItem(raw, from, from + piece.length);
+    if (isFailure(item)) return parseFailure("select parameter", raw, raw, item);
+    items.push(item);
+    from += piece.length + 1;
+  }
+  return items;
+}
+
+/**
+ * The items against the table, left to right as Postgres analyses a target
+ * list: the column must exist (42703), and each arrow must be an operator
+ * Postgres has. After `->>` the value is text, and `text -> …` does not exist
+ * (42883, which PostgREST answers with a 404); an index is cast to int, so one
+ * past int4 is a 22003 quoting the digits. The missing operator is found first
+ * (live: `->>0->2147483648` is the 42883).
+ */
+function resolveSelect(items: RawSelectItem[], table: string, registry: Registry): SelectItem[] | "*" | PostgrestError {
+  if (items.length === 0 || (items.length === 1 && "star" in items[0])) return "*";
+  const out: SelectItem[] = [];
+  for (const item of items) {
+    if ("star" in item) { out.push({ column: "*" }); continue; }
+    if (item.unsupported) return errUnsupported(item.unsupported);
+    if (!own(registry[table].columns, item.column)) return errNoColumn(table, item.column);
+    const ops: JsonOp[] = [];
+    for (let i = 0; i < item.ops.length; i++) {
+      const op = item.ops[i];
+      if (i > 0 && item.ops[i - 1].arrow === "->>") {
+        return pgErr("42883", `operator does not exist: text ${op.arrow} ${"key" in op ? "unknown" : "integer"}`, 404, null, NO_OPERATOR_HINT);
+      }
+      if ("key" in op) { ops.push({ arrow: op.arrow, key: op.key }); continue; }
+      const n = BigInt(op.indexText);
+      if (n < INT4_MIN || n > INT4_MAX) return pgErr("22003", `value "${op.indexText}" is out of range for type integer`, 400);
+      ops.push({ arrow: op.arrow, index: Number(n) });
+    }
+    out.push({ column: item.column, ...(item.alias !== undefined ? { alias: item.alias } : {}), ...(ops.length ? { jsonPath: ops } : {}) });
+  }
+  return out;
 }
 
 /* ---------------------------------------------------------------- order ---- */
 
-/** `order=created_at.desc.nullslast,id.asc` → OrderBy[]. */
-function parseOrder(raw: string, table: string, registry: Registry): OrderBy[] | PostgrestError {
+/** `order=created_at.desc.nullslast,id.asc` → OrderBy[], syntax only (the columns are checked later). */
+function parseOrder(raw: string): OrderBy[] | PostgrestError {
   const out: OrderBy[] = [];
   for (const piece of raw.split(",")) {
     const part = piece.trim();
     if (part === "") continue;
     const [column, ...mods] = part.split(".");
-    if (!own(registry[table].columns, column)) return errNoColumn(table, column);
 
     // Defaults mirror Postgres: ASC, and nulls-position left undefined so the SQL
     // builder can apply Postgres' own rule (NULLS LAST for asc, FIRST for desc).
@@ -677,11 +796,24 @@ function headerOf(headers: Headers | Record<string, string>, name: string): stri
   return null;
 }
 
-function parseNonNegativeInt(raw: string): number | null {
-  if (!/^\d+$/.test(raw.trim())) return null;
-  const n = Number(raw.trim());
-  return Number.isSafeInteger(n) ? n : null;
+/**
+ * Every value of `name` in the query string, in order. URLSearchParams alone
+ * can't say this: it reads a bare `limit` as `limit=`, and PostgREST tells them
+ * apart — a key with no `=` has no value and is skipped (live: `limit=2&limit`
+ * is 2 rows), while `limit=` is a value it cannot read.
+ */
+function rawValues(url: URL, name: string): string[] {
+  const out: string[] = [];
+  for (const piece of url.search.slice(1).split("&")) {
+    if (!piece.includes("=")) continue;
+    for (const [key, value] of new URLSearchParams(piece)) if (key === name) out.push(value);
+  }
+  return out;
 }
+
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+/** A window bound as the number the SQL binds; past 2^53 no table has the rows, so the clamp changes no answer. */
+const toSafeNumber = (n: bigint) => (n > MAX_SAFE ? Number.MAX_SAFE_INTEGER : Number(n));
 
 /* ----------------------------------------------------------------- main ---- */
 
@@ -713,7 +845,6 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
   let table: string;
   try { table = decodeURIComponent(rawTable); }
   catch { return errNoTable(rawTable); }
-  if (!table || !own(registry, table)) return errNoTable(table);
 
   /* headers → cardinality / count / returning / conflict resolution */
   const accept = headerOf(parts.headers, "Accept") ?? "";
@@ -739,16 +870,22 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
   const returning: QueryIntent["returning"] =
     !isMutation || /return=representation/.test(prefer) ? "representation" : "minimal";
 
-  /* select list */
-  const rawSelect = url.searchParams.get("select");
-  const select = parseSelect(rawSelect ?? "*", table, registry);
-  if (typeof select === "object" && !Array.isArray(select)) return select;
+  /* the request, in the order Supabase fails */
+  // Which of two problems a request reports depends on the stage that finds it
+  // (all measured live). First the SYNTAX, in PostgREST's own order — order,
+  // logic trees, select, filters (QueryParams.hs parse). Then the range:
+  // `nosuchtable?limit=-1` is a 416, not a 404. Then the table (PGRST205). Only
+  // then what Postgres analyses: the select list's columns and arrows, each
+  // filter's column and operand in turn, and the order's columns.
+  const rawOrder = url.searchParams.get("order");
+  const orderSyntax = rawOrder === null ? [] : parseOrder(rawOrder);
+  const selectSyntax = parseSelectSyntax(url.searchParams.get("select") ?? "*");
 
-  /* filters: every non-reserved param is a column (or a logical group) */
-  // Two passes, in the order Supabase fails: PostgREST reads the SYNTAX of every
-  // parameter before anything runs (a PGRST100 anywhere wins), and only then does
-  // Postgres resolve each condition's column and type its operand, in order.
+  // Filters keep their parameter order for resolution; a syntax error is held
+  // back only so that a logic tree's can win over a plain filter's.
   const rawFilters: RawNode[] = [];
+  let logicError: PostgrestError | null = null;
+  let filterError: PostgrestError | null = null;
   for (const [key, raw] of url.searchParams) {
     if (RESERVED_PARAMS.has(key)) continue;
     if (LOGIC_PARAMS.has(key)) {
@@ -756,15 +893,15 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
       // the group's closing `)` is ignored, not rejected.
       const text = key + raw;
       const tree = parseTree(text, 0);
-      if (isFailure(tree)) return parseFailure("logic tree", raw, text, tree);
-      rawFilters.push(tree.node);
+      if (isFailure(tree)) logicError ??= parseFailure("logic tree", raw, text, tree);
+      else rawFilters.push(tree.node);
       continue;
     }
     // `instruments.order=…` / `instruments.limit=…` only exist for embedded
     // resources, which we don't support — better a 400 than silently ignoring them.
-    if (key.includes(".")) return errUnsupported(`referenced-table parameter '${key}' is not implemented`);
+    if (key.includes(".")) { filterError ??= errUnsupported(`referenced-table parameter '${key}' is not implemented`); continue; }
     const expr = parseOpExpr(raw, 0, false);
-    if (isFailure(expr)) return parseFailure("filter", raw, raw, expr);
+    if (isFailure(expr)) { filterError ??= parseFailure("filter", raw, raw, expr); continue; }
     // The key is read with the same field grammar as a tree item, and whatever
     // follows the name is ignored: live, `file_type- >x=eq.a` is a 42703 for the
     // column `file_type-`. A key that is no field name at all stays whole, so it
@@ -774,6 +911,25 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
       ? { column: key, jsonPath: false, expr: expr.expr }
       : { column: field.column, jsonPath: field.jsonPath, expr: expr.expr });
   }
+  if (!Array.isArray(orderSyntax)) return orderSyntax;
+  if (logicError) return logicError;
+  if (!Array.isArray(selectSyntax)) return selectSyntax;
+  if (filterError) return filterError;
+
+  // `limit=` / `offset=` / `Range:` → PostgREST's window, or its PGRST103 (range.ts).
+  // postgrest-js sends .range() as offset+limit; the header is read on GET only.
+  const window = resolveRange({
+    limits: rawValues(url, "limit"),
+    offsets: rawValues(url, "offset"),
+    header: method === "GET" ? headerOf(parts.headers, "Range") : null,
+  });
+  if ("code" in window) return window;
+
+  if (!table || !own(registry, table)) return errNoTable(table);
+
+  const select = resolveSelect(selectSyntax, table, registry);
+  if (typeof select === "object" && !Array.isArray(select)) return select;
+
   const where: Where[] = [];
   for (const node of rawFilters) {
     const resolved = resolveNode(table, registry, node);
@@ -781,37 +937,18 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
     where.push(resolved);
   }
 
-  /* order / limit / offset */
-  let order: OrderBy[] = [];
-  const rawOrder = url.searchParams.get("order");
-  if (rawOrder !== null) {
-    const parsed = parseOrder(rawOrder, table, registry);
-    if (!Array.isArray(parsed)) return parsed;
-    order = parsed;
-  }
+  for (const o of orderSyntax) if (!own(registry[table].columns, o.column)) return errNoColumn(table, o.column);
+  const order = orderSyntax;
 
+  // A window that pages nothing (no limit, offset 0, no Range) leaves both unset.
   let limit: number | undefined;
   let offset: number | undefined;
-  const rawLimit = url.searchParams.get("limit");
-  if (rawLimit !== null) {
-    const n = parseNonNegativeInt(rawLimit);
-    if (n === null) return errParse("limit", `expected a non-negative integer, got '${rawLimit}'`);
-    limit = n;
-  }
-  const rawOffset = url.searchParams.get("offset");
-  if (rawOffset !== null) {
-    const n = parseNonNegativeInt(rawOffset);
-    if (n === null) return errParse("offset", `expected a non-negative integer, got '${rawOffset}'`);
-    offset = n;
-  }
-  // postgrest-js sends .range() as offset+limit, but PostgREST also honours a
-  // `Range: from-to` header (inclusive, 0-based). Explicit params win.
-  if (limit === undefined && offset === undefined) {
-    const range = /^(\d+)-(\d*)$/.exec((headerOf(parts.headers, "Range") ?? "").trim());
-    if (range) {
-      offset = Number(range[1]);
-      if (range[2] !== "") limit = Number(range[2]) - offset + 1;
-      if (limit !== undefined && limit < 0) return errParse("range", `'${range[0]}' ends before it starts`);
+  let offsetText: string | undefined;
+  if (!window.all) {
+    if (window.limit !== null) limit = toSafeNumber(window.limit);
+    if (window.offset > BigInt(0)) {
+      offset = toSafeNumber(window.offset);
+      if (window.offset > MAX_SAFE) offsetText = window.offset.toString();
     }
   }
 
@@ -819,6 +956,7 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
     action, table, select, where, order,
     ...(limit === undefined ? {} : { limit }),
     ...(offset === undefined ? {} : { offset }),
+    ...(offsetText === undefined ? {} : { offsetText }),
     ...(singleObject ? { singleObject, requireExactlyOne } : {}),
     ...(count ? { count } : {}),
     ...(method === "HEAD" ? { head: true } : {}),
