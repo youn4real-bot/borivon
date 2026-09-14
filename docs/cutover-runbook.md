@@ -9,6 +9,7 @@ OFF, and every flip is a human editing `wrangler.jsonc` and deploying.
 | `MAINTENANCE_WRITES` | `"0"` | `"1"` | Every mutating `/api/*` request answers **503** `{ error, code: "maintenance", retryAfter }` in FR/EN/DE. `/api/health` still answers. Cron routes answer `200 {skipped}` without running, and `scheduled()` stops dispatching. The service client refuses data and storage writes. GETs keep working. `POST /api/leads` is the one exception: it still runs (details under the freeze step). |
 | `DATA_BACKEND` | `"supabase"` | `"d1"` | The service client's `/rest/v1` reads, writes and RPC are answered by D1. Every successful write is appended to `_write_journal`. Shadow reads stop. Auth, storage and realtime still reach Supabase, and so does the auth-only RPC `admin_force_logout`. The cron alert's silence flag is read from D1. |
 | `SHADOW_D1_RATE` | `"0.25"` today | `"0"` at the flip | That share of reads is replayed against D1 and compared. It only works while Supabase is the backend. |
+| `STORAGE_BACKEND` | unset | `"r2"` at the flip; `"supabase"` for a rollback | Files are read and written in R2 (`supabase/<bucket>/<path>`), public URLs point at `/api/storage/v1/object/public/…` on our domain, signed URLs at `/api/storage/v1/object/sign/…` with an expiring token, and every upload/remove is mirrored to Supabase Storage. Once it has been `"r2"`, **never delete it**: `"supabase"` redirects the new URLs, while unset 404s them. |
 
 Wrangler vars win over `.env.local` (OpenNext's `populateProcessEnv` sets the Worker env first and only fills
 gaps from `.env.local`). Even so, **never put these three names in `.env.local`**: a missing wrangler var would
@@ -60,8 +61,10 @@ T = the moment you start. Build and copy times are placeholders. Take the real n
 | +3 min | Wait 2 minutes so requests already in flight finish | |
 | +5 min | `node d1/cutover.mjs <repo-root> --i-mean-it` | realtime ok, freeze ok, journal ok, drift ok, export, import, **parity 0 mismatch(es)**, the export directory removed, then it prints FLIP |
 | | If it prints **REFUSING**: stop. Fix the cause and re-run, or abort (below). A refusal after the export also removes the export (it holds candidate data). `--keep-export` keeps it, with a warning. | |
-| +copy | In `wrangler.jsonc`, set `"DATA_BACKEND": "d1"`, `"SHADOW_D1_RATE": "0"`, `"MAINTENANCE_WRITES": "0"`, then `npm run cf:build && npm run cf:deploy` | build exits 0 |
-| | Write that Version ID down as **FLIP** | |
+| +files | `node storage/copy-to-r2.mjs <repo-root> --dry-run`. If it plans `copy` > 0, run it again without `--dry-run`. Supabase Storage cannot change during the freeze, and the app has never written R2, so no `--flipped-at` yet. | the plan line prints; any copies finish with `failed 0` |
+| | `node storage/verify-r2-copy.mjs <repo-root>` | **PARITY OK** |
+| +copy | In `wrangler.jsonc`, set `"DATA_BACKEND": "d1"`, `"SHADOW_D1_RATE": "0"`, `"MAINTENANCE_WRITES": "0"` and `"STORAGE_BACKEND": "r2"` (leave `STORAGE_SUPABASE_MIRROR` unset: the mirror stays on), then `npm run cf:build && npm run cf:deploy` | build exits 0 |
+| | Write that Version ID down as **FLIP**, and the UTC time the deploy finished as **FLIP time** (ISO, e.g. `2026-09-15T01:40:00Z`): the storage scripts need it | |
 | +1 min | `curl -s "https://www.borivon.com/api/health?deep=1"` | `deps.d1Backend: true`, `deps.writesFrozen: false`, `deps.database: true` (that count now runs on D1) |
 | | `curl -s -X POST https://www.borivon.com/api/_cutover/freeze-probe` | **404**, not 503 |
 | +5 min | Smoke test: log in, open the dashboard, upload a small document, approve it as admin, send a chat message, open the bell | each works; the approval and the message show up within a poll |
@@ -80,12 +83,21 @@ run `npx wrangler rollback <PRE-SWITCH>`. Both are safe up to the flip deploy an
 - `GET /api/health?deep=1` returns `d1Backend: true`, `writesFrozen: false`, and `database`, `r2`, `google`, `email` all as true as they were before the switch. `database` is a counted read of `documents`, which D1 now answers.
 - `POST /api/_cutover/freeze-probe` returns 404. A 503 means some isolate still serves the frozen version.
 - A new API route returns JSON, not the HTML of `app/[slug]`.
+- Files: `curl -s https://www.borivon.com/api/storage/v1/object/public/sign-documents/x` returns JSON
+  `{"statusCode":"404","message":"Bucket not found"}` (a private bucket is never public; HTML means an old build).
+  An existing `supabase.co` photo URL still returns 200. A newly changed profile photo is stored as
+  `https://www.borivon.com/api/storage/v1/object/public/profile-photos/…` and returns 200 image/jpeg. A sign-request
+  preview's `/api/storage/v1/object/sign/…` URL returns 200 application/pdf, and 400 JSON without `?token`.
+- `node storage/copy-back-to-supabase.mjs <repo-root> --flipped-at <FLIP time>` (dry run) plans `copy back 0` and `report 0`.
 
 **Logs** (`npx wrangler tail borivon --search "[write-journal]"`, or Workers Observability)
 - `[write-journal] ok POST …` appears (the first three per isolate). This proves the journal is recording.
 - **Zero** `[write-journal] LOST`. Each one is a write a rollback would miss. Stop and investigate. The rollback's parity gate would catch it, but only at rollback time.
 - **Zero** `[d1-backend] DATA REQUEST REFUSED` and zero `[d1-backend] adapter failed to load`. D1 cannot be reached from the Worker, and data requests are failing closed.
 - **Zero** `[write-freeze] refused` once the freeze is off.
+- **Zero** `[r2-storage] MIRROR MISS` (`npx wrangler tail borivon --search "MIRROR MISS"`). Each one is an upload or
+  remove that did not reach Supabase Storage, so a rollback would miss it until
+  `storage/copy-back-to-supabase.mjs --flipped-at <FLIP time> --i-mean-it` repairs it.
 - **No new** `[shadow-d1]` lines. Shadow reads stop on D1, so a fresh line means an old version is still serving. `node d1/shadow-report.mjs <repo-root> 1` should report 0 lines for the hour after the flip.
 
 **Journal**: the `node d1/replay-journal.mjs <repo-root>` dry run shows the pending count rising with real traffic.
@@ -115,7 +127,8 @@ row.
 | | If it prints **HALT**: fix the named cause, then re-run. Already-replayed writes are skipped, and the insert in doubt is recognised by primary key. `LATE` means a write was journaled after the replay passed its position. Confirm nothing is still writing, then re-run with `--allow-late`. | |
 | **R3b** | `node d1/cutover.mjs <repo-root> --rollback --i-mean-it` | gate 1 freeze ok, gate 2 **0 pending**, gate 3 **parity 0 mismatch(es)**, then it prints **FLIP BACK** |
 | | If it prints **REFUSING at parity**: do not flip back. parity-check names the table, the key and the columns that differ (never values). Look for a matching `[write-journal] LOST` line, redo that write by hand in Supabase, then run R3b again. `employers.updated_at` is the only column not compared: Supabase's trigger stamps it with the replay time, by design. | |
-| +R3b | In `wrangler.jsonc`, set `"DATA_BACKEND": "supabase"`, `"MAINTENANCE_WRITES": "0"`, `"SHADOW_D1_RATE": "0"`, then `npm run cf:build && npm run cf:deploy` | build exits 0 |
+| +R3b | In `wrangler.jsonc`, set `"DATA_BACKEND": "supabase"`, `"MAINTENANCE_WRITES": "0"`, `"SHADOW_D1_RATE": "0"` and `"STORAGE_BACKEND": "supabase"` (never delete that var: unset 404s every file URL minted while R2 was active), then `npm run cf:build && npm run cf:deploy` | build exits 0 |
+| +files | `node storage/copy-back-to-supabase.mjs <repo-root> --flipped-at <FLIP time>` (dry run). If it plans `copy back` > 0, run it again with `--i-mean-it`. If it reports objects still in Supabase but deleted from R2, review them by hand with `--list`: the script never deletes. | ends with `copy back 0`; a new upload made during the D1 period opens from its stored URL |
 | +1 min | `curl -s "https://www.borivon.com/api/health?deep=1"` | `d1Backend: false`, `writesFrozen: false` |
 | | Smoke test (same as above) | the writes made during the D1 period are visible |
 | +10 min | `node d1/replay-journal.mjs <repo-root> --archive` (dry run), then with `--i-mean-it` | the three journal tables are renamed to `_archived_<date>_…`. It refuses while any entry is unreplayed. Without this, a later switch attempt is refused at "D1 has never been the backend". |
@@ -137,9 +150,13 @@ then race live writes.
   `delete_failed` for the whole window.** Delete from the portal instead.
 - `employers.updated_at`: after a rollback it holds the replay time, not the time of the edit on D1 (Supabase's
   `BEFORE UPDATE` trigger). Nothing reads it for decisions.
-- Files: the journal covers database rows only. If `STORAGE_BACKEND=r2` is on, objects uploaded after that flip
-  exist only in R2. The storage branch's `STORAGE_MEDIA_ROUTES=on` keeps their URLs serving after a rollback, but
-  nothing copies them back into Supabase Storage. Candidate documents already live in R2 either way.
+- Files: the journal covers database rows only; files have their own safety net. While `STORAGE_BACKEND="r2"`,
+  every upload and remove is also mirrored to Supabase Storage (best effort, 15 s ceiling; a miss logs
+  `[r2-storage] MIRROR MISS` and is repaired by `storage/copy-back-to-supabase.mjs`). Rolling files back = set
+  `"STORAGE_BACKEND": "supabase"` (never delete the var: that 404s every URL minted while R2 was active), deploy,
+  then `node storage/copy-back-to-supabase.mjs <repo-root> --flipped-at <FLIP>` (dry run; `--i-mean-it` if it plans
+  copies). After the flip, never run `storage/copy-to-r2.mjs` without `--flipped-at <FLIP>`: without it the planner
+  would recreate files the app deleted. Candidate documents already live in R2 either way.
 - The journal's order is the moment D1 answered (`at_ms`, then a per-isolate sequence). Two isolates writing the
   same row in the same millisecond have no defined order. That was true on Supabase too.
 
