@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { usePolling } from "@/lib/usePolling";
 import { cachedRole } from "@/lib/myRole";
 import { isVerified } from "@/lib/verified";
 import { translations } from "@/lib/translations";
@@ -1347,58 +1348,51 @@ export default function AdminPage() {
   };
   const menuRect = (id: string) => (revokeMenu?.id === id ? revokeMenu.rect : undefined);
 
-  // Realtime: LIVE documents for the candidate currently being reviewed. The
-  // instant the candidate uploads (or another admin/sub-admin acts), the
-  // dossier reflects it with NO refresh — supreme admin, sub-admins and the
-  // candidate all stay in sync automatically.
-  useEffect(() => {
-    if (!selectedUser || !accessToken) return;
-    let alive = true;
-    const refresh = async () => {
-      const r = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }).catch(() => null);
-      if (!alive || !r || !r.ok) return;
-      const j = await r.json();
-      const fresh: Doc[] = j.docs ?? [];
-      setDocs(prev => [...prev.filter(d => d.user_id !== selectedUser), ...fresh]);
-      if (Array.isArray(j.docHistory)) setDocHistory(j.docHistory as Doc[]);
-      // Also refresh THIS candidate's profile so admins see extracted /
-      // edited passport data live. LAST-WRITE-WINS (user decision): the
-      // server row overwrites unconditionally — whoever saved last wins,
-      // even for a field another admin is mid-typing. (The editor's own
-      // unsaved edits are still never lost — H-F flush + M-A re-queue.)
-      const pj = j.profiles?.[selectedUser];
-      if (pj) setProfiles(prev => ({ ...prev, [selectedUser]: pj }));
-    };
-    // Pull fresh docs the INSTANT this candidate is opened — the page-load
-    // bootstrap may predate the candidate's upload, so without this the
-    // dossier shows empty boxes even though the notification already fired.
-    refresh();
-    const ch = supabase
-      .channel(`admin-docs-live-${selectedUser}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${selectedUser}` },
-        () => { refresh(); },
-      )
-      // Passport DATA (and any profile edit / OCR result) — push to the
-      // open admin dossier instantly. RLS may gate this for the admin
-      // client; the 8s poll below is the guaranteed fallback.
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${selectedUser}` },
-        () => { refresh(); },
-      )
-      .subscribe();
-    // Fallback poll while this candidate is open — realtime on `documents`
-    // can be RLS-gated for the admin's client, so guarantee sync within 8s
-    // even if the subscription never delivers. Cheap: one request / 8s,
-    // only while actively reviewing ONE candidate. EGRESS: skip the poll while
-    // the tab is hidden, and refetch once on re-show so there's no blind window.
-    const timer = setInterval(() => { if (!document.hidden) refresh(); }, 8_000);
-    const onVis = () => { if (document.visibilityState === "visible") refresh(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", onVis); supabase.removeChannel(ch); };
-  }, [selectedUser, accessToken]);
+  // LIVE dossier for the candidate currently being reviewed. The candidate
+  // uploads (or another admin/sub-admin acts) and the dossier reflects it with
+  // NO refresh — documents AND this candidate's profile, so admins watch
+  // extracted / edited passport data land live, the unsubmitted OCR draft
+  // included (LAW #38).
+  //
+  // This was two Realtime postgres_changes channels (documents +
+  // candidate_profiles) backed by an 8s poll. Realtime goes silent once the
+  // rows live in D1, so the poll is the mechanism now: 5s while the passport
+  // info view is open (that is where someone is watching OCR arrive), 8s
+  // otherwise; visible tab only, refetch on return, backoff on errors. It reads
+  // GET /api/portal/admin, i.e. requireAdminRole + LAW #25 scoping, and restarts
+  // per candidate so a slow response for the previous one is dropped.
+  const refreshDossier = async (signal: AbortSignal): Promise<boolean> => {
+    const uid = selectedUser;
+    if (!uid || !accessToken) return true;
+    const r = await fetch(`/api/portal/admin?userId=${uid}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal, // a read the poll gave up on is cancelled, not left to land late
+    }).catch(() => null);
+    if (signal.aborted) return true;
+    if (!r || !r.ok) return false;
+    const j = await r.json().catch(() => null);
+    if (signal.aborted) return true;
+    if (!j) return false;
+    const fresh: Doc[] = j.docs ?? [];
+    setDocs(prev => [...prev.filter(d => d.user_id !== uid), ...fresh]);
+    if (Array.isArray(j.docHistory)) setDocHistory(j.docHistory as Doc[]);
+    // Also refresh THIS candidate's profile so admins see extracted /
+    // edited passport data live. LAST-WRITE-WINS (user decision): the
+    // server row overwrites unconditionally — whoever saved last wins,
+    // even for a field another admin is mid-typing. (The editor's own
+    // unsaved edits are still never lost — H-F flush + M-A re-queue.)
+    const pj = j.profiles?.[uid];
+    if (pj) setProfiles(prev => ({ ...prev, [uid]: pj }));
+    return true;
+  };
+  // Pulls the INSTANT a candidate is opened (immediate) — the page-load
+  // bootstrap may predate the candidate's upload, so without this the
+  // dossier shows empty boxes even though the notification already fired.
+  usePolling(refreshDossier, {
+    intervalMs: showPassportInfo ? 5_000 : 8_000,
+    enabled: !!selectedUser && !!accessToken,
+    resetKey: selectedUser,
+  });
 
   // Passport FILE download state (pipeline view)
   const [passportPdfDl, setPassportPdfDl] = useState(false);

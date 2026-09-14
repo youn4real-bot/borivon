@@ -20,6 +20,7 @@ import { createPortal, flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile } from "@/lib/meApi";
+import { usePolling } from "@/lib/usePolling";
 import { useLang } from "@/components/LangContext";
 import type { CVData, WorkEntry, EduEntry, MonthYear, B2Detail, RegStatus } from "@/components/CVDocument";
 import { COUNTRY_MAP, natToLang, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
@@ -2471,58 +2472,42 @@ function CVBuilderInner() {
   }
 
   // ── INSTANT passport → CV sync (LAW #37 streamline) ───────────────────────
-  // An open CV reflects a passport-data edit IMMEDIATELY — no reload, no
-  // reopen. Realtime push on the candidate's profile row applies the
-  // passport-wins overlay (`applyProfile`) the instant it changes; a 6s poll
-  // is the fallback for the cases realtime is RLS-gated (admin↔candidate).
-  // `applyProfile` already merges passport-over-draft, so this is consistent
-  // with the on-open reconciliation — just live.
+  // An open CV reflects a passport-data edit without a reload or reopen: a 6s
+  // poll of the candidate's own profile row applies the passport-wins overlay
+  // (`applyProfile`) when those columns change. This was a Realtime UPDATE
+  // subscription backed by the same 6s poll; Realtime goes silent once profiles
+  // live in D1, so the poll is the mechanism (visible tab only, refetch on
+  // return, backoff on errors). `applyProfile` already merges
+  // passport-over-draft, so this is consistent with the on-open
+  // reconciliation — just live.
   const ppSigRef = useRef<string>("");
-  useEffect(() => {
-    // The candidate's OWN CV only. An admin editing someone else's CV must
-    // never get this passport-wins overlay: it would revert their deliberate
-    // overrides and autosave the reverted values (LAW #37). Under the old
-    // self-only RLS read this happened to be a no-op for admins; keep it one.
-    if (adminCandidateId) return;
-    const ppTargetId = userId;
-    if (!ppTargetId) return;
-    const COLS = "first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages";
-    const sigOf = (row: Record<string, unknown>) =>
-      JSON.stringify(COLS.split(",").map(c => row[c] ?? ""));
-    const maybeApply = (row: Record<string, unknown> | null | undefined) => {
-      if (!row) return;
-      const sig = sigOf(row);
-      // Never apply against an unseeded signature: if the seed read failed,
-      // the first row we DO get is the baseline, not a change.
-      if (!ppSigRef.current) { ppSigRef.current = sig; return; }
-      if (sig === ppSigRef.current) return; // no real change → no flash/churn
-      ppSigRef.current = sig;
-      applyProfile(row as Parameters<typeof applyProfile>[0]);
-    };
-    let cancelled = false;
-    // Seed the signature from the current row WITHOUT applying — the mount
-    // bootstrap already reconciled, so we only react to FUTURE changes.
-    (async () => {
-      // Via our server (/api/portal/me/profile — own row only).
-      const { data } = await getMyProfile(COLS, { userId: ppTargetId });
-      if (!cancelled && data) ppSigRef.current = sigOf(data as Record<string, unknown>);
-    })();
-    const ch = supabase
-      .channel(`cv-pp-${ppTargetId}`)
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${ppTargetId}` },
-        (p) => maybeApply(p.new as Record<string, unknown>),
-      )
-      .subscribe();
-    const tick = async () => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      const { data } = await getMyProfile(COLS, { userId: ppTargetId });
-      if (!cancelled) maybeApply(data as Record<string, unknown> | null);
-    };
-    const timer = setInterval(tick, 6000);
-    return () => { cancelled = true; clearInterval(timer); supabase.removeChannel(ch); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, adminCandidateId]);
+  const PP_SYNC_COLS = "first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages";
+  // The candidate's OWN CV only. An admin editing someone else's CV must
+  // never get this passport-wins overlay: it would revert their deliberate
+  // overrides and autosave the reverted values (LAW #37). Under the old
+  // self-only RLS read this happened to be a no-op for admins; keep it one.
+  const ppLive = !adminCandidateId && !!userId;
+  // A different CV starts unseeded, so its first row read is the baseline.
+  // Declared BEFORE usePolling so it commits before the poll's first run.
+  useEffect(() => { ppSigRef.current = ""; }, [userId, adminCandidateId]);
+  usePolling(async (signal) => {
+    if (!ppLive) return true;
+    // Via our server (/api/portal/me/profile — own row only).
+    const { data, error } = await getMyProfile(PP_SYNC_COLS, { userId, signal });
+    if (signal.aborted) return true;
+    if (error) return false;
+    const row = data as Record<string, unknown> | null;
+    if (!row) return true;
+    const sig = JSON.stringify(PP_SYNC_COLS.split(",").map(c => row[c] ?? ""));
+    // Never apply against an unseeded signature: the first row is the
+    // baseline (the mount bootstrap already reconciled), not a change — so we
+    // only react to FUTURE changes.
+    if (!ppSigRef.current) { ppSigRef.current = sig; return true; }
+    if (sig === ppSigRef.current) return true; // no real change → no flash/churn
+    ppSigRef.current = sig;
+    applyProfile(row as Parameters<typeof applyProfile>[0]);
+    return true;
+  }, { intervalMs: 6_000, enabled: ppLive, resetKey: userId });
 
   // ── Live collaboration — resolve self identity ───────────────────────────
   // Builds the `selfPeer` object once we know who's editing: candidate's

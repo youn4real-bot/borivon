@@ -8,6 +8,8 @@ import { useRouter } from "next/navigation";
 import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
+import { usePolling } from "@/lib/usePolling";
+import { createLiveRowTracker, sameJson } from "@/lib/liveRowDiff";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -460,6 +462,9 @@ export default function DashboardPage() {
    *  read FAILS, instead of an empty list that looks like her uploads vanished. */
   const docsRef                   = useRef<Doc[]>([]);
   useEffect(() => { docsRef.current = docs; }, [docs]);
+  // Whether the LAST loadDocs read succeeded. loadDocs keeps the on-screen list
+  // on failure (and returns it), so the live poll reads this to back off.
+  const docsLoadOkRef             = useRef(true);
   const [loading, setLoading]     = useState(true);
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
@@ -741,6 +746,12 @@ export default function DashboardPage() {
   const [passportModal, setPassportModal] = useState<PassportData | null>(null);
   const [passportSaving, setPassportSaving] = useState(false);
   const [confirmedFields, setConfirmedFields] = useState<Set<keyof PassportData>>(new Set());
+  // The live passport row (lib/liveRowDiff createLiveRowTracker): the poll's
+  // snapshot, her local edits (field or checkbox) and her draft saves. The poll
+  // below asks it whether a read may predate her own typing / ticks before it
+  // patches the modal, so an older draft never lands over newer input and a box
+  // she unticked is never re-ticked by an echo (LAW #38).
+  const [passportLive] = useState(() => createLiveRowTracker());
 
   /**
    * Re-open the passport-data modal AFTER first confirmation, populated from
@@ -750,7 +761,8 @@ export default function DashboardPage() {
    */
   const reopenPassportData = useCallback(async () => {
     if (!userId) return;
-    const { data } = await getMyProfile(
+    const readAt = passportLive.readStart();
+    const { data, error } = await getMyProfile(
       "first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_confirmed_fields",
       { userId },
     );
@@ -773,17 +785,20 @@ export default function DashboardPage() {
       ? (p.passport_confirmed_fields as unknown[]).filter((x): x is keyof PassportData => typeof x === "string")
       : [];
     setConfirmedFields(new Set(savedConfirmed));
+    // What the modal now shows is the live poll's baseline for these columns,
+    // so a change landing between this read and the next poll is still applied.
+    if (!error) {
+      const seedRow = (data ?? {}) as Record<string, unknown>;
+      passportLive.seed(userId, Object.fromEntries(
+        [...Object.keys(blank), "passport_confirmed_fields"].map(k => [k, seedRow[k] ?? null]),
+      ), readAt);
+    }
   }, [userId, lang]);
 
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
   const addressHintShown = useRef(false);
   const postalHintShown = useRef(false);
   const authorityHintShown = useRef(false);
-  // Timestamp of the last LOCAL passport edit (field or checkbox). The
-  // realtime sync ignores incoming updates within a short window after it,
-  // so an in-flight echo of the previous state never reverts the user's
-  // own check/uncheck or keystroke.
-  const lastLocalPassportEdit = useRef(0);
 
   // Autosave indicator for passport modal
   const [passportSavedAt, setPassportSavedAt]   = useState<Date | null>(null);
@@ -795,11 +810,13 @@ export default function DashboardPage() {
   // (phone) without depending on the debounced editor save.
   const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] = []) => {
     if (!token) return;
-    fetch("/api/portal/passport", {
+    // Every passport write goes through passportLive.trackSave: while one is
+    // out, the live poll won't patch the modal from a read that may predate it.
+    passportLive.trackSave(fetch("/api/portal/passport", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ ...data, confirmed_fields: confirmed, __draft: true }),
-    })
+    }))
       .then(r => { if (r.ok) { setPassportSavedAt(new Date()); setPassportSaveError(false); } else setPassportSaveError(true); })
       .catch(() => setPassportSaveError(true));
   }, []);
@@ -834,11 +851,11 @@ export default function DashboardPage() {
       if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
       const snapshot = passportModal;
       passportDraftTimer.current = setTimeout(() => {
-        fetch("/api/portal/passport", {
+        passportLive.trackSave(fetch("/api/portal/passport", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
           body: JSON.stringify({ ...snapshot, confirmed_fields: confArr, __draft: true }),
-        })
+        }))
           .then(r => {
             if (r.ok) { setPassportSavedAt(new Date()); setPassportSaveError(false); }
             else setPassportSaveError(true);
@@ -862,12 +879,18 @@ export default function DashboardPage() {
       const snap = lastPassportSnapshotRef.current;
       if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
       if (snap && authToken) {
-        fetch("/api/portal/passport", {
+        // Sent ONCE. This branch re-runs whenever a dep changes while the modal
+        // is closed — the ~55 min token refresh, or a confirmation tick from her
+        // other device arriving through the live poll — and re-sending the
+        // remembered snapshot then POSTed an OLD draft over the newer one,
+        // un-ticking a box the other device had just ticked (LAW #38).
+        lastPassportSnapshotRef.current = null;
+        passportLive.trackSave(fetch("/api/portal/passport", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ ...snap.data, confirmed_fields: snap.confirmed, __draft: true }),
           keepalive: true,
-        }).catch(() => { /* best-effort: the local cache below is the fallback */ });
+        })).catch(() => { /* best-effort: the local cache below is the fallback */ });
       }
       localStorage.removeItem(key);
       localStorage.removeItem(confKey);
@@ -944,155 +967,143 @@ export default function DashboardPage() {
   }, [pipeline, upgradeOpen, upgradeTargetStage]);
 
 
-  // Realtime: LIVE documents — the instant an admin/sub-admin approves,
-  // rejects, requests, or uploads-on-behalf (or the candidate uploads on
-  // another device), the doc grid reflects it with NO refresh. keepPhase so
-  // the live update never yanks the phase nav out from under the candidate.
-  useEffect(() => {
-    if (!userId) return;
-    const ch = supabase
-      .channel(`docs-live-${userId}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${userId}` },
-        () => { loadDocs(userId, true); },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
-
-  // Realtime: keep pipeline unlock flags in sync when admin changes them.
-  // INSERT as well as UPDATE: PATCH /api/portal/pipeline inserts the row when
-  // none exists yet, so a candidate's FIRST unlock arrives as an INSERT.
-  useEffect(() => {
-    if (!userId) return;
-    const merge = (payload: { new: Partial<Pipeline> }) => {
-      const row = payload.new;
-      setPipeline(prev => prev ? { ...prev, ...row } : (row as Pipeline));
-    };
-    const ch = supabase
-      .channel(`pipeline-unlock-${userId}`)
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        merge,
-      )
-      .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        merge,
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId]);
-
-  // Backstop for the documents + pipeline channels above. Realtime has no
-  // replay, so a change made while the socket was down (backgrounded phone
-  // tab, network blip) is lost until reload. Refetch both when the tab comes
-  // back. Throttled: focus and visibilitychange usually fire together.
-  useEffect(() => {
-    if (!authToken || !userId) return;
-    let last = 0;
-    const refresh = () => {
-      const now = Date.now();
-      if (now - last < 5_000) return;
-      last = now;
-      loadDocs(userId, true);
-      fetch("/api/portal/pipeline/me", { headers: { Authorization: `Bearer ${authToken}` } })
+  // LIVE documents + pipeline unlock flags. An admin/sub-admin approves,
+  // rejects, requests, uploads-on-behalf or unlocks a stage (or the candidate
+  // uploads on another device) and the dashboard reflects it with NO refresh:
+  // within one 30s tick while the tab is visible, and at once when she comes
+  // back to the tab (Realtime never replayed what it missed while a phone was
+  // locked; this does). These were Realtime postgres_changes channels on
+  // documents + candidate_pipeline plus a focus backstop. Realtime goes silent
+  // once the rows live in D1, so the poll is the mechanism now.
+  // keepPhase so the live update never yanks the phase nav out from under the
+  // candidate. immediate:false — the bootstrap Promise.allSettled already
+  // loaded both, and a second copy on mount would just double the requests.
+  usePolling(async (signal) => {
+    if (!userId || !authToken) return true;
+    const [, pipelineOk] = await Promise.all([
+      loadDocs(userId, true, signal),
+      fetch("/api/portal/pipeline/me", { headers: { Authorization: `Bearer ${authToken}` }, signal })
         .then(r => r.ok ? r.json() : null)
-        // Only a successful read replaces state; a failed one keeps what's on screen.
-        .then(j => { if (j && "pipeline" in j) setPipeline(j.pipeline ?? null); })
-        .catch(() => {});
-    };
-    const onFocus = () => refresh();
-    const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+        .then((j: { pipeline?: Pipeline | null } | null) => {
+          // Only a successful read replaces state; a failed one keeps what's on screen.
+          if (!j || !("pipeline" in j)) return false;
+          const next = j.pipeline ?? null;
+          // Same content → keep identity, so the plan-gate / upgrade effects
+          // keyed on `pipeline` don't re-run every tick.
+          if (!signal.aborted) setPipeline(prev => sameJson(prev, next) ? prev : next);
+          return true;
+        })
+        .catch(() => false),
+    ]);
+    return docsLoadOkRef.current && pipelineOk;
+    // 30s, not 15: before this there was NO timed request here (Realtime pushed),
+    // so every visible candidate tab now adds docs + pipeline reads on top of the
+    // bell and chat. A document verdict isn't seconds-critical, and coming back to
+    // the tab refetches at once — the moment she actually looks.
+  }, { intervalMs: 30_000, enabled: !!userId && !!authToken, immediate: false, resetKey: userId });
 
-  // Realtime: LIVE two-way passport-data sync. Edit on one device → the DB
-  // draft-save fires → this fires on the other device → the open passport
-  // modal updates instantly. Same canonical channel pattern as pipeline.
-  useEffect(() => {
-    if (!userId) return;
-    const PP_KEYS: (keyof PassportData)[] = [
-      "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
-      "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
-      "address_number","address_postal","city_of_residence","country_of_residence",
-      "marital_status","children_ages",
-    ];
-    const ch = supabase
-      .channel(`passport-data-${userId}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = (payload.new ?? {}) as Record<string, unknown> & { passport_status?: string | null };
-          // passport_status is admin-driven — always honor it.
-          if (typeof row.passport_status === "string" || row.passport_status === null) {
-            setPassportStatus(row.passport_status ?? null);
-          }
-          // ── Merged in from the old `profile-status-${userId}` channel ──────
-          // That was a SECOND postgres_changes subscription on this same table
-          // with this same filter, so every profile update woke two websockets
-          // and two handlers raced to set passport_status. One channel now
-          // carries both jobs.
-          //
-          // These live ABOVE the local-edit guard below on purpose: the guard
-          // exists to stop an in-flight echo reverting a checkbox the candidate
-          // just toggled, and it must not also swallow an admin flipping her to
-          // verified or a payment landing. That ordering is the whole reason the
-          // first attempt at this merge was reverted.
-          const meta = row as {
-            manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null;
-          };
-          if (meta.payment_tier !== undefined) {
-            setPaymentTier(meta.payment_tier ?? null);
-            window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: meta.payment_tier ?? null } }));
-          }
-          if (meta.profile_photo !== undefined) {
-            window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
-          }
-          if (meta.manually_verified !== undefined) setManuallyVerified(!!meta.manually_verified);
-          if (meta.manually_verified === true) {
-            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
-            try {
-              if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
-            } catch { /* private mode */ }
-          }
-          // Guard: if the user just edited locally (typed / toggled a box),
-          // skip the field + checkbox patch for a short window so an
-          // in-flight echo of the PREVIOUS state can't revert their change
-          // (the fix for "uncheck bounces back to green").
-          if (Date.now() - lastLocalPassportEdit.current < 3000) return;
-          // Only patch the editor when it's open — and only the fields that
-          // actually changed, so the device currently typing isn't disrupted.
-          setPassportModal(prev => {
-            if (!prev) return prev;
-            let changed = false;
-            const next = { ...prev };
-            for (const k of PP_KEYS) {
-              const v = row[k];
-              if (typeof v === "string" && v !== prev[k]) { next[k] = v; changed = true; }
-            }
-            if (!changed) return prev;
-            return { ...next, sex: normalizeSex(next.sex, lang) };
-          });
-          // Live-sync the confirmation checkboxes too.
-          if (Array.isArray(row.passport_confirmed_fields)) {
-            const incoming = (row.passport_confirmed_fields as unknown[])
-              .filter((x): x is keyof PassportData => typeof x === "string");
-            setConfirmedFields(prev => {
-              if (prev.size === incoming.length && incoming.every(k => prev.has(k))) return prev;
-              return new Set(incoming);
-            });
-          }
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId, lang]);
+  // LIVE two-way passport-data sync + the admin-driven account flags. Edit on
+  // one device → the draft-save lands → the other device's open passport modal
+  // updates; an admin flips passport_status / verified, a payment lands, the
+  // photo changes → this device reflects it. This was a Realtime
+  // postgres_changes channel on candidate_profiles. Realtime goes silent once
+  // profiles live in D1, so we poll /api/portal/me/profile (own row only): 5s
+  // while the passport modal is open, 30s otherwise (the admin-driven flags
+  // aren't seconds-critical and tab return refetches at once); visible tab
+  // only, backoff on errors.
+  //
+  // A poll returns the SAME row every tick, but this handler must act only on
+  // CHANGES — it dispatches window events, can open the verified celebration,
+  // and patches fields the candidate may be typing but hasn't saved. So every
+  // tick is diffed against a snapshot (passportLive, lib/liveRowDiff) and only
+  // the moved columns are applied. The snapshot is SEEDED with what the page
+  // itself loaded (the bootstrap's flags, reopenPassportData's fields), so a
+  // change landing between that load and the first poll is still applied; a
+  // column the page never loaded takes the first poll read as its baseline.
+  const PP_KEYS: (keyof PassportData)[] = [
+    "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
+    "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
+    "address_number","address_postal","city_of_residence","country_of_residence",
+    "marital_status","children_ages",
+  ];
+  const LIVE_META_COLS = ["passport_status", "payment_tier", "profile_photo", "manually_verified"];
+  const LIVE_PASSPORT_COLS: string[] = [...PP_KEYS, "passport_confirmed_fields"];
+  usePolling(async (signal) => {
+    if (!userId) return true;
+    // Taken BEFORE the await: whether this read may predate her own writes is
+    // a question about when it was SENT, not when a slow Worker answered it.
+    const readAt = passportLive.readStart();
+    const { data, error } = await getMyProfile([...LIVE_META_COLS, ...LIVE_PASSPORT_COLS].join(","), { userId, signal });
+    if (signal.aborted) return true;
+    if (error) return false;
+    const row = (data ?? {}) as Record<string, unknown>;
+    // Admin-driven columns apply at once. Her editable fields + ticks are held
+    // back while this read may predate her own input — she edited within 3s
+    // before it was sent, a draft save of hers is still out, or one landed
+    // after it was sent — the fix for "uncheck bounces back to green" and for
+    // an older draft landing over what she typed. Held-back columns aren't
+    // advanced, so a genuine change from her other device lands on the next
+    // quiet tick instead of being lost. null = the read started before the
+    // page's own load of these columns: older than the screen, skip it.
+    const step = passportLive.step(userId, row, readAt, { always: LIVE_META_COLS, deferrable: LIVE_PASSPORT_COLS });
+    if (!step || step.apply.size === 0) return true;
+    const changed = step.apply;
+
+    // passport_status is admin-driven — always honor it.
+    if (changed.has("passport_status")) setPassportStatus((row.passport_status as string | null | undefined) ?? null);
+    // ── Merged in from the old `profile-status-${userId}` channel ──────
+    // These are `always` columns, outside the local-edit guard on purpose: the
+    // guard exists to stop an in-flight echo reverting a checkbox the candidate
+    // just toggled, and it must not also swallow an admin flipping her to
+    // verified or a payment landing. That separation is the whole reason the
+    // first attempt at this merge was reverted.
+    const meta = row as {
+      manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null;
+    };
+    if (changed.has("payment_tier")) {
+      setPaymentTier(meta.payment_tier ?? null);
+      window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: meta.payment_tier ?? null } }));
+    }
+    if (changed.has("profile_photo")) {
+      window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
+    }
+    if (changed.has("manually_verified")) {
+      setManuallyVerified(!!meta.manually_verified);
+      if (meta.manually_verified === true) {
+        window.dispatchEvent(new CustomEvent("bv-verified-changed"));
+        try {
+          if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
+        } catch { /* private mode */ }
+      }
+    }
+    // Only patch the editor when it's open — and only the fields that
+    // actually changed, so the device currently typing isn't disrupted.
+    const movedFields = PP_KEYS.filter(k => changed.has(k));
+    if (movedFields.length) {
+      setPassportModal(p => {
+        if (!p) return p;
+        let any = false;
+        const next = { ...p };
+        for (const k of movedFields) {
+          const v = row[k];
+          if (typeof v === "string" && v !== p[k]) { next[k] = v; any = true; }
+        }
+        if (!any) return p;
+        return { ...next, sex: normalizeSex(next.sex, lang) };
+      });
+    }
+    // Live-sync the confirmation checkboxes too. This mirrors a HUMAN click made
+    // on another device — it never derives a tick from data (LAW #38).
+    if (changed.has("passport_confirmed_fields") && Array.isArray(row.passport_confirmed_fields)) {
+      const incoming = (row.passport_confirmed_fields as unknown[])
+        .filter((x): x is keyof PassportData => typeof x === "string");
+      setConfirmedFields(cur => {
+        if (cur.size === incoming.length && incoming.every(k => cur.has(k))) return cur;
+        return new Set(incoming);
+      });
+    }
+    return true;
+  }, { intervalMs: passportModal ? 5_000 : 30_000, enabled: !!userId, resetKey: userId });
 
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
@@ -1413,11 +1424,23 @@ export default function DashboardPage() {
         // a) Profile (passport / payment tier / verified flag)
         (async () => {
           try {
+            const readAt = passportLive.readStart();
             const { data } = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
             if (cancelled) return;
             setPassportStatus(data?.passport_status ?? null);
             setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
             setManuallyVerified(!!data?.manually_verified);
+            // What this read just put on screen is the live poll's baseline.
+            // Without it the poll's FIRST read was the baseline, so an admin
+            // verifying her (or a payment landing) between this read and that
+            // one never showed until the next change or a reload. Seeded even
+            // when the read failed: the screen then shows "nothing", and the
+            // first good poll applies the real values.
+            passportLive.seed(user.id, {
+              passport_status: data?.passport_status ?? null,
+              manually_verified: data?.manually_verified ?? null,
+              payment_tier: (data as { payment_tier?: string | null } | null)?.payment_tier ?? null,
+            }, readAt);
             if (data?.manually_verified) {
               window.dispatchEvent(new CustomEvent("bv-verified-changed"));
               try {
@@ -1538,7 +1561,9 @@ export default function DashboardPage() {
     } catch { /* ignore — slots stay empty; guard stays false so next load retries */ }
   }
 
-  async function loadDocs(uid: string, keepPhase = false) {
+  // `signal`: only the live poll passes one. A read it let go of (timed out,
+  // unmounted) must neither blank nor replace what's on screen.
+  async function loadDocs(uid: string, keepPhase = false, signal?: AbortSignal) {
     let fetched: Doc[] = [];
     try {
       // Hide ARCHIVED docs (superseded_at set, LAW #33). Try the column; if it isn't
@@ -1556,10 +1581,12 @@ export default function DashboardPage() {
       // runs the same three-step column fallback and reports whether
       // superseded_at existed. It always reads the CALLER's own documents,
       // which is what this RLS-guarded query could only ever return anyway.
-      const res = await getMyDocuments<Row>();
+      const res = await getMyDocuments<Row>({ signal });
+      if (signal?.aborted) return docsRef.current;
       const hadSuperseded = res.hadSuperseded;
       if (res.error) {
         console.error("loadDocs error:", res.error, uid);
+        docsLoadOkRef.current = false;
         // A FAILED read is not an empty document list. Returning [] here made a
         // single mobile-network blip blank every box back to "not submitted" —
         // her work looked erased, and the upload self-heal read the same empty
@@ -1567,6 +1594,7 @@ export default function DashboardPage() {
         // already on screen instead.
         return docsRef.current;
       }
+      docsLoadOkRef.current = true;
       const rows = (res.data ?? []) as unknown as Row[];
       data = hadSuperseded ? rows.filter((d) => !d.superseded_at) : rows;
       // Deduplicate: only keep the latest doc per file slot (fileKey).
@@ -1581,8 +1609,12 @@ export default function DashboardPage() {
         seenKeys.add(fk);
         return true;
       });
-      setDocs(fetched);
+      // The live poll calls this every 15s. Same rows → keep the array
+      // identity, so the four effects keyed on `docs` (preview remap, drop
+      // handler, …) don't re-run on every tick for nothing.
+      setDocs(prev => sameJson(prev, fetched) ? prev : fetched);
     } catch (err) {
+      docsLoadOkRef.current = false;
       console.error("loadDocs exception:", err);
     }
     // Return the freshly-fetched list so callers (e.g. the upload self-heal)
@@ -4353,12 +4385,12 @@ export default function DashboardPage() {
                                   const y = parseInt(isoCur.slice(0, 4), 10) + (e.deltaY < 0 ? 1 : -1);
                                   if (y < 1900 || y > 2100) return;
                                   const iso = `${y}-${isoCur.slice(5, 7)}-${isoCur.slice(8, 10)}`;
-                                  lastLocalPassportEdit.current = Date.now();
+                                  passportLive.markLocalEdit();
                                   setPassportModal(p => p ? { ...p, [f.key]: toGerDate(iso) } : p);
                                   setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                                 }}
                                 onChange={e => {
-                                  lastLocalPassportEdit.current = Date.now();
+                                  passportLive.markLocalEdit();
                                   const ger = toGerDate(e.target.value);
                                   setPassportModal(p => p ? { ...p, [f.key]: ger } : p);
                                   setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
@@ -4371,7 +4403,7 @@ export default function DashboardPage() {
                           ) : f.type === "select" ? (
                             <select value={passportModal[f.key]}
                               onChange={e => {
-                                lastLocalPassportEdit.current = Date.now();
+                                passportLive.markLocalEdit();
                                 setPassportModal(p => p ? { ...p, [f.key]: e.target.value } : p);
                                 setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                               }}
@@ -4386,7 +4418,7 @@ export default function DashboardPage() {
                                 if (f.numericOnly) val = val.replace(/\D/g, "");
                                 if (f.wordsOnly)   val = val.replace(/[^A-Za-zÀ-ÿ\s'-]/g, "");
                                 if (f.uppercase)   val = val.toUpperCase();
-                                lastLocalPassportEdit.current = Date.now();
+                                passportLive.markLocalEdit();
                                 setPassportModal(p => p ? { ...p, [f.key]: val } : p);
                                 setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                               }}
@@ -4422,7 +4454,7 @@ export default function DashboardPage() {
                                 setPassportHint(f.key as keyof PassportData);
                                 return; // don't confirm yet — user sees popup first
                               }
-                              lastLocalPassportEdit.current = Date.now();
+                              passportLive.markLocalEdit();
                               setConfirmedFields(prev => {
                                 const next = new Set(prev);
                                 if (next.has(f.key)) next.delete(f.key); else next.add(f.key);
@@ -4562,11 +4594,11 @@ export default function DashboardPage() {
                     onClick={async () => {
                       setPassportSaving(true);
                       try {
-                        const res = await fetch("/api/portal/passport", {
+                        const res = await passportLive.trackSave(fetch("/api/portal/passport", {
                           method: "POST",
                           headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
                           body: JSON.stringify({ ...passportModal, confirmed_fields: Array.from(confirmedFields) }),
-                        });
+                        }));
                         if (!res.ok) {
                           const err = await res.json().catch(() => ({}));
                           setPassportSaving(false);
