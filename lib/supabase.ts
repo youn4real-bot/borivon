@@ -33,12 +33,23 @@ export const supabase = createClient(url, anon);
 // part of the adapter, and no server-only import it pulls in, can reach the
 // browser bundle. getAnonVerifyClient / getAuthSchemaClient below never take
 // this fetch: logins stay on Supabase.
+//
+// Why a `typeof window` ternary and not only the runtime check in servicePlan():
+// Next's compiler folds `typeof window` to a constant ("object" in client
+// bundles) before webpack looks for imports, so in the browser build this is
+// `null` and the import() is never seen — the adapter, the write journal and
+// d1/types.json (every table and column name) get no public static chunk. A
+// runtime-only guard still made webpack emit that chunk: 146 KB that no browser
+// requested but anyone holding its URL could download.
+const loadServiceFetch = typeof window === "undefined" ? () => import("@/lib/d1/serviceFetch") : null;
+
 let _serviceFetch: Promise<typeof fetch> | null = null;
 function serviceFetch(): typeof fetch | undefined {
   const plan = servicePlan();
-  if (!plan) return undefined;
+  if (!plan || !loadServiceFetch) return undefined;
+  const load = loadServiceFetch;
   return ((input: RequestInfo | URL, init?: RequestInit) => {
-    _serviceFetch ??= import("@/lib/d1/serviceFetch")
+    _serviceFetch ??= load()
       .then((m) => m.buildServiceFetch(plan, { base: fetch }))
       .catch((err) => adapterUnavailable(plan, err));
     return _serviceFetch.then((f) => f(input as RequestInfo, init));

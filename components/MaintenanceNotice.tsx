@@ -2,61 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { useLang } from "@/components/LangContext";
-import { MAINTENANCE_MESSAGES, isMaintenanceBody, type MaintenanceLang } from "@/lib/maintenance";
+import { MAINTENANCE_EVENT, MAINTENANCE_MESSAGES, type MaintenanceLang } from "@/lib/maintenance";
 
 /**
  * The portal's answer to the WRITE FREEZE (lib/maintenance.ts).
  *
  * While MAINTENANCE_WRITES is on, every save answers 503. Each save path has its
- * own error handling — the upload retries twice then shows "upload failed", the
- * chat composer shows `json.error`, others show a generic failure — and none of
- * them can tell a planned ten-minute pause from a broken portal. A nurse who
- * sees "upload failed" three times assumes her document is lost and gives up.
+ * own error handling — the upload retries twice then shows "upload failed",
+ * others show a generic failure — and none of them can tell a planned
+ * ten-minute pause from a broken portal. A nurse who sees "upload failed" three
+ * times assumes her document is lost and gives up.
  *
- * So this watches responses GLOBALLY (fetch and XMLHttpRequest — the document
- * upload uses XHR for its progress bar) and, when one is the freeze's 503, shows
- * one calm line in the portal's language: saving is paused, your data is safe,
- * try again shortly. It changes no response and no call site: with the flag off
- * no such 503 exists, so this never renders.
+ * So the save paths call reportIfMaintenance() on a failed answer, and this
+ * shows one calm line in the portal's language: saving is paused, your data is
+ * safe, try again shortly. It only LISTENS for that event. It patches nothing
+ * global (no window.fetch, no XMLHttpRequest): with the flag off it renders
+ * nothing and changes nothing on any page.
  */
 
-const EVENT = "bv:maintenance";
 /** How long the notice stays after the LAST refused save. */
 const VISIBLE_MS = 60_000;
-
-type Patched = Window & { __bvMaintenanceObserver?: boolean };
-
-function announce(): void {
-  window.dispatchEvent(new CustomEvent(EVENT));
-}
-
-/** Install once per page: wrap fetch + XHR, inspect only 503s, never alter them. */
-function installObserver(): void {
-  const w = window as Patched;
-  if (w.__bvMaintenanceObserver) return;
-  w.__bvMaintenanceObserver = true;
-
-  const originalFetch = window.fetch;
-  window.fetch = async function observedFetch(...args: Parameters<typeof fetch>) {
-    const res = await originalFetch.apply(window, args);
-    if (res.status === 503) {
-      // A clone, read in the background: the caller's body stays unread.
-      res.clone().json().then((j) => { if (isMaintenanceBody(j)) announce(); }).catch(() => {});
-    }
-    return res;
-  } as typeof fetch;
-
-  const originalSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function observedSend(this: XMLHttpRequest, ...args: Parameters<XMLHttpRequest["send"]>) {
-    this.addEventListener("loadend", () => {
-      if (this.status !== 503) return;
-      // responseText throws for blob/arraybuffer response types.
-      if (this.responseType !== "" && this.responseType !== "text") return;
-      try { if (isMaintenanceBody(JSON.parse(this.responseText))) announce(); } catch { /* not ours */ }
-    });
-    return originalSend.apply(this, args);
-  };
-}
 
 export function MaintenanceNotice() {
   const { lang } = useLang();
@@ -64,10 +29,9 @@ export function MaintenanceNotice() {
   const [, tick] = useState(0);
 
   useEffect(() => {
-    installObserver();
     const onHit = () => setUntil(Date.now() + VISIBLE_MS);
-    window.addEventListener(EVENT, onHit);
-    return () => window.removeEventListener(EVENT, onHit);
+    window.addEventListener(MAINTENANCE_EVENT, onHit);
+    return () => window.removeEventListener(MAINTENANCE_EVENT, onHit);
   }, []);
 
   useEffect(() => {

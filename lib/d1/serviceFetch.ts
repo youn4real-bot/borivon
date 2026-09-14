@@ -19,7 +19,7 @@
 import { makeBvFetch, isPostgrestUrl } from "@/lib/d1/bvFetch";
 import { withShadowReads } from "@/lib/d1/shadow";
 import { withWriteJournal, EPHEMERAL_RPCS, type JournalOptions } from "@/lib/d1/writeJournal";
-import { isMutatingMethod } from "@/lib/maintenance";
+import { isMutatingMethod, FROZEN_WRITE_CODE } from "@/lib/maintenance";
 import type { ServicePlan } from "@/lib/dataBackend";
 import type { D1Runner } from "@/lib/d1/client";
 
@@ -97,7 +97,7 @@ export function frozenResponse(url: string): Response {
   const storage = /\/storage\/v1\//.test(url);
   const body = storage
     ? { statusCode: "503", error: "Service Unavailable", message: "writes are paused for maintenance (MAINTENANCE_WRITES)" }
-    : { code: "25006", details: null, hint: "MAINTENANCE_WRITES is on", message: "cannot execute write: writes are paused for maintenance" };
+    : { code: FROZEN_WRITE_CODE, details: null, hint: "MAINTENANCE_WRITES is on", message: "cannot execute write: writes are paused for maintenance" };
   return new Response(JSON.stringify(body), {
     status: 503,
     statusText: "Service Unavailable",

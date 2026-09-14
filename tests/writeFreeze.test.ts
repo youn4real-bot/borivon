@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { middleware } from "@/middleware";
 import {
   freezeDecision, maintenanceResponse, pickLang, writesFrozen, isMaintenanceBody,
-  MAINTENANCE_MESSAGES, MAINTENANCE_RETRY_AFTER_SEC,
+  MAINTENANCE_MESSAGES, MAINTENANCE_RETRY_AFTER_SEC, MAINTENANCE_EVENT, reportIfMaintenance, isFreezeTolerantPath,
 } from "@/lib/maintenance";
 import { isFrozenWrite, withWriteFreeze, buildServiceFetch } from "@/lib/d1/serviceFetch";
 
@@ -195,6 +195,55 @@ describe("the second layer: the service client refuses data writes", () => {
     const read = await db.from("documents").select("id");
     expect(read.error).toBeNull();
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("leads during the freeze", () => {
+  it("lets the homepage funnel's POST reach its route — the service client still refuses the write", () => {
+    expect(freezeDecision("POST", "/api/leads")).toBe("pass");
+    expect(isFreezeTolerantPath("/api/leads")).toBe(true);
+    // Only that exact route: a booking (calendar event + reminders) cannot be half-done.
+    for (const p of ["/api/book", "/api/leads/export", "/api/leadsx"]) expect(freezeDecision("POST", p), p).toBe("block");
+    expect(isFrozenWrite("POST", "https://p.supabase.co/rest/v1/leads")).toBe(true);
+  });
+});
+
+describe("the portal's notice (no global patch)", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("reportIfMaintenance recognises only the freeze's own 503, from text or parsed JSON, and raises the event", () => {
+    const target = new EventTarget();
+    let hits = 0;
+    target.addEventListener(MAINTENANCE_EVENT, () => { hits++; });
+    vi.stubGlobal("window", target);
+    const body = { error: MAINTENANCE_MESSAGES.fr, code: "maintenance", retryAfter: MAINTENANCE_RETRY_AFTER_SEC };
+    expect(reportIfMaintenance(503, JSON.stringify(body))).toBe(true);
+    expect(reportIfMaintenance(503, body)).toBe(true);
+    expect(hits).toBe(2);
+    expect(reportIfMaintenance(500, body)).toBe(false);                            // a real failure keeps its own handling
+    expect(reportIfMaintenance(503, { error: "Cloudflare" })).toBe(false);        // an outage is not the freeze
+    expect(reportIfMaintenance(503, "<html>503</html>")).toBe(false);
+    expect(reportIfMaintenance(503, null)).toBe(false);
+    expect(hits).toBe(2);
+  });
+
+  it("never throws without a window (server render, tests)", () => {
+    expect(reportIfMaintenance(503, { code: "maintenance" })).toBe(true);
+  });
+
+  it("MaintenanceNotice only listens: no window.fetch or XMLHttpRequest patch ships to live pages", () => {
+    const src = fs.readFileSync("components/MaintenanceNotice.tsx", "utf8").split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*\*)/.test(l)).join("\n");
+    expect(src).not.toMatch(/window\.fetch\s*=/);
+    expect(src).not.toMatch(/XMLHttpRequest\.prototype/);
+    expect(src).toContain("addEventListener(MAINTENANCE_EVENT");
+  });
+
+  it("the document upload paths report the freeze instead of retrying into it", () => {
+    const dashboard = fs.readFileSync("app/portal/dashboard/page.tsx", "utf8");
+    const at = dashboard.indexOf("if (reportIfMaintenance(st, xhr.responseText))");
+    expect(at).toBeGreaterThan(-1);
+    expect(dashboard.indexOf('void failSettle("errUpload", st === 0', at)).toBeGreaterThan(at);
+    expect(fs.readFileSync("app/portal/admin/page.tsx", "utf8")).toContain("reportIfMaintenance(res.status, body)");
   });
 });
 

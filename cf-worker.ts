@@ -10,6 +10,7 @@
 // external HTTP), authenticated with CRON_SECRET exactly like Vercel's cron calls.
 // Supported pattern: https://opennext.js.org/cloudflare/howtos/custom-worker
 import { default as handler } from "./.open-next/worker.js";
+import { telegramSilencedWorker } from "./lib/cronSilence";
 
 // Re-export the Durable Objects the generated worker defines, or their bindings break.
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-next/worker.js";
@@ -66,28 +67,8 @@ const CRON_ROUTES = {
  * Message is minimalist by the founder's standing rule: the facts, nothing else.
  * Never throws — the alerter must never be the thing that breaks the cron.
  */
-/**
- * Read app_settings.telegram_silenced over Supabase REST, from inside the raw
- * Worker (no Next, no supabase-js client). Fails CLOSED — any trouble reading
- * it returns true (silent), because the founder asked for silence and a missed
- * cron alert costs less than an unwanted message.
- */
-async function telegramSilencedWorker(env) {
-  const url = env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return true;
-  try {
-    const r = await fetch(
-      `${url}/rest/v1/app_settings?key=eq.telegram_silenced&select=value`,
-      { headers: { apikey: key, authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(3000) },
-    );
-    if (!r.ok) return true;
-    const rows = await r.json();
-    return rows?.[0]?.value === "on";
-  } catch {
-    return true;
-  }
-}
+// telegramSilencedWorker(env) — app_settings.telegram_silenced, read from D1 when
+// DATA_BACKEND="d1" and from Supabase otherwise, failing closed: lib/cronSilence.ts.
 
 async function alertCronFailure(env, cron, path, detail) {
   const token = env.TELEGRAM_BOT_TOKEN;

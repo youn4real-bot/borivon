@@ -39,6 +39,17 @@ export function writesFrozen(env: Record<string, string | undefined> = process.e
  */
 export const MAINTENANCE_RETRY_AFTER_SEC = 600;
 
+/**
+ * The code the service client's freeze answers a refused database write with
+ * (lib/d1/serviceFetch.ts): Postgres' own "read-only transaction". A route that
+ * must not lose what it was saving (app/api/leads) checks for exactly this.
+ */
+export const FROZEN_WRITE_CODE = "25006";
+
+export function isWriteFrozenError(err: { code?: string | null } | null | undefined): boolean {
+  return err?.code === FROZEN_WRITE_CODE;
+}
+
 /** The code the client keys off. Never shown to a person. */
 export const MAINTENANCE_CODE = "maintenance";
 
@@ -68,6 +79,21 @@ export function isCronPath(pathname: string): boolean {
   return pathname === "/api/cron" || pathname.startsWith("/api/cron/");
 }
 
+/**
+ *   /api/leads      — the homepage funnel. A prospect shown "try again shortly"
+ *                     usually just leaves, and a lost lead is the one loss this
+ *                     codebase does not accept. So the route still runs: the
+ *                     service client refuses its database write (the second
+ *                     layer, so the copy stays exact), and the route hands the
+ *                     lead to the founder over Telegram instead
+ *                     (app/api/leads/route.ts). /api/book is NOT exempt: a
+ *                     booking also creates a calendar event and reminders that
+ *                     cannot be half-done — docs/cutover-runbook.md names it.
+ */
+export function isFreezeTolerantPath(pathname: string): boolean {
+  return pathname === "/api/leads";
+}
+
 export type FreezeDecision = "pass" | "block" | "skip-cron";
 
 /**
@@ -76,7 +102,7 @@ export type FreezeDecision = "pass" | "block" | "skip-cron";
  */
 export function freezeDecision(method: string, pathname: string): FreezeDecision {
   if (!(pathname === "/api" || pathname.startsWith("/api/"))) return "pass";
-  if (isHealthPath(pathname)) return "pass";
+  if (isHealthPath(pathname) || isFreezeTolerantPath(pathname)) return "pass";
   // Cron routes are GETs that WRITE (reminders, chases, briefings logging what
   // they sent). Skipping them whatever the method is the only way they do no
   // work during the copy.
@@ -143,4 +169,31 @@ export function cronSkipResponse(): Response {
 /** Does this parsed JSON body come from the freeze? (Client side.) */
 export function isMaintenanceBody(json: unknown): json is MaintenanceBody {
   return !!json && typeof json === "object" && (json as { code?: unknown }).code === MAINTENANCE_CODE;
+}
+
+/** The DOM event components/MaintenanceNotice.tsx listens for. */
+export const MAINTENANCE_EVENT = "bv:maintenance";
+
+/**
+ * Client side, at a save path: is this failed answer the freeze's 503? If so,
+ * show the portal's calm notice and return true, so the caller skips its own
+ * "failed" handling (the document upload would otherwise retry twice into the
+ * pause and end on "upload failed").
+ *
+ * Called explicitly where a save can hit the freeze — never by patching
+ * window.fetch: a global patch would ship to every visitor of every page while
+ * the flag is off, which is exactly what "off by default" rules out.
+ * `body` is the raw text (an XHR's responseText) or an already parsed body.
+ */
+export function reportIfMaintenance(status: number, body: unknown): boolean {
+  if (status !== 503) return false;
+  let json = body;
+  if (typeof body === "string") {
+    try { json = JSON.parse(body); } catch { return false; }
+  }
+  if (!isMaintenanceBody(json)) return false;
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new CustomEvent(MAINTENANCE_EVENT));
+  }
+  return true;
 }
