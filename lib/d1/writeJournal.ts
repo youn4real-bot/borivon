@@ -129,16 +129,76 @@ function isPlainRow(x: unknown): x is Row {
 }
 
 /**
- * Columns whose Postgres default the database would invent at insert time, and
- * how to invent the same kind of value here. Only the two defaults the schema
- * actually uses for identity and time; a column with any other default (a
- * constant, `'[]'`) does not differ between D1 and Supabase, so it needs nothing.
+ * A Postgres interval literal as a fixed number of milliseconds, or null when it
+ * has no fixed length. `'7 days'`, `'00:10:00'`, `'1 day 02:00:00'`, `'90 minutes'`.
+ * Months and years are refused (their length depends on the date), so a default
+ * using one is reported as unhandled rather than prefilled wrong. Supabase runs
+ * in UTC, so a day is always 24 hours there.
  */
-function generatorFor(col: ColumnMeta): (() => unknown) | null {
-  if (col.generated) return null;
-  if (col.default === "gen_random_uuid()" && col.pg === "uuid") return () => crypto.randomUUID();
-  if (col.default === "now()" && col.pg === "timestamptz") return () => new Date().toISOString();
-  return null;
+const UNIT_MS: Record<string, number> = {
+  millisecond: 1, second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000, week: 604_800_000,
+};
+export function intervalMs(literal: string): number | null {
+  const tokens = literal.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+  let total = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const clock = tokens[i].match(/^(-?)(\d+):(\d{2})(?::(\d{2}(?:\.\d+)?))?$/);
+    if (clock) {
+      const ms = (Number(clock[2]) * 3_600_000) + (Number(clock[3]) * 60_000) + (Number(clock[4] ?? 0) * 1_000);
+      total += clock[1] ? -ms : ms;
+      continue;
+    }
+    const n = Number(tokens[i]);
+    const unit = (tokens[i + 1] ?? "").replace(/s$/, "");
+    if (!Number.isFinite(n) || !(unit in UNIT_MS)) return null;
+    total += n * UNIT_MS[unit];
+    i++;
+  }
+  return total;
+}
+
+/** What the database would invent for a column's default, if anything. */
+export type DefaultKind =
+  | { kind: "uuid" }
+  | { kind: "time"; offsetMs: number }
+  | { kind: "constant" }
+  | { kind: "unhandled" };
+
+/**
+ * Columns whose Postgres default the database would invent at insert time, and
+ * how to invent the same value here. Replayed without it, Supabase computes the
+ * default AGAIN at replay time: an id that later journal entries no longer
+ * match, or — for `upload_links.expires_at = now() + 7 days` — a login-less
+ * upload link that expires later by the whole D1 window, and a link already
+ * expired on D1 that works again after a rollback.
+ *
+ * A literal default (`'pending'`, `0`, `'[]'`) is the same on both sides and
+ * needs nothing. Anything else that calls a function is "unhandled", and
+ * tests/writeJournal.test.ts fails on any such column in d1/types.json, so a
+ * new kind of default cannot slip past the journal on a schema refresh.
+ */
+export function defaultKind(col: ColumnMeta): DefaultKind {
+  // types.json carries the default as Postgres printed it; anything that is not
+  // a string there is a literal.
+  const d = typeof col.default === "string" ? col.default : null;
+  if (col.generated || d === null) return { kind: "constant" };
+  if (d === "gen_random_uuid()" && col.pg === "uuid") return { kind: "uuid" };
+  if (col.pg === "timestamptz") {
+    if (d === "now()") return { kind: "time", offsetMs: 0 };
+    const m = d.match(/^\(now\(\) \+ '([^']+)'::interval\)$/);
+    const ms = m ? intervalMs(m[1]) : null;
+    if (ms !== null) return { kind: "time", offsetMs: ms };
+  }
+  if (/[()]|::|\bcurrent_|\bnextval\b|\blocaltime/i.test(d)) return { kind: "unhandled" };
+  return { kind: "constant" };
+}
+
+type Generator = { kind: "uuid" } | { kind: "time"; offsetMs: number };
+
+function generatorFor(col: ColumnMeta): Generator | null {
+  const k = defaultKind(col);
+  return k.kind === "uuid" || k.kind === "time" ? k : null;
 }
 
 export type FillPlan = {
@@ -178,7 +238,7 @@ export function prepareWrite(
 
   const generators = Object.entries(meta.columns)
     .map(([name, col]) => [name, generatorFor(col)] as const)
-    .filter((g): g is readonly [string, () => unknown] => g[1] !== null);
+    .filter((g): g is readonly [string, Generator] => g[1] !== null);
   if (!generators.length) return unchanged;
 
   let parsed: unknown;
@@ -198,6 +258,8 @@ export function prepareWrite(
 
   // Same instant for every row, exactly like Postgres' now() inside one statement.
   const nowValue = (gen.now ?? (() => new Date().toISOString()))();
+  // `now() + interval` is offset from that same instant, as in Postgres.
+  const timeValue = (offsetMs: number) => (offsetMs === 0 ? nowValue : new Date(Date.parse(nowValue) + offsetMs).toISOString());
   let changed = false;
   const added: string[] = [];
 
@@ -214,7 +276,7 @@ export function prepareWrite(
     if (columns && inColumns && !missingDefault) continue;
     for (const row of rows) {
       if (Object.prototype.hasOwnProperty.call(row, name)) continue;
-      row[name] = meta.columns[name].pg === "uuid" ? (gen.uuid ?? (() => crypto.randomUUID()))() : nowValue;
+      row[name] = make.kind === "uuid" ? (gen.uuid ?? (() => crypto.randomUUID()))() : timeValue(make.offsetMs);
       changed = true;
     }
     if (columns && !inColumns && rows.some((r) => Object.prototype.hasOwnProperty.call(r, name))) added.push(name);

@@ -107,6 +107,46 @@ describe.skipIf(!hasSqlite)("buildServiceFetch: which backend each request reach
   });
 });
 
+describe.skipIf(!hasSqlite)("auth-only RPCs stay on Supabase (logins are not part of the move)", () => {
+  it("on d1: admin_force_logout reaches Supabase, unjournaled; every other RPC reaches D1", async () => {
+    const net = network();
+    const sql: string[] = [];
+    const db = openDb({ schema: true });
+    const runner = sqliteRunner(db, (s) => sql.push(s));
+    const scheduled: Promise<void>[] = [];
+    const f = buildServiceFetch({ backend: "d1", shadow: false, freeze: false }, {
+      base: net.f, runner, journal: { schedule: (w) => { scheduled.push(w()); }, log: () => {} },
+    });
+    const post = (name: string, body: unknown) =>
+      f(`${SB}/rest/v1/rpc/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    const logout = await post("admin_force_logout", { target_user: "11111111-1111-4111-8111-111111111111" });
+    expect(logout.status).toBe(200);
+    expect(net.calls).toEqual(["POST /rest/v1/rpc/admin_force_logout"]);
+    expect(sql).toEqual([]);
+
+    await post("rl_hit", { p_key: "k", p_window_ms: 1000 });
+    expect(net.calls).toHaveLength(1);                        // rl_hit went to D1, not the network
+    expect(sql.some((s) => /INSERT INTO "rate_limits"/.test(s))).toBe(true);
+
+    await Promise.all(scheduled);
+    expect(scheduled).toHaveLength(0);                         // neither was journaled
+  });
+
+  it("the write freeze lets it through on either backend — revoking sessions is not a data write", async () => {
+    for (const backend of ["d1", "supabase"] as const) {
+      const net = network();
+      const runner = sqliteRunner(openDb({ schema: true }));
+      const f = buildServiceFetch({ backend, shadow: false, freeze: true }, { base: net.f, runner, journal: false });
+      const res = await f(`${SB}/rest/v1/rpc/admin_force_logout`, { method: "POST", body: "{}" });
+      expect(res.status, backend).toBe(200);
+      expect(net.calls, backend).toEqual(["POST /rest/v1/rpc/admin_force_logout"]);
+      const refused = await f(`${SB}/rest/v1/rpc/claim_upload_key`, { method: "POST", body: "{}" });
+      expect(refused.status, backend).toBe(503);
+    }
+  });
+});
+
 describe.skipIf(!hasSqlite)("lib/supabase.ts end to end", () => {
   async function load(env: Record<string, string>) {
     vi.resetModules();

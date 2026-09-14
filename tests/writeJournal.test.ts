@@ -4,7 +4,7 @@ import registryJson from "@/d1/types.json";
 import type { Registry } from "@/lib/d1/pgrest/types";
 import type { D1Runner } from "@/lib/d1/client";
 import {
-  journalTarget, prepareWrite, withWriteJournal, appendEntry, resetJournalForTests,
+  journalTarget, prepareWrite, withWriteJournal, appendEntry, resetJournalForTests, intervalMs, defaultKind,
   JOURNAL_DDL, JOURNAL_TABLE, JOURNAL_PART_TABLE, PART_CHARS, type JournalOptions,
 } from "@/lib/d1/writeJournal";
 import { makeBvFetch } from "@/lib/d1/bvFetch";
@@ -104,6 +104,53 @@ describe("prepareWrite", () => {
       expect(out.changed, `${m} ${url}`).toBe(false);
       expect(out.body).toBe(body);
     }
+  });
+});
+
+describe("computed defaults: the journal carries what Supabase would otherwise recompute at replay", () => {
+  it("reads fixed-length Postgres intervals, and refuses calendar ones", () => {
+    expect(intervalMs("7 days")).toBe(7 * 86_400_000);
+    expect(intervalMs("00:10:00")).toBe(600_000);
+    expect(intervalMs("1 day 02:00:00")).toBe(86_400_000 + 7_200_000);
+    expect(intervalMs("90 minutes")).toBe(5_400_000);
+    expect(intervalMs("1 week")).toBe(604_800_000);
+    expect(intervalMs("-00:00:30")).toBe(-30_000);
+    for (const bad of ["1 month", "2 years", "", "soon", "7"]) expect(intervalMs(bad), bad).toBeNull();
+  });
+
+  it("classifies every column default in d1/types.json — none is left unhandled", () => {
+    const unhandled: string[] = [];
+    const counts = { uuid: 0, time: 0, constant: 0 };
+    for (const [table, meta] of Object.entries(registry)) {
+      for (const [name, col] of Object.entries(meta.columns)) {
+        const k = defaultKind(col);
+        if (k.kind === "unhandled") unhandled.push(`${table}.${name} = ${col.default}`);
+        else counts[k.kind]++;
+      }
+    }
+    // A new function-call default must be taught to prepareWrite, or a rollback
+    // replays it with Supabase's own value computed at replay time.
+    expect(unhandled).toEqual([]);
+    expect(counts.uuid).toBeGreaterThan(0);
+    expect(defaultKind(registry.upload_links.columns.expires_at)).toEqual({ kind: "time", offsetMs: 7 * 86_400_000 });
+    expect(defaultKind(registry.assistant_pending_actions.columns.expires_at)).toEqual({ kind: "time", offsetMs: 600_000 });
+    expect(defaultKind({ pg: "date", nullable: true, default: "CURRENT_DATE", generated: false })).toEqual({ kind: "unhandled" });
+    expect(defaultKind({ pg: "bigint", nullable: false, default: "nextval('x_seq'::regclass)", generated: false })).toEqual({ kind: "unhandled" });
+    expect(defaultKind({ pg: "text", nullable: false, default: "pending", generated: false })).toEqual({ kind: "constant" });
+  });
+
+  it("prefills now() + interval from the same instant as now()", () => {
+    const gen = { uuid: () => FIXED_UUID, now: () => FIXED_NOW };
+    const link = prepareWrite("POST", `${SB}/rest/v1/upload_links?select=id`, "return=representation",
+      JSON.stringify({ token_hash: "h", candidate_user_id: U1, doc_keys: ["cv"], uploaded_keys: [] }), registry, gen);
+    const row = JSON.parse(link.body!);
+    expect(row.created_at).toBe(FIXED_NOW);
+    expect(row.expires_at).toBe("2026-09-21T10:00:00.000Z");
+    const pending = prepareWrite("POST", `${SB}/rest/v1/assistant_pending_actions`, null, JSON.stringify({ kind: "x" }), registry, gen);
+    expect(JSON.parse(pending.body!).expires_at).toBe("2026-09-14T10:10:00.000Z");
+    // A caller's own expiry always wins.
+    const own = prepareWrite("POST", `${SB}/rest/v1/upload_links`, null, JSON.stringify({ token_hash: "h", expires_at: "2027-01-01T00:00:00Z" }), registry, gen);
+    expect(JSON.parse(own.body!).expires_at).toBe("2027-01-01T00:00:00Z");
   });
 });
 

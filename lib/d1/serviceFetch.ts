@@ -32,9 +32,39 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
 }
 
 /**
+ * RPCs that only touch Supabase's `auth` schema, so they are LOGIN operations
+ * wearing a PostgREST URL. admin_force_logout is `delete from auth.sessions` and
+ * nothing else (supabase/admin_force_logout.sql). Logins stay on Supabase for
+ * this whole migration, so on "d1" it must still reach Supabase: D1 has no auth
+ * schema and answers PGRST202, and reset-password logs that as "non-fatal" —
+ * an admin resetting a compromised account would leave every stolen session and
+ * refresh token alive. They are not data: never journaled, never frozen.
+ *
+ * app_delete_user is deliberately NOT here: it deletes public rows too, and
+ * delete-user/route.ts already falls back to the D1 row sweep plus
+ * auth.admin.deleteUser when D1 answers PGRST202.
+ */
+export const AUTH_RPCS = new Set(["admin_force_logout"]);
+
+export function isAuthRpc(url: string): boolean {
+  let pathname: string;
+  try { pathname = new URL(url, "http://auth-rpc.invalid").pathname; } catch { return false; }
+  const rpc = pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)$/);
+  return !!rpc && AUTH_RPCS.has(rpc[1]);
+}
+
+/** Auth-only RPCs to Supabase; every other request to the data backend. */
+export function routeAuthRpcs(supabase: typeof fetch, data: typeof fetch): typeof fetch {
+  return function authRpcRouter(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    return isAuthRpc(urlOf(input)) ? supabase(input as RequestInfo, init) : data(input as RequestInfo, init);
+  } as typeof fetch;
+}
+
+/**
  * Is this service-client request a WRITE the final copy would miss?
  *
- *   /rest/v1  any mutation, including RPCs — except rl_hit (ephemeral, not copied).
+ *   /rest/v1  any mutation, including RPCs — except rl_hit (ephemeral, not copied)
+ *             and the auth-only RPCs (AUTH_RPCS: logins are not part of the copy).
  *   /storage/v1  any mutation — except the POSTs that only READ: list, list-v2 and
  *             sign (a download URL). Blocking those would break every document
  *             preview for the ten minutes of the freeze, for no safety gained.
@@ -47,7 +77,7 @@ export function isFrozenWrite(method: string, url: string): boolean {
   try { pathname = new URL(url, "http://freeze.invalid").pathname; } catch { return false; }
   if (/\/rest\/v1\//.test(pathname)) {
     const rpc = pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)/);
-    return !(rpc && EPHEMERAL_RPCS.has(rpc[1]));
+    return !(rpc && (EPHEMERAL_RPCS.has(rpc[1]) || AUTH_RPCS.has(rpc[1])));
   }
   if (/\/storage\/v1\//.test(pathname)) {
     return !/\/storage\/v1\/object\/(list|list-v2|sign)\//.test(pathname);
@@ -125,6 +155,8 @@ export function buildServiceFetch(plan: ServicePlan, deps: ServiceFetchDeps): ty
       const runner = deps.runner;
       f = withWriteJournal(f, { ...(deps.journal ?? {}), runner: deps.journal?.runner ?? (runner ? async () => runner : undefined) });
     }
+    // Outside the journal: an auth RPC is not a data write a rollback replays.
+    f = routeAuthRpcs(deps.base, f);
   } else {
     f = plan.shadow ? withShadowReads(deps.base) : deps.base;
   }

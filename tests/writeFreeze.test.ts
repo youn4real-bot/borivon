@@ -154,6 +154,9 @@ describe("the second layer: the service client refuses data writes", () => {
     expect(isFrozenWrite("HEAD", `${sb}/rest/v1/documents`)).toBe(false);
     // rl_hit: the rate-limit counter is not part of the copy, and refusing it would 503 reads.
     expect(isFrozenWrite("POST", `${sb}/rest/v1/rpc/rl_hit`)).toBe(false);
+    // An auth-only RPC (delete from auth.sessions) is a login operation, not data.
+    expect(isFrozenWrite("POST", `${sb}/rest/v1/rpc/admin_force_logout`)).toBe(false);
+    expect(isFrozenWrite("POST", `${sb}/rest/v1/rpc/app_delete_user`)).toBe(true);
     expect(isFrozenWrite("POST", `${sb}/storage/v1/object/candidate-photos/a.jpg`)).toBe(true);
     expect(isFrozenWrite("DELETE", `${sb}/storage/v1/object/candidate-photos`)).toBe(true);
     // Storage POSTs that only READ keep previews working.

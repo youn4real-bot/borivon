@@ -249,6 +249,40 @@ describe.skipIf(!hasSqlite)("replayJournal", () => {
   });
 });
 
+describe.skipIf(!hasSqlite)("a replay keeps computed expiry dates exactly as D1 set them", () => {
+  it("upload_links.expires_at (now() + 7 days) is identical after the replay, not recomputed at replay time", async () => {
+    resetJournalForTests();
+    const d1Db = openDb({ schema: true }), sbDb = openDb({ schema: true });
+    const d1 = sqliteRunner(d1Db), sb = sqliteRunner(sbDb);
+    // The D1 window, on a clock years away from the real one: if the replay let
+    // "Supabase" compute its own default, its value would be now + 7 days instead.
+    const windowMs = Date.parse("2020-01-01T00:00:00.000Z");
+    const pending: Promise<void>[] = [];
+    const noNetwork = (async () => { throw new Error("no network"); }) as unknown as typeof fetch;
+    const portal = createClient(SB, "service", {
+      auth: { persistSession: false },
+      global: { fetch: buildServiceFetch({ backend: "d1", shadow: false, freeze: false }, {
+        base: noNetwork, runner: d1, journal: { schedule: (w) => { pending.push(w()); }, now: () => windowMs, log: () => {} },
+      }) },
+    });
+
+    // Exactly what app/api/portal/admin/upload-links/route.ts sends: no expires_at.
+    const { data, error } = await portal.from("upload_links")
+      .insert({ token_hash: "h", candidate_user_id: U1, doc_keys: ["cv"], uploaded_keys: [], created_by: null })
+      .select("id, expires_at").single();
+    expect(error).toBeNull();
+    while (pending.length) await Promise.all(pending.splice(0));
+
+    const summary = await replayJournal({ d1, target: { url: SB, key: "service", fetch: makeBvFetch({ runner: sb }) }, registry, dryRun: false, log: quiet().log });
+    expect(summary).toMatchObject({ ok: true, sent: 1 });
+
+    const read = (db: SqliteDb) => db.prepare(`SELECT "id", "expires_at", "created_at" FROM "upload_links" WHERE "id" = ?`).all(data!.id);
+    const [onD1] = read(d1Db), [onSupabase] = read(sbDb);
+    expect(Date.parse(String(onD1.expires_at))).toBe(windowMs + 7 * 86_400_000);
+    expect(onSupabase).toEqual(onD1);
+  });
+});
+
 describe.skipIf(!hasSqlite)("a rollback loses nothing: D1 writes → journal → replay → identical database", () => {
   it("rebuilds every row, generated ids and timestamps included", async () => {
     resetJournalForTests();
