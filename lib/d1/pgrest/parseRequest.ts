@@ -22,9 +22,13 @@
  *  - `.upsert()` always appends `Prefer: resolution=merge-duplicates` (or
  *    `ignore-duplicates`) — that header, not the method, is what distinguishes an
  *    upsert from an insert, since both are POST.
- *  - bulk insert/upsert also sets `columns="a","b"` (the union of the row keys).
- *    We ignore it on purpose: our `values` array already carries those keys, so
- *    re-deriving them downstream is equivalent.
+ *  - bulk insert/upsert also sets `columns="a","b"` (the union of the row keys),
+ *    and `defaultToNull: false` adds `Prefer: missing=default`. Both are read
+ *    (see the write payload below): with `columns` PostgREST writes rows whose
+ *    keys differ, a missing key becoming NULL or the column default.
+ *
+ * Filter VALUES are a second grammar with its own traps, checked against the
+ * live project rather than the docs — see the "filter grammar" section.
  *
  * NEVER throws. ~43 call sites branch on PostgREST error CODES to degrade
  * gracefully when a migration hasn't been run yet (PGRST205 missing table,
@@ -34,9 +38,10 @@
  * comes back as a PostgrestError value with those exact codes and phrasings.
  */
 import type {
-  ColumnMeta, Condition, FilterOp, Group, OrderBy, PostgrestError,
+  ColumnMeta, Condition, FilterOp, OrderBy, PostgrestError,
   QueryIntent, Registry, SelectItem, Where,
 } from "./types";
+import { arrayIn, inputValue, isInputError, pgTypeName } from "./pgInput";
 
 /** The request, already read off the wire — lets the parser stay pure/sync. */
 export type RequestParts = {
@@ -83,6 +88,15 @@ function errUnsupported(details: string): PostgrestError {
   return pgErr("PGRST100", "failed to parse request", 400, `d1-adapter: ${details}`);
 }
 
+/**
+ * An operator the column's type does not have (`ilike` on a uuid, `cs` on text).
+ * Postgres raises 42883 and PostgREST answers it with a 404, hint included.
+ */
+function errNoOperator(pg: ColumnMeta["pg"], symbol: string): PostgrestError {
+  return pgErr("42883", `operator does not exist: ${pgTypeName(pg)} ${symbol} unknown`, 404, null,
+    "No operator matches the given name and argument types. You might need to add explicit type casts.");
+}
+
 /** Callers get a union back; this is the cheap discriminator. */
 export function isPgrestError(x: QueryIntent | PostgrestError): x is PostgrestError {
   return typeof (x as PostgrestError).code === "string";
@@ -109,12 +123,12 @@ function own<T>(obj: Record<string, T>, key: string): T | undefined {
   return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
 }
 
-/* ------------------------------------------------------- value decoding ---- */
+/* ---------------------------------------------------------- select helpers */
 
 /**
- * Split on `sep` at depth 0 only: `in.(…)` lists and nested `and(…)` groups put
- * commas inside parens, and postgrest-js double-quotes any `in` value containing
- * `,` `(` `)` (PostgrestReservedCharsRegexp) instead of escaping it.
+ * Split on `sep` at depth 0 only: a select list can carry parens and quoted
+ * identifiers. (Filter values have their own grammar below — PostgREST does NOT
+ * balance parens there.)
  */
 function splitTop(s: string, sep: string): string[] {
   const out: string[] = [];
@@ -137,147 +151,448 @@ function splitTop(s: string, sep: string): string[] {
   return out;
 }
 
-const NUMERIC_PG = new Set(["integer", "bigint", "numeric"]);
-/** No leading zeros / plus signs: `phone=eq.0612345678` must stay a string. */
-const CANONICAL_NUMBER = /^-?(0|[1-9]\d*)(\.\d+)?$/;
-
-/**
- * One PostgREST scalar → a JS value.
+/* ------------------------------------------------------- filter grammar ---- */
+/*
+ * A filter value is NOT decoded the way it looks. Measured against the live
+ * project (PostgREST's QueryParams.hs parser), not the docs:
  *
- * Quoting decides literalness: `"true"` is the text "true", bare `true` is the
- * boolean. Type coercion is registry-driven rather than shape-driven, because
- * shape alone lies — a text column holding "0612345678" or "true" would get
- * silently turned into a number/boolean and stop matching its row.
+ *  - A top-level value is taken LITERALLY to the end of the parameter:
+ *    `status=eq."approved"` compares against the 10 characters `"approved"`.
+ *    Only an `in.(…)` list item and a value inside or=/and= may be quoted.
+ *  - Inside or=(…) a value ends at the first `,` or `)` — PostgREST does not
+ *    balance parentheses. `or=(first_name.ilike.%a)%,last_name.ilike.%a)%)`
+ *    is the single filter `first_name ILIKE '%a'`, and whatever follows the
+ *    closing `)` is ignored, not an error. The admin class-invite search sends
+ *    exactly that shape for a term containing `)`.
+ *  - A quote only counts when the closing `"` is followed by `,`, `)` or the
+ *    end; a backslash escapes ANY character inside it; `{…}` is kept whole.
+ *  - `null` is the four letters n-u-l-l to every operator but `is`: on a uuid
+ *    column `eq.null` is a 22P02, on a text column it matches the text "null".
+ *  - The operand is then typed by the COLUMN's Postgres input function
+ *    (pgInput.ts), which is where 22P02 / 22007 / 22008 come from.
  */
-function decodeScalar(raw: string, col?: ColumnMeta): unknown {
-  // Deliberately NOT trimmed: PostgREST compares the bytes it was given, so
-  // `.eq("name", " John ")` must keep its spaces. Incidental whitespace is
-  // trimmed where the grammar allows it instead (group items, select, order).
-  const t = raw;
-  if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) {
-    return t.slice(1, -1).replace(/\\(["\\])/g, "$1");
-  }
-  // `.eq(col, null)` serialises to `eq.null`; Postgres then compares against NULL
-  // and matches nothing. Decoding to JS null reproduces that (SQLite `= NULL` is
-  // also never true) — `.is()` remains the only way to test for NULL.
-  if (t === "null") return null;
-  if ((t === "true" || t === "false") && col?.pg === "boolean") return t === "true";
-  if (col && NUMERIC_PG.has(col.pg) && CANONICAL_NUMBER.test(t)) {
-    const n = Number(t);
-    // bigint ids beyond 2^53 would round; leave those as text (SQLite applies the
-    // column's numeric affinity to a bound string, so the comparison still works).
-    if (Number.isFinite(n) && (col.pg === "numeric" || Number.isSafeInteger(n))) return n;
-  }
-  return t;
-}
-
-/** `{a,b}` (Postgres array literal, what `.contains()` sends for a text[]). */
-function decodeArrayLiteral(raw: string): unknown {
-  const t = raw.trim();
-  if (t.startsWith("{") && t.endsWith("}")) {
-    // A jsonb `.contains({k:v})` arrives as JSON.stringify output — valid JSON,
-    // which `{a,b}` never is, so this tells the two apart without guessing.
-    try { return JSON.parse(t); } catch { /* array literal below */ }
-    const inner = t.slice(1, -1);
-    if (inner.trim() === "") return [];
-    return splitTop(inner, ",").map((v) => decodeScalar(v));
-  }
-  try { return JSON.parse(t); } catch { return t; }
-}
-
-const SUPPORTED_OPS = new Set<FilterOp>(["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in", "cs"]);
 
 /**
- * `eq.approved` / `not.in.(1,2)` / `is.null` → a Condition.
- * `expr` is the part after `<column>=`, already URL-decoded by URLSearchParams.
+ * Every operator PostgREST's parser knows. A word outside this list is a
+ * PGRST100 parse error, as on Supabase; one inside it that D1 cannot answer
+ * (full-text search, regular expressions, range adjacency) is refused loudly by
+ * name, never answered wrongly.
  */
-function parseFilterExpr(table: string, registry: Registry, column: string, expr: string): Condition | PostgrestError {
-  const col = own(registry[table].columns, column);
-  if (!col) return errNoColumn(table, column);
+const PGRST_OPERATORS = [
+  "eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "match", "imatch", "is", "isdistinct",
+  "in", "cs", "cd", "ov", "sl", "sr", "nxr", "nxl", "adj", "fts", "plfts", "phfts", "wfts",
+];
+const QUANTIFIABLE = new Set(["eq", "gt", "gte", "lt", "lte", "like", "ilike", "match", "imatch"]);
+const FULL_TEXT = new Set(["fts", "plfts", "phfts", "wfts"]);
+const IS_VALUES = ["null", "not_null", "true", "false", "unknown"];
 
-  let rest = expr;
-  let negate = false;
-  if (rest.startsWith("not.")) { negate = true; rest = rest.slice(4); }
-
-  const dot = rest.indexOf(".");
-  if (dot < 0) return errParse(`filter (${column}=${expr})`, "expected <op>.<value>");
-  const opName = rest.slice(0, dot);
-  let value = rest.slice(dot + 1);
-
-  if (!SUPPORTED_OPS.has(opName as FilterOp)) {
-    return errUnsupported(`operator '${opName}' is not implemented (filter ${column}=${expr})`);
-  }
-  const op = opName as FilterOp;
-
-  if (op === "in") {
-    if (!(value.startsWith("(") && value.endsWith(")"))) {
-      return errParse(`filter (${column}=${expr})`, "in expects a parenthesised list");
-    }
-    const inner = value.slice(1, -1);
-    // `.in("id", [])` sends `in.()`. Keep it as [] — an empty match, not an error.
-    const items = inner.trim() === "" ? [] : splitTop(inner, ",").map((v) => decodeScalar(v, col));
-    return { kind: "cmp", column, op, value: items, ...(negate ? { negate } : {}) };
-  }
-
-  if (op === "is") {
-    // PostgREST only ever sends `is.null|true|false`; `.not("c","is",null)` puts the
-    // negation in front (`not.is.null`). Hand-written `or=(…)` strings sometimes
-    // carry `is.not.null` instead, so accept that spelling too (XOR the negations).
-    if (value.startsWith("not.")) { negate = !negate; value = value.slice(4); }
-    if (value === "null") return { kind: "cmp", column, op, value: null, ...(negate ? { negate } : {}) };
-    if (value === "true" || value === "false") {
-      return { kind: "cmp", column, op, value: value === "true", ...(negate ? { negate } : {}) };
-    }
-    return errParse(`filter (${column}=${expr})`, "is expects null, true or false");
-  }
-
-  if (op === "cs") {
-    return { kind: "cmp", column, op, value: decodeArrayLiteral(value), ...(negate ? { negate } : {}) };
-  }
-
-  if (op === "like" || op === "ilike") {
-    const quoted = value.length >= 2 && value.startsWith('"') && value.endsWith('"');
-    const pattern = decodeScalar(value, col);
-    // PostgREST accepts `*` as an alias for `%` in unquoted patterns; this codebase
-    // writes `%…%`, but a user-typed `*` must behave the same here as on Supabase.
-    const text = typeof pattern === "string" && !quoted ? pattern.replace(/\*/g, "%") : pattern;
-    return { kind: "cmp", column, op, value: text, ...(negate ? { negate } : {}) };
-  }
-
-  return { kind: "cmp", column, op, value: decodeScalar(value, col), ...(negate ? { negate } : {}) };
-}
+const OPERATOR_EXPECTED = "operator (eq, gt, ...)";
+const FIELD_EXPECTED = "field name (* or [a..z0..9_$])";
+const LOGIC_EXPECTED = "negation operator (not) or logic operator (and, or)";
 
 /**
- * `or=(a.eq.1,and(b.is.null,c.in.(x,y)))` → a Group tree. The outer parens are
- * already stripped by the caller; children may nest and()/or() to any depth.
+ * `[not.]<op>[(any|all)].<value>`, read but not yet typed. `list` is set for `in`,
+ * `language` for `fts(english)` and its siblings.
  */
-function parseGroup(kind: "and" | "or", inner: string, table: string, registry: Registry): Group | PostgrestError {
-  const children: Where[] = [];
-  for (const raw of splitTop(inner, ",")) {
-    const item = raw.trim();
-    if (item === "") return errParse(`filter (${kind}=(${inner}))`, "empty condition");
+type OpExpr = { negate: boolean; op: string; quant?: "any" | "all"; language?: string; value: string; list?: string[] };
+/** A filter parsed from the URL, before the registry is consulted. */
+type RawFilter = { column: string; jsonPath: boolean; expr: OpExpr };
+type RawGroup = { kind: "and" | "or"; negate: boolean; children: RawNode[] };
+type RawNode = RawFilter | RawGroup;
+/** Where, and against what, a parse failed — the furthest failure wins, like parsec's. */
+type Failure = { at: number; expecting: string };
 
-    const nested = /^(and|or)\((.*)\)$/.exec(item);
-    if (nested) {
-      const sub = parseGroup(nested[1] as "and" | "or", nested[2], table, registry);
-      if ("code" in sub) return sub;
-      children.push(sub);
+const isFailure = (x: object): x is Failure => "at" in x;
+/** parsec's `spaces` (Haskell isSpace). */
+const isSpace = (c: string | undefined) => c !== undefined && /\s/.test(c);
+
+/**
+ * PostgREST's parse-error body: the parameter value in the message, a 1-based
+ * column into the text the parser saw, and what it expected there.
+ */
+function parseFailure(what: "filter" | "logic tree" | "columns parameter", shown: string, text: string, f: Failure): PostgrestError {
+  const ch = text[f.at];
+  const unexpected = ch === undefined ? "end of input" : `"${ch}"`;
+  return pgErr("PGRST100", `"failed to parse ${what} (${shown})" (line 1, column ${f.at + 1})`, 400,
+    `unexpected ${unexpected} expecting ${f.expecting}`);
+}
+
+/** `"…"` with a backslash escaping any character; null when it never closes. */
+function readQuoted(text: string, p: number): { value: string; end: number } | null {
+  if (text[p] !== '"') return null;
+  let value = "";
+  for (let q = p + 1; q < text.length; q++) {
+    const c = text[q];
+    if (c === "\\") {
+      if (q + 1 >= text.length) return null;
+      value += text[++q];
       continue;
     }
-    if (/^not\.(and|or)\(/.test(item)) {
-      // A negated GROUP has no representation in Where (only leaves carry `negate`),
-      // and nothing in this codebase emits one. Fail loudly rather than silently
-      // dropping the negation and returning too many rows.
-      return errUnsupported(`negated group '${item}' is not implemented`);
+    if (c === '"') return { value, end: q + 1 };
+    value += c;
+  }
+  return null;
+}
+
+/** Everything up to the next `,` or `)`. */
+function readBare(text: string, p: number): { value: string; end: number } {
+  let q = p;
+  while (q < text.length && text[q] !== "," && text[q] !== ")") q++;
+  return { value: text.slice(p, q), end: q };
+}
+
+const endsItem = (text: string, q: number) => q === text.length || text[q] === "," || text[q] === ")";
+
+/** An `in.(…)` element: quoted only if the quote closes right before `,` / `)`. */
+function readListItem(text: string, p: number): { value: string; end: number } {
+  const quoted = readQuoted(text, p);
+  return quoted && endsItem(text, quoted.end) ? quoted : readBare(text, p);
+}
+
+/** A value inside or=(…): quoted, a whole `{…}` array literal, or bare. */
+function readTreeValue(text: string, p: number): { value: string; end: number } {
+  const quoted = readQuoted(text, p);
+  if (quoted && endsItem(text, quoted.end)) return quoted;
+  if (text[p] === "{") {
+    let q = p + 1;
+    while (q < text.length && text[q] !== "{" && text[q] !== "}") q++;
+    if (text[q] === "}") return { value: text.slice(p, q + 1), end: q + 1 };
+  }
+  return readBare(text, p);
+}
+
+/**
+ * Why `[not.]<op>` failed at `start`, positioned the way PostgREST reports it.
+ *
+ * Parsec's `string` reports a mismatch at the position it STARTED from, so an
+ * operator name only moves the error forward when the whole name is there:
+ * `eqx.x` fails after `eq` (column 3), but `foo.x` fails at the `f` (column 1),
+ * even though `fts` shares that first letter — both checked live.
+ */
+function operatorFailure(text: string, start: number, negated: boolean): Failure {
+  let at = start;
+  for (const op of PGRST_OPERATORS) if (text.startsWith(op, start)) at = Math.max(at, start + op.length);
+  if (!negated && text.startsWith("not", start) && start + 3 >= at) return { at: start + 3, expecting: "delimiter (.)" };
+  if (at === start) return { at, expecting: negated ? OPERATOR_EXPECTED : `"not" or ${OPERATOR_EXPECTED}` };
+  return { at, expecting: OPERATOR_EXPECTED };
+}
+
+/**
+ * `[not.]<op>[(any|all)].<value>` starting at `pos`. A top-level value runs to
+ * the end of the parameter; inside a logic tree it stops at `,` / `)`.
+ */
+function parseOpExpr(text: string, pos: number, inTree: boolean): { expr: OpExpr; end: number } | Failure {
+  let p = pos;
+  const negate = text.startsWith("not.", p);
+  if (negate) p += 4;
+  const name = /^[a-z]+/.exec(text.slice(p))?.[0] ?? "";
+  if (!PGRST_OPERATORS.includes(name)) return operatorFailure(text, p, negate);
+  let q = p + name.length;
+  let quant: "any" | "all" | undefined;
+  let language: string | undefined;
+  if (text[q] === "(" && QUANTIFIABLE.has(name)) {
+    const m = /^\((any|all)\)/.exec(text.slice(q));
+    if (!m) return { at: q + 1, expecting: '"all" or "any"' };
+    quant = m[1] as "any" | "all";
+    q += m[0].length;
+  } else if (text[q] === "(" && FULL_TEXT.has(name)) {
+    const close = text.indexOf(")", q);          // fts(english)
+    if (close < 0) return { at: text.length, expecting: '")"' };
+    language = text.slice(q + 1, close);
+    q = close + 1;
+  }
+  if (text[q] !== ".") return operatorFailure(text, p, negate);
+  q++;
+
+  if (name === "in") {
+    while (isSpace(text[q])) q++;
+    if (text[q] !== "(") return { at: q, expecting: '"("' };
+    q++;
+    while (isSpace(text[q])) q++;
+    const list: string[] = [];
+    const start = q;
+    for (;;) {
+      const item = readListItem(text, q);
+      list.push(item.value);
+      q = item.end;
+      if (text[q] === ",") { q++; continue; }
+      if (text[q] === ")") { q++; break; }
+      return { at: q, expecting: '"," or ")"' };
+    }
+    return { expr: { negate, op: name, value: text.slice(start, q - 1), list }, end: q };
+  }
+
+  if (name === "is") {
+    // Case-insensitive keywords; top level ignores what follows, like PostgREST.
+    const rest = text.slice(q).toLowerCase();
+    const keyword = IS_VALUES.find((k) => rest.startsWith(k));
+    if (!keyword) {
+      let best = 0;
+      for (const k of IS_VALUES) { let n = 0; while (n < k.length && rest[n] === k[n]) n++; best = Math.max(best, n); }
+      return { at: q + best, expecting: "isVal: (null, not_null, true, false, unknown)" };
+    }
+    return { expr: { negate, op: name, value: keyword }, end: q + keyword.length };
+  }
+
+  const extras = { ...(quant ? { quant } : {}), ...(language !== undefined ? { language } : {}) };
+  if (!inTree) return { expr: { negate, op: name, ...extras, value: text.slice(q) }, end: text.length };
+  const v = readTreeValue(text, q);
+  return { expr: { negate, op: name, ...extras, value: v.value }, end: v.end };
+}
+
+/**
+ * A column name inside a logic tree: letters, digits, `_`, `$`, spaces (trimmed)
+ * and inner `-`, or a quoted identifier. Returns where it ended.
+ */
+function readFieldName(text: string, p: number): { name: string; end: number } | null {
+  if (text[p] === '"') {
+    const quoted = readQuoted(text, p);
+    return quoted ? { name: quoted.value, end: quoted.end } : null;
+  }
+  const nameChar = (c: string | undefined) => c !== undefined && /[\p{L}\p{N}_ $]/u.test(c);
+  let q = p;
+  while (nameChar(text[q]) || (text[q] === "-" && q > p && text[q + 1] !== ">" && nameChar(text[q + 1]))) q++;
+  const name = text.slice(p, q).trim();
+  return name ? { name, end: q } : null;
+}
+
+/** `<column>[->key…]`: the column, whether an arrow followed it, and where it ended. */
+function parseFieldPath(text: string, pos: number): { column: string; jsonPath: boolean; end: number } | Failure {
+  const field = readFieldName(text, pos);
+  if (!field) return { at: pos, expecting: FIELD_EXPECTED };
+  let q = field.end;
+  let jsonPath = false;
+  while (text.startsWith("->", q)) {
+    jsonPath = true;
+    q += text.startsWith("->>", q) ? 3 : 2;
+    const index = /^-?\d+/.exec(text.slice(q));
+    const key = readFieldName(text, q) ?? (index ? { name: "", end: q + index[0].length } : null);
+    if (!key) return { at: q, expecting: FIELD_EXPECTED };
+    q = key.end;
+  }
+  return { column: field.name, jsonPath, end: q };
+}
+
+/** `<column>[->key…].<op-expr>` inside a logic tree. */
+function parseTreeFilter(text: string, pos: number): { node: RawNode; end: number } | Failure {
+  let q = pos;
+  while (isSpace(text[q])) q++;
+  const field = parseFieldPath(text, q);
+  if (isFailure(field)) return field;
+  q = field.end;
+  while (isSpace(text[q])) q++;
+  if (text[q] !== ".") return { at: q, expecting: "delimiter (.)" };
+  const parsed = parseOpExpr(text, q + 1, true);
+  if (isFailure(parsed)) return parsed;
+  return { node: { column: field.column, jsonPath: field.jsonPath, expr: parsed.expr }, end: parsed.end };
+}
+
+/** `[not.]and(…)` / `[not.]or(…)`. */
+function parseTreeGroup(text: string, pos: number): { node: RawNode; end: number } | Failure {
+  let q = pos;
+  while (isSpace(text[q])) q++;
+  const negate = text.startsWith("not.", q);
+  if (negate) q += 4;
+  let kind: "and" | "or";
+  if (text.startsWith("and", q)) { kind = "and"; q += 3; }
+  else if (text.startsWith("or", q)) { kind = "or"; q += 2; }
+  else return { at: q, expecting: LOGIC_EXPECTED };
+  while (isSpace(text[q])) q++;
+  if (text[q] !== "(") return { at: q, expecting: '"("' };
+  q++;
+  const children: RawNode[] = [];
+  for (;;) {
+    while (isSpace(text[q])) q++;
+    const child = parseTree(text, q);
+    if (isFailure(child)) return child;
+    children.push(child.node);
+    q = child.end;
+    while (isSpace(text[q])) q++;
+    if (text[q] === ",") { q++; continue; }
+    if (text[q] === ")") { q++; break; }
+    return { at: q, expecting: '"," or ")"' };
+  }
+  while (isSpace(text[q])) q++;
+  return { node: { kind, negate, children }, end: q };
+}
+
+/**
+ * One logic-tree item: a filter is tried first and a group second, and when
+ * both fail the one that got further is reported (a tie means an empty item,
+ * where PostgREST lists both expectations).
+ */
+function parseTree(text: string, pos: number): { node: RawNode; end: number } | Failure {
+  const filter = parseTreeFilter(text, pos);
+  if (!isFailure(filter)) return filter;
+  const group = parseTreeGroup(text, pos);
+  if (!isFailure(group)) return group;
+  if (filter.at !== group.at) return filter.at > group.at ? filter : group;
+  return { at: filter.at, expecting: `${FIELD_EXPECTED}, ${LOGIC_EXPECTED}` };
+}
+
+/**
+ * `columns="title","description"` → the column names. An item is a quoted
+ * identifier or a bare field name, as inside a logic tree; a repeated name
+ * counts once, since PostgREST keeps the columns as a set.
+ */
+function parseColumns(raw: string): string[] | PostgrestError {
+  const names: string[] = [];
+  let p = 0;
+  for (;;) {
+    while (isSpace(raw[p])) p++;
+    const field = readFieldName(raw, p);
+    if (!field) return parseFailure("columns parameter", raw, raw, { at: p, expecting: FIELD_EXPECTED });
+    if (!names.includes(field.name)) names.push(field.name);
+    p = field.end;
+    while (isSpace(raw[p])) p++;
+    if (p === raw.length) return names;
+    if (raw[p] !== ",") return parseFailure("columns parameter", raw, raw, { at: p, expecting: '","' });
+    p++;
+  }
+}
+
+/* ------------------------------------------------------ filter semantics --- */
+
+/**
+ * A parsed filter → a Condition, checked the way Postgres checks it once the
+ * query reaches the database: the column must exist (42703), the operator must
+ * exist for its type (42883 / 42725 / 42804), and the operand must be valid
+ * input for that type (22P02 / 22007 / 22008 / 22009) — then it is handed on in
+ * the spelling the copy stores.
+ */
+function resolveFilter(table: string, registry: Registry, f: RawFilter): Condition | PostgrestError {
+  const col = own(registry[table].columns, f.column);
+  if (!col) return errNoColumn(table, f.column);
+  const { negate, op, quant, value, list } = f.expr;
+  const leaf = { kind: "cmp" as const, column: f.column, ...(negate ? { negate: true } : {}) };
+
+  if (f.jsonPath) {
+    // PostgREST answers `col->key` / `col->>key` filters (via to_jsonb for a
+    // non-json column). Reporting them as 42703 — what this used to do — is the
+    // one wrong answer that is actively harmful: 42703 is how this codebase
+    // recognises "migration not run", so a JSON filter would be swallowed by a
+    // fail-open branch. A partial emulation would diverge silently on number
+    // and object rendering; refuse by name until one is really needed.
+    return errUnsupported(`json path filter on '${f.column}' is not implemented`);
+  }
+
+  const typed = (raw: string) => inputValue(raw, col.pg);
+
+  switch (op) {
+    case "in": {
+      // PostgREST turns a single empty element into `= ANY('{}')`: `in.()` and
+      // `in.("")` match nothing, and neither is typed (no 22P02 on a uuid).
+      const items = list!.length === 1 && list![0] === "" ? [] : list!;
+      const values: unknown[] = [];
+      for (const item of items) {
+        const r = typed(item);
+        if (isInputError(r)) return r.error;
+        values.push(r.value);
+      }
+      return { ...leaf, op: "in", value: values };
     }
 
-    const dot = item.indexOf(".");
-    if (dot < 0) return errParse(`filter (${kind}=(${inner}))`, `expected <column>.<op>.<value>, got '${item}'`);
-    const cond = parseFilterExpr(table, registry, item.slice(0, dot), item.slice(dot + 1));
-    if ("code" in cond) return cond;
-    children.push(cond);
+    case "is": {
+      if (value === "null" || value === "not_null") {
+        const flipped = negate !== (value === "not_null");
+        return { kind: "cmp", column: f.column, op: "is", value: null, ...(flipped ? { negate: true } : {}) };
+      }
+      if (col.pg !== "boolean") {
+        return pgErr("42804", `argument of IS ${value.toUpperCase()} must be type boolean, not type ${pgTypeName(col.pg)}`, 400);
+      }
+      // For a boolean, IS UNKNOWN is exactly IS NULL.
+      return { ...leaf, op: "is", value: value === "unknown" ? null : value === "true" };
+    }
+
+    case "like":
+    case "ilike":
+    case "match":
+    case "imatch": {
+      const symbol = { like: "~~", ilike: "~~*", match: "~", imatch: "~*" }[op];
+      if (col.pg !== "text") return errNoOperator(col.pg, symbol);
+      if (op === "match" || op === "imatch") return errUnsupported(`operator '${op}' is not implemented (filter ${f.column}=${op}.${value})`);
+      // PostgREST maps `*` to `%` over the whole operand, quoted or not — before
+      // a quantified operand is even read as an array.
+      const pattern = value.replace(/\*/g, "%");
+      if (!quant) return { ...leaf, op, value: pattern };
+      const patterns = arrayIn(pattern, (t) => ({ value: t }));
+      if (isInputError(patterns)) return patterns.error;
+      return { ...leaf, op, quant, value: patterns.value };
+    }
+
+    case "cs":
+    case "cd":
+    case "ov": {
+      if (col.pg === "text[]" || col.pg === "uuid[]") {
+        const r = typed(value);
+        if (isInputError(r)) return r.error;
+        return { ...leaf, op, value: r.value };
+      }
+      if (col.pg === "jsonb" && op !== "ov") {
+        // jsonb `@>` / `<@` is recursive key/value containment, not the element
+        // test the array operators use; answering it with the array SQL returned
+        // no rows where Postgres returns them. Nothing here filters jsonb that way.
+        return errUnsupported(`jsonb containment '${op}' is not implemented (filter ${f.column}=${op}.${value})`);
+      }
+      if (op === "cd") {
+        return pgErr("42725", `operator is not unique: ${pgTypeName(col.pg)} <@ unknown`, 400, null,
+          "Could not choose a best candidate operator. You might need to add explicit type casts.");
+      }
+      return errNoOperator(col.pg, op === "cs" ? "@>" : "&&");
+    }
+
+    case "sl": case "sr": case "nxr": case "nxl": case "adj": {
+      // Range operators, and no column here is a range: Postgres answers "operator
+      // does not exist" for every type (checked live against all eleven), except
+      // `<<` / `>>` on an integer, which resolve to the bit shift and then fail as
+      // a non-boolean condition with wording that depends on where in the tree the
+      // filter sits ("argument of WHERE / AND / NOT…") — that one is refused by name.
+      if ((op === "sl" || op === "sr") && (col.pg === "integer" || col.pg === "bigint")) {
+        return errUnsupported(`operator '${op}' on ${col.pg} is not implemented (filter ${f.column}=${op}.${value})`);
+      }
+      return errNoOperator(col.pg, { sl: "<<", sr: ">>", nxr: "&<", nxl: "&>", adj: "-|-" }[op]);
+    }
+
+    case "fts": case "plfts": case "phfts": case "wfts": {
+      // Full-text search needs Postgres' dictionaries and stemming; nothing here
+      // uses it, so on text and jsonb (where to_tsvector exists) it is refused by
+      // name. On every other type Postgres cannot even find to_tsvector — that
+      // answer needs no engine, so it is given exactly (checked live).
+      if (col.pg === "text" || col.pg === "jsonb") {
+        return errUnsupported(`operator '${op}' is not implemented (filter ${f.column}=${op}.${value})`);
+      }
+      const args = f.expr.language !== undefined ? `unknown, ${pgTypeName(col.pg)}` : pgTypeName(col.pg);
+      return pgErr("42883", `function to_tsvector(${args}) does not exist`, 404, null,
+        "No function matches the given name and argument types. You might need to add explicit type casts.");
+    }
+
+    default: {
+      // eq neq gt gte lt lte isdistinct — optionally (any) / (all).
+      if (quant) {
+        if (col.pg === "text[]" || col.pg === "uuid[]") return pgErr("42704", `could not find array type for data type ${pgTypeName(col.pg)}`, 400);
+        if (col.pg === "jsonb") return errUnsupported(`quantified operator '${op}(${quant})' on jsonb is not implemented`);
+        const items = arrayIn(value, typed);
+        if (isInputError(items)) return items.error;
+        // `= ANY(list)` is `IN (list)` exactly, NULL elements and the empty list included.
+        if (op === "eq" && quant === "any") return { ...leaf, op: "in", value: items.value };
+        return { ...leaf, op: op as FilterOp, quant, value: items.value };
+      }
+      const r = typed(value);
+      if (isInputError(r)) return r.error;
+      return { ...leaf, op: op as FilterOp, value: r.value };
+    }
   }
-  return { kind, children };
+}
+
+function resolveNode(table: string, registry: Registry, node: RawNode): Where | PostgrestError {
+  if (!("children" in node)) return resolveFilter(table, registry, node);
+  const children: Where[] = [];
+  for (const child of node.children) {
+    const w = resolveNode(table, registry, child);
+    if ("code" in w) return w;
+    children.push(w);
+  }
+  return { kind: node.kind, children, ...(node.negate ? { negate: true } : {}) };
 }
 
 /* --------------------------------------------------------------- select ---- */
@@ -371,6 +686,7 @@ function parseNonNegativeInt(raw: string): number | null {
 /* ----------------------------------------------------------------- main ---- */
 
 const RESERVED_PARAMS = new Set(["select", "order", "limit", "offset", "on_conflict", "columns"]);
+const LOGIC_PARAMS = new Set(["or", "and", "not.or", "not.and"]);
 
 /**
  * The pure core: no network, no D1, no async. Everything the adapter decides
@@ -429,22 +745,40 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
   if (typeof select === "object" && !Array.isArray(select)) return select;
 
   /* filters: every non-reserved param is a column (or a logical group) */
-  const where: Where[] = [];
+  // Two passes, in the order Supabase fails: PostgREST reads the SYNTAX of every
+  // parameter before anything runs (a PGRST100 anywhere wins), and only then does
+  // Postgres resolve each condition's column and type its operand, in order.
+  const rawFilters: RawNode[] = [];
   for (const [key, raw] of url.searchParams) {
     if (RESERVED_PARAMS.has(key)) continue;
-    if (key === "or" || key === "and") {
-      const inner = raw.trim().startsWith("(") && raw.trim().endsWith(")") ? raw.trim().slice(1, -1) : raw.trim();
-      const group = parseGroup(key, inner, table, registry);
-      if ("code" in group) return group;
-      where.push(group);
+    if (LOGIC_PARAMS.has(key)) {
+      // PostgREST glues the name in front (`or(…)`) and parses that; text after
+      // the group's closing `)` is ignored, not rejected.
+      const text = key + raw;
+      const tree = parseTree(text, 0);
+      if (isFailure(tree)) return parseFailure("logic tree", raw, text, tree);
+      rawFilters.push(tree.node);
       continue;
     }
     // `instruments.order=…` / `instruments.limit=…` only exist for embedded
     // resources, which we don't support — better a 400 than silently ignoring them.
     if (key.includes(".")) return errUnsupported(`referenced-table parameter '${key}' is not implemented`);
-    const cond = parseFilterExpr(table, registry, key, raw);
-    if ("code" in cond) return cond;
-    where.push(cond);
+    const expr = parseOpExpr(raw, 0, false);
+    if (isFailure(expr)) return parseFailure("filter", raw, raw, expr);
+    // The key is read with the same field grammar as a tree item, and whatever
+    // follows the name is ignored: live, `file_type- >x=eq.a` is a 42703 for the
+    // column `file_type-`. A key that is no field name at all stays whole, so it
+    // still comes back as the column that does not exist.
+    const field = parseFieldPath(key, 0);
+    rawFilters.push(isFailure(field)
+      ? { column: key, jsonPath: false, expr: expr.expr }
+      : { column: field.column, jsonPath: field.jsonPath, expr: expr.expr });
+  }
+  const where: Where[] = [];
+  for (const node of rawFilters) {
+    const resolved = resolveNode(table, registry, node);
+    if ("code" in resolved) return resolved;
+    where.push(resolved);
   }
 
   /* order / limit / offset */
@@ -512,15 +846,31 @@ export function parseParts(parts: RequestParts, registry: Registry): QueryIntent
     if (method === "PATCH" && Array.isArray(body)) {
       return pgErr("PGRST102", "Empty or invalid json", 400, "update expects a single object");
     }
+    // `columns=` changes how PostgREST reads the body (ApiRequest/Payload.hs
+    // getPayload): the rows are taken as they are — no columns derived from
+    // their keys, no "All object keys must match" — and only the listed columns
+    // are written. A key outside the list is ignored rather than refused, and a
+    // listed column the table lacks is the PGRST204 a body key would have been.
+    const rawColumns = url.searchParams.get("columns");
+    let columns: string[] | undefined;
+    if (rawColumns !== null && rawColumns.trim() !== "") {
+      const parsed = parseColumns(rawColumns);
+      if (!Array.isArray(parsed)) return parsed;
+      columns = parsed;
+    }
     for (const row of rows) {
       if (typeof row !== "object" || row === null || Array.isArray(row)) {
         return pgErr("PGRST102", "Empty or invalid json", 400, "expected an object or an array of objects");
       }
+      if (columns) continue;
       for (const key of Object.keys(row)) {
         if (!own(registry[table].columns, key)) return errNoBodyColumn(table, key);
       }
     }
+    for (const c of columns ?? []) if (!own(registry[table].columns, c)) return errNoBodyColumn(table, c);
     intent.values = rows as Record<string, unknown>[];
+    if (columns) intent.columns = columns;
+    if (method === "POST" && /missing=default/.test(prefer)) intent.missingDefault = true;
   }
 
   return intent;

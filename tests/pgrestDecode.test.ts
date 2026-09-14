@@ -353,13 +353,22 @@ describe("encodeValue", () => {
     expect(encodeValue(new Date("2026-09-11T17:25:01.155Z"), "date")).toBe("2026-09-11");
     expect(encodeValue("2026-09-11T17:25:01.155Z", "date")).toBe("2026-09-11");
   });
-  it("leaves a number bound to a text/uuid column alone — SQLite's TEXT affinity converts it", () => {
-    // `WHERE "code" = 123` against a TEXT-affinity column compares '123', and an
-    // INSERT stores '123', so the number needs no help. An object does: it would
-    // otherwise bind as "[object Object]".
-    expect(encodeValue(123, "text")).toBe(123);
+  it("spells a number or boolean bound to a text/uuid column the way Postgres reads it", () => {
+    // Bound as the JS value, D1's HTTP API sends every number as a REAL and TEXT
+    // affinity stores it as `5.0` (and `true` → 1 → `1.0`). Postgres reads the
+    // JSON literal: `5`, `true`. An object would otherwise bind as "[object Object]".
+    expect(encodeValue(123, "text")).toBe("123");
+    expect(encodeValue(2.5, "text")).toBe("2.5");
+    expect(encodeValue(true, "text")).toBe("true");
+    expect(encodeValue(false, "uuid")).toBe("false");
+    expect(encodeValue(Number.NaN, "text")).toBe(null);
     expect(encodeValue("123", "text")).toBe("123");
     expect(encodeValue({ a: 1 }, "text")).toBe('{"a":1}');
+  });
+  it("keeps a bigint past 2^53 as its exact decimal string", () => {
+    expect(encodeValue("9007199254740993", "bigint")).toBe("9007199254740993");
+    expect(encodeValue("9007199254740991", "bigint")).toBe(9007199254740991);
+    expect(encodeValue("9007199254740993", "numeric")).toBe(9007199254740992);
   });
   it("never throws on an Invalid Date — toISOString() would, and nothing here may", () => {
     // `JSON.stringify(new Date(NaN))` is null, so null is what would have gone to

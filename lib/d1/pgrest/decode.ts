@@ -292,6 +292,10 @@ export function encodeValue(value: unknown, pg: PgType | undefined): unknown {
     case "integer":
     case "bigint":
     case "numeric": {
+      // A bigint past 2^53 arrives as its decimal string (pgInput's intIn keeps
+      // it that way on purpose): Number() would round it onto a neighbouring id,
+      // while SQLite's INTEGER affinity reads the string exactly.
+      if (pg !== "numeric" && typeof value === "string" && /^-?\d+$/.test(value) && !Number.isSafeInteger(Number(value))) return value;
       const n = typeof value === "number" ? value : Number(value);
       // Non-finite can neither be stored nor compared; export-data.mjs mapped it
       // to NULL and so do we. A non-numeric string is left alone so a filter on
@@ -337,7 +341,16 @@ export function encodeValue(value: unknown, pg: PgType | undefined): unknown {
     // uuid / text — and the unknown-column case, where the registry has no type.
     default: {
       if (typeof value === "string") return value;
-      if (typeof value === "boolean") return value ? 1 : 0;   // SQLite has no boolean
+      if (pg === "text" || pg === "uuid") {
+        // Postgres reads a JSON number or boolean into a text column as its
+        // literal: `5`, `true`. Bound as the JS value, D1 stored `5.0` (the HTTP
+        // API binds every number as a REAL, and TEXT affinity prints a REAL that
+        // way) and `1.0` — strings no filter written against Postgres' spelling
+        // would ever match.
+        if (typeof value === "boolean") return value ? "true" : "false";
+        if (typeof value === "number") return Number.isFinite(value) ? JSON.stringify(value) : null;
+      }
+      if (typeof value === "boolean") return value ? 1 : 0;   // unknown column: SQLite has no boolean
       if (typeof value === "number") return Number.isFinite(value) ? value : null;
       if (value instanceof Date) return dateToStoredTimestamp(value);
       // An object on a text column is a caller bug either way; JSON is at least

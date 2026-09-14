@@ -23,6 +23,12 @@ const intent = (over: Partial<QueryIntent> & Pick<QueryIntent, "table">): QueryI
 });
 const cmp = (column: string, op: FilterOp, value: unknown, negate = false): Condition =>
   ({ kind: "cmp", column, op, value, ...(negate ? { negate: true } : {}) });
+// Written values go through the column's input function, so a uuid column needs a real uuid.
+const U1 = "11111111-1111-4111-8111-111111111111";
+const U2 = "22222222-2222-4222-8222-222222222222";
+/** Where a bulk write's rows come from: one JSON parameter, unpacked by json_each. */
+const FROM_ROWS = `FROM json_each(?) AS "row$" WHERE true ORDER BY "row$"."key"`;
+const cell = (i: number) => `json_extract("row$"."value", '$[${i}]')`;
 
 /** buildSql(), asserting it succeeded. */
 function ok(i: QueryIntent): BuiltQuery {
@@ -250,7 +256,7 @@ describe("identifier safety", () => {
     // the cheapest way to make the codec throw (JSON.stringify refuses it).
     const e = refused(intent({
       table: "organizations", action: "insert",
-      values: [{ id: "o1", name: "n", invite_code: "c", vaccine_req: BigInt(1) as unknown as number }],
+      values: [{ id: U1, name: "n", invite_code: "c", vaccine_req: BigInt(1) as unknown as number }],
     }));
     expect(e.code).toBe("XX000");      // errors.ts's own unknown bucket
     expect(e.status).toBe(500);
@@ -315,16 +321,18 @@ describe("parameter encoding", () => {
 });
 
 describe("mutations", () => {
-  it("inserts one row and a bulk array with a single column list", () => {
-    const one = ok(intent({ table: "documents", action: "insert", values: [{ user_id: "u1", file_name: "a.pdf" }] }));
-    expect(one.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") VALUES (?, ?)`);
-    expect(one.params).toEqual(["u1", "a.pdf"]);
+  it("inserts one row and a bulk array with a single column list and ONE parameter", () => {
+    // D1 binds at most 100 parameters; a placeholder per cell refused every bulk
+    // write past that (tests/pgrestWrites.test.ts has the call sites).
+    const one = ok(intent({ table: "documents", action: "insert", values: [{ user_id: U1, file_name: "a.pdf" }] }));
+    expect(one.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") SELECT ${cell(0)}, ${cell(1)} ${FROM_ROWS}`);
+    expect(one.params).toEqual([JSON.stringify([[U1, "a.pdf"]])]);
     const many = ok(intent({
       table: "documents", action: "insert",
-      values: [{ user_id: "u1", file_name: "a.pdf" }, { user_id: "u2", file_name: "b.pdf" }],
+      values: [{ user_id: U1, file_name: "a.pdf" }, { user_id: U2, file_name: "b.pdf" }],
     }));
-    expect(many.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") VALUES (?, ?), (?, ?)`);
-    expect(many.params).toEqual(["u1", "a.pdf", "u2", "b.pdf"]);
+    expect(many.sql).toBe(one.sql);
+    expect(many.params).toEqual([JSON.stringify([[U1, "a.pdf"], [U2, "b.pdf"]])]);
   });
 
   it("refuses a bulk insert whose objects disagree on keys (PGRST102), like PostgREST", () => {
@@ -346,15 +354,15 @@ describe("mutations", () => {
   it("appends RETURNING only when rows were asked for", () => {
     const rep = ok(intent({
       table: "documents", action: "insert", returning: "representation",
-      select: [{ column: "id" }], values: [{ user_id: "u1", file_name: "a.pdf" }],
+      select: [{ column: "id" }], values: [{ user_id: U1, file_name: "a.pdf" }],
     }));
-    expect(rep.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") VALUES (?, ?) RETURNING "id"`);
-    const min = ok(intent({ table: "documents", action: "insert", values: [{ user_id: "u1", file_name: "a.pdf" }] }));
+    expect(rep.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") SELECT ${cell(0)}, ${cell(1)} ${FROM_ROWS} RETURNING "id"`);
+    const min = ok(intent({ table: "documents", action: "insert", values: [{ user_id: U1, file_name: "a.pdf" }] }));
     expect(min.sql).not.toMatch(/RETURNING/);
     // `.select()` with no columns after a mutation = return everything.
     const star = ok(intent({
       table: "documents", action: "insert", returning: "representation", select: [],
-      values: [{ user_id: "u1", file_name: "a.pdf" }],
+      values: [{ user_id: U1, file_name: "a.pdf" }],
     }));
     expect(star.sql).toMatch(/RETURNING \*$/);
   });
@@ -392,19 +400,19 @@ describe("mutations", () => {
   it("upserts on the given target, on the primary key by default, and DO NOTHING when duplicates are ignored", () => {
     const target = ok(intent({
       table: "organization_members", action: "upsert", onConflict: ["org_id", "sub_admin_email"],
-      values: [{ org_id: "o1", sub_admin_email: "a@x.com", role: "member" }],
+      values: [{ org_id: U1, sub_admin_email: "a@x.com", role: "member" }],
     }));
     expect(target.sql).toBe(
-      `INSERT INTO "organization_members" ("org_id", "sub_admin_email", "role") VALUES (?, ?, ?)`
+      `INSERT INTO "organization_members" ("org_id", "sub_admin_email", "role") SELECT ${cell(0)}, ${cell(1)}, ${cell(2)} ${FROM_ROWS}`
       + ` ON CONFLICT ("org_id", "sub_admin_email") DO UPDATE SET`
       + ` "org_id" = excluded."org_id", "sub_admin_email" = excluded."sub_admin_email", "role" = excluded."role"`,
     );
-    const pk = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: "u1", phone: "+212600" }] }));
+    const pk = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: U1, phone: "+212600" }] }));
     expect(pk.sql).toMatch(/ON CONFLICT \("user_id"\) DO UPDATE SET "user_id" = excluded\."user_id", "phone" = excluded\."phone"$/);
     const ignore = ok(intent({
-      table: "candidate_profiles", action: "upsert", ignoreDuplicates: true, values: [{ user_id: "u1" }],
+      table: "candidate_profiles", action: "upsert", ignoreDuplicates: true, values: [{ user_id: U1 }],
     }));
-    expect(ignore.sql).toBe(`INSERT INTO "candidate_profiles" ("user_id") VALUES (?) ON CONFLICT ("user_id") DO NOTHING`);
+    expect(ignore.sql).toBe(`INSERT INTO "candidate_profiles" ("user_id") SELECT ${cell(0)} ${FROM_ROWS} ON CONFLICT ("user_id") DO NOTHING`);
   });
 });
 
@@ -432,7 +440,7 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
     doc.run("d2", "u1", "axb.pdf", "p2", null, "2026-02-01T00:00:00.000000+00:00", "Diplome");
     doc.run("d3", "u2", "C.pdf", "p3", "approved", null, "Passeport");
     db.prepare(`INSERT INTO candidate_profiles (user_id, cv_draft, passport_confirmed_fields) VALUES (?, ?, '{}')`)
-      .run("u1", `{"langs":[{"name":"Arabe","level":"C2"}],"summary":"x"}`);
+      .run(U1, `{"langs":[{"name":"Arabe","level":"C2"}],"summary":"x"}`);
     const org = db.prepare(`INSERT INTO organizations (id, name, invite_code, vaccine_req, required_doc_keys) VALUES (?,?,?,?,?)`);
     org.run("o1", "Alpha", "AAA", "{}", `["passport","diploma"]`);
     org.run("o2", "Beta", "BBB", "{}", `["diploma"]`);
@@ -605,7 +613,7 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
   it("inserts, updates, deletes and hands back the rows RETURNING was asked for", () => {
     const ins = ok(intent({
       table: "notifications", action: "insert", returning: "representation", select: [{ column: "id" }, { column: "read" }],
-      values: [{ user_id: "u9", doc_name: "n", doc_type: "t", action: "approved", read: false }],
+      values: [{ user_id: U2, doc_name: "n", doc_type: "t", action: "approved", read: false }],
     }));
     const created = db.prepare(ins.sql).all(...(ins.params as never[]));
     expect(created).toHaveLength(1);
@@ -628,23 +636,23 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
   it("writes jsonb / text[] / boolean payloads in the stored encoding", () => {
     const ins = ok(intent({
       table: "organizations", action: "insert", returning: "representation", select: [],
-      values: [{ id: "o9", name: "Delta", invite_code: "DDD", vaccine_req: { hep_b: true }, required_doc_keys: ["cv"] }],
+      values: [{ id: U2, name: "Delta", invite_code: "DDD", vaccine_req: { hep_b: true }, required_doc_keys: ["cv"] }],
     }));
     const row = db.prepare(ins.sql).all(...(ins.params as never[]))[0];
     expect(row.vaccine_req).toBe(`{"hep_b":true}`);        // json_valid CHECK would have rejected anything else
     expect(row.required_doc_keys).toBe(`["cv"]`);
     // …and the containment filter finds what the insert wrote.
-    expect(run(intent({ table: "organizations", where: [cmp("required_doc_keys", "cs", ["cv"])] })).map((r) => r.id)).toEqual(["o9"]);
+    expect(run(intent({ table: "organizations", where: [cmp("required_doc_keys", "cs", ["cv"])] })).map((r) => r.id)).toEqual([U2]);
   });
 
   it("upserts: inserts once, then updates in place — unless duplicates are ignored", () => {
     const up = (notes: string, ignoreDuplicates = false) => {
       const q = ok(intent({
         table: "candidate_status", action: "upsert", ignoreDuplicates,
-        values: [{ user_id: "u7", b2_notes: notes }],
+        values: [{ user_id: U2, b2_notes: notes }],
       }));
       db.prepare(q.sql).run(...(q.params as never[]));
-      return db.prepare(`SELECT b2_notes FROM candidate_status WHERE user_id = 'u7'`).get()!.b2_notes;
+      return db.prepare(`SELECT b2_notes FROM candidate_status WHERE user_id = ?`).get(U2)!.b2_notes;
     };
     expect(up("first")).toBe("first");
     expect(up("second")).toBe("second");          // DO UPDATE
@@ -682,13 +690,18 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
       "sub_admin_assignments|sub_admin_email,candidate_user_id",
       "sub_admins|email",
     ];
+    // A value each column's input function accepts.
+    const sample: Record<string, unknown> = {
+      uuid: U1, integer: 1, bigint: 1, numeric: 1, boolean: true, date: "2026-01-01",
+      timestamptz: "2026-01-01T00:00:00Z", jsonb: {}, "text[]": [], "uuid[]": [],
+    };
     const failures: string[] = [];
     for (const pair of pairs) {
       const [table, target] = pair.split("|");
       const cols = target.split(",");
       const q = ok(intent({
         table, action: "upsert", onConflict: cols,
-        values: [Object.fromEntries(cols.map((c) => [c, "x"]))],
+        values: [Object.fromEntries(cols.map((c) => [c, sample[registry[table].columns[c].pg] ?? "x"]))],
       }));
       try { db.prepare(q.sql); } catch { failures.push(pair); }
     }
@@ -711,11 +724,11 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
     // It bites hardest on upsert: SQLite checks NOT NULL BEFORE resolving ON
     // CONFLICT, while Postgres constrains the FINAL tuple. So the commonest
     // upsert in the codebase (candidate_profiles on user_id, 27 call sites)
-    // fails on D1 even though u1 already exists and the payload never touches
+    // fails on D1 even though U1 already exists and the payload never touches
     // the column. The SQL below is exactly what Supabase accepts today.
     // When the generator restores those defaults this test flips to `.run()`
     // succeeding — change it then, and delete the exception.
-    const q = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: "u1", phone: "+212600000000" }] }));
+    const q = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: U1, phone: "+212600000000" }] }));
     expect(() => db.prepare(q.sql).run(...(q.params as never[])))
       .toThrow(/NOT NULL constraint failed: candidate_profiles\.passport_confirmed_fields/);
   });

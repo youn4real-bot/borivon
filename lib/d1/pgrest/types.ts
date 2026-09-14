@@ -33,21 +33,23 @@ export type SelectItem = { column: string; alias?: string; jsonPath?: string };
 
 export type FilterOp =
   | "eq" | "neq" | "gt" | "gte" | "lte" | "lt"
-  | "like" | "ilike" | "is" | "in" | "cs";
+  | "like" | "ilike" | "is" | "isdistinct" | "in" | "cs" | "cd" | "ov";
 
 /** A leaf condition, e.g. `status=eq.approved` or `org_id=is.null`. */
 export type Condition = {
   kind: "cmp";
   column: string;
   op: FilterOp;
-  /** Already-decoded value: string | number | boolean | null | array (for `in`). */
+  /** Already-decoded value: string | number | boolean | null | array (`in`, `cs`/`cd`/`ov`, quantified ops). */
   value: unknown;
   /** `not.` prefix — PostgREST's negation. */
   negate?: boolean;
+  /** `like(any).{a,b}` / `gt(all).{1,2}`: `value` is the list, combined with ANY (OR) or ALL (AND). */
+  quant?: "any" | "all";
 };
 
-/** `or=(a.eq.1,and(b.is.null,c.eq.2))` parses into these trees. */
-export type Group = { kind: "and" | "or"; children: Where[] };
+/** `or=(a.eq.1,and(b.is.null,c.eq.2))` parses into these trees; `not.and(…)` sets `negate`. */
+export type Group = { kind: "and" | "or"; children: Where[]; negate?: boolean };
 export type Where = Condition | Group;
 
 export type OrderBy = { column: string; ascending: boolean; nullsFirst?: boolean };
@@ -75,6 +77,14 @@ export type QueryIntent = {
   /** upsert: `on_conflict=user_id` (comma separated) + Prefer resolution. */
   onConflict?: string[];
   ignoreDuplicates?: boolean;
+  /**
+   * `columns="a","b"`: the columns a write sets. supabase-js sends it with every
+   * array insert/upsert (the union of the rows' keys). A row without one of them
+   * writes NULL there — or the column default under `missingDefault`.
+   */
+  columns?: string[];
+  /** `Prefer: missing=default` — `.insert(rows, { defaultToNull: false })`. */
+  missingDefault?: boolean;
 };
 
 export type BuiltQuery = { sql: string; params: unknown[] };
