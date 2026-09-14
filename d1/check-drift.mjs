@@ -2,7 +2,8 @@
  * Has live Supabase moved on from the structure snapshot the D1 schema is
  * generated from?
  *
- *   node d1/check-drift.mjs <repo-root>            exit 0 same · 1 drift · 2 could not check
+ *   node d1/check-drift.mjs <repo-root>            exit 0 same · 1 drift (or d1/schema.sql,
+ *                                                  d1/types.json not regenerated) · 2 could not check
  *   node d1/check-drift.mjs <repo-root> --update   also write the live document over
  *                                                  d1/snapshot/openapi.json
  *
@@ -21,6 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { generatedProblems, readEnvFile } from "./guards.mjs";
 
 export async function fetchLiveOpenApi(env) {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
@@ -76,27 +78,41 @@ export function diffOpenApi(live, snap) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const root = process.argv[2];
-  if (!root) { console.error("usage: node d1/check-drift.mjs <repo-root> [--update]"); process.exit(2); }
-  const env = Object.fromEntries(
-    fs.readFileSync(path.join(root, ".env.local"), "utf8").split(/\r?\n/)
-      .filter((l) => l.includes("=") && !l.startsWith("#"))
-      .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^"|"$/g, "")]; }),
-  );
+  // Exit 2 whenever the check itself could not run. A wrapper reads 1 as "drift"
+  // and starts a re-capture; a missing .env.local must not look like that.
+  const cannot = (why) => { console.error(`could not check: ${why}`); process.exit(2); };
+  if (!root || root.startsWith("--")) { console.error("usage: node d1/check-drift.mjs <repo-root> [--update]"); process.exit(2); }
+  let env;
+  try { env = readEnvFile(root); } catch (e) { cannot(`${path.join(root, ".env.local")} unreadable (${e.message})`); }
+  if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) cannot("NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing from .env.local");
+
+  // Local half first: the generated files must match the snapshot they claim to
+  // come from, or "no drift" below would bless a schema that was never regenerated.
+  let stale;
+  try { stale = generatedProblems(root); } catch (e) { cannot(`could not regenerate the schema from d1/snapshot (${e.message})`); }
+  if (stale.length) {
+    console.log("STALE: d1/schema.sql / d1/types.json are not what the committed snapshots generate");
+    for (const s of stale) console.log(`  ${s}`);
+  }
+
   const snapPath = path.join(root, "d1", "snapshot", "openapi.json");
   let live;
-  try { live = await fetchLiveOpenApi(env); } catch (e) { console.error(`could not check: ${e.message}`); process.exit(2); }
+  try { live = await fetchLiveOpenApi(env); } catch (e) {
+    if (stale.length) { console.error(`(live structure not checked: ${e.message})`); process.exit(1); }
+    cannot(e.message);
+  }
   const snap = JSON.parse(fs.readFileSync(snapPath, "utf8"));
   const diffs = diffOpenApi(live, snap);
   if (!diffs.length) {
     console.log(`no drift: live PostgREST matches d1/snapshot/openapi.json (${Object.keys(live.definitions ?? {}).length} tables, ${Object.keys(live.paths ?? {}).length} paths)`);
     console.log("(OpenAPI cannot see CHECKs, indexes, FK delete rules or jsonb defaults — re-capture the catalog after every migration)");
-    process.exit(0);
+    process.exit(stale.length ? 1 : 0);
   }
   console.log(`DRIFT: ${diffs.length} difference(s) between live Supabase and d1/snapshot/openapi.json`);
   for (const d of diffs) console.log(`  ${d}`);
   if (process.argv.includes("--update")) {
     fs.writeFileSync(snapPath, JSON.stringify(live));
-    console.log("\nsnapshot updated. Next: re-capture the catalog (supabase/catalog_capture.sql), then node d1/gen-schema.mjs");
+    console.log("\nsnapshot updated — d1/schema.sql and d1/types.json are now STALE until you re-capture the catalog (supabase/catalog_capture.sql) and run node d1/gen-schema.mjs; every copy tool refuses until then");
   } else {
     console.log("\nre-capture: node d1/check-drift.mjs <repo-root> --update, supabase/catalog_capture.sql, node d1/gen-schema.mjs");
   }

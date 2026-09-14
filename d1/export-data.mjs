@@ -26,6 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { deleteOrder } from "./fk.mjs";
 import { isInside, tableColumns } from "./importCore.mjs";
+import { generatedProblems, readEnvFile } from "./guards.mjs";
 
 const SKIP_TABLES = new Set(["rate_limits"]);
 const ROWS_PER_STATEMENT = 100;      // keeps each INSERT well under D1's 100 KB statement cap
@@ -39,13 +40,25 @@ if (isInside(root, outDir)) {
   console.error("REFUSING: the output directory is inside the repo — these files hold personal data.");
   process.exit(1);
 }
-fs.mkdirSync(outDir, { recursive: true });
+// The export reads exactly the columns d1/types.json lists. If the snapshot was
+// re-captured but the generator never re-run, a new live column would be left
+// out here, _meta.json would agree with the stale types.json, and every later
+// check would pass while D1 silently lacked that column.
+try {
+  const stale = generatedProblems(root);
+  if (stale.length) {
+    console.error("REFUSING: d1/schema.sql / d1/types.json are not what the committed snapshots generate:");
+    for (const s of stale) console.error(`  ${s}`);
+    process.exit(1);
+  }
+} catch (e) {
+  console.error(`REFUSING: could not regenerate the schema to check it is current: ${e.message}`);
+  process.exit(1);
+}
 
-const env = Object.fromEntries(
-  fs.readFileSync(path.join(root, ".env.local"), "utf8").split(/\r?\n/)
-    .filter((l) => l.includes("=") && !l.startsWith("#"))
-    .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^"|"$/g, "")]; }),
-);
+let env;
+try { env = readEnvFile(root); } catch (e) { console.error(`could not read ${path.join(root, ".env.local")}: ${e.message}`); process.exit(1); }
+fs.mkdirSync(outDir, { recursive: true });
 const url = env.NEXT_PUBLIC_SUPABASE_URL, key = env.SUPABASE_SERVICE_ROLE_KEY;
 const headers = { apikey: key, Authorization: `Bearer ${key}` };
 const types = JSON.parse(fs.readFileSync(path.join(root, "d1", "types.json"), "utf8"));

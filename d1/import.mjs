@@ -1,7 +1,16 @@
 /**
  * Import the exported rows into the D1 copy over Cloudflare's HTTP API.
  *
- *   node d1/import.mjs <repo-root> <export-dir> [table…]
+ *   node d1/import.mjs <repo-root> <export-dir> [table…] [--accept-newer-in=<table>[,…]]
+ *
+ * A PRE-SWITCH TOOL ONLY: it empties tables and refills them from a Supabase
+ * export. Before it deletes anything it refuses when
+ *   • d1/schema.sql / d1/types.json are not what the snapshots generate;
+ *   • the site may already read D1 (DATA_BACKEND in wrangler.jsonc, .env.local
+ *     or the deployed Worker is anything but absent or "supabase");
+ *   • the export is older than 30 minutes;
+ *   • D1 holds rows newer than the export (d1/guards.mjs d1NewerRows).
+ * After the switch those would be D1's own writes, and this would erase them.
  *
  * Why not `wrangler d1 execute --file`: that sends the rows inside the SQL
  * text, and D1 refuses a statement over ~100 KB (SQLITE_TOOBIG). Three tables
@@ -19,15 +28,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { importTables } from "./importCore.mjs";
+import { importTables, preflight } from "./importCore.mjs";
+import { generatedProblems, readBackendProblems, exportAgeProblems, d1NewerRows, readEnvFile } from "./guards.mjs";
 
-export function readEnv(root) {
-  return Object.fromEntries(
-    fs.readFileSync(path.join(root, ".env.local"), "utf8").split(/\r?\n/)
-      .filter((l) => l.includes("=") && !l.startsWith("#"))
-      .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^"|"$/g, "")]; }),
-  );
-}
+/** `.env.local` → { KEY: value } (see d1/guards.mjs). */
+export const readEnv = readEnvFile;
 
 export const DEFAULT_D1_DATABASE_ID = "ffb9dcff-a501-4dc2-a94a-e5301e2595f0"; // borivon-db (WEUR)
 
@@ -52,11 +57,32 @@ export function d1HttpRunner(env, database = process.env.D1_DATABASE_ID || DEFAU
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const root = process.argv[2], dir = process.argv[3];
-  const only = process.argv.slice(4);
-  if (!root || !dir) { console.error("usage: node d1/import.mjs <repo-root> <export-dir> [table…]"); process.exit(1); }
+  const argv = process.argv.slice(2);
+  const acceptNewerIn = argv.filter((a) => a.startsWith("--accept-newer-in=")).flatMap((a) => a.slice("--accept-newer-in=".length).split(",").filter(Boolean));
+  const [root, dir, ...only] = argv.filter((a) => !a.startsWith("--"));
+  if (!root || !dir) { console.error("usage: node d1/import.mjs <repo-root> <export-dir> [table…] [--accept-newer-in=<table>[,…]]"); process.exit(2); }
+  const refuse = (lines, code = 1) => { for (const l of lines) console.error(`!! ${l}`); console.error("REFUSING — nothing was changed."); process.exit(code); };
+
+  try { const stale = generatedProblems(root); if (stale.length) refuse(stale); }
+  catch (e) { refuse([`could not regenerate the schema to check it is current: ${e.message}`], 2); }
+  let env;
+  try { env = readEnvFile(root); } catch (e) { refuse([`could not read ${path.join(root, ".env.local")}: ${e.message}`], 2); }
   const types = JSON.parse(fs.readFileSync(path.join(root, "d1", "types.json"), "utf8"));
-  const { problems, plan } = await importTables({ run: d1HttpRunner(readEnv(root)), types, dir, requested: only });
+
+  const backend = await readBackendProblems(root, env);
+  if (backend.length) refuse([...backend, "the site may already read D1 — refreshing it from a Supabase export would erase D1's own writes"]);
+
+  const { meta, plan, refusals } = preflight({ types, dir, requested: only });
+  if (refusals.length) refuse(refusals);
+  const age = exportAgeProblems(meta);
+  if (age.length) refuse(age);
+
+  const run = d1HttpRunner(env);
+  const newer = await d1NewerRows({ run, types, dir, exportedAt: meta.exportedAt, tables: plan.tables, acceptNewerIn });
+  for (const n of newer.notes) console.log(`    ${n}`);
+  if (newer.problems.length) refuse(newer.problems);
+
+  const { problems } = await importTables({ run, types, dir, requested: only });
   console.log(`\n${plan.tables.length} tables, ${problems} problem(s)`);
   process.exit(problems ? 1 : 0);
 }
