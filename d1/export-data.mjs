@@ -19,6 +19,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { deleteOrder } from "./fk.mjs";
+import { isInside } from "./importCore.mjs";
 
 const SKIP_TABLES = new Set(["rate_limits"]);
 const ROWS_PER_STATEMENT = 100;      // keeps each INSERT well under D1's 100 KB statement cap
@@ -27,7 +29,7 @@ const PAGE = 1000;                   // PostgREST hard cap
 const root = process.argv[2];
 const outDir = process.argv[3];
 if (!root || !outDir) { console.error("usage: node d1/export-data.mjs <repo-root> <out-dir>"); process.exit(1); }
-if (path.resolve(outDir).startsWith(path.resolve(root))) {
+if (isInside(root, outDir)) {
   console.error("REFUSING: the output directory is inside the repo — these files hold personal data.");
   process.exit(1);
 }
@@ -67,7 +69,12 @@ function encodeParam(value, pg) {
 }
 
 const summary = [];
-for (const table of Object.keys(types).sort()) {
+// Children before parents. The export reads one table at a time, so rows can
+// change between two reads; read in this order, only a parent DELETE in that
+// window leaves an orphan (a new parent+child pair is caught whole or not at
+// all), and parent deletes are far rarer than inserts. d1/importCore.mjs
+// refuses an export with orphans before it touches anything.
+for (const table of deleteOrder(types)) {
   if (SKIP_TABLES.has(table)) { summary.push(`${table}: skipped`); continue; }
   const cols = Object.entries(types[table].columns).filter(([, c]) => !c.generated).map(([n]) => n);
   const pk = types[table].pk.length ? types[table].pk : [cols[0]];
