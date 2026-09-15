@@ -47,9 +47,10 @@ function b64urlDecode(s: string): Buffer {
  * Other short-lived URL credentials (the R2 storage signed URLs in
  * lib/storage/storageToken.ts) reuse this format instead of inventing a second
  * scheme — through lib/scopedToken.ts, its byte-identical Web Crypto twin, since
- * the storage path must not import Node's crypto. Each kind MUST carry claims the others lack — a download token has
- * `u` and no `p`; a storage token has `p` and no `u` — so one kind can never be
- * replayed as another, even though they share a key.
+ * the storage path must not import Node's crypto. Each kind MUST carry claims
+ * the others lack — a download token has `u` and no `p`; a storage token has
+ * `p` and no `u` — so one kind can never be replayed as another, even though
+ * they share a key.
  */
 export function signScopedToken(claims: Record<string, string>, ttlSec: number): string {
   const key = secret();

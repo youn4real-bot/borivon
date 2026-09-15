@@ -27,7 +27,10 @@
  * under candidates/<userId>/ in the same R2 bucket and are unreachable from
  * here: every key this module builds starts with the storage prefix.
  *
- * Off unless lib/storage/withR2Storage.ts is wired in and STORAGE_BACKEND=r2.
+ * Off unless STORAGE_BACKEND=r2: lib/supabase.ts composeStorage() then loads it
+ * (through lib/storage/serviceStorage.ts) behind the service client's storage.
+ * No Node built-ins here or in anything it imports — that loader is compiled
+ * into the nodejs instrumentation build, and `crypto` once broke cf:build.
  */
 import { checkStorageToken, signStorageToken } from "@/lib/storage/storageToken";
 import { defaultObjectStore, type ObjectHead, type ObjectStore, type StoredObject } from "@/lib/storage/objectStore";
