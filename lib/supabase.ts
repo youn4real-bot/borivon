@@ -81,22 +81,72 @@ function adapterUnavailable(plan: ServicePlan, err: unknown): typeof fetch {
 }
 
 /* ═══════════════════════════════ STORAGE HOOK ═══════════════════════════════
- * Where FILES move to R2. The storage branch (lib/storage/withR2Storage.ts)
- * composes in here — it has to be the CLIENT, not the fetch: storage-js builds
- * getPublicUrl() and the URL half of createSignedUrl() from the client's base
- * URL without any network call, so a fetch-only swap would keep handing out
- * supabase.co URLs for files that only exist in R2. Wiring, once it lands:
+ * Where FILES move to R2 (STORAGE_BACKEND="r2"; see lib/storage/withR2Storage.ts
+ * for the vars). It has to swap the storage CLIENT, not the fetch: storage-js
+ * builds getPublicUrl() and the URL half of createSignedUrl() from the client's
+ * base URL without any network call, so a fetch-only swap would keep handing out
+ * supabase.co URLs for files that only exist in R2.
  *
- *   return withR2Storage(client);     // itself OFF unless STORAGE_BACKEND=r2
- *
- * Keep whatever it imports out of the browser bundle (this file is imported by
- * client components): the R2 client must not become a static import of
- * lib/supabase.ts. Note the order it creates: a swapped storage client no
- * longer passes through the service fetch, so the client-side write freeze
- * (lib/d1/serviceFetch.ts) stops seeing storage writes — middleware.ts still
- * refuses every mutating /api request, which is where uploads come from.
+ * Three rules this code is shaped by:
+ *   • getPublicUrl() stays synchronous — the photo routes store its return value —
+ *     so the swap happens here, at once, and only the fetch behind it is loaded
+ *     later. That is why this is withR2Storage()'s swap written inline: this file
+ *     may not statically import lib/storage (tests/dataBackendSwitch.test.ts).
+ *   • Every storage module is reached only through loadStorage, which Next folds
+ *     to `null` in the CLIENT compilation (typeof window) and the EDGE one
+ *     (NEXT_RUNTIME). A dynamic import is still bundled into every compilation
+ *     that can reach it: a first attempt without the NEXT_RUNTIME half broke
+ *     cf:build — instrumentation.ts → reportError → telegram → here pulled the
+ *     adapter into the edge build, where Node's `crypto` does not resolve.
+ *   • The swapped client no longer passes through the service fetch, so the
+ *     write freeze is applied to it again (withWriteFreeze, inside the loaded
+ *     module) — a frozen upload is refused before R2 exactly as a table write is.
  * ═══════════════════════════════════════════════════════════════════════════ */
+const loadStorage =
+  typeof window !== "undefined" ? null
+  : process.env.NEXT_RUNTIME === "edge" ? null
+  : () => import("@/lib/storage/serviceStorage");
+
+/** Where no loader exists (edge) the swapped client refuses, in storage-js's error shape. */
+function storageUnreachable(): Response {
+  return new Response(
+    JSON.stringify({ statusCode: "500", error: "internal", message: "R2 storage is not reachable from this runtime", code: "InternalError" }),
+    { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
+  );
+}
+
 function composeStorage(client: SupabaseClient<any, any, any>): SupabaseClient<any, any, any> {
+  // Exactly "r2", as in withR2Storage.ts r2StorageEnabled: a typo ("R2") must fail
+  // toward Supabase, which holds every file today. The browser never gets it.
+  if (typeof window !== "undefined" || process.env.STORAGE_BACKEND !== "r2") return client;
+
+  const original = client.storage;
+  const freeze = servicePlan()?.freeze === true;
+  const load = loadStorage;
+  let handler: Promise<typeof fetch> | null = null;
+  const storageFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    // No loader (edge): refuse. Falling back to `original` would put a file in
+    // Supabase that the R2 backend never gets.
+    if (!load) return Promise.resolve(storageUnreachable());
+    // A failed load rejects this call — storage-js hands it back as `error` —
+    // and is forgotten, so one dropped chunk fetch does not disable files for
+    // the life of the isolate.
+    handler ??= load()
+      .then((m) => m.buildServiceStorageFetch(original, { freeze }))
+      .catch((err) => { handler = null; throw err; });
+    return handler.then((f) => f(input as RequestInfo, init));
+  }) as typeof fetch;
+
+  // Read through a variable so Next never inlines a build-time value: same
+  // lookup as withR2Storage.ts r2StorageBaseUrl (tests/storageBackendSwitch.test.ts
+  // pins the two together).
+  const env = process.env;
+  const origin = (env.PUBLIC_BASE_URL || env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
+  // Built from the existing instance's class (no direct @supabase/storage-js
+  // dependency). No headers: nothing leaves the process, so the service-role key
+  // has nowhere to go.
+  const Ctor = original.constructor as new (url: string, headers: Record<string, string>, fetchImpl: typeof fetch) => typeof original;
+  client.storage = new Ctor(`${origin}/api/storage/v1`, {}, storageFetch);
   return client;
 }
 

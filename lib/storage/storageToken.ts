@@ -15,23 +15,27 @@
  * `u`. verifyDlToken rejects a storage token (no `u`) and checkStorageToken
  * rejects a download token (no `p`), so a leaked link to one signed PDF can
  * never be presented to a file route as "I am user X", nor the reverse.
+ *
+ * Async, on Web Crypto (lib/scopedToken.ts), not lib/dlToken.ts's Node crypto:
+ * this module is loaded through lib/supabase.ts, and a `crypto` import there
+ * broke the edge build. The tokens are byte-identical either way.
  */
-import { signScopedToken, verifyScopedToken } from "@/lib/dlToken";
+import { signScopedTokenWeb, verifyScopedTokenWeb } from "@/lib/scopedToken";
 
 const PURPOSE = "storage";
 
 /** Token for one object, valid for `ttlSec` seconds (storage-js passes expiresIn). */
-export function signStorageToken(bucket: string, path: string, ttlSec: number): string {
-  return signScopedToken({ p: PURPOSE, o: `${bucket}/${path}` }, ttlSec);
+export function signStorageToken(bucket: string, path: string, ttlSec: number): Promise<string> {
+  return signScopedTokenWeb({ p: PURPOSE, o: `${bucket}/${path}` }, ttlSec);
 }
 
 /** "ok" only for a live token minted for exactly this bucket + path. */
-export function checkStorageToken(
+export async function checkStorageToken(
   token: string | null | undefined,
   bucket: string,
   path: string,
-): "ok" | "invalid" | "expired" {
-  const check = verifyScopedToken(token);
+): Promise<"ok" | "invalid" | "expired"> {
+  const check = await verifyScopedTokenWeb(token);
   if (!check.ok) return check.reason;
   const { p, o, u } = check.claims;
   if (p !== PURPOSE || u !== undefined || o !== `${bucket}/${path}`) return "invalid";

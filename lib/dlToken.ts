@@ -21,18 +21,14 @@
 
 import crypto from "crypto";
 import type { NextRequest } from "next/server";
+import { scopedTokenSecret, type ScopedTokenCheck } from "@/lib/scopedToken";
 
-// Server-only HMAC key. The service-role key is a long, high-entropy secret
-// that already never leaves the server — reuse it so no new env is required.
-// (DL_TOKEN_SECRET overrides if the operator prefers a dedicated key.)
-function secret(): string {
-  return (
-    process.env.DL_TOKEN_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    ""
-  );
-}
+export type { ScopedTokenCheck };
+
+// Server-only HMAC key (service-role key, or DL_TOKEN_SECRET). Read from
+// lib/scopedToken.ts, the Web Crypto twin the R2 storage tokens sign with, so
+// the two implementations of this format can never drift onto different keys.
+const secret = scopedTokenSecret;
 
 const DEFAULT_TTL_SEC = 180;
 export const DL_TOKEN_PARAM = "dlt";
@@ -49,8 +45,9 @@ function b64urlDecode(s: string): Buffer {
  * token: base64url(JSON {...claims, e}) + "." + base64url(HMAC-SHA256).
  *
  * Other short-lived URL credentials (the R2 storage signed URLs in
- * lib/storage/storageToken.ts) reuse this instead of inventing a second
- * scheme. Each kind MUST carry claims the others lack — a download token has
+ * lib/storage/storageToken.ts) reuse this format instead of inventing a second
+ * scheme — through lib/scopedToken.ts, its byte-identical Web Crypto twin, since
+ * the storage path must not import Node's crypto. Each kind MUST carry claims the others lack — a download token has
  * `u` and no `p`; a storage token has `p` and no `u` — so one kind can never be
  * replayed as another, even though they share a key.
  */
@@ -62,10 +59,6 @@ export function signScopedToken(claims: Record<string, string>, ttlSec: number):
   const sig = b64url(crypto.createHmac("sha256", key).update(payload).digest());
   return `${payload}.${sig}`;
 }
-
-export type ScopedTokenCheck =
-  | { ok: true; claims: Record<string, unknown> }
-  | { ok: false; reason: "invalid" | "expired" };
 
 /** Verify signature + expiry of a token made by signScopedToken. The caller checks the claims. */
 export function verifyScopedToken(token: string | null | undefined): ScopedTokenCheck {
