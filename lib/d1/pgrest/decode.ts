@@ -108,22 +108,86 @@ export function selectOutputKey(item: SelectItem): string {
  * The name buildSql() gives item `i` in the SQL, and decodeRows() reads it back
  * under — or null for a star. Kept in one place so the halves cannot disagree.
  *
- * Usually the output key itself. Two cases can't use it: an arrow item fetches
- * the WHOLE column (the path is walked in JavaScript, see jsonPathValue), and a
- * list with a star in it holds every column under its own name, which an alias
- * like `value:key` would collide with in D1's row object. Those get a positional
- * name no select can spell — an alias can't contain `:`, nor `$`-suffixed digits
- * after a registry column.
+ * Never caller text. D1 hands a row back as an object, so two SQL columns with one
+ * name collapse into one, and an alias is whatever the caller put in `?select=`:
+ * PostgREST takes `rowid$:slug` and `json$2:key` as ordinary aliases. Naming SQL
+ * columns after aliases let a caller collide with the adapter's own names —
+ * `employers?select=id,rowid$:slug&order=name.asc` overwrote read.ts's rowid with
+ * the slug and dropped every row of the page (live: 3 rows, adapter []), and
+ * `app_settings?select=key,json$2:key,v:value->x` answered `json$2` with the value
+ * column. "Nobody would type that" is not a guarantee.
+ *
+ * So a plain item is named after its COLUMN — a registry name, and items that
+ * share it (`a:key,b:key`, `key,*`) share its value too — and an arrow item, whose
+ * value is not its column's, gets a positional name. The only names in a row are
+ * then the table's own columns and the adapter's, and tests/pgrestDecode.test.ts
+ * checks no registry column is spelled like one of the adapter's.
  */
 export function selectSqlKey(select: SelectItem[], i: number): string | null {
   const item = select[i];
   if (item.column === "*") return null;
-  if (item.jsonPath) return `json$${i}`;
-  return select.some((s) => s.column === "*") ? `sel$${i}` : selectOutputKey(item);
+  return item.jsonPath ? `sel$${i}` : item.column;
+}
+
+/**
+ * A key SQLite's JSON path grammar cannot spell as `."key"`: it ends the label at
+ * the first `"` whatever precedes it, reads a `\` as an escape — `$."\"` is "bad
+ * JSON path", which fails the WHOLE read with a 500 — and a control character or a
+ * lone surrogate does not survive the trip into SQLite's UTF-8 unchanged.
+ */
+const UNSPELLABLE_PATH_KEY = /["\\\x00-\x1f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+/**
+ * The keys of the leading steps of an arrow item's path that D1 walks itself
+ * (buildSql.ts arrowSql), so only the value they land on leaves the database;
+ * decodeRows walks the rest with jsonPathValue. buildSql and decodeRows both ask
+ * this one function, so the SQL and the reading of it cannot disagree.
+ *
+ * Walking nothing in SQL was a regression: `cv_langs:cv_draft->langs` fetched each
+ * candidate's WHOLE CV draft to hand back its languages — 289 KB out of D1 for a
+ * 34 KB answer over 85 candidates, on b2-overview, candidateSearchData and the
+ * assistant's B2 tool. What SQL walks is exactly what it gets right:
+ *  • `->key` steps at the start of the path, on a column holding JSON text (jsonb,
+ *    text[], uuid[]). SQLite's `->` returns a member's JSON TEXT, so `"51000"`
+ *    stays a string and `false` stays false (json_extract unquoted both), and on
+ *    anything but an object it finds nothing — Postgres' answer too;
+ *  • never an index. Postgres reads a JSON scalar as a one-element array
+ *    (`position->0` is 8, live) and SQLite's `$[0]` does not, so from the first
+ *    index on, the value SQL landed on is walked in JavaScript;
+ *  • never an unspellable key (UNSPELLABLE_PATH_KEY): the walk stops before it.
+ * A scalar column walks nothing in SQL: it has no document to leave behind.
+ */
+export function sqlArrowKeys(item: SelectItem, pg: PgType | undefined): string[] {
+  const keys: string[] = [];
+  if (pg !== "jsonb" && pg !== "text[]" && pg !== "uuid[]") return keys;
+  for (const op of item.jsonPath ?? []) {
+    if (!("key" in op) || UNSPELLABLE_PATH_KEY.test(op.key)) break;
+    keys.push(op.key);
+  }
+  return keys;
+}
+
+/** What `->>` makes of a JSON value: a string as itself, JSON null as null, anything else in jsonb's text form. */
+const asText = (v: unknown): unknown => (v === null ? null : typeof v === "string" ? v : jsonbText(v));
+
+/**
+ * An arrow item's value, from what buildSql fetched for it: the whole column when
+ * SQL walked none of the path, otherwise the JSON text of the value its first
+ * `walked` steps landed on (SQL NULL when they found nothing, or when the column
+ * does not hold valid JSON — which the JavaScript walk answers with null too).
+ */
+function arrowValue(raw: unknown, pg: PgType | undefined, ops: readonly JsonOp[], walked: number): unknown {
+  if (walked === 0) return jsonPathValue(raw, pg, ops);
+  if (walked < ops.length) return jsonPathValue(raw, "jsonb", ops.slice(walked));
+  const v = raw === null || raw === undefined ? null : decodeValue(raw, "jsonb");
+  return ops[ops.length - 1].arrow === "->>" ? asText(v) : v;
 }
 
 /** The positional names above, plus read.ts's rowid: never part of a response. */
-const INTERNAL_KEY = /^(?:(?:json|sel)\$\d+|rowid\$)$/;
+const INTERNAL_KEY = /^(?:sel\$\d+|rowid\$)$/;
+
+/** Whether D1 row key `key` is one the adapter made up rather than a table column. */
+export const isInternalSqlKey = (key: string): boolean => INTERNAL_KEY.test(key);
 
 /* ────────────────────────────── decoding ────────────────────────────── */
 
@@ -201,8 +265,9 @@ const isJsonObject = (v: unknown): v is Record<string, unknown> =>
  * SQLite's json_extract was the wrong tool three ways over: it hands a JSON
  * string back unquoted, so the decoder's JSON.parse turned `"51000"` into the
  * number 51000; it cannot tell `->` from `->>`; and it raises "malformed JSON" on
- * a column that isn't JSON, which failed the whole query with a 500. So buildSql
- * fetches the column and this walks it:
+ * a column that isn't JSON, which failed the whole query with a 500. SQL now walks
+ * only a path's leading keys, with `->` (sqlArrowKeys); this walks everything
+ * after them, and the whole path of a scalar column:
  *
  *  • the start is `to_jsonb(col)` — PostgREST wraps every non-json column that
  *    way (Plan.hs cfToJson), so `first_name->a` is null, not an error, and a
@@ -231,7 +296,7 @@ export function jsonPathValue(raw: unknown, pg: PgType | undefined, ops: readonl
       if (at < 0 || at >= elements.length) return null;
       v = elements[at];
     }
-    if (op.arrow === "->>") return v === null ? null : typeof v === "string" ? v : jsonbText(v);
+    if (op.arrow === "->>") return asText(v);
   }
   return v;
 }
@@ -319,31 +384,23 @@ export function decodeRows(
     });
   }
 
-  const hasStar = select.some((item) => item.column === "*");
   return rows.map((row) => {
     const out: Record<string, unknown> = {};
     select.forEach((item, i) => {
       if (item.column === "*") { starColumns(out, row, columns); return; }
       const key = selectOutputKey(item);
       const sqlKey = selectSqlKey(select, i)!;
-      // Read under the name buildSql gave it, falling back to the source column
-      // so either aliasing convention works — but only for a plain column in a
-      // star-free list. An arrow item gets NO such fallback: `cv_draft` in the row
-      // is the whole draft, not the extracted `langs`, so falling back there would
-      // hand `germanSummary({langs})` an entire (PII-heavy) CV document instead of
-      // the null PostgREST returns. A key present nowhere becomes null rather than
-      // an absent property, so the row shape stays stable — both for
-      // `rows.map(r => r.foo)` and for `p.cv_langs !== undefined`, which
-      // app/api/portal/admin/b2-overview/route.ts:69 branches on.
-      const raw = Object.prototype.hasOwnProperty.call(row, sqlKey)
-        ? row[sqlKey]
-        : !item.jsonPath && !hasStar && Object.prototype.hasOwnProperty.call(row, item.column)
-          ? row[item.column]
-          : null;
+      // A key present nowhere becomes null rather than an absent property, so the
+      // row shape stays stable — both for `rows.map(r => r.foo)` and for
+      // `p.cv_langs !== undefined`, which app/api/portal/admin/b2-overview/route.ts:69
+      // branches on. An arrow item never falls back to its source column: `cv_draft`
+      // beside it is the whole (PII-heavy) CV draft, not the extracted `langs`.
+      const raw = Object.prototype.hasOwnProperty.call(row, sqlKey) ? row[sqlKey] : null;
       const pg = columns?.[item.column]?.pg;
+      const value = item.jsonPath ? arrowValue(raw, pg, item.jsonPath, sqlArrowKeys(item, pg).length) : decodeValue(raw, pg);
       // A key written twice (`key,*`) keeps its first position and its last
       // value — exactly what JSON.parse makes of PostgREST's duplicate keys.
-      setKey(out, key, item.jsonPath ? jsonPathValue(raw, pg, item.jsonPath) : decodeValue(raw, pg));
+      setKey(out, key, value);
     });
     return out;
   });

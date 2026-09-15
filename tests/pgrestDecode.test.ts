@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
-import { decodeRows, decodeValue, encodeValue, jsonbText, jsonPathValue, selectOutputKey } from "@/lib/d1/pgrest/decode";
-import type { JsonOp, PgType, QueryIntent, Registry, SelectItem } from "@/lib/d1/pgrest/types";
+import { decodeRows, decodeValue, encodeValue, isInternalSqlKey, jsonbText, jsonPathValue, selectOutputKey, sqlArrowKeys } from "@/lib/d1/pgrest/decode";
+import { buildSql } from "@/lib/d1/pgrest/buildSql";
+import type { BuiltQuery, JsonOp, PgType, QueryIntent, Registry, SelectItem } from "@/lib/d1/pgrest/types";
 
 /**
  * The PostgREST→D1 value codec (Supabase → D1 migration, step 3).
@@ -150,13 +151,14 @@ describe("decodeRows — explicit select list", () => {
 });
 
 describe("decodeRows — aliases", () => {
-  it("returns an aliased column under the alias", () => {
-    const out = decodeRows([{ flag: 1 }], intent({ table: "documents", select: [col("uploaded_by_admin", "flag")] }), REGISTRY);
-    expect(out).toEqual([{ flag: true }]);
-  });
-  it("also reads the value under the source column, so either buildSql aliasing convention works", () => {
+  it("returns an aliased column under the alias, read from the column buildSql named it after", () => {
     const out = decodeRows([{ uploaded_by_admin: 1 }], intent({ table: "documents", select: [col("uploaded_by_admin", "flag")] }), REGISTRY);
     expect(out).toEqual([{ flag: true }]);
+  });
+  it("never reads a value under the alias: that name is caller text, and could be one of the adapter's", () => {
+    // `select=id,rowid$:slug` once overwrote read.ts's rowid; nothing in a row is named by an alias now.
+    const out = decodeRows([{ flag: 1, "rowid$": 7 }], intent({ table: "documents", select: [col("uploaded_by_admin", "flag"), col("file_type", "rowid$")] }), REGISTRY);
+    expect(out).toEqual([{ flag: null, "rowid$": null }]);
   });
   it("emits null (not a missing property) when neither key is present", () => {
     const out = decodeRows([{ something_else: 1 }], intent({ table: "documents", select: [col("file_type")] }), REGISTRY);
@@ -170,14 +172,12 @@ describe("decodeRows — aliases", () => {
     // disappear from the JSON body (or re-prototype the row for an object value).
     // The fixtures go through JSON.parse for the same reason — `{ __proto__: x }`
     // in a literal is the prototype, not a column.
-    const row = JSON.parse('{"__proto__":"passport"}') as Record<string, unknown>;
-    const out = decodeRows([row], intent({ table: "documents", select: [col("file_type", "__proto__")] }), REGISTRY);
+    const out = decodeRows([{ file_type: "passport" }], intent({ table: "documents", select: [col("file_type", "__proto__")] }), REGISTRY);
     expect(Object.prototype.hasOwnProperty.call(out[0], "__proto__")).toBe(true);
     expect(JSON.stringify(out[0])).toBe('{"__proto__":"passport"}');   // what PostgREST sends
 
     // An object value must not end up as the row's prototype either.
-    const jsonRow = JSON.parse('{"__proto__":"{\\"is_admin\\":true}"}') as Record<string, unknown>;
-    const objValue = decodeRows([jsonRow], intent({ table: "candidate_profiles", select: [col("cv_draft", "__proto__")] }), REGISTRY);
+    const objValue = decodeRows([{ cv_draft: '{"is_admin":true}' }], intent({ table: "candidate_profiles", select: [col("cv_draft", "__proto__")] }), REGISTRY);
     expect(Object.getPrototypeOf(objValue[0])).toBe(Object.prototype);
     expect(JSON.stringify(objValue[0])).toBe('{"__proto__":{"is_admin":true}}');
   });
@@ -192,21 +192,40 @@ describe("decodeRows — the one json-path alias, cv_langs:cv_draft->langs", () 
   });
   const langs = [{ name: "Deutsch", level: "B2", detail: { written: "yes" } }];
 
-  it("walks the fetched column and returns the sub-tree under the alias", () => {
-    // buildSql fetches the whole column under `json$<position>`.
-    const out = decodeRows([{ user_id: "u1", b2_stage: "b2_passed", "json$2": JSON.stringify({ langs, city: "x" }) }], it_, REGISTRY);
+  it("reads the sub-tree the SQL walk hands back, under the alias", () => {
+    // buildSql walks the path's keys in SQL and names the value they land on `sel$<position>`.
+    const out = decodeRows([{ user_id: "u1", b2_stage: "b2_passed", "sel$2": JSON.stringify(langs) }], it_, REGISTRY);
+    expect(out).toEqual([{ user_id: "u1", b2_stage: "b2_passed", cv_langs: langs }]);
+  });
+  it("reads a mutation's RETURNING the same way: one rule, whatever the statement", () => {
+    const out = decodeRows([{ user_id: "u1", b2_stage: "b2_passed", "sel$2": JSON.stringify(langs) }], { ...it_, action: "update" }, REGISTRY);
     expect(out).toEqual([{ user_id: "u1", b2_stage: "b2_passed", cv_langs: langs }]);
   });
   it("gives null for a missing path — the callers branch on `!== undefined`, so null must not be dropped", () => {
-    const out = decodeRows([{ user_id: "u1", b2_stage: null, "json$2": "{}" }], it_, REGISTRY);
+    const out = decodeRows([{ user_id: "u1", b2_stage: null, "sel$2": null }], it_, REGISTRY);
     expect(out[0].cv_langs).toBe(null);
     expect("cv_langs" in out[0]).toBe(true);
   });
   it("names an un-aliased path after its last key, and keeps a star's columns beside it", () => {
     const select: SelectItem[] = [{ column: "*" }, { column: "cv_draft", jsonPath: [{ arrow: "->", key: "langs" }, { arrow: "->", index: 0 }] }];
     const draft = JSON.stringify({ langs: [{ name: "Deutsch" }] });
-    const out = decodeRows([{ user_id: "u1", cv_draft: draft, "json$1": draft }], intent({ table: "candidate_profiles", select }), REGISTRY)[0];
+    // SQL walked `langs`; the index is taken here, from what it landed on.
+    const out = decodeRows([{ user_id: "u1", cv_draft: draft, "sel$1": JSON.stringify([{ name: "Deutsch" }]) }], intent({ table: "candidate_profiles", select }), REGISTRY)[0];
     expect(out).toEqual({ user_id: "u1", cv_draft: { langs: [{ name: "Deutsch" }] }, langs: { name: "Deutsch" } });
+  });
+  it("walks in SQL only the leading keys SQLite can spell, on a column that holds JSON", () => {
+    const item = (column: string, ...steps: (string | number)[]): SelectItem => ({
+      column, jsonPath: steps.map((s) => (typeof s === "number" ? { arrow: "->" as const, index: s } : { arrow: "->>" as const, key: s })),
+    });
+    const keys = (column: string, table: string, ...steps: (string | number)[]) => sqlArrowKeys(item(column, ...steps), REGISTRY[table].columns[column].pg);
+    expect(keys("cv_draft", "candidate_profiles", "langs", "x", 0, "name")).toEqual(["langs", "x"]);
+    expect(keys("cv_draft", "candidate_profiles", "", "a.b", "😀")).toEqual(["", "a.b", "😀"]);
+    expect(keys("cv_draft", "candidate_profiles", "a", 'b"c', "d")).toEqual(["a"]);
+    expect(keys("cv_draft", "candidate_profiles", "a\\b")).toEqual([]);
+    expect(keys("cv_draft", "candidate_profiles", "a\x01")).toEqual([]);
+    expect(keys("cv_draft", "candidate_profiles", "\ud800")).toEqual([]);                  // a lone surrogate
+    expect(keys("doc_keys", "upload_links", "x")).toEqual(["x"]);                           // text[]
+    expect(keys("first_name", "candidate_profiles", "x")).toEqual([]);                      // text: nothing to leave behind
   });
   it("never falls back to the source column — that would return the whole CV draft", () => {
     // The alias fallback exists for plain columns. For a json path the source
@@ -225,7 +244,7 @@ describe("decodeRows — the one json-path alias, cv_langs:cv_draft->langs", () 
   it("does NOT decode the sub-tree as the parent column's type by accident", () => {
     // cv_draft is jsonb; a path that lands on a boolean must stay a boolean,
     // not be run through the boolean 0/1 rules.
-    const out = decodeRows([{ "json$0": '{"langs":false}' }], intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] }), REGISTRY);
+    const out = decodeRows([{ "sel$0": "false" }], intent({ table: "candidate_profiles", select: [col("cv_draft", "cv_langs", "langs")] }), REGISTRY);
     expect(out[0].cv_langs).toBe(false);
   });
 });
@@ -510,21 +529,20 @@ describe.skipIf(!DatabaseSync)("decodeRows on values a real SQLite produces", ()
     expect(out).toEqual([{ id: "d1", file_type: "passport", rotation: 90, uploaded_by_admin: true, superseded_at: null }]);
   });
 
-  it("walks the cv_langs sub-tree out of the whole column buildSql fetches", () => {
-    const row = db!.prepare(`select "user_id", "cv_draft" as "json$1" from candidate_profiles`).get()!;
-    const out = decodeRows([row], intent({
-      table: "candidate_profiles",
-      select: [col("user_id"), col("cv_draft", "cv_langs", "langs")],
-    }), REGISTRY);
-    expect(out).toEqual([{ user_id: "u1", cv_langs: draft.langs }]);
+  it("walks the cv_langs key in SQL, and hands back only that sub-tree", () => {
+    const sel = intent({ table: "candidate_profiles", select: [col("user_id"), col("cv_draft", "cv_langs", "langs")] });
+    const q = buildSql(sel, REGISTRY) as BuiltQuery;
+    const row = db!.prepare(q.sql).get(...q.params)!;
+    expect(row["sel$1"]).toBe(JSON.stringify(draft.langs));          // the sub-tree, not the draft
+    expect(decodeRows([row], sel, REGISTRY)).toEqual([{ user_id: "u1", cv_langs: draft.langs }]);
   });
 
-  it("shows why the path is not json_extract's: it unquotes strings and turns false into 0", () => {
+  it("walks with `->`, which keeps JSON's types, where json_extract unquoted strings and turned false into 0", () => {
     const extracted = db!.prepare(`select json_extract("cv_draft",'$.note') as a, json_extract("cv_draft",'$.done') as c from candidate_profiles`).get()!;
     expect([extracted.a, extracted.c]).toEqual(["hi", 0]);
-    const whole = db!.prepare(`select "cv_draft" as "json$0", "cv_draft" as "json$1", "cv_draft" as "json$2" from candidate_profiles`).get()!;
     const sel = intent({ table: "candidate_profiles", select: [col("cv_draft", "a", "note"), col("cv_draft", "b", "count"), col("cv_draft", "c", "done")] });
-    expect(decodeRows([whole], sel, REGISTRY)).toEqual([{ a: "hi", b: 7, c: false }]);
+    const q = buildSql(sel, REGISTRY) as BuiltQuery;
+    expect(decodeRows([db!.prepare(q.sql).get(...q.params)!], sel, REGISTRY)).toEqual([{ a: "hi", b: 7, c: false }]);
   });
 
   it("round-trips an encoded row through real storage", () => {
@@ -568,5 +586,13 @@ describe("a full row survives the round trip", () => {
     for (const v of Object.values(stored)) expect(["string", "number", "object"]).toContain(typeof v);
 
     expect(decodeRows([stored], intent({ table: "upload_links", select: "*" }), REGISTRY)[0]).toEqual(original);
+  });
+});
+
+describe("the adapter's own SQL names", () => {
+  it("are spelled like no column of any table, so a star's columns can never be mistaken for one", () => {
+    const clashes = Object.entries(REGISTRY).flatMap(([t, m]) => Object.keys(m.columns).filter(isInternalSqlKey).map((c) => `${t}.${c}`));
+    expect(clashes).toEqual([]);
+    expect([isInternalSqlKey("sel$12"), isInternalSqlKey("rowid$"), isInternalSqlKey("json$1"), isInternalSqlKey("file_type")]).toEqual([true, true, false, false]);
   });
 });

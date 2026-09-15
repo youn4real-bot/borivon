@@ -52,7 +52,7 @@ import type {
 // byte-for-byte with the rows d1/export-data.mjs already wrote — and a
 // disagreement is invisible: the filter simply stops matching. Both imports are
 // pure functions; nothing else of decode.ts is used.
-import { encodeValue, selectSqlKey } from "./decode";
+import { encodeValue, selectSqlKey, sqlArrowKeys } from "./decode";
 // The write half of Postgres' type checking: what a column's input function makes
 // of a payload value, or the 22P02 / 22007 / 22008 it refuses it with.
 import { isInputError, jsonbStoredText, writeInput } from "./pgInput";
@@ -189,20 +189,40 @@ function requireColumn(ctx: Ctx, name: string): ColumnMeta {
  *
  * Each item is named by decode.ts's selectSqlKey(), which is also what
  * decodeRows() reads the row back under — computing it here instead would
- * silently drop a column the moment the two rules disagree. An arrow item
- * fetches its WHOLE column, and decode.ts walks the path (jsonPathValue):
- * SQLite's JSON functions unquote a string (`"51000"` came back as a number),
- * have no `->>` that returns jsonb's text, and raise "malformed JSON" — a 500 for
- * the whole query — on a column that isn't JSON, where PostgREST answers null.
+ * silently drop a column the moment the two rules disagree. An arrow item fetches
+ * only what its leading keys land on when SQL can walk them (decode.ts
+ * sqlArrowKeys), and its whole column otherwise.
  */
 function selectList(ctx: Ctx, select: SelectItem[] | "*"): string {
   if (select === "*" || select.length === 0) return "*";   // `.select()` after a mutation = return everything
   return select.map((item, i) => {
     if (item.column === "*") return "*";
-    requireColumn(ctx, item.column);
+    const col = requireColumn(ctx, item.column);
     const key = selectSqlKey(select, i)!;
-    return key !== item.column ? `${qi(item.column)} AS ${qi(key)}` : qi(item.column);
+    const keys = sqlArrowKeys(item, col.pg);
+    const value = keys.length ? arrowSql(ctx, item.column, keys) : qi(item.column);
+    return key !== item.column || keys.length ? `${value} AS ${qi(key)}` : value;
   }).join(", ");
+}
+
+/**
+ * `col->a->b` as one SQLite `->` with the bound path `$."a"."b"`, landing on the
+ * member's JSON TEXT: a string keeps its quotes, where json_extract handed `"51000"`
+ * back as the number 51000, and a step onto anything but an object finds NULL, as
+ * in Postgres. One operator and one parameter whatever the path's length, so a long
+ * path grows neither the expression depth nor the parameter count D1 caps at 100;
+ * the keys travel as a value and never become SQL text.
+ *
+ * json_valid() first: `->` on text that is not JSON raises "malformed JSON" and
+ * fails the whole read with a 500, where PostgREST answers null. The jsonb, text[]
+ * and uuid[] columns all carry a CHECK json_valid in d1/schema.sql, so this only
+ * guards a row written around it — which then reads as null, as decode.ts's walk
+ * reads it.
+ */
+function arrowSql(ctx: Ctx, column: string, keys: readonly string[]): string {
+  const ref = qi(column);
+  ctx.params.push(`$${keys.map((key) => `."${key}"`).join("")}`);
+  return `CASE WHEN json_valid(${ref}) THEN ${ref} -> ? END`;
 }
 
 /* ─────────────────────────────── WHERE ─────────────────────────────── */

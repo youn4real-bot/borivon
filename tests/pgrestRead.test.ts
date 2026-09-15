@@ -5,7 +5,7 @@ import { parseParts, isPgrestError } from "../lib/d1/pgrest/parseRequest";
 import { respond } from "../lib/d1/pgrest/respond";
 import { SORT_ROW_LIMIT } from "../lib/d1/pgrest/buildSql";
 import { compareText, sortRows } from "../lib/d1/pgrest/collate";
-import type { PostgrestError, QueryIntent, Registry } from "../lib/d1/pgrest/types";
+import type { JsonOp, PostgrestError, QueryIntent, Registry } from "../lib/d1/pgrest/types";
 
 /**
  * Reads the adapter answers in more than one statement (lib/d1/pgrest/read.ts),
@@ -178,7 +178,110 @@ describe.skipIf(!DatabaseSync)("runSelect against the real D1 schema", () => {
     expect([res.status, Object.keys(await res.json())]).toEqual([500, ["code", "details", "hint", "message"]]);
   });
 
-  it("walks arrow selects out of the whole column, and keeps a star's columns beside them", async () => {
+  it("names SQL columns so no alias can collide with the adapter's own, on the text-sort path too", async () => {
+    const rows = async (query: string) => ok(await runSelect(request(query), registry, run)).rows;
+    // live: employers?select=id,rowid$:slug&order=name.asc&limit=3 is 3 rows; the adapter answered [].
+    const page = await rows("select=id,rowid$:file_name,sort$0:file_type&order=file_type.asc,id.asc&limit=3");
+    expect(page.map((r) => Object.keys(r).join())).toEqual(["id,rowid$,sort$0", "id,rowid$,sort$0", "id,rowid$,sort$0"]);
+    expect(page.map((r) => r["sort$0"])).toEqual(SORTED.slice(0, 3));
+    expect(page.every((r) => /^f\d\.pdf$/.test(String(r["rowid$"])))).toBe(true);
+    // live: app_settings?select=key,json$2:key,v:value->x answers json$2 with the key, not another column.
+    const [one] = await rows("select=file_type,json$2:file_name,sel$0:file_path,v:user_id->x,sel$3:file_name&file_name=eq.f1.pdf");
+    expect(one).toEqual({ file_type: "abitur.PDF", "json$2": "f1.pdf", "sel$0": "p1", v: null, "sel$3": "f1.pdf" });
+  });
+
+  it("walks a JSON column's keys in SQL to exactly the value the JavaScript walk finds, moving only that value", async () => {
+    const { jsonPathValue } = await import("../lib/d1/pgrest/decode");
+    const db = new DatabaseSync!(":memory:");
+    db.exec(fs.readFileSync("d1/schema.sql", "utf8"));
+    // Every shape the real schema lets a jsonb column hold (its CHECK json_valid refuses the rest)…
+    const stored = [
+      { postalCode: "51000", city: "EL HAJEB", zero: 0, off: false, n: null, big: 1e21, small: 1e-7, u: "ü", "": "empty", "a]b": 1, $: 2, "\\": 3,
+        'q"uote': 4, "\n": 5, "😀": { "a.b": 6 }, __proto__x: 7, esc: "a\"b\\c\x01\u2028/",
+        langs: [{ name: "Deutsch", level: "B2" }, { name: "Arabisch", level: "Muttersprache" }], "a.b": { "x y": [1, [2, 3]] }, 1: ["09:00", "14:00"] },
+      "just a string", 5, true, null, [], {}, [1, "2", null, { a: [true] }], [[[[[[[[[["deep"]]]]]]]]]],
+      { a: { a: { a: { a: { a: { a: { a: { a: { a: { a: "ten keys down" } } } } } } } } } },
+    ].map((v) => JSON.stringify(v));
+    const id = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+    const insert = db.prepare(`INSERT INTO candidate_profiles (user_id, cv_draft, passport_confirmed_fields) VALUES (?, ?, '{}')`);
+    stored.forEach((s, i) => insert.run(id(i), s));
+    // …and rows written around that CHECK (before it existed, or with it switched off), which
+    // decodeValue reads as JSON strings: `->` on them raised "malformed JSON", a 500 for the read.
+    db.exec("PRAGMA ignore_check_constraints = ON");
+    for (const bad of ["not json at all", "", "{bad", '{"a":1,}']) insert.run(id(stored.push(bad) - 1), bad);
+    db.exec("PRAGMA ignore_check_constraints = OFF");
+
+    const statements: { sql: string; params: unknown[]; arrowBytes: number }[] = [];
+    const counted: Run = async (sql, params) => {
+      const results = db.prepare(sql).all(...(params as never[]));
+      statements.push({ sql, params, arrowBytes: JSON.stringify(results.map((r) => r["sel$1"] ?? null)).length });
+      return { results, meta: {} };
+    };
+    const k = (key: string, arrow: "->" | "->>" = "->"): JsonOp => ({ arrow, key });
+    const n = (index: number, arrow: "->" | "->>" = "->"): JsonOp => ({ arrow, index });
+    const keysDown = (count: number, last: "->" | "->>" = "->") => Array.from({ length: count }, (_, i) => k("a", i === count - 1 ? last : "->"));
+    const paths: JsonOp[][] = [
+      [k("postalCode")], [k("postalCode", "->>")], [k("zero")], [k("off", "->>")], [k("n")], [k("n", "->>")], [k("langs")], [k("langs", "->>")],
+      [k("langs"), n(0)], [k("langs"), n(0, "->>")], [k("langs"), n(-1), k("level")], [k("langs"), n(-1), k("level", "->>")], [k("langs"), n(-3)],
+      [k("langs"), n(2)], [k("city"), n(0)], [k("city"), n(-1)], [k("city"), n(1)], [k("city"), n(0, "->>")], [n(0)], [n(-1)], [n(1)], [n(0, "->>")],
+      [n(3)], [n(3), k("a"), n(0)], [n(3), k("a"), n(-1, "->>")], [k("langs"), k("name")], [k("missing")], [k("missing"), n(0)], [k("big")], [k("big", "->>")],
+      [k("small", "->>")], [k("u")], [k("a.b"), k("x y"), n(1), n(-1)], [k("a.b"), k("x y", "->>")], [k("1")], [k("1", "->>")], [k("1"), n(-1, "->>")],
+      [k("")], [k("a]b")], [k("$")], [k("\\")], [k('q"uote')], [k("\n")], [k("😀"), k("a.b")], [k("__proto__x")], [k("esc")], [k("esc", "->>")],
+      [k("langs"), k("\\"), n(0)], [k("n"), n(0)], [k("n"), n(-1, "->>")], [k("n"), n(1)], [k("postalCode"), n(0)], [k("postalCode"), n(-1, "->>")],
+      keysDown(10), keysDown(10, "->>"), keysDown(9), [...keysDown(10), n(0)], [...keysDown(10), n(0, "->>")], keysDown(200),
+    ];
+    const problems: string[] = [];
+    for (const ops of paths) {
+      const base = request("select=user_id&order=user_id.asc", { table: "candidate_profiles" });
+      const r = ok(await runSelect({ ...base, select: [{ column: "user_id" }, { column: "cv_draft", alias: "x", jsonPath: ops }] }, registry, counted));
+      // SQL walks the leading keys it can spell, as one path; JavaScript walks from there.
+      const lead: string[] = [];
+      for (const op of ops) { if (!("key" in op) || /["\\\x00-\x1f]/.test(op.key)) break; lead.push(op.key); }
+      const last = statements[statements.length - 1];
+      const label = JSON.stringify(ops).slice(0, 120);
+      const path = lead.length ? [`$${lead.map((key) => `."${key}"`).join("")}`] : [];
+      // The params are the path, then the LIMIT runSelect caps every read with.
+      if (JSON.stringify(last.params.slice(0, -1)) !== JSON.stringify(path) || last.sql.includes(`"cv_draft" AS`) === lead.length > 0) {
+        problems.push(`${label}: SQL walked ${JSON.stringify(last.params).slice(0, 80)}, expected ${lead.length} keys`);
+      }
+      r.rows.forEach((row, i) => {
+        const expected = jsonPathValue(stored[i], "jsonb", ops);
+        if (JSON.stringify(row.x) !== JSON.stringify(expected)) problems.push(`${label} on row ${i}: ${JSON.stringify(row.x)} ≠ ${JSON.stringify(expected)}`);
+      });
+    }
+    expect(problems).toEqual([]);
+    // Only the landing value leaves the database: `->postalCode` moves a sliver of what the drafts hold.
+    const draftBytes = stored.reduce((sum, s) => sum + s.length, 0);
+    expect(statements[0].arrowBytes).toBeLessThan(draftBytes / 3);
+
+    // A mutation's RETURNING is built by the same rule — here past D1's 100 parameters, where
+    // fitParams packs every operand, the path included, into one JSON array.
+    const { makeBvFetch } = await import("../lib/d1/bvFetch");
+    const { createClient } = await import("@supabase/supabase-js");
+    const client = createClient("http://127.0.0.1:9/", "test-key", {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { fetch: makeBvFetch({ runner: { run: (sql, params = []) => counted(sql, params) }, passthrough: (async () => { throw new Error("offline"); }) as unknown as typeof fetch }) },
+    });
+    const ids = stored.map((_, i) => id(i));
+    const matchAll = [...ids, ...Array.from({ length: 100 - ids.length }, (_, i) => id(1000 + i))].map((u) => `user_id.eq.${u}`).join(",");
+    const upd = await client.from("candidate_profiles").update({ first_name: "Probe" }).or(matchAll)
+      .select("user_id,x:cv_draft->langs->-1->>level,y:cv_draft->postalCode,z:cv_draft->a->a->a");
+    expect(upd.error).toBeNull();
+    expect(statements[statements.length - 1].params).toHaveLength(1);                   // packed: SET + 100 operands + 3 paths
+    // postgrest-js's select-string type parser cannot read `->-1->>level`; the rows are plain records.
+    const byId = new Map(((upd.data ?? []) as unknown as Record<string, unknown>[]).map((row) => [row.user_id, row]));
+    expect(byId.size).toBe(stored.length);
+    for (const [i, s] of stored.entries()) {
+      expect(byId.get(id(i)), `row ${i}`).toEqual({
+        user_id: id(i),
+        x: jsonPathValue(s, "jsonb", [k("langs"), n(-1), k("level", "->>")]),
+        y: jsonPathValue(s, "jsonb", [k("postalCode")]),
+        z: jsonPathValue(s, "jsonb", keysDown(3)),
+      });
+    }
+  });
+
+  it("walks arrow selects in SQL, and keeps a star's columns beside them", async () => {
     const one = async (select: string) =>
       ok(await runSelect(request(`select=${encodeURIComponent(select)}`, { table: "candidate_profiles" }), registry, run)).rows[0];
     expect(await one("user_id,cv_draft->postalCode,l:cv_draft->>langs,cv_draft->langs->0,first_name->a,c:cv_draft->city->-1")).toEqual({

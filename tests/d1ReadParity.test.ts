@@ -133,6 +133,22 @@ describe.skipIf(!ENABLED)("reads answer exactly like Supabase", () => {
         .map((s) => `app_settings?select=${s}&key=eq.bot_quiet`),
       ...["key,value->,key", "key,value->a,", "key,value->%3E", "key,value->(x", "key,value->a%2Cb", "id,"].map((s) => `app_settings?select=${s}`),
       "nosuchtable?select=a->", "documents?select=id,org:organizations(name)&limit=-1", "documents?select=id,nope->a&limit=1",
+      // Aliases spelled like the adapter's own SQL names must be plain aliases.
+      "employers?select=id,rowid$:slug&order=name.asc&limit=3", "employers?select=rowid$:name,sel$0:slug,id&order=name.asc,id.asc",
+      "app_settings?select=key,json$2:key,v:value->x&key=eq.bot_quiet", "app_settings?select=*,sel$2:key,sel$1:value&key=eq.bot_quiet",
+      "app_settings?select=sel$1:key,sel$0:value->x,json$0:key&order=key.asc", "app_settings?select=sort$0:key,rowid$:value&order=key.desc&limit=2",
+      "documents?select=id,rowid$:file_type,sort$0:id&order=file_type.asc,id.asc&limit=5", "app_settings?select=j$:value->0,like$v:key&order=key.asc",
+      // SQL walks a path's leading keys; indexes after them, keys SQLite's path grammar cannot
+      // spell (`"`, `\`), and deep or long paths are walked from wherever SQL stopped.
+      "phase_doc_order?select=a:order_keys->0->0->0->0->0->0->0->0,b:order_keys->0->0->0->0->0->0->0->0->0,c:order_keys->-1->-1->-1->-1->-1->-1->-1->>-1",
+      "candidate_profiles?select=user_id,a:cv_draft->langs->0->0->-1->0->-1->>0,b:cv_draft->langs->-1->0->-1->0->-1->0->name&order=user_id.asc",
+      'candidate_profiles?select=user_id,a:cv_draft->"x\\"y",b:cv_draft->>"a]b",c:cv_draft->"$",d:cv_draft->"\\\\",e:cv_draft->"a.b"->0,f:cv_draft->"langs"->>"0"&order=user_id.asc',
+      'candidate_profiles?select=user_id,a:cv_draft->langs->"a\\\\b"->0,b:cv_draft->workEntries->"x\\"y"->>0,c:cv_draft->langs->0->name->0,d:cv_draft->eduEntries->-1->>degree&order=user_id.asc',
+      `candidate_profiles?select=user_id,a:cv_draft${"->langs".repeat(60)},b:cv_draft${"->x".repeat(150)}->>y,c:cv_draft->langs${"->0".repeat(40)}&order=user_id.asc`,
+      "candidate_profiles?select=user_id,a:cv_draft->workEntries->0,b:cv_draft->>workEntries,c:cv_draft->%F0%9F%98%80,d:cv_draft->%C3%BC->x&order=user_id.asc",
+      "organizations?select=id,a:required_doc_keys->x,b:required_doc_keys->>x->y&order=id.asc", "calendar_events?select=id,a:attendee_ids->x&order=id.asc",
+      // The three real call sites' select lists, whole.
+      "candidate_profiles?select=user_id,phone,nationality,sex,marital_status,city_of_birth,city_of_residence,passport_status,passport_expiry,b2_stage,b2_failed,b2_exam_date,nursing_specialty,years_experience,workplace_pref,placement_ready,manually_verified,available_from,employer_id,is_test_account,profile_photo,cv_langs:cv_draft->langs&order=user_id.asc",
     ].map((c): Case => (typeof c === "string" ? ["GET", c] : c));
     expect(await mismatches(cases)).toEqual([]);
   }, 900_000);

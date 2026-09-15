@@ -54,30 +54,65 @@ describe("select", () => {
     })).sql).toBe(`SELECT "id", "file_name" FROM "documents"`);
   });
 
-  it("aliases a column, and fetches an arrow item's whole column for decode.ts to walk", () => {
+  it("names a plain item after its column, and walks an arrow item's leading keys in SQL", () => {
+    // The alias is decode.ts's business: caller text never names an SQL column.
     expect(ok(intent({ table: "documents", select: [{ column: "file_name", alias: "n" }] })).sql)
-      .toBe(`SELECT "file_name" AS "n" FROM "documents"`);
+      .toBe(`SELECT "file_name" FROM "documents"`);
     const q = ok(intent({
       table: "candidate_profiles",
       select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] }],
     }));
-    // No json_extract: it unquoted `"51000"` into a number, has no `->>`, and
-    // raised "malformed JSON" (a 500) on a text column. The path is walked in decode.ts.
-    expect(q.sql).toBe(`SELECT "user_id", "cv_draft" AS "json$1" FROM "candidate_profiles"`);
-    expect(q.params).toEqual([]);
+    // `->` keeps a JSON string quoted (json_extract turned `"51000"` into a number),
+    // json_valid() keeps a non-JSON value from failing the read, and the key is bound.
+    expect(q.sql).toBe(`SELECT "user_id", CASE WHEN json_valid("cv_draft") THEN "cv_draft" -> ? END AS "sel$1" FROM "candidate_profiles"`);
+    expect(q.params).toEqual(['$."langs"']);
   });
 
-  it("names every item the way decode.ts will read it back, star lists included", () => {
+  it("walks keys up to the first index or unspellable key in SQL, as ONE path parameter", () => {
+    const arrow = (column: string, ...steps: (string | number)[]) => ({
+      column, jsonPath: steps.map((s) => (typeof s === "number" ? { arrow: "->" as const, index: s } : { arrow: "->" as const, key: s })),
+    });
+    const walked = (item: ReturnType<typeof arrow>, table = "candidate_profiles") => {
+      const q = ok(intent({ table, select: [item] }));
+      return [q.sql.replace(/ FROM .*/, ""), ...q.params];
+    };
+    const inSql = (column: string) => `SELECT CASE WHEN json_valid("${column}") THEN "${column}" -> ? END AS "sel$0"`;
+    expect(walked(arrow("cv_draft", "langs", 0, "name"))).toEqual([inSql("cv_draft"), '$."langs"']);
+    expect(walked(arrow("cv_draft", "a.b", "", "x y", "ü", "$", "a]b"))).toEqual([inSql("cv_draft"), '$."a.b".""."x y"."ü"."$"."a]b"']);
+    // `$."\"` is "bad JSON path" (a 500 for the read) and `"` ends the label: stop before them.
+    expect(walked(arrow("cv_draft", "a", "b\\c", "d"))).toEqual([inSql("cv_draft"), '$."a"']);
+    expect(walked(arrow("cv_draft", 'x"y'))).toEqual([`SELECT "cv_draft" AS "sel$0"`]);
+    expect(walked(arrow("cv_draft", "a\nb"))).toEqual([`SELECT "cv_draft" AS "sel$0"`]);
+    // An index first, or a column that holds no JSON: the column, walked in decode.ts.
+    expect(walked(arrow("order_keys", 0), "phase_doc_order")).toEqual([`SELECT "order_keys" AS "sel$0"`]);
+    expect(walked(arrow("first_name", "a"))).toEqual([`SELECT "first_name" AS "sel$0"`]);
+    // A long path is still one operator and one parameter: no expression depth, no 100-parameter ceiling.
+    const long = walked(arrow("cv_draft", ...Array.from({ length: 300 }, (_, i) => `k${i}`)));
+    expect([long[0], long.length]).toEqual([inSql("cv_draft"), 2]);
+  });
+
+  it("names every item the way decode.ts will read it back, whatever the caller aliased it", () => {
     const langs0 = { column: "cv_draft", jsonPath: [{ arrow: "->" as const, key: "langs" }, { arrow: "->" as const, index: 0 }] };
     expect(selectOutputKey(langs0)).toBe("langs");     // PostgREST's last KEY, not the index
     expect(ok(intent({ table: "candidate_profiles", select: [langs0] })).sql)
-      .toBe(`SELECT "cv_draft" AS "json$0" FROM "candidate_profiles"`);
-    // `*` among other items: every column under its own name, so a plain item gets
-    // a positional name that an alias like `value:key` can't collide with.
+      .toBe(`SELECT CASE WHEN json_valid("cv_draft") THEN "cv_draft" -> ? END AS "sel$0" FROM "candidate_profiles"`);
     expect(ok(intent({ table: "app_settings", select: [{ column: "key", alias: "value" }, { column: "*" }] })).sql)
-      .toBe(`SELECT "key" AS "sel$0", * FROM "app_settings"`);
+      .toBe(`SELECT "key", * FROM "app_settings"`);
+    // app_settings.value is text: an arrow on it fetches the column for decode.ts to walk.
     expect(ok(intent({ table: "app_settings", select: [{ column: "*" }, { column: "value", alias: "v", jsonPath: [{ arrow: "->", index: 0 }] }] })).sql)
-      .toBe(`SELECT *, "value" AS "json$1" FROM "app_settings"`);
+      .toBe(`SELECT *, "value" AS "sel$1" FROM "app_settings"`);
+    // Aliases spelled like the adapter's own names reach no SQL name at all
+    // (live: employers?select=id,rowid$:slug emptied a text-ordered page).
+    for (const alias of ["rowid$", "json$1", "sel$1", "sort$0", "j$", 'a"b']) {
+      expect(ok(intent({ table: "app_settings", select: [{ column: "key", alias }, { column: "value", alias: "sel$0" }] })).sql)
+        .toBe(`SELECT "key", "value" FROM "app_settings"`);
+    }
+    // A mutation's RETURNING is built by the same rule, its path bound after the WHERE's operands.
+    const del = ok(intent({ table: "candidate_profiles", action: "delete", returning: "representation", where: [cmp("user_id", "eq", U1)], select: [langs0] }));
+    expect([del.sql, del.params]).toEqual([
+      `DELETE FROM "candidate_profiles" WHERE "user_id" = ? RETURNING CASE WHEN json_valid("cv_draft") THEN "cv_draft" -> ? END AS "sel$0"`,
+      [U1, '$."langs"'],
+    ]);
   });
 
   it("emits every comparison filter with one placeholder per value", () => {
