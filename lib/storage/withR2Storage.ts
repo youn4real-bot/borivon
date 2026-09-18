@@ -24,10 +24,9 @@
  * through the ORIGINAL storage client, so a delete really deletes and a
  * rollback finds every file written meanwhile.
  *
- * Safe to import from lib/supabase.ts, which is in the BROWSER bundle: this
- * file imports nothing at runtime. The handler (crypto, lib/r2, the AWS SDK)
- * is loaded on the first storage call, server-side only — a static import here
- * would ship all of that to every portal page (tests/r2Storage.test.ts guards it).
+ * This file imports nothing at runtime (tests/r2Storage.test.ts guards it): the
+ * media routes and lib/storage/serviceStorage.ts read the flags from here, and
+ * the handler (lib/r2, the AWS SDK) is loaded on the first storage call only.
  *
  * The vars (wrangler.jsonc, never .env.local — OpenNext bakes that file in):
  *   STORAGE_BACKEND          unset   : Supabase, routes 404 — the site as it is today
@@ -41,9 +40,13 @@
  *                            Supabase in step, which costs latency, not files.
  *   STORAGE_MEDIA_ROUTES     "on" keeps the routes up with any backend value.
  *
- * Wiring (for the orchestrator, in lib/supabase.ts composeStorage):
- *   withR2Storage(client)                                   // or, with the write freeze:
- *   withR2Storage(client, { wrap: withWriteFreeze })
+ * Wiring: the service client does NOT call withR2Storage. lib/supabase.ts is in
+ * the browser bundle and the instrumentation/edge build, and may statically
+ * import nothing but supabase-js and lib/dataBackend (tests/dataBackendSwitch.test.ts),
+ * so composeStorage() there does the same swap inline and loads its fetch from
+ * lib/storage/serviceStorage.ts through a client- and edge-compiled-out loader.
+ * withR2Storage stays the composition the storage tests and the live parity
+ * test drive (store / baseUrl / prefix / mirror overrides).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { R2StorageOptions, StorageMirror } from "@/lib/storage/r2StorageFetch";
@@ -109,7 +112,7 @@ export function supabaseStorageMirror(original: StorageClientLike): StorageMirro
  * loudly here. The handler answers every /storage/v1 path itself, so reaching
  * this means something unexpected; refuse in storage-js's error shape.
  */
-const refuseNetwork: Fetch = async () =>
+export const refuseNetwork: Fetch = async () =>
   new Response(
     JSON.stringify({ statusCode: "500", error: "internal", message: "R2 storage adapter: request is not a storage URL", code: "InternalError" }),
     { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },

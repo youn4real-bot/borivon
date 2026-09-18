@@ -486,18 +486,18 @@ describe("signed URLs (sign-documents, slot-templates) need a live token for tha
 });
 
 describe("storage token vs download token — one key, never interchangeable", () => {
-  it("a storage token is bound to its bucket + path", () => {
-    const t = signStorageToken("sign-documents", "a/b.pdf", 60);
-    expect(checkStorageToken(t, "sign-documents", "a/b.pdf")).toBe("ok");
-    expect(checkStorageToken(t, "sign-documents", "a/c.pdf")).toBe("invalid");
-    expect(checkStorageToken(t, "slot-templates", "a/b.pdf")).toBe("invalid");
+  it("a storage token is bound to its bucket + path", async () => {
+    const t = await signStorageToken("sign-documents", "a/b.pdf", 60);
+    expect(await checkStorageToken(t, "sign-documents", "a/b.pdf")).toBe("ok");
+    expect(await checkStorageToken(t, "sign-documents", "a/c.pdf")).toBe("invalid");
+    expect(await checkStorageToken(t, "slot-templates", "a/b.pdf")).toBe("invalid");
   });
 
-  it("a storage token is not a download token, and a download token opens no object", () => {
-    const storage = signStorageToken("sign-documents", "u1", 60);
+  it("a storage token is not a download token, and a download token opens no object", async () => {
+    const storage = await signStorageToken("sign-documents", "u1", 60);
     expect(verifyDlToken(storage)).toBeNull();
     const dl = signDlToken("u1", 60);
-    expect(checkStorageToken(dl, "sign-documents", "u1")).toBe("invalid");
+    expect(await checkStorageToken(dl, "sign-documents", "u1")).toBe("invalid");
     expect(verifyDlToken(dl)).toEqual({ userId: "u1" });
   });
 });
@@ -525,7 +525,7 @@ describe("app routes: 404 until switched on", () => {
     delete process.env.STORAGE_MEDIA_ROUTES;
 
     const pubUrl = `https://www.borivon.com/api/storage/v1/object/public/profile-photos/u.webp`;
-    const signUrl = `https://www.borivon.com/api/storage/v1/object/sign/slot-templates/slot-templates/s.pdf?token=${signStorageToken("slot-templates", "slot-templates/s.pdf", 60)}`;
+    const signUrl = `https://www.borivon.com/api/storage/v1/object/sign/slot-templates/slot-templates/s.pdf?token=${await signStorageToken("slot-templates", "slot-templates/s.pdf", 60)}`;
     expect((await pub.GET(new Request(pubUrl))).status).toBe(404);
     expect((await sign.GET(new Request(signUrl))).status).toBe(404);
     expect(mem.touched).toEqual([]);

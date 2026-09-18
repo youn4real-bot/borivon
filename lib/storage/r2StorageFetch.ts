@@ -27,9 +27,11 @@
  * under candidates/<userId>/ in the same R2 bucket and are unreachable from
  * here: every key this module builds starts with the storage prefix.
  *
- * Off unless lib/storage/withR2Storage.ts is wired in and STORAGE_BACKEND=r2.
+ * Off unless STORAGE_BACKEND=r2: lib/supabase.ts composeStorage() then loads it
+ * (through lib/storage/serviceStorage.ts) behind the service client's storage.
+ * No Node built-ins here or in anything it imports — that loader is compiled
+ * into the nodejs instrumentation build, and `crypto` once broke cf:build.
  */
-import crypto from "crypto";
 import { checkStorageToken, signStorageToken } from "@/lib/storage/storageToken";
 import { defaultObjectStore, type ObjectHead, type ObjectStore, type StoredObject } from "@/lib/storage/objectStore";
 
@@ -150,9 +152,15 @@ export function objectKey(prefix: string, bucket: string, path: string): { key: 
   return { key: `${prefix}/${bucket}/${clean}`, path: clean };
 }
 
-/** The same id every time for the same object — upsert keeps it, list and upload agree on it. */
-function stableObjectId(bucket: string, path: string): string {
-  const h = crypto.createHash("sha256").update(`${bucket}/${path}`).digest("hex");
+/**
+ * The same id every time for the same object — upsert keeps it, list and upload agree on it.
+ * sha256 of the UTF-8 "<bucket>/<path>" on Web Crypto: Node's `crypto` here failed
+ * the edge build (this module is loaded through lib/supabase.ts). Same hex as
+ * crypto.createHash("sha256").update(s) — tests/scopedToken.test.ts.
+ */
+export async function stableObjectId(bucket: string, path: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${bucket}/${path}`)));
+  const h = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
@@ -329,18 +337,18 @@ async function upload(req: Request, method: "POST" | "PUT", bucket: string, path
   // Only after R2 accepted it: a refused upload (duplicate, size, type, freeze)
   // must not land in Supabase either.
   await mirror?.("upload", bucket, [target.path], (m) => m.upload(bucket, target.path, bytes, contentType, cacheControl));
-  return json({ Id: stableObjectId(bucket, target.path), Key: `${bucket}/${target.path}` });
+  return json({ Id: await stableObjectId(bucket, target.path), Key: `${bucket}/${target.path}` });
 }
 
 function iso(d: Date | null): string | null {
   return d ? d.toISOString() : null;
 }
 
-function fileEntry(bucket: string, fullPath: string, name: string, h: ObjectHead) {
+async function fileEntry(bucket: string, fullPath: string, name: string, h: ObjectHead) {
   const at = iso(h.uploaded);
   return {
     name,
-    id: stableObjectId(bucket, fullPath),
+    id: await stableObjectId(bucket, fullPath),
     updated_at: at,
     created_at: at,
     last_accessed_at: at,
@@ -384,7 +392,7 @@ async function remove(req: Request, bucket: string, store: ObjectStore, prefix: 
     const head = await store.head(target.key);
     if (!head) return null;
     await store.delete(target.key);
-    return { bucket_id: bucket, ...fileEntry(bucket, target.path, target.path, head) };
+    return { bucket_id: bucket, ...(await fileEntry(bucket, target.path, target.path, head)) };
   });
 
   // Every path the caller named (and the key rules allow), not only those R2
@@ -437,7 +445,7 @@ export function ilikePrefix(name: string, search: string): boolean {
   return p === pat.length;
 }
 
-type ListEntry = ReturnType<typeof fileEntry> | { name: string; id: null; updated_at: null; created_at: null; last_accessed_at: null; metadata: null };
+type ListEntry = Awaited<ReturnType<typeof fileEntry>> | { name: string; id: null; updated_at: null; created_at: null; last_accessed_at: null; metadata: null };
 
 const SORT_COLUMNS = ["name", "updated_at", "created_at", "last_accessed_at"] as const;
 
@@ -481,21 +489,25 @@ async function list(req: Request, bucket: string, store: ObjectStore, prefix: st
   if (folder && folder.split("/").slice(0, -1).some((s) => s === "." || s === ".." || UNSAFE.test(s))) return invalidKey();
 
   const base = `${prefix}/${bucket}/${folder}`;
-  const entries = new Map<string, ListEntry>();
+  // Decided in listing order first (a file beats a same-named folder, as before),
+  // then the file rows are built together: their ids are an async digest each.
+  const picked = new Map<string, ObjectHead | null>();
   for (const o of await store.list(base)) {
     const rel = o.key.slice(base.length);
     if (!rel) continue;
     const slash = rel.indexOf("/");
     const name = slash < 0 ? rel : rel.slice(0, slash);
     if (!ilikePrefix(name, search)) continue;
-    if (slash < 0) entries.set(name, fileEntry(bucket, `${folder}${name}`, name, o));
-    else if (!entries.has(name)) entries.set(name, { name, id: null, updated_at: null, created_at: null, last_accessed_at: null, metadata: null });
+    if (slash < 0) picked.set(name, o);
+    else if (!picked.has(name)) picked.set(name, null);
   }
+  const entries: ListEntry[] = await Promise.all([...picked].map(([name, head]) =>
+    head ? fileEntry(bucket, `${folder}${name}`, name, head) : { name, id: null, updated_at: null, created_at: null, last_accessed_at: null, metadata: null }));
 
   // Folders and files interleave by name, and descending reverses the whole
   // comparison. NULLS LAST ascending and NULLS FIRST descending for a folder
   // row's null timestamps, as Postgres sorts them.
-  const rows = [...entries.values()].sort((a, b) => {
+  const rows = entries.sort((a, b) => {
     if (column === "name") return desc ? -compareListNames(a.name, b.name) : compareListNames(a.name, b.name);
     const x = a[column];
     const y = b[column];
@@ -517,7 +529,7 @@ async function signOne(req: Request, bucket: string, path: string, store: Object
   if (!(await store.head(target.key))) return notFound();
   // storage-js prepends its base URL and encodeURI()s the result, so the path
   // goes back raw — pre-encoding it here would double-encode every space.
-  return json({ signedURL: `/object/sign/${bucket}/${target.path}?token=${signStorageToken(bucket, target.path, expiresIn)}` });
+  return json({ signedURL: `/object/sign/${bucket}/${target.path}?token=${await signStorageToken(bucket, target.path, expiresIn)}` });
 }
 
 async function signMany(req: Request, bucket: string, store: ObjectStore, prefix: string): Promise<Response> {
@@ -529,7 +541,7 @@ async function signMany(req: Request, bucket: string, store: ObjectStore, prefix
     const target = objectKey(prefix, bucket, p);
     const exists = target ? await store.head(target.key) : null;
     return target && exists
-      ? { error: null, path: p, signedURL: `/object/sign/${bucket}/${target.path}?token=${signStorageToken(bucket, target.path, expiresIn)}` }
+      ? { error: null, path: p, signedURL: `/object/sign/${bucket}/${target.path}?token=${await signStorageToken(bucket, target.path, expiresIn)}` }
       : { error: "Either the object does not exist or you do not have access to it", path: p, signedURL: null };
   });
   return json(out);
@@ -579,19 +591,19 @@ async function servePublic(method: string, bucket: string, path: string, search:
 }
 
 /** The object a signed request may open, or the refusal — token checked before anything is read. */
-function signedTarget(bucket: string, path: string, search: URLSearchParams, prefix: string): { key: string; path: string } | Response {
+async function signedTarget(bucket: string, path: string, search: URLSearchParams, prefix: string): Promise<{ key: string; path: string } | Response> {
   // Supabase validates the querystring before anything else (probed live).
   const token = search.get("token");
   if (token === null) return storageError("400", "Error", "querystring must have required property 'token'", "InvalidRequest");
   const target = objectKey(prefix, bucket, path);
   if (!target) return invalidKey();
-  const check = checkStorageToken(token, bucket, target.path);
+  const check = await checkStorageToken(token, bucket, target.path);
   if (check !== "ok") return storageError("400", "InvalidJWT", check === "expired" ? "jwt expired" : "invalid signature", "InvalidJWT");
   return target;
 }
 
 async function serveSigned(method: string, bucket: string, path: string, search: URLSearchParams, store: ObjectStore, prefix: string): Promise<Response> {
-  const target = signedTarget(bucket, path, search, prefix);
+  const target = await signedTarget(bucket, path, search, prefix);
   if (target instanceof Response) return target;
   const obj = await store.get(target.key);
   if (!obj) return notFound();
@@ -628,7 +640,7 @@ async function redirectToSupabase(kind: "public" | "sign", bucket: string, path:
     return redirect(`${to.publicUrl(bucket, target.path)}${qs ? `?${qs}` : ""}`, "public, max-age=300");
   }
   // Our token still decides who may open the object; Supabase's URL only carries the bytes.
-  const target = signedTarget(bucket, path, search, STORAGE_KEY_PREFIX);
+  const target = await signedTarget(bucket, path, search, STORAGE_KEY_PREFIX);
   if (target instanceof Response) return target;
   const url = await to.signedUrl(bucket, target.path, ROLLBACK_SIGNED_TTL_SEC, search.get("download"));
   return url ? redirect(url, "private, no-store") : notFound();

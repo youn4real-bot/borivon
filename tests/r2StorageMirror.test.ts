@@ -237,7 +237,7 @@ describe("rollback serving — STORAGE_BACKEND \"supabase\" sends the browser to
 
   it("a signed URL is still checked against OUR token, then sent to a one-minute Supabase signed URL", async () => {
     const { r, signedUrl } = redirects();
-    const token = signStorageToken("sign-documents", "c/req 1.pdf", 3600);
+    const token = await signStorageToken("sign-documents", "c/req 1.pdf", 3600);
     const ok = await serveMediaRequest(new Request(`${BASE}/object/sign/sign-documents/c/req%201.pdf?token=${token}&download=`), "sign", { store: untouchable, rollback: r });
     expect(ok.status).toBe(302);
     expect(ok.headers.get("location")).toBe("https://proj.supabase.co/storage/v1/object/sign/x?token=sb");
