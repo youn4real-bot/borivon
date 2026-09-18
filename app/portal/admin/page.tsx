@@ -46,7 +46,7 @@ import { SIGN_FILL_ENABLED, applySignFillGate } from "@/lib/features";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
-import { FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
+import { FILE_KEY_ALL_LABELS, translateDocLabel, canonicalDocLabel } from "@/lib/fileKeys";
 import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
@@ -5835,7 +5835,15 @@ export default function AdminPage() {
                                               <MoreHorizontal size={14} strokeWidth={1.8} />
                                             </button>
                                             <DropdownMenu open={revokeMenu?.id === pdoc!.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === pdoc!.id ? revokeMenu.el : null} anchorRect={menuRect(pdoc!.id)}>
-                                              <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(mirrorKey, pb.label); }}
+                                              {/* mirrorKey's OWN label, not pb.label: this box READS
+                                                  getAdminDocs(mirrorKey), and the CV twin's mirrorKey is
+                                                  cv_de while pb.label is "Lebenslauf Visum". That pair
+                                                  files the swap under cv_visa, so the box would keep
+                                                  showing the old file and the real CV would never be
+                                                  replaced. No live row carries that fingerprint (198 CV
+                                                  rows checked, all consistent), so this one is closed
+                                                  before it fired, unlike the Übersetzt pair below. */}
+                                              <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(mirrorKey, canonicalDocLabel(mirrorKey, lang) || pb.label); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
                                                 <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Swap"}
                                               </button>
@@ -6721,8 +6729,15 @@ export default function AdminPage() {
                             {/* Sub-boxes — only shown when expanded */}
                             {isExpanded && (
                               <div className="px-3 pb-3 space-y-1.5">
-                                {renderSubDoc(origDoc,  "Original",  item.key,      item.label)}
-                                {renderSubDoc(transDoc, "Übersetzt", item.transKey, item.label)}
+                                {/* Each sub-box uploads under ITS OWN label. Passing the pair's
+                                    item.label to both sent the ORIGINAL's label with the
+                                    translation's key, so an admin upload into "Übersetzt" was
+                                    stored as file_type "Diplom": it appeared in the Original box
+                                    and the retire pass, which matches on the label, superseded the
+                                    real original. 30 documents were filed that way, and 29 of
+                                    those uploads left the slot with no live original at all. */}
+                                {renderSubDoc(origDoc,  "Original",  item.key,      canonicalDocLabel(item.key, lang)      || item.label)}
+                                {renderSubDoc(transDoc, "Übersetzt", item.transKey, canonicalDocLabel(item.transKey, lang) || item.label)}
                               </div>
                             )}
                           </div>

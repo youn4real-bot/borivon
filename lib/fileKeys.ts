@@ -142,6 +142,65 @@ export function resolveFileKey(fileType: string | null | undefined): string {
   return LABEL_TO_FILE_KEY[v] ?? v;
 }
 
+/** The label a box DISPLAYS for `fileKey` in `lang` — and therefore the exact
+ *  string an upload from that box must store as `documents.file_type`. Empty
+ *  for a key outside the catalog (a wizard-slot UUID, an org doc). */
+export function canonicalDocLabel(fileKey: string, lang: "fr" | "en" | "de"): string {
+  const key = (fileKey ?? "").trim();
+  // hasOwnProperty, not a bare lookup: fileKey is caller-supplied, and "constructor"
+  // would otherwise answer with Object's own and walk on as if it were a doc key.
+  if (!Object.prototype.hasOwnProperty.call(KEY_TO_TKEY, key)) return "";
+  const tKey = KEY_TO_TKEY[key];
+  const dict = translations[lang] ?? translations.en ?? translations.fr;
+  return (dict[tKey] as string) || "";
+}
+
+/** Which UI language spells a canonical label, so a WRONG label can be replaced
+ *  without also switching the row's language. A label two languages share (e.g.
+ *  "Zusatzblatt A") answers with the first of de, fr, en. A Map, not an object:
+ *  the argument is caller-supplied, and a plain object would answer "constructor"
+ *  with Object's own. */
+const LABEL_LANG = new Map<string, "fr" | "en" | "de">();
+for (const lang of ["de", "fr", "en"] as const) {
+  for (const tKey of Object.values(KEY_TO_TKEY)) {
+    const lbl = translations[lang][tKey] as string;
+    if (lbl && !LABEL_LANG.has(lbl)) LABEL_LANG.set(lbl, lang);
+  }
+}
+export function docLabelLang(label: string | null | undefined): "fr" | "en" | "de" | null {
+  return LABEL_LANG.get((label ?? "").trim()) ?? null;
+}
+
+/**
+ * The `file_type` to STORE for an upload of `fileKey` that a caller labelled
+ * `sent`. Returns `sent` untouched unless the two disagree.
+ *
+ * Both halves of an upload name the box, and they can disagree: the KEY builds
+ * the filename (LAW #35's `_original` / `_uebersetzt` suffix), while the LABEL
+ * is what lands in `documents.file_type` — which every reader turns back into a
+ * key with resolveFileKey to decide which box shows the file and which earlier
+ * row the upload retires. When they disagree the key wins: it is the box the
+ * uploader actually clicked, and it already decided the filename.
+ *
+ * This is not hypothetical. The admin panel's paired Qualification rows passed
+ * the ORIGINAL's label to the "Übersetzt" sub-box, so a sub-admin uploading a
+ * translation sent fileKey=diploma_de with fileType="Diplom". Measured on the
+ * live database: 30 translated documents (3 candidates, every one an admin
+ * upload) were filed in the Original box, and because the retire pass matched
+ * on the label they also superseded the real original — 29 of those slots were
+ * left with no live original at all.
+ *
+ * Only standard catalog keys are corrected. A Bearbeitung/Visum slot stores its
+ * own UUID as file_type, and "other"/Sonstiges is counted per exact label, so
+ * both are returned as sent.
+ */
+export function canonicalizeFileType(fileKey: string | null | undefined, sent: string): string {
+  const key = (fileKey ?? "").trim();
+  if (!key || key === "other" || !Object.prototype.hasOwnProperty.call(KEY_TO_TKEY, key)) return sent;
+  if (resolveFileKey(sent) === key) return sent;
+  return canonicalDocLabel(key, docLabelLang(sent) ?? "de") || sent;
+}
+
 /**
  * POST-match / Visum-phase document keys — generated or collected AFTER a
  * candidate is matched to an employer (visa CV + visa letter, EZB, Zusatzblatt,

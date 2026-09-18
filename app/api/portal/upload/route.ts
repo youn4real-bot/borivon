@@ -12,7 +12,7 @@ import { PDFDocument } from "pdf-lib";
 import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
 import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType } from "@/lib/passportSanity";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
-import { LABEL_TO_FILE_KEY, resolveFileKey } from "@/lib/fileKeys";
+import { LABEL_TO_FILE_KEY, resolveFileKey, canonicalizeFileType } from "@/lib/fileKeys";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -752,8 +752,21 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData();
   const file      = formData.get("file")     as File | null;
-  const fileType  = (formData.get("fileType")  as string) ?? "Autre";
+  const sentType  = (formData.get("fileType")  as string) ?? "Autre";
   const fileKey   = (formData.get("fileKey")   as string) ?? "other";
+  // The key names the box; the label only describes it. A caller that sends a
+  // label belonging to a DIFFERENT standard key gets the label its key really
+  // owns — everything below (the stored file_type, the Sonstiges count, the
+  // retire pass, the notification) then reads one consistent box.
+  //
+  // The admin panel's "Übersetzt" sub-box used to send fileKey=diploma_de with
+  // fileType="Diplom", and the retire pass matches on the LABEL: the translation
+  // landed in the Original box and archived the real original. 30 documents were
+  // stored that way, 6 of them still the live file in their box. The client is
+  // fixed, but this route is also reached by the candidate dashboard and by the
+  // admin-on-behalf path, so the invariant is enforced here rather than trusted
+  // per call site.
+  const fileType = canonicalizeFileType(fileKey, sentType);
   const forUserId = (formData.get("forUserId") as string) ?? null;
 
   // Admin override: allow admins to upload on behalf of a candidate.
