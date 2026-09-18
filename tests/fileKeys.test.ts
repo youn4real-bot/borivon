@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { translateDocLabel, LABEL_TO_FILE_KEY, resolveFileKey, canonicalDocLabel, docLabelLang, canonicalizeFileType } from "../lib/fileKeys";
+import { translateDocLabel, LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, resolveFileKey, canonicalDocLabel, docLabelLang, canonicalizeFileType } from "../lib/fileKeys";
 import { translations } from "../lib/translations";
 
 // Legacy-alias safety: when a document label is renamed, old DB rows still
@@ -88,6 +88,24 @@ describe("canonicalDocLabel / canonicalizeFileType", () => {
         expect(resolveFileKey(stored), `${lang} ${trans} sent "${wrong}"`).toBe(trans);
         // corrected in place, not translated into another language
         expect(docLabelLang(stored)).toBe(lang);
+      }
+    }
+  });
+
+  it("shows the translation in the Übersetzt box — the symptom that was reported", () => {
+    // What the admin panel and the candidate dashboard actually run to decide
+    // which box a row belongs to: FILE_KEY_ALL_LABELS[key].has(file_type).
+    // Storing "Diplom" for diploma_de is why the file appeared under Original.
+    for (const [orig, trans] of PAIRS) {
+      for (const lang of LANGS) {
+        const sent = canonicalDocLabel(orig, lang);
+        // what the row used to hold: the original's label, which only the
+        // Original box matches — this is the reported symptom, asserted
+        expect(FILE_KEY_ALL_LABELS[trans].has(sent)).toBe(false);
+        expect(FILE_KEY_ALL_LABELS[orig].has(sent)).toBe(true);
+        const stored = canonicalizeFileType(trans, sent);
+        expect(FILE_KEY_ALL_LABELS[trans].has(stored), `${lang} ${trans} box shows it`).toBe(true);
+        expect(FILE_KEY_ALL_LABELS[orig].has(stored), `${lang} ${orig} box must NOT`).toBe(false);
       }
     }
   });
