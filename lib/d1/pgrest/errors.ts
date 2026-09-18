@@ -73,11 +73,11 @@ const STATUS_BY_CODE: Record<string, number> = {
   PGRST116: 406, // .single() got 0 or >1 rows (supabase-js surfaces this as 406)
   PGRST204: 400, // column missing from the schema cache (insert/update payload)
   PGRST205: 404, // table missing from the schema cache
+  "21000": 500, // cardinality_violation — an upsert reaching one row twice (Error.hs pgErrorStatus)
   "23502": 400, // not_null_violation
   "23503": 409, // foreign_key_violation
   "23505": 409, // unique_violation
   "23514": 400, // check_violation
-  "21000": 500, // cardinality_violation — an upsert reaching one row twice (Error.hs pgErrorStatus)
   "42703": 400, // undefined_column
   "42P01": 404, // undefined_table
   "42P10": 400, // invalid_column_reference — ON CONFLICT matches no unique constraint

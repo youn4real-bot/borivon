@@ -423,7 +423,11 @@ describe.skipIf(!DatabaseSync)("a text ORDER BY takes its page in SQL where the 
         cases++;
       }
       expect([cases, narrowed > cases / 2]).toEqual([792, true]);
-    });
+      // 792 windows, each a real SQLite read of 400 rows plus the same page sorted
+      // in JavaScript: ~20s alone, and it timed out at the suite's 45s ceiling when
+      // the machine was busy. A ceiling it can only hit under load makes a green
+      // suite mean nothing, so this one test gets its own.
+    }, 180_000);
 
     it("still answers from every match's keys when the filter is too long to write twice", async () => {
       const names = [...new Set(every.map((r) => String(r.file_name)))].slice(0, 40);
