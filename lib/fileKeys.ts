@@ -143,6 +143,39 @@ export function resolveFileKey(fileType: string | null | undefined): string {
 }
 
 /**
+ * The catalog label a fileKey OWNS, in one language — or "" for a key the
+ * catalog does not know (Bearbeitung/Visum slot UUIDs, org documents).
+ */
+export function canonicalDocLabel(fileKey: string, lang: "fr" | "en" | "de"): string {
+  const tKey = KEY_TO_TKEY[(fileKey ?? "").trim()];
+  if (!tKey) return "";
+  const dict = translations[lang] ?? translations.en ?? translations.fr;
+  return (dict[tKey] as string) || "";
+}
+
+/**
+ * The label an upload of `fileKey` must be STORED under, given the label the
+ * page sent. The key wins whenever the two disagree.
+ *
+ * documents.file_type holds a label, and every reader turns that label back
+ * into a fileKey (resolveFileKey) to decide which slot a document belongs to.
+ * So a label that resolves to a DIFFERENT key than the upload's own key does
+ * not mislabel the document — it moves it into another slot. That happened:
+ * the admin panel's "Ubersetzt" row sent the ORIGINAL document's label with the
+ * translation's fileKey, so a sub-admin's translated upload was stored as the
+ * original. It drew in the Original box, and the one-live-document-per-slot
+ * pass in app/api/portal/upload/route.ts then archived the real original.
+ *
+ * Unknown keys keep whatever the page sent (slot UUIDs, org labels, "other"
+ * uploads): the rule only speaks where the catalog can.
+ */
+export function labelForUpload(fileKey: string, fileType: string, lang: "fr" | "en" | "de" = "de"): string {
+  const keyed = canonicalDocLabel(fileKey, lang);
+  if (!keyed) return fileType;
+  return resolveFileKey(fileType) === (fileKey ?? "").trim() ? fileType : keyed;
+}
+
+/**
  * POST-match / Visum-phase document keys — generated or collected AFTER a
  * candidate is matched to an employer (visa CV + visa letter, EZB, Zusatzblatt,
  * Vorabzustimmung, Arbeitsvertrag, insurance, TLS, etc.). Everything else — CV,

@@ -12,7 +12,7 @@ import { PDFDocument } from "pdf-lib";
 import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
 import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType } from "@/lib/passportSanity";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
-import { LABEL_TO_FILE_KEY, resolveFileKey } from "@/lib/fileKeys";
+import { LABEL_TO_FILE_KEY, labelForUpload, resolveFileKey } from "@/lib/fileKeys";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -752,8 +752,15 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData();
   const file      = formData.get("file")     as File | null;
-  const fileType  = (formData.get("fileType")  as string) ?? "Autre";
+  const sentType  = (formData.get("fileType")  as string) ?? "Autre";
   const fileKey   = (formData.get("fileKey")   as string) ?? "other";
+  // The slot is the KEY, never the label the page happened to send. A label
+  // that resolves to another catalog key would file this document in that
+  // other slot and let the supersede pass below archive whatever lives there
+  // -- which is how a sub-admin's translated upload replaced the original
+  // (the admin panel's "Ubersetzt" row sent the original's label).
+  const fileType  = labelForUpload(fileKey, sentType);
+  if (fileType !== sentType) console.warn(`[upload] label "${sentType}" belongs to another slot than fileKey "${fileKey}" -- stored as "${fileType}"`);
   const forUserId = (formData.get("forUserId") as string) ?? null;
 
   // Admin override: allow admins to upload on behalf of a candidate.

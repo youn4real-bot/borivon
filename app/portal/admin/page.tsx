@@ -45,7 +45,7 @@ import { SIGN_FILL_ENABLED, applySignFillGate } from "@/lib/features";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
-import { FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
+import { FILE_KEY_ALL_LABELS, canonicalDocLabel, translateDocLabel } from "@/lib/fileKeys";
 import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
@@ -6725,7 +6725,7 @@ export default function AdminPage() {
                             {isExpanded && (
                               <div className="px-3 pb-3 space-y-1.5">
                                 {renderSubDoc(origDoc,  "Original",  item.key,      item.label)}
-                                {renderSubDoc(transDoc, "Übersetzt", item.transKey, item.label)}
+                                {renderSubDoc(transDoc, "Übersetzt", item.transKey, canonicalDocLabel(item.transKey, lang) || item.label)}
                               </div>
                             )}
                           </div>
