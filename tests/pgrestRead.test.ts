@@ -3,9 +3,9 @@ import fs from "node:fs";
 import { runSelect, type ReadResult, type Run } from "../lib/d1/pgrest/read";
 import { parseParts, isPgrestError } from "../lib/d1/pgrest/parseRequest";
 import { respond } from "../lib/d1/pgrest/respond";
-import { SORT_ROW_LIMIT } from "../lib/d1/pgrest/buildSql";
-import { compareText, sortRows } from "../lib/d1/pgrest/collate";
-import type { JsonOp, PostgrestError, QueryIntent, Registry } from "../lib/d1/pgrest/types";
+import { SORT_ROW_LIMIT, buildSql, isPostgrestError, pageWindow } from "../lib/d1/pgrest/buildSql";
+import { asciiSortKeySql, compareText, plainAsciiSql, sortRows } from "../lib/d1/pgrest/collate";
+import type { JsonOp, PostgrestError, QueryIntent, Registry, SortKey, Where } from "../lib/d1/pgrest/types";
 
 /**
  * Reads the adapter answers in more than one statement (lib/d1/pgrest/read.ts),
@@ -95,7 +95,7 @@ describe.skipIf(!DatabaseSync)("runSelect against the real D1 schema", () => {
     const r = ok(await runSelect(intent, registry, (sql, params) => { statements.push(sql); return run(sql, params); }));
     expect(r.rows.map((x) => x.file_type)).toEqual(SORTED.slice(2, 5));
     expect(Object.keys(r.rows[0])).toEqual(["id", "file_type"]);          // rowid$ never reaches a caller
-    expect([r.pageCount, r.total, statements.length]).toEqual([3, 8, 2]);  // keys, then the page by rowid
+    expect([r.pageCount, r.total, statements.length]).toEqual([3, 8, 3]);  // keys and the count side by side, then the page by rowid
     const res = respond(r.rows, { count: r.total, pageCount: r.pageCount }, intent);
     expect([res.status, res.headers.get("content-range")]).toEqual([206, "2-4/8"]);
   });
@@ -290,5 +290,153 @@ describe.skipIf(!DatabaseSync)("runSelect against the real D1 schema", () => {
     const star = await one("*,x:cv_draft->city");
     expect(Object.keys(star)).toEqual([...Object.keys(registry.candidate_profiles.columns), "x"]);
     expect([star.first_name, star.x]).toEqual(["Yassine", "EL HAJEB"]);
+  });
+});
+
+describe.skipIf(!DatabaseSync)("a text ORDER BY takes its page in SQL where the keys are plain ASCII", () => {
+  /** Seeded, so a failing case is the same case on the next run. */
+  const seeded = (seed: number) => () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 2 ** 32; };
+  const PRINTABLE = Array.from({ length: 95 }, (_, i) => String.fromCharCode(0x20 + i));
+  /** Where two sequences part, or null — a 30,000-value diff would bury it. */
+  const firstDifference = (got: unknown[], want: unknown[]) => {
+    for (let i = 0; i < Math.max(got.length, want.length); i++) if (got[i] !== want[i]) return { i, got: got[i], want: want[i] };
+    return null;
+  };
+
+  it("orders plain ASCII in SQL exactly as compareText does, both directions", () => {
+    const db = new DatabaseSync!(":memory:");
+    db.exec(`CREATE TABLE t (v TEXT)`);
+    const values = new Set<string>([""]);
+    for (const a of PRINTABLE) { values.add(a); for (const b of PRINTABLE) values.add(a + b); }
+    // Three deep over the marks whose replacement is itself a mark (the space, `!`,
+    // `~`, `$`), the quotes, the backslash, and their neighbours in both orders.
+    const edge = [" ", "!", "~", "$", "_", "-", "\\", "'", '"', "?", "0", "9", "a", "A", "z", "Z", "@", "`"];
+    for (const a of edge) for (const b of edge) for (const c of edge) values.add(a + b + c);
+    const random = seeded(20260915);
+    for (let i = 0; i < 20_000; i++) {
+      let s = "";
+      for (let n = Math.floor(random() * 16); n > 0; n--) s += PRINTABLE[Math.floor(random() * PRINTABLE.length)];
+      values.add(s);
+    }
+    const insert = db.prepare(`INSERT INTO t VALUES (?)`);
+    db.exec("BEGIN");
+    for (const v of values) insert.run(v);
+    db.exec("COMMIT");
+    expect(values.size).toBeGreaterThan(30_000);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM t WHERE NOT ${plainAsciiSql(`"v"`, false)}`).all()[0].n).toBe(0);
+    const key = asciiSortKeySql(`"v"`);
+    const want = [...values].sort(compareText);
+    const read = (order: string) => db.prepare(`SELECT v FROM t ORDER BY ${order}`).all().map((r) => r.v);
+    expect(firstDifference(read(`${key} ASC, "v" DESC`), want)).toBeNull();
+    expect(firstDifference(read(`${key} DESC, "v" ASC`), [...want].reverse())).toBeNull();
+  });
+
+  it("leaves to JavaScript every key it cannot order: past ASCII, control characters, DEL, a NUL, a value that is not text", () => {
+    const db = new DatabaseSync!(":memory:");
+    db.exec(`CREATE TABLE t (v)`);
+    const c = String.fromCharCode;
+    const insert = db.prepare(`INSERT INTO t VALUES (?)`);
+    for (const v of ["é", "PRÉFECTURE", `a${c(1)}`, `a${c(0x1f)}`, `a${c(0x7f)}`, `a${c(0)}b`, c(0), String.fromCodePoint(0x1f600), `a${c(0xa0)}`, 5, 2.5, new Uint8Array([97])]) {
+      insert.run(v);
+    }
+    const plain = plainAsciiSql(`"v"`, false);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM t WHERE ${plain}`).all()[0].n).toBe(0);
+    // Never NULL either, so NOT (…) splits the rows exactly in two.
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM t WHERE (${plain}) IS NULL`).all()[0].n).toBe(0);
+    db.exec(`DELETE FROM t`);
+    insert.run(null);
+    expect(Number(db.prepare(`SELECT ${plainAsciiSql(`"v"`, true)} AS p FROM t`).all()[0].p)).toBe(1);
+  });
+
+  describe("against every match sorted in JavaScript", () => {
+    let every: Record<string, unknown>[];
+    let run: Run;
+    const statements: { sql: string; rows: number }[] = [];
+    const sortOf = (intent: QueryIntent): SortKey[] => intent.order.map((o) => ({
+      key: o.column, text: registry.documents.columns[o.column].pg === "text", ascending: o.ascending, nullsFirst: o.nullsFirst ?? !o.ascending,
+    }));
+
+    beforeAll(() => {
+      const db = new DatabaseSync!(":memory:");
+      db.exec(fs.readFileSync("d1/schema.sql", "utf8"));
+      const random = seeded(761);
+      // Plain and not, case twins, punctuation against digits, spaces, the empty
+      // string, an astral character, NULLs — and each repeated, for ties.
+      const words = ["passport", "Passport", "PASSPORT", "cv_de", "cv-de", "cv de", "cv.de", "cv4de", "b2_exam_confirmation",
+        "Baccalauréat", "Baccalaureate", "abitur_original.pdf", "abitur_original.PDF", "ab@x.com", "ab4ab@x.com", "PRÉFECTURE",
+        "PREFECTURE D'AIN CHOCK", "TÉTOUAN", "TETOUAN", "", " ", "~", "$", "a\\b", "Lübeck", `x${String.fromCodePoint(0x1f600)}`];
+      const pick = () => words[Math.floor(random() * words.length)];
+      const insert = db.prepare(`INSERT INTO documents (id, user_id, file_name, file_path, file_type, status) VALUES (?,?,?,?,?,?)`);
+      db.exec("BEGIN");
+      for (let i = 0; i < 400; i++) {
+        // ids run against rowid order, so an id tie-break and a rowid tie-break differ.
+        const id = `00000000-0000-4000-8000-${String(1000 - i).padStart(12, "0")}`;
+        insert.run(id, i % 2 ? U1 : "22222222-2222-4222-8222-222222222222", random() < 0.3 ? pick() : `${pick()}${i % 4}`, `p${i}`,
+          random() < 0.2 ? null : pick(), random() < 0.5 ? "pending" : "approved");
+      }
+      db.exec("COMMIT");
+      every = db.prepare(`SELECT rowid AS "rowid$", * FROM documents ORDER BY rowid`).all();
+      run = async (sql, params) => {
+        const results = db.prepare(sql).all(...(params as never[]));
+        statements.push({ sql, rows: results.length });
+        return { results, meta: {} };
+      };
+    });
+
+    it("gives every window, direction, NULL placement and filter the same page and total, and sends fewer keys", async () => {
+      const isPlain = (v: unknown) => v === null || (typeof v === "string" && /^[ -~]*$/.test(v));
+      const orders = [
+        "file_type.asc,id.asc", "file_type.desc,id.asc", "file_type.asc.nullsfirst,id.desc", "file_type.desc.nullslast,id.asc", "file_type.asc",
+        "file_name.asc,file_type.desc", "status.desc,file_type.asc.nullsfirst,file_name.desc", "user_id.asc,file_name.desc", "uploaded_at.desc,file_type.asc",
+      ];
+      const windows = ["limit=1", "limit=7", "offset=3&limit=7", "offset=5&limit=50", "", "offset=390&limit=20", "offset=400&limit=5",
+        "offset=1000&limit=10", "limit=0", "offset=10&limit=1", "offset=9007199254740993&limit=5"];
+      const filters: [string, (r: Record<string, unknown>) => boolean][] = [
+        ["", () => true],
+        [`&user_id=eq.${U1}`, (r) => r.user_id === U1],
+        ["&or=(file_type.is.null,status.eq.pending)", (r) => r.file_type === null || r.status === "pending"],
+        // Past D1's 100 params, written twice: fitParams packs them and must keep the sort.
+        [`&or=(${Array.from({ length: 150 }, (_, i) => `file_type.eq.none${i}`).join(",")},file_type.is.null,status.eq.approved)`,
+          (r) => r.file_type === null || r.status === "approved"],
+      ];
+      let narrowed = 0;
+      let cases = 0;
+      for (const order of orders) for (const win of windows) for (const [filter, matches] of filters) for (const counted of [false, true]) {
+        const query = `select=id&order=${order}${win && `&${win}`}${filter}`;
+        const intent = request(query, { headers: counted ? { Prefer: "count=exact" } : {} });
+        const { offset, limit } = pageWindow(intent);
+        const past = intent.offsetText !== undefined;
+        const matching = every.filter(matches);
+        statements.length = 0;
+        const got = ok(await runSelect(intent, registry, run));
+        expect(got.rows.map((r) => r.id), query).toEqual(past ? [] : sortRows(matching, sortOf(intent)).slice(offset, offset + limit).map((r) => r.id));
+        expect(got.total, query).toBe(counted ? matching.length : undefined);
+        // The keys statement sent at most the rows JavaScript must place plus the plain rows up to the page's end.
+        const texts = intent.order.filter((o) => registry.documents.columns[o.column].pg === "text");
+        const others = matching.filter((r) => !texts.every((o) => isPlain(r[o.column]))).length;
+        expect(statements[0].sql.startsWith("SELECT * FROM ("), query).toBe(true);
+        expect(statements[0].rows, query).toBeLessThanOrEqual(others + (past ? 0 : offset + limit));
+        // A COUNT only when the keys reached the plain rows' cut; under it they are every match.
+        const cut = past ? 0 : Math.min(offset + limit, SORT_ROW_LIMIT + 1);
+        expect(statements.filter((s) => s.sql.startsWith("SELECT COUNT")).length, query).toBe(counted && statements[0].rows >= cut ? 1 : 0);
+        if (statements[0].rows < matching.length) narrowed++;
+        cases++;
+      }
+      expect([cases, narrowed > cases / 2]).toEqual([792, true]);
+    });
+
+    it("still answers from every match's keys when the filter is too long to write twice", async () => {
+      const names = [...new Set(every.map((r) => String(r.file_name)))].slice(0, 40);
+      const where: Where[] = [{ kind: "or", children: Array.from({ length: 1500 }, (_, i) => ({ kind: "cmp" as const, column: "file_name", op: "eq" as const, value: names[i] ?? `none${i}` })) }];
+      const intent = { ...request("select=id&order=file_type.desc,id.asc&offset=2&limit=9", { headers: { Prefer: "count=exact" } }), where };
+      const built = buildSql(intent, registry);
+      expect(isPostgrestError(built) ? built.code : [built.plainCut, built.sort?.length]).toEqual([undefined, 2]);
+      const matching = every.filter((r) => names.includes(String(r.file_name)));
+      statements.length = 0;
+      const got = ok(await runSelect(intent, registry, run));
+      expect(got.rows.map((r) => r.id)).toEqual(sortRows(matching, sortOf(intent)).slice(2, 11).map((r) => r.id));
+      // The keys are every match, so their number is the total: no COUNT beside them.
+      expect([got.total, statements.length, statements[0].rows]).toEqual([matching.length, 2, matching.length]);
+    });
   });
 });

@@ -56,6 +56,8 @@ import { encodeValue, selectSqlKey, sqlArrowKeys } from "./decode";
 // The write half of Postgres' type checking: what a column's input function makes
 // of a payload value, or the 22P02 / 22007 / 22008 it refuses it with.
 import { isInputError, jsonbStoredText, writeInput } from "./pgInput";
+// Postgres' text order over plain ASCII, as SQL: the part of a text ORDER BY D1 can do.
+import { asciiSortKeySql, plainAsciiSql } from "./collate";
 
 /* ────────────────────────────── errors ─────────────────────────────── */
 
@@ -689,9 +691,15 @@ function whereNode(ctx: Ctx, node: Where): string {
   return group.negate ? `NOT ${sql}` : sql;
 }
 
-function whereClause(ctx: Ctx, where: Where[]): string {
+/** The filter as one condition, "" for none. Its params are pushed as it is written. */
+function whereCondition(ctx: Ctx, where: Where[]): string {
   if (!where.length) return "";
-  return ` WHERE ${joinLogic(where.map((w) => whereNode(ctx, w)), " AND ")}`;
+  return joinLogic(where.map((w) => whereNode(ctx, w)), " AND ");
+}
+
+function whereClause(ctx: Ctx, where: Where[]): string {
+  const condition = whereCondition(ctx, where);
+  return condition ? ` WHERE ${condition}` : "";
 }
 
 /* ──────────────────────── ORDER BY / LIMIT ─────────────────────────── */
@@ -727,10 +735,14 @@ function orderClause(ctx: Ctx, order: OrderBy[]): string {
 export const MAX_ROWS = 1000;
 
 /**
- * How many matching rows a text ORDER BY sorts in memory. Only each row's rowid
- * and sort keys are held — the page itself is fetched by rowid — so this bounds
- * a few megabytes. Past it the read is refused (read.ts) rather than answered in
- * an order Supabase would not give.
+ * How many rows' keys a text ORDER BY sorts in memory: the rows whose keys are
+ * not plain ASCII, plus the plain-ASCII rows up to the end of the page (or every
+ * matching row, on the too-long fallback). Only each row's rowid and sort keys
+ * are held — the page itself is fetched by rowid — so this bounds a few megabytes
+ * and the Worker's CPU (collating keys in Node: 761 in 2.5 ms, 10,000 in 53 ms,
+ * 100,000 in 656 ms, plus 73 ms to parse those 7 MB). Past
+ * it the read is refused (read.ts) rather than answered in an order Supabase would
+ * not give.
  */
 export const SORT_ROW_LIMIT = 100_000;
 
@@ -781,19 +793,11 @@ function buildSelect(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   }
   // A text column in the ORDER BY: SQLite has no ICU, and its NOCASE folds ASCII
   // only — `PRÉFECTURE` filed after every `PREFECTURE`, `….PDF` before `….pdf`,
-  // `a@` after `a4`. Postgres' order is reproduced in JavaScript (collate.ts), so
-  // this fetches just the rowid and the sort keys of every matching row; read.ts
-  // sorts them, takes the window, and fetches that page by rowid.
+  // `a@` after `a4`. Postgres' order is reproduced in JavaScript (collate.ts);
+  // this fetches the rowid and sort keys of the rows that can reach the page, and
+  // read.ts sorts them, takes the window, and fetches that page by rowid.
   const cols = intent.order.map((o) => requireColumn(ctx, o.column));
-  if (cols.some((col) => col.pg === "text")) {
-    const sort: SortKey[] = intent.order.map((o, i) => ({
-      key: `sort$${i}`, text: cols[i].pg === "text", ascending: o.ascending, nullsFirst: o.nullsFirst ?? !o.ascending,
-    }));
-    const keys = intent.order.map((o, i) => `${qi(o.column)} AS ${qi(`sort$${i}`)}`).join(", ");
-    const sql = `SELECT rowid AS "rowid$", ${keys} FROM ${qi(ctx.table)}${whereClause(ctx, intent.where)} LIMIT ?`;
-    ctx.params.push(SORT_ROW_LIMIT + 1);
-    return { sql, params: ctx.params, sort };
-  }
+  if (cols.some((col) => col.pg === "text")) return textOrderQuery(ctx, intent, cols);
   // NOTE: .single() deliberately gets no `LIMIT 1` — PostgREST fails with
   // PGRST116 when more than one row matches, and that only works if the executor
   // can SEE the second row. Detecting it is respond()'s job.
@@ -802,6 +806,69 @@ function buildSelect(ctx: Ctx, intent: QueryIntent): BuiltQuery {
     + orderClause(ctx, intent.order)
     + limitClause(ctx, intent);
   return { sql, params: ctx.params };
+}
+
+/**
+ * The keys a text-ordered read sorts: rowid and every ORDER BY column, of the
+ * rows that can reach the page.
+ *
+ * It used to be every matching row's keys — `documents?select=id&order=file_type.asc&limit=1`
+ * shipped all 761 (70,750 bytes) for the Worker to collate. Most keys are plain
+ * printable ASCII (17,675 of the copy's 18,572 non-null text values), and those
+ * D1 can order exactly (collate.ts asciiSortKeySql). So the statement is two
+ * halves of one UNION ALL:
+ *
+ *  • the rows with any text key that is not plain ASCII — all of them, since only
+ *    JavaScript can place them;
+ *  • the plain rows, ordered in SQL by the same comparison sortRows makes, with
+ *    rowid last as read.ts's tie-break too, cut at the end of the page.
+ *
+ * That is enough: a plain row past the cut has offset+limit plain rows ahead of
+ * it in the one total order, so it cannot be on the page. read.ts sorts the union
+ * with compareText and windows it as before — the plain rows' SQL order only
+ * decides which of them are sent, never where they land.
+ *
+ * The filter is written twice (its params too, packed by fitParams past 100). A
+ * filter long enough to push the UNION past D1's statement limit falls back to
+ * every matching row's keys, which is the statement as it was.
+ */
+function textOrderQuery(ctx: Ctx, intent: QueryIntent, cols: ColumnMeta[]): BuiltQuery {
+  const sort: SortKey[] = intent.order.map((o, i) => ({
+    key: `sort$${i}`, text: cols[i].pg === "text", ascending: o.ascending, nullsFirst: o.nullsFirst ?? !o.ascending,
+  }));
+  const keys = `rowid AS "rowid$", ${intent.order.map((o, i) => `${qi(o.column)} AS ${qi(`sort$${i}`)}`).join(", ")}`;
+  const from = `FROM ${qi(ctx.table)}`;
+
+  const plain = intent.order.flatMap((o, i) => (cols[i].pg === "text" ? [plainAsciiSql(qi(o.column), cols[i].nullable)] : [])).join(" AND ");
+  const terms = intent.order.flatMap((o, i) => {
+    const ref = qi(o.column);
+    const [dir, reverse] = o.ascending ? ["ASC", "DESC"] : ["DESC", "ASC"];
+    // The same NULL term orderClause writes; NULL keys are plain, so they are placed here.
+    const nulls = cols[i].nullable ? [`(${ref} IS NULL) ${sort[i].nullsFirst ? "DESC" : "ASC"}`] : [];
+    return cols[i].pg === "text" ? [...nulls, `${asciiSortKeySql(ref)} ${dir}`, `${ref} ${reverse}`] : [...nulls, `${ref} ${dir}`];
+  });
+  // An offset past 2^53 reads no page, so no plain row is needed for it.
+  const { offset, limit } = pageWindow(intent);
+  const pageEnd = intent.offsetText !== undefined ? 0 : Math.min(offset + limit, SORT_ROW_LIMIT + 1);
+  // Parenthesised: the filter's own top-level OR must not bind to the AND after it.
+  const filtered = (extra: string) => {
+    const condition = whereCondition(ctx, intent.where);
+    return ` WHERE ${condition ? `(${condition}) AND ` : ""}${extra}`;
+  };
+
+  // Params in SQL text order: filter, limit, filter, page end.
+  // Wrapped whole: with two text keys, `NOT a AND b` would be `(NOT a) AND b`.
+  const others = `SELECT ${keys} ${from}${filtered(`NOT (${plain})`)} LIMIT ?`;
+  ctx.params.push(SORT_ROW_LIMIT + 1);
+  const firsts = `SELECT ${keys} ${from}${filtered(plain)} ORDER BY ${[...terms, "rowid ASC"].join(", ")} LIMIT ?`;
+  ctx.params.push(pageEnd);
+  const narrowed = fitParams({ sql: `SELECT * FROM (${others}) UNION ALL SELECT * FROM (${firsts})`, params: ctx.params, sort, plainCut: pageEnd });
+  if (fitsD1(narrowed.sql)) return narrowed;
+
+  const every: Ctx = { ...ctx, params: [] };
+  const sql = `SELECT ${keys} ${from}${whereClause(every, intent.where)} LIMIT ?`;
+  every.params.push(SORT_ROW_LIMIT + 1);
+  return { sql, params: every.params, sort };
 }
 
 /**
@@ -1156,6 +1223,14 @@ function buildDelete(ctx: Ctx, intent: QueryIntent): BuiltQuery {
 /** D1's ceiling on bound parameters per statement (measured: 100 run, 101 fail). */
 export const D1_MAX_PARAMS = 100;
 
+/** D1's ceiling on one statement's SQL text, in bytes (measured: 100,000 run, 100,001 is SQLITE_TOOBIG). */
+export const D1_MAX_SQL_BYTES = 100_000;
+
+/** Whether D1 accepts SQL this long. A string of n UTF-16 units is at most 3n UTF-8 bytes. */
+function fitsD1(sql: string): boolean {
+  return sql.length * 3 <= D1_MAX_SQL_BYTES || new TextEncoder().encode(sql).length <= D1_MAX_SQL_BYTES;
+}
+
 /**
  * A statement past D1_MAX_PARAMS with its operands packed into ONE parameter.
  *
@@ -1180,7 +1255,9 @@ export function fitParams(q: BuiltQuery): BuiltQuery {
     sql += c === "?" ? `json_extract(?1, '$[${n++}]')` : c;
   }
   // Every placeholder must have met its param; otherwise leave D1 to refuse it as before.
-  return n === q.params.length ? { sql, params: [JSON.stringify(q.params)] } : q;
+  // The rest of the query rides along: a text ORDER BY's `sort` was dropped here,
+  // and read.ts then served the keys statement's rowid/sort-key rows as the page.
+  return n === q.params.length ? { ...q, sql, params: [JSON.stringify(q.params)] } : q;
 }
 
 export function buildSql(intent: QueryIntent, registry: Registry): BuiltQuery | PostgrestError {

@@ -109,10 +109,14 @@ export type SortKey = { key: string; text: boolean; ascending: boolean; nullsFir
 
 /**
  * `sort` is set when the ORDER BY touches a text column, which SQLite cannot sort
- * the way Postgres does: the SQL then fetches only each matching row's rowid and
- * sort keys, and lib/d1/pgrest/read.ts orders, windows and fetches the page.
+ * the way Postgres does: the SQL then fetches only rowids and sort keys — of the
+ * rows that could reach the page — and lib/d1/pgrest/read.ts orders, windows and
+ * fetches the page. `plainCut` is how many plain-ASCII rows the keys statement
+ * stops at (buildSql.ts textOrderQuery). Fewer keys than that means every matching
+ * row's keys came back; absent, the statement is the too-long fallback that always
+ * sends every matching row's keys.
  */
-export type BuiltQuery = { sql: string; params: unknown[]; sort?: SortKey[] };
+export type BuiltQuery = { sql: string; params: unknown[]; sort?: SortKey[]; plainCut?: number };
 
 /** What a failed query must look like to callers (PostgREST's error body). */
 export type PostgrestError = {

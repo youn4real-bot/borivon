@@ -77,10 +77,71 @@ function compareStored(a: unknown, b: unknown): number {
 export type { SortKey };
 
 /**
+ * compareText()'s order over printable ASCII, as SQL D1 can run — so a text
+ * ORDER BY can take its page in D1 instead of shipping every row's key to the
+ * Worker to be sorted (read.ts has the numbers).
+ *
+ * Measured with the collator above: printable ASCII sorts as the space, then the
+ * 32 punctuation marks in exactly the order of ICU_ASCII_MARKS, then the digits,
+ * then the letters — a letter's two cases equal until a later level, where the
+ * lowercase one wins. SQLite's BINARY order is none of that: `_` sorts between
+ * the capitals and the small letters, `@` after the digits, `B` before `a`. So
+ * the key is rebuilt from functions D1 has without ICU:
+ *
+ *  • lower() folds the ASCII capitals (and only them without ICU — measured on
+ *    D1, lower('ÉA') is 'Éa'), giving every letter its one position;
+ *  • each mark is replaced by the code point of its rank, char(1) … char(33),
+ *    all below '0'. Replacements run in rank order, so the two targets that are
+ *    themselves marks (char(32) is the space, char(33) is `!`) are written only
+ *    after the space and `!` have already been replaced away.
+ *
+ * Two different strings share that key only when they differ in letter case
+ * alone, and there compareText puts the lowercase letter first at the first
+ * difference. Capitals sort BELOW small letters by byte, so the raw column in
+ * reverse settles it:
+ *
+ *   ORDER BY key ASC, col DESC   is compareText ascending for plain ASCII,
+ *   ORDER BY key DESC, col ASC   is compareText descending.
+ *
+ * tests/pgrestRead.test.ts proves both in a real SQLite against compareText:
+ * every string of up to two printable characters, every string of up to three
+ * over the marks around each replacement, and a seeded random set.
+ */
+const ICU_ASCII_MARKS = [
+  0x20, 0x5f, 0x2d, 0x2c, 0x3b, 0x3a, 0x21, 0x3f, 0x2e, 0x27, 0x22, 0x28, 0x29, 0x5b, 0x5d, 0x7b, 0x7d,
+  0x40, 0x2a, 0x2f, 0x5c, 0x26, 0x23, 0x25, 0x60, 0x5e, 0x2b, 0x3c, 0x3d, 0x3e, 0x7c, 0x7e, 0x24,
+] as const;
+
+/**
+ * The key, as an SQL expression over `ref`. Every character is spelled char(n):
+ * a quote, a backslash or a `?` never has to be written into the SQL text.
+ */
+export function asciiSortKeySql(ref: string): string {
+  return ICU_ASCII_MARKS.reduce((sql, mark, rank) => `replace(${sql}, char(${mark}), char(${rank + 1}))`, `lower(${ref})`);
+}
+
+/**
+ * True (never NULL) for a value asciiSortKeySql orders exactly: NULL — the IS
+ * NULL term places it — or TEXT of printable ASCII only.
+ *
+ *  • typeof: a number or a blob in a text column compares by SQLite's type class,
+ *    not as the string compareText is handed.
+ *  • GLOB '*[^ -~]*': a control character, DEL or anything past ASCII is outside
+ *    the order measured above.
+ *  • the two lengths: length() stops at a NUL (measured on D1: 'a', NUL, 'b' is
+ *    1 character and 3 bytes), so equal lengths refuse any NUL, which the text
+ *    functions above would read as the end of the string.
+ */
+export function plainAsciiSql(ref: string, nullable: boolean): string {
+  const plain = `(typeof(${ref}) = 'text' AND ${ref} NOT GLOB '*[^ -~]*' AND length(CAST(${ref} AS BLOB)) = length(${ref}))`;
+  return nullable ? `(${ref} IS NULL OR ${plain})` : plain;
+}
+
+/**
  * Rows in PostgREST's order. Stable, so rows that tie on every key keep the order
- * SQLite handed them over in — SQL leaves that order undefined on both sides.
- * A descending key reverses the whole comparison, tie-break included, which is
- * what Postgres' DESC does.
+ * they are handed over in — read.ts adds rowid as the last key, the tie-break the
+ * plain rows taken in SQL use too. A descending key reverses the whole comparison,
+ * tie-break included, which is what Postgres' DESC does.
  */
 export function sortRows<T extends Record<string, unknown>>(rows: readonly T[], keys: readonly SortKey[]): T[] {
   return rows.slice().sort((ra, rb) => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
-import { buildSql, isPostgrestError, encodeParam, likePatternToGlob, normalizeTimestamp } from "../lib/d1/pgrest/buildSql";
+import { buildSql, isPostgrestError, encodeParam, likePatternToGlob, normalizeTimestamp, D1_MAX_SQL_BYTES } from "../lib/d1/pgrest/buildSql";
+import { asciiSortKeySql, plainAsciiSql } from "../lib/d1/pgrest/collate";
 import { decodeRows, selectOutputKey } from "../lib/d1/pgrest/decode";
 import type { BuiltQuery, Condition, FilterOp, QueryIntent, Registry, Where } from "../lib/d1/pgrest/types";
 
@@ -204,17 +205,46 @@ describe("select", () => {
     expect(ok(intent({ table: "documents", order: [{ column: "rotation", ascending: true }] })).sql)
       .toBe(`SELECT * FROM "documents" ORDER BY "rotation" ASC`);
     // A text column can't be sorted in SQL (no ICU; NOCASE folds ASCII only): the
-    // query fetches each matching row's rowid and raw keys, and read.ts sorts them.
+    // query fetches rowid and raw keys — of every row whose key is not plain ASCII,
+    // and of the plain rows up to the page's end, ordered by collate.ts's key with
+    // the same NULL term, the raw column reversed and rowid last — and read.ts sorts them.
     const text = ok(intent({
       table: "documents", where: [cmp("user_id", "eq", "u1")],
       order: [{ column: "file_name", ascending: false }, { column: "uploaded_at", ascending: true, nullsFirst: true }],
     }));
-    expect(text.sql).toBe(`SELECT rowid AS "rowid$", "file_name" AS "sort$0", "uploaded_at" AS "sort$1" FROM "documents" WHERE "user_id" = ? LIMIT ?`);
-    expect(text.params).toEqual(["u1", 100_001]);
+    const keys = `SELECT rowid AS "rowid$", "file_name" AS "sort$0", "uploaded_at" AS "sort$1" FROM "documents"`;
+    const plain = plainAsciiSql(`"file_name"`, false);
+    expect(text.sql).toBe(
+      `SELECT * FROM (${keys} WHERE ("user_id" = ?) AND NOT (${plain}) LIMIT ?)`
+      + ` UNION ALL SELECT * FROM (${keys} WHERE ("user_id" = ?) AND ${plain}`
+      + ` ORDER BY ${asciiSortKeySql(`"file_name"`)} DESC, "file_name" ASC, ("uploaded_at" IS NULL) DESC, "uploaded_at" ASC, rowid ASC LIMIT ?)`,
+    );
+    expect(text.params).toEqual(["u1", 100_001, "u1", 1000]);
+    expect(text.plainCut).toBe(1000);
     expect(text.sort).toEqual([
       { key: "sort$0", text: true, ascending: false, nullsFirst: true },
       { key: "sort$1", text: false, ascending: true, nullsFirst: true },
     ]);
+    // Two text keys: a row goes to JavaScript when EITHER key is not plain — `NOT a AND b` would send only half of them.
+    const two = ok(intent({ table: "documents", order: [{ column: "file_type", ascending: true }, { column: "file_name", ascending: true }] }));
+    expect(two.sql).toContain(`WHERE NOT (${plainAsciiSql(`"file_type"`, true)} AND ${plainAsciiSql(`"file_name"`, false)}) LIMIT ?`);
+    expect(two.params).toEqual([100_001, 1000]);
+  });
+
+  it("falls back to every match's keys when the narrowed text-order statement would pass D1's statement limit", () => {
+    const wide = (n: number) => ok(intent({
+      table: "documents", order: [{ column: "file_type", ascending: true }],
+      where: [{ kind: "or", children: Array.from({ length: n }, (_, i) => cmp("file_name", "eq", `f${i}`)) }],
+    }));
+    // The filter is written twice in the narrowed statement; its 2n operands are packed into one param.
+    const narrowed = wide(500);
+    // …and, packed, it keeps its sort and cut (fitParams once dropped both).
+    expect([narrowed.plainCut, narrowed.sql.startsWith("SELECT * FROM (SELECT rowid"), narrowed.sql.length <= D1_MAX_SQL_BYTES, narrowed.params.length, narrowed.sort?.length])
+      .toEqual([1000, true, true, 1, 1]);
+    const every = wide(1500);
+    expect([every.plainCut, every.sql.startsWith(`SELECT rowid AS "rowid$", "file_type" AS "sort$0" FROM "documents" WHERE`), every.sql.length <= D1_MAX_SQL_BYTES, every.sort?.length])
+      .toEqual([undefined, true, true, 1]);
+    expect(JSON.parse(every.params[0] as string)).toHaveLength(1501);   // the filter once, then the row limit
   });
 
   it("binds limit and range, and gives a bare offset the LIMIT -1 SQLite needs", () => {

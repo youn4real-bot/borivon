@@ -160,12 +160,42 @@ describe.skipIf(!ENABLED)("reads answer exactly like Supabase", () => {
       ["candidate_profiles", "city_of_residence", "user_id"], ["candidate_profiles", "first_name", "user_id"],
       ["admin_checklist_items", "created_by", "id"], ["admin_checklist_items", "text", "id"], ["employers", "name", "id"],
       ["organizations", "name", "id"], ["phase_slots", "phase", "id"], ["phase_slots", "label", "id"],
+      // The largest tables, whose pages SQL now takes where the keys are plain ASCII:
+      // emails, file names and paths, labels with accents, message bodies.
+      ["documents", "file_path", "id"], ["notifications", "doc_name", "id"], ["notifications", "doc_type", "id"], ["notifications", "action", "id"],
+      ["messages", "body", "id"], ["messages", "kind", "id"], ["admin_notifications", "user_email", "id"], ["admin_notifications", "user_name", "id"],
+      ["admin_notifications", "doc_name", "id"], ["admin_notifications", "doc_type", "id"], ["candidate_profiles", "last_name", "user_id"],
     ]) {
       for (const o of [`${c}.asc,${pk}.asc`, `${c}.desc,${pk}.asc`, `${c}.asc.nullsfirst,${pk}.desc`, `${c}.desc.nullslast,${pk}.asc`]) {
         cases.push(["GET", `${t}?select=${pk}&order=${o}`]);
       }
       cases.push(["GET", `${t}?select=${pk}&order=${c}.asc,${pk}.asc&offset=3&limit=7`]);
       cases.push(["GET", `${t}?select=${pk}&order=${c}.desc,${pk}.desc&limit=5`, { Prefer: "count=exact" }]);
+      // Pages from the first row to past the end, each cut landing somewhere else in the keys.
+      for (const w of ["limit=1", "offset=1&limit=1", "offset=40&limit=13", "offset=100&limit=50", "offset=355&limit=10", "offset=640&limit=30", "offset=755&limit=10"]) {
+        cases.push(["GET", `${t}?select=${pk}&order=${c}.asc.nullsfirst,${pk}.asc&${w}`, { Prefer: "count=exact" }]);
+        cases.push(["GET", `${t}?select=${pk}&order=${c}.desc,${pk}.desc&${w}`]);
+      }
+    }
+    // Two and three text keys, a non-text key first, a filter, and keys that tie on
+    // every column (only the keys are selected, so the tie order cannot show).
+    for (const [path, headers] of [
+      ["documents?select=id&order=file_type.asc,file_name.desc,id.asc&offset=100&limit=50", {}],
+      ["documents?select=id&order=feedback.desc,file_type.asc.nullsfirst,file_name.asc,id.desc&offset=17&limit=40", { Prefer: "count=exact" }],
+      ["documents?select=id&order=uploaded_by_admin.asc,file_name.desc,id.asc&offset=600&limit=100", {}],
+      ["documents?select=id&file_type=not.is.null&order=file_name.asc,id.asc&offset=20&limit=10", { Prefer: "count=exact" }],
+      ["notifications?select=id&order=doc_type.asc.nullsfirst,doc_name.desc,id.desc&limit=30", {}],
+      ["notifications?select=id&or=(doc_type.is.null,action.eq.approved)&order=doc_name.asc,id.asc&offset=5&limit=25", { Prefer: "count=exact" }],
+      ["admin_notifications?select=id&order=type.desc,user_email.asc,doc_name.asc.nullsfirst,id.asc&offset=300&limit=20", {}],
+      ["admin_notifications?select=user_email,type&order=user_email.asc,type.asc&offset=50&limit=200", {}],
+      ["messages?select=kind,sender_role&order=kind.desc,sender_role.asc", {}],
+      ["documents?select=file_type,uploaded_by_admin&order=file_type.desc.nullslast,uploaded_by_admin.asc&offset=120&limit=300", {}],
+      // A filter past D1's 100 params: fitParams packed it and dropped the sort, so the
+      // page came back as the keys statement's rows.
+      [`documents?select=id,file_type&or=(${Array.from({ length: 150 }, (_, i) => `file_name.eq.none${i}`).join(",")},file_type.is.null,file_name.like.*.pdf)`
+        + "&order=file_type.asc.nullsfirst,file_name.desc,id.asc&offset=3&limit=40", { Prefer: "count=exact" }],
+    ] as [string, Record<string, string>][]) {
+      cases.push(["GET", path, headers]);
     }
     cases.push(
       ["GET", "documents?select=id,file_type&order=uploaded_by_admin.desc,file_type.asc,uploaded_at.desc,id.asc&limit=50"],
