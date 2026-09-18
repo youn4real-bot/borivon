@@ -14,11 +14,11 @@
 import registryJson from "@/d1/types.json";
 import type { Registry } from "@/lib/d1/pgrest/types";
 import { parseRequest } from "@/lib/d1/pgrest/parseRequest";
-import { buildSql } from "@/lib/d1/pgrest/buildSql";
 import { decodeRows } from "@/lib/d1/pgrest/decode";
 import { toPostgrestError } from "@/lib/d1/pgrest/errors";
 import { respond, errorResponse } from "@/lib/d1/pgrest/respond";
 import { runSelect } from "@/lib/d1/pgrest/read";
+import { runWrite } from "@/lib/d1/pgrest/write";
 import { rpcName, callRpc, isRpcError } from "@/lib/d1/pgrest/rpc";
 import { getD1, type D1Runner } from "@/lib/d1/client";
 
@@ -84,10 +84,12 @@ export function makeBvFetch(opts?: { runner?: D1Runner; passthrough?: typeof fet
         return respond(read.rows, { count: read.total, pageCount: read.pageCount }, intent);
       }
 
-      const built = buildSql(intent, registry);
-      if (isError(built)) return errorResponse(built);
-      const answer = await runner.run(built.sql, built.params);
-      return respond(decodeRows(answer.results, intent, registry), { changes: answer.meta?.changes }, intent);
+      // A write can take more than one statement too (a PATCH whose payload
+      // Postgres would never read, an upsert whose rows repeat the conflict key)
+      // — write.ts runs those and decides the answer.
+      const written = await runWrite(intent, registry, (sql, params) => runner.run(sql, params));
+      if (isError(written)) return errorResponse(written);
+      return respond(decodeRows(written.rows, intent, registry), { changes: written.changes }, intent);
     } catch (err) {
       return errorResponse(toPostgrestError(err, { table }), {}, head);
     }

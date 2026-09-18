@@ -116,7 +116,28 @@ export type SortKey = { key: string; text: boolean; ascending: boolean; nullsFir
  * row's keys came back; absent, the statement is the too-long fallback that always
  * sends every matching row's keys.
  */
-export type BuiltQuery = { sql: string; params: unknown[]; sort?: SortKey[]; plainCut?: number };
+export type BuiltQuery = {
+  sql: string;
+  params: unknown[];
+  sort?: SortKey[];
+  plainCut?: number;
+  /**
+   * A PATCH whose payload Postgres cannot read. The statement is then not the
+   * UPDATE but `SELECT 1 … WHERE <filter> LIMIT 1`: Postgres only runs the
+   * payload's input functions when the UPDATE's scan hands it a row, so a filter
+   * that matches nothing answers 0 rows and never sees the bad value. A row came
+   * back → answer with this error; none → the write matched nothing.
+   * lib/d1/pgrest/write.ts runs it.
+   */
+  refuseIfMatched?: PostgrestError;
+  /**
+   * An upsert whose own rows repeat this conflict key. The ON CONFLICT clause is
+   * left OFF the statement so SQLite stops at the row Postgres stops at, and a
+   * unique violation on exactly these columns is Postgres' 21000 — see
+   * buildSql.ts buildInsert.
+   */
+  repeatedConflictKey?: string[];
+};
 
 /** What a failed query must look like to callers (PostgREST's error body). */
 export type PostgrestError = {

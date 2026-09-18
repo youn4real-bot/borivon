@@ -21,7 +21,48 @@
 import type { PostgrestError } from "./types";
 
 /** What we know about the statement that failed (the mapper can't see the SQL). */
-export type ErrorContext = { table?: string; column?: string };
+export type ErrorContext = {
+  table?: string;
+  column?: string;
+  /**
+   * Set when the statement is an upsert whose own rows repeat this conflict key
+   * and whose ON CONFLICT clause was therefore left off (buildSql.ts buildInsert).
+   * A unique violation on exactly these columns is then SQLite reaching the row
+   * Postgres refuses with 21000, not a duplicate of a row already in the table.
+   */
+  repeatedConflictKey?: string[];
+};
+
+/**
+ * Postgres' answer to an upsert whose own rows share a conflict key
+ * (nodeModifyTable.c). PostgREST sends 21000 as a 500 — measured in PGlite 18.3
+ * against PostgREST 14.5's own INSERT … ON CONFLICT DO UPDATE statement.
+ */
+export const affectsRowTwice = (): PostgrestError => ({
+  code: "21000",
+  message: "ON CONFLICT DO UPDATE command cannot affect row a second time",
+  details: null,
+  hint: "Ensure that no rows proposed for insertion within the same command have duplicate constrained values.",
+  status: 500,
+});
+
+/**
+ * Postgres' answer when ON CONFLICT names columns no unique constraint covers —
+ * raised while planning, so it never depends on the rows. PostgREST gives class
+ * 42's default 400 (Error.hs pgErrorStatus).
+ */
+export const noMatchingConstraint = (): PostgrestError => ({
+  code: "42P10",
+  message: "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+  details: null,
+  hint: null,
+  status: 400,
+});
+
+/** Two column lists naming the same index: ON CONFLICT (b, a) matches an index on (a, b). */
+function sameColumnSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && new Set(a).size === a.length && a.every((c) => b.includes(c));
+}
 
 /**
  * PostgREST's HTTP status per Postgres/PostgREST code. Only the codes this adapter can
@@ -36,8 +77,10 @@ const STATUS_BY_CODE: Record<string, number> = {
   "23503": 409, // foreign_key_violation
   "23505": 409, // unique_violation
   "23514": 400, // check_violation
+  "21000": 500, // cardinality_violation — an upsert reaching one row twice (Error.hs pgErrorStatus)
   "42703": 400, // undefined_column
   "42P01": 404, // undefined_table
+  "42P10": 400, // invalid_column_reference — ON CONFLICT matches no unique constraint
   "42501": 403, // insufficient_privilege
   "53300": 503, // too_many_connections → retryable
   "57014": 504, // query_canceled (timeout) → retryable
@@ -116,9 +159,21 @@ function errcodeOf(err: unknown): string | null {
 const RE_NO_TABLE = /no such table:\s*["'`]?(?:main\.|temp\.)?([A-Za-z0-9_]+)?/i;
 const RE_HAS_NO_COLUMN = /table\s+["'`]?([A-Za-z0-9_]+)["'`]?\s+has no column named\s+["'`]?([A-Za-z0-9_]+)/i;
 const RE_NO_COLUMN = /no such column:\s*["'`]?([A-Za-z0-9_.]+)?/i;
-const RE_UNIQUE = /UNIQUE constraint failed:\s*([^|]+?)(?:\s*:\s*SQLITE_[A-Z_]*)?(?:\s*\||$)/i;
+/**
+ * The result code D1 puts AFTER the message, which is not part of the name a
+ * constraint is called by. The HTTP path spells it with the extended code in
+ * brackets — measured on the live copy:
+ *   `UNIQUE constraint failed: t.a, t.b: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)`
+ * Without the bracketed half the two captures below ran on past it and took it
+ * for part of the name: the last column came back as
+ * `candidate_user_id: SQLITE_CONSTRAINT (extended: …)`, which matched no conflict
+ * target and made PostgREST's `Key (…) already exists.` unreadable, and a CHECK
+ * was named `…_status_check: SQLITE_CONSTRAINT (extended: …)`.
+ */
+const D1_RESULT_CODE = String.raw`(?:\s*:\s*SQLITE_[A-Z_]*(?:\s*\([^)]*\))?)?`;
+const RE_UNIQUE = new RegExp(String.raw`UNIQUE constraint failed:\s*([^|]+?)${D1_RESULT_CODE}(?:\s*\||$)`, "i");
 const RE_NOT_NULL = /NOT NULL constraint failed:\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)/i;
-const RE_CHECK = /CHECK constraint failed:\s*([^|]+?)(?:\s*:\s*SQLITE_[A-Z_]*)?(?:\s*\||$)/i;
+const RE_CHECK = new RegExp(String.raw`CHECK constraint failed:\s*([^|]+?)${D1_RESULT_CODE}(?:\s*\||$)`, "i");
 const RE_FOREIGN_KEY = /FOREIGN KEY constraint failed/i;
 /** Cloudflare-side trouble: worth a retry, never a "migration missing" branch. The bare
  *  errno names are in here because the D1 HTTP API path talks over `fetch`: a dropped
@@ -244,6 +299,12 @@ export function toPostgrestError(err: unknown, ctx: ErrorContext = {}): Postgres
     const spec = raw.match(RE_UNIQUE)?.[1]?.trim() ?? "";
     const { table, columns, index } = parseUniqueTarget(spec);
     const relation = table || ctx.table || "unknown";
+    // The upsert whose ON CONFLICT clause was left off so SQLite would walk the
+    // rows the way Postgres does: it has now reached the repeat, which is where
+    // Postgres raises 21000. Only this index counts — a violation of ANOTHER
+    // unique index is a genuine 23505 on both sides, since ON CONFLICT covers
+    // only the target it names.
+    if (ctx.repeatedConflictKey && columns.length && sameColumnSet(ctx.repeatedConflictKey, columns)) return affectsRowTwice();
     // Postgres names a unique constraint `<table>_<cols>_key`, and the primary key
     // `<table>_pkey` — SQLite tells us which via the extended code (1555 = PRIMARYKEY,
     // 2067 = UNIQUE), so keep the two apart rather than mislabel every PK clash. A
@@ -262,6 +323,15 @@ export function toPostgrestError(err: unknown, ctx: ErrorContext = {}): Postgres
       details: columns.length ? `Key (${columns.join(", ")}) already exists.` : details,
       hint: null,
     });
+  }
+
+  // An ON CONFLICT target with no unique index behind it. Postgres refuses that
+  // while planning, with 42P10 and a 400; SQLite's wording is its own, and
+  // without this branch it fell through to XX000 + 500, i.e. "the database
+  // broke" for what is a bad request. The same 42P10 is what write.ts answers
+  // when it has to check the target itself.
+  if (/ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint/i.test(raw)) {
+    return { ...noMatchingConstraint(), details };
   }
 
   // Foreign key → 23503. SQLite says only "FOREIGN KEY constraint failed" — no table, no

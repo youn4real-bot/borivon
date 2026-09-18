@@ -997,10 +997,6 @@ function stampColumn(ctx: Ctx): string | undefined {
   return col && Object.prototype.hasOwnProperty.call(ctx.meta.columns, col) ? col : undefined;
 }
 
-/** Postgres' answer to an upsert whose own rows share a conflict key (nodeModifyTable.c); PostgREST sends 21000 as a 500. */
-const affectsRowTwice = (): PostgrestError => pgErr("21000", "ON CONFLICT DO UPDATE command cannot affect row a second time", 500,
-  "Ensure that no rows proposed for insertion within the same command have duplicate constrained values.");
-
 /** now()'s key cell: an array, which no encoded value ever is. */
 const NOW_KEY = ["now()"];
 
@@ -1142,24 +1138,7 @@ function buildInsert(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   // pulls its first row (nodeFunctionscan.c), so a value it cannot read anywhere
   // in the payload is refused before any row gets as far as ON CONFLICT: rows 1
   // and 2 sharing a key with a bad uuid in row 3 is 22P02, not 21000.
-  if (upsert && !intent.ignoreDuplicates) {
-    const seen = new Set<string>();
-    for (const encoded of cells) {
-      const key: unknown[] = [];
-      for (const c of target) {
-        const i = cols.indexOf(c);
-        // A conflict column the row leaves to the database takes its default, which
-        // Postgres fills in before looking for a conflict.
-        const cell = i >= 0 && encoded[i] !== DEFAULT_CELL ? encoded[i] : defaultKeyCell(ctx.meta.columns[c]);
-        if (cell === null || cell === undefined) break;
-        key.push(cell);
-      }
-      if (key.length < target.length) continue;
-      const k = JSON.stringify(key);
-      if (seen.has(k)) fail(affectsRowTwice());
-      seen.add(k);
-    }
-  }
+  const repeated = upsert && !intent.ignoreDuplicates ? repeatsConflictKey(ctx, target, cols, cells, DEFAULT_CELL) : false;
 
   const ROW = `"row$"`;
   const exprs = cols.map((_, i) => {
@@ -1171,7 +1150,28 @@ function buildInsert(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   let sql = `INSERT INTO ${qi(ctx.table)} (${cols.map(qi).join(", ")}) SELECT ${exprs.join(", ")} FROM json_each(?) AS ${ROW} WHERE true ORDER BY ${ROW}."key"`;
   ctx.params.push(JSON.stringify(cells.map((r) => r.map((v) => (v === DEFAULT_CELL ? {} : v)))));
 
-  if (upsert) {
+  // The repeat is NOT refused here. Postgres reaches 21000 only at the repeated
+  // row, having already checked every earlier row: measured in PGlite 18.3 on
+  // PostgREST 14.5's statement, an upsert whose first row holds a NULL in a NOT
+  // NULL column and whose rows 2 and 3 repeat a key answers 23502, and 23514 for
+  // a CHECK — the answer this adapter used to overwrite with 21000 before any SQL
+  // ran, because it decided the repeat up front.
+  //
+  // So the rows are handed to SQLite, which walks them in the same order and
+  // checks the same things per row (NOT NULL, then CHECK, then the index), with
+  // the ON CONFLICT clause left OFF so the repeat surfaces instead of silently
+  // updating the row again. errors.ts turns that unique violation — and only one
+  // on these exact columns — back into 21000. Nothing is written either way: a
+  // constraint failure aborts the whole statement on both sides.
+  //
+  // What this does NOT reproduce: without the clause, a row BEFORE the repeat
+  // that would have merged with a row already in the table stops the statement
+  // too. Its answer is still 21000, which is what Postgres answers for such a
+  // payload unless a row between the two breaks NOT NULL or a CHECK — one broken
+  // payload holding a merge, a broken row and a repeat, in that order. Widening
+  // it would mean writing the rows before the repeat to find out, and Postgres
+  // writes none of them.
+  if (upsert && !repeated) {
     sql += ` ON CONFLICT (${target.map(qi).join(", ")}) `;
     if (intent.ignoreDuplicates) {
       sql += "DO NOTHING";                                  // Prefer: resolution=ignore-duplicates
@@ -1182,7 +1182,56 @@ function buildInsert(ctx: Ctx, intent: QueryIntent): BuiltQuery {
       sql += `DO UPDATE SET ${sets.join(", ")}`;
     }
   }
-  return { sql: sql + returningClause(ctx, intent), params: ctx.params };
+  const built: BuiltQuery = { sql: sql + returningClause(ctx, intent), params: ctx.params };
+  return repeated ? { ...built, repeatedConflictKey: target } : built;
+}
+
+/**
+ * Whether two payload rows propose the same conflict key — the condition Postgres
+ * answers 21000 to. A key counts only when every one of its columns is KNOWN: a
+ * NULL never conflicts, and a column left to gen_random_uuid() or any other
+ * expression is different for every row, so those rows are skipped rather than
+ * guessed at. That certainty is what lets the ON CONFLICT clause be dropped —
+ * the rows really do collide in the index, so the statement cannot quietly
+ * succeed and write what Postgres refuses.
+ */
+function repeatsConflictKey(ctx: Ctx, target: string[], cols: string[], cells: unknown[][], defaultCell: object): boolean {
+  const seen = new Set<string>();
+  for (const encoded of cells) {
+    const key: unknown[] = [];
+    for (const c of target) {
+      const i = cols.indexOf(c);
+      // A conflict column the row leaves to the database takes its default, which
+      // Postgres fills in before looking for a conflict.
+      const cell = i >= 0 && encoded[i] !== defaultCell ? encoded[i] : defaultKeyCell(ctx.meta.columns[c]);
+      if (cell === null || cell === undefined) break;
+      key.push(cell);
+    }
+    if (key.length < target.length) continue;
+    const k = JSON.stringify(key);
+    if (seen.has(k)) return true;
+    seen.add(k);
+  }
+  return false;
+}
+
+/**
+ * The unique indexes of a table, one row per index column, so write.ts can prove
+ * the conflict target really is one before letting the clause-less statement run.
+ *
+ * Without the ON CONFLICT clause the repeat is only refused because the index
+ * refuses it. A target with no unique index behind it would let the statement
+ * SUCCEED and store both rows, where Postgres answers 42P10 and stores nothing —
+ * the one way this rewrite could lose data. Partial indexes are excluded: they
+ * only bite for rows matching their predicate, and Postgres will not infer one
+ * from a bare column list either. An expression index's column comes back NULL,
+ * which no target column name equals.
+ */
+export function uniqueIndexColumnsSql(table: string): BuiltQuery {
+  return {
+    sql: `SELECT il."name" AS "idx$", ii."name" AS "col$" FROM pragma_index_list(?) il JOIN pragma_index_info(il."name") ii WHERE il."unique" = 1 AND il."partial" = 0`,
+    params: [table],
+  };
 }
 
 function buildUpdate(ctx: Ctx, intent: QueryIntent): BuiltQuery {
@@ -1194,8 +1243,31 @@ function buildUpdate(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   // Read in Postgres' conversion order, bound in SQL order. A column `columns=`
   // lists but the body lacks is NULL, as json_to_record() makes it.
   const values: unknown[] = new Array(cols.length).fill(null);
-  for (const i of conversionOrder(cols)) {
-    if (Object.prototype.hasOwnProperty.call(payload, cols[i])) values[i] = writeParam(metas[i], payload[cols[i]], false);
+  let unreadable: PostgrestError | undefined;
+  try {
+    for (const i of conversionOrder(cols)) {
+      if (Object.prototype.hasOwnProperty.call(payload, cols[i])) values[i] = writeParam(metas[i], payload[cols[i]], false);
+    }
+  } catch (e) {
+    // A value no input function can read. On an INSERT that is the whole answer,
+    // but a PATCH only reads the payload once its scan has a row to update:
+    // PostgREST 14.5 puts json_to_record in a LATERAL beside the target table,
+    // and the planner makes the table the outer side of that nested loop — so an
+    // UPDATE matching nothing never runs the function at all. Measured in PGlite
+    // 18.3 on PostgREST's own statement: `.update({due_date:"29.05.2004"})
+    // .eq("id", <uuid nobody has>)` answers 0 rows, at every table size, analyzed
+    // or not, while the same payload on a filter that DOES match answers 22008.
+    // The adapter refused both, so a no-op PATCH looked like a validation error.
+    if (!(e instanceof BuildError)) throw e;
+    unreadable = e.pg;
+  }
+  // Ask whether the filter matches anything; write.ts answers with the error only
+  // if it does. The WHERE is built into a fresh ctx so the UPDATE's own params,
+  // which are never bound, cannot ride along.
+  if (unreadable) {
+    const probe: Ctx = { ...ctx, params: [] };
+    const sql = `SELECT 1 FROM ${qi(ctx.table)}${whereClause(probe, intent.where)} LIMIT 1`;
+    return { sql, params: probe.params, refuseIfMatched: unreadable };
   }
   const stamp = stampColumn(ctx);
   const sets: string[] = [];

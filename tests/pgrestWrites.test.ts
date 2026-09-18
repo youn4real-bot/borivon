@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
 import { buildSql, columnDefaultSql, fitParams, isPostgrestError, UPDATE_STAMPS } from "../lib/d1/pgrest/buildSql";
 import { parseParts } from "../lib/d1/pgrest/parseRequest";
-import type { BuiltQuery, Condition, QueryIntent, Registry, Where } from "../lib/d1/pgrest/types";
+import { runWrite } from "../lib/d1/pgrest/write";
+import type { BuiltQuery, Condition, PostgrestError, QueryIntent, Registry, Where } from "../lib/d1/pgrest/types";
 
 /**
  * Writes the way PostgREST writes them (lib/d1/pgrest/buildSql.ts buildInsert /
@@ -14,7 +15,10 @@ import type { BuiltQuery, Condition, QueryIntent, Registry, Where } from "../lib
  *  - every value goes through its column's input function (22P02 / 22007 / …);
  *  - `columns=` lets rows differ in keys (missing → NULL, or the default under
  *    `Prefer: missing=default`);
- *  - an upsert whose own rows share a conflict key is 21000;
+ *  - an upsert whose own rows share a conflict key is 21000 — but only once every
+ *    earlier row has passed NOT NULL and CHECK, and a PATCH never reads its
+ *    payload at all unless the UPDATE has a row (both measured in PGlite; see the
+ *    two describes at the end of this file);
  *  - a BEFORE UPDATE trigger's now() is already in the row RETURNING hands back.
  * Shape tests pin the SQL; behaviour tests run it against the real d1/schema.sql
  * in a real SQLite. The live D1 side is tests/d1WriteCodecParity.test.ts.
@@ -88,7 +92,9 @@ describe("every written value goes through its column's input function", () => {
     // The passport OCR persist (app/api/portal/upload/route.ts) writes German dates.
     expect(refused(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: U1, dob: "29.05.2004" }] })))
       .toEqual({ code: "22008", message: 'date/time field value out of range: "29.05.2004"', details: null, hint: 'Perhaps you need a different "datestyle" setting.', status: 400 });
-    expect(refused(intent({ table: "assistant_reminders", action: "update", values: [{ remind_count: 2.5 }] })))
+    // A PATCH withholds the error until the filter is known to match a row — see
+    // "a PATCH only reads its payload when the UPDATE has a row" below.
+    expect(ok(intent({ table: "assistant_reminders", action: "update", values: [{ remind_count: 2.5 }] })).refuseIfMatched)
       .toMatchObject({ code: "22P02", message: 'invalid input syntax for type integer: "2.5"' });
     expect(refused(intent({ table: "assistant_reminders", action: "insert", values: [{ owner_user_id: "abc", text: "t" }] })))
       .toMatchObject({ code: "22P02", message: 'invalid input syntax for type uuid: "abc"' });
@@ -118,26 +124,29 @@ describe("an upsert may not reach one row twice", () => {
   const member = { cohort_id: U1, candidate_user_id: U2, current_level: "A1", status: "active" };
   const target = ["cohort_id", "candidate_user_id"];
 
-  it("answers 21000 with Postgres' message and hint when the payload repeats a conflict key", () => {
-    expect(refused(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, { ...member, current_level: "B1" }] }))).toEqual({
-      code: "21000",
-      message: "ON CONFLICT DO UPDATE command cannot affect row a second time",
-      details: null,
-      hint: "Ensure that no rows proposed for insertion within the same command have duplicate constrained values.",
-      status: 500,
-    });
+  const repeats = (i: QueryIntent) => ok(i).repeatedConflictKey;
+
+  it("drops the ON CONFLICT clause when the payload repeats a conflict key, so the index refuses the repeat", () => {
+    // Postgres reaches 21000 AT the repeated row, after checking every earlier
+    // row. Refusing up front overwrote an earlier row's 23502 / 23514 with it;
+    // without the clause SQLite stops where Postgres stops, and errors.ts turns
+    // the unique violation back into 21000.
+    const q = ok(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, { ...member, current_level: "B1" }] }));
+    expect(q.sql).not.toMatch(/ON CONFLICT/);
+    expect(q.repeatedConflictKey).toEqual(target);
     // The same key in another spelling is the same key.
-    expect(refused(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, { ...member, candidate_user_id: U2.toUpperCase() }] })).code).toBe("21000");
+    expect(repeats(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, { ...member, candidate_user_id: U2.toUpperCase() }] }))).toEqual(target);
   });
 
-  it("lets through what Postgres lets through: DO NOTHING, distinct keys, NULL keys, a key the payload does not carry", () => {
-    ok(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, ignoreDuplicates: true, values: [member, member] }));
-    ok(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, { ...member, candidate_user_id: U1 }] }));
+  it("keeps the clause for what Postgres lets through: DO NOTHING, distinct keys, NULL keys, a key the payload does not carry", () => {
+    const kept = (i: QueryIntent) => { const q = ok(i); expect(q.repeatedConflictKey).toBeUndefined(); return q.sql; };
+    expect(kept(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, ignoreDuplicates: true, values: [member, member] }))).toMatch(/ON CONFLICT .* DO NOTHING$/);
+    expect(kept(intent({ table: "academy_cohort_members", action: "upsert", onConflict: target, values: [member, { ...member, candidate_user_id: U1 }] }))).toMatch(/ON CONFLICT .* DO UPDATE SET /);
     const ev = { candidate_user_id: U1, type: "attendance", source_kind: "session", source_id: null, points: 1 };
-    ok(intent({ table: "academy_point_events", action: "upsert", onConflict: ["candidate_user_id", "type", "source_kind", "source_id"], values: [ev, ev] }));
-    ok(intent({ table: "candidate_reminders", action: "upsert", values: [{ user_id: U1, items: [] }, { user_id: U1, items: [] }] }));
-    // A plain insert of a duplicate is the database's 23505, not a builder error.
-    ok(intent({ table: "academy_cohort_members", action: "insert", values: [member, member] }));
+    kept(intent({ table: "academy_point_events", action: "upsert", onConflict: ["candidate_user_id", "type", "source_kind", "source_id"], values: [ev, ev] }));
+    kept(intent({ table: "candidate_reminders", action: "upsert", values: [{ user_id: U1, items: [] }, { user_id: U1, items: [] }] }));
+    // A plain insert of a duplicate is the database's 23505 on both sides, and never carries the marker.
+    kept(intent({ table: "academy_cohort_members", action: "insert", values: [member, member] }));
   });
 
   it("reads every row before looking for a collision, as Postgres' function scan does", () => {
@@ -148,11 +157,11 @@ describe("an upsert may not reach one row twice", () => {
   it("counts a conflict column the rows leave to its default", () => {
     const rows = [{ user_id: U1, items: [] }, { user_id: U1, items: [] }];
     // candidate_reminders.kind defaults to 'documents', so both rows propose (U1, documents).
-    expect(refused(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], values: rows })).code).toBe("21000");
-    expect(refused(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], columns: ["user_id", "kind", "items"], missingDefault: true, values: [rows[0], { ...rows[1], kind: "documents" }] })).code).toBe("21000");
+    expect(repeats(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], values: rows }))).toEqual(["user_id", "kind"]);
+    expect(repeats(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], columns: ["user_id", "kind", "items"], missingDefault: true, values: [rows[0], { ...rows[1], kind: "documents" }] }))).toEqual(["user_id", "kind"]);
     // gen_random_uuid() is new for every row, and a key a row lacks without missing=default is NULL: neither collides.
-    ok(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["id", "user_id"], values: rows }));
-    ok(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], columns: ["user_id", "kind", "items"], values: rows }));
+    expect(repeats(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["id", "user_id"], values: rows }))).toBeUndefined();
+    expect(repeats(intent({ table: "candidate_reminders", action: "upsert", onConflict: ["user_id", "kind"], columns: ["user_id", "kind", "items"], values: rows }))).toBeUndefined();
   });
 });
 
@@ -322,5 +331,172 @@ describe.skipIf(!DatabaseSync)("writes run against the real D1 schema", () => {
     db.prepare(`INSERT INTO documents (id, user_id, file_name, file_path, rotation, uploaded_by_admin, file_type) VALUES (?, ?, 'a.pdf', 'p', 0, 0, 't499')`).run(U2, U1);
     const where: Where = { kind: "or", children: Array.from({ length: 500 }, (_, i) => cmp("file_type", "eq", `t${i}`)) };
     expect(all(intent({ table: "documents", select: [{ column: "id" }], where: [where, cmp("user_id", "eq", U1)] }))).toEqual([{ id: U2 }]);
+  });
+});
+
+/* ────────────────── the order Postgres decides an error in ───────────────── */
+
+/**
+ * Measured in PGlite 18.3 (real Postgres) on PostgREST 14.5's own generated SQL —
+ * `INSERT INTO t(cols) SELECT pgrst_body.cols FROM (SELECT $1::json …)
+ * pgrst_payload, LATERAL (SELECT cols FROM json_to_recordset(…) AS _(…))
+ * pgrst_body [ON CONFLICT …] RETURNING 1` — over the real academy_cohort_members
+ * definition (composite PK, status CHECK, cohort_id FK). Three tiers:
+ *
+ *  1. an unreadable value anywhere in the payload (22P02 / 22007 / 22008), because
+ *     json_to_recordset is a function scan Postgres drains before the INSERT
+ *     starts;
+ *  2. then row by row IN ORDER: NOT NULL (23502, reported in column order), then
+ *     CHECK (23514), then the index — 23505 for a plain insert, 21000 for an
+ *     upsert reaching one row twice;
+ *  3. the FK (23503) last: an AFTER ROW trigger fired when the statement ends, so
+ *     any later row's failure wins.
+ *
+ * The adapter used to answer 21000 to the first two lines of this table, because
+ * it decided the repeat before running anything. Nothing is written in any of
+ * them, on either side.
+ */
+describe.skipIf(!DatabaseSync)("an upsert's error is the one Postgres raises first", () => {
+  let db: Db;
+  let run: (sql: string, params: unknown[]) => Promise<{ results: Row[]; meta: { changes?: number } }>;
+  const COHORT = uuid(1);
+  const A = uuid(2), B = uuid(3), C = uuid(4), GHOST = uuid(9);
+  const M = (over: Record<string, unknown> = {}) => ({ cohort_id: COHORT, candidate_user_id: A, current_level: "A1", status: "active", ...over });
+  const TARGET = ["cohort_id", "candidate_user_id"];
+
+  const write = async (over: Partial<QueryIntent>) => {
+    const before = Number(db.prepare(`SELECT count(*) AS n FROM academy_cohort_members`).get()!.n);
+    const out = await runWrite(intent({ table: "academy_cohort_members", action: "upsert", onConflict: TARGET, ...over }), registry, run);
+    const after = Number(db.prepare(`SELECT count(*) AS n FROM academy_cohort_members`).get()!.n);
+    const err = "code" in out ? (out as PostgrestError) : null;
+    return { code: err?.code ?? "ok", message: err?.message ?? "", wrote: after - before };
+  };
+
+  beforeAll(() => {
+    db = new DatabaseSync!(":memory:");
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec(fs.readFileSync("d1/schema.sql", "utf8"));
+    db.prepare(`INSERT INTO academy_cohorts (id, name) VALUES (?, 'B2')`).run(COHORT);
+    run = async (sql, params) => {
+      const stmt = db.prepare(sql);
+      const reads = /^\s*select/i.test(sql) || /\bRETURNING\b/i.test(sql);
+      const results = reads ? stmt.all(...(params as never[])) : (stmt.run(...(params as never[])), []);
+      return { results, meta: { changes: Number(db.prepare(`SELECT changes() AS n`).get()!.n) } };
+    };
+  });
+
+  it("lets an earlier row's NOT NULL or CHECK beat the repeat, and still answers 21000 for the repeat itself", async () => {
+    expect(await write({ values: [M({ candidate_user_id: C, status: null }), M({ candidate_user_id: B }), M({ candidate_user_id: B })] }))
+      .toEqual({ code: "23502", message: 'null value in column "status" of relation "academy_cohort_members" violates not-null constraint', wrote: 0 });
+    expect(await write({ values: [M({ candidate_user_id: C, status: "nope" }), M({ candidate_user_id: B }), M({ candidate_user_id: B })] }))
+      .toEqual({ code: "23514", message: 'new row for relation "academy_cohort_members" violates check constraint "academy_cohort_members_status_check"', wrote: 0 });
+    // …and where Postgres DOES answer 21000, so does the adapter.
+    expect(await write({ values: [M({ candidate_user_id: B }), M({ candidate_user_id: B }), M({ candidate_user_id: C, status: null })] }))
+      .toEqual({ code: "21000", message: "ON CONFLICT DO UPDATE command cannot affect row a second time", wrote: 0 });
+    expect(await write({ values: [M({ candidate_user_id: C }), M({ candidate_user_id: B }), M({ candidate_user_id: B })] }))
+      .toMatchObject({ code: "21000", wrote: 0 });
+  });
+
+  it("takes the first failing row in payload order, and NOT NULL before CHECK within a row", async () => {
+    expect(await write({ values: [M({ candidate_user_id: C, status: null }), M({ candidate_user_id: B, status: "nope" })] })).toMatchObject({ code: "23502", wrote: 0 });
+    expect(await write({ values: [M({ candidate_user_id: C, status: "nope" }), M({ candidate_user_id: B, status: null })] })).toMatchObject({ code: "23514", wrote: 0 });
+    // Both broken in ONE row: Postgres checks the attributes in column order, and
+    // current_level comes before status.
+    expect((await write({ values: [M({ candidate_user_id: C, status: null, current_level: null })] })).message).toMatch(/column "current_level"/);
+    // The repeated row's own NOT NULL still comes before the index.
+    expect(await write({ values: [M({ candidate_user_id: B }), M({ candidate_user_id: B, status: null })] })).toMatchObject({ code: "23502", wrote: 0 });
+  });
+
+  it("leaves the foreign key last, as Postgres' after-row trigger does", async () => {
+    expect(await write({ values: [M({ cohort_id: GHOST }), M({ candidate_user_id: B }), M({ candidate_user_id: B })] })).toMatchObject({ code: "21000", wrote: 0 });
+    expect(await write({ values: [M({ cohort_id: GHOST }), M({ candidate_user_id: B, status: null })] })).toMatchObject({ code: "23502", wrote: 0 });
+    expect(await write({ values: [M({ cohort_id: GHOST }), M({ candidate_user_id: B, status: "nope" })] })).toMatchObject({ code: "23514", wrote: 0 });
+    expect(await write({ values: [M({ cohort_id: GHOST })] })).toMatchObject({ code: "23503", wrote: 0 });
+  });
+
+  it("refuses an unreadable value wherever it sits, before any row is written", async () => {
+    expect(await write({ values: [M({ candidate_user_id: "not-a-uuid" }), M({ candidate_user_id: B }), M({ candidate_user_id: B })] })).toMatchObject({ code: "22P02", wrote: 0 });
+    expect(await write({ values: [M({ candidate_user_id: B }), M({ candidate_user_id: B }), M({ candidate_user_id: "not-a-uuid" })] })).toMatchObject({ code: "22P02", wrote: 0 });
+  });
+
+  it("keeps a plain insert's duplicate a 23505, and merges when nothing repeats", async () => {
+    const insert = (values: Record<string, unknown>[]) => write({ action: "insert", onConflict: undefined, values });
+    expect(await insert([M({ candidate_user_id: B }), M({ candidate_user_id: B })])).toMatchObject({ code: "23505", wrote: 0 });
+    expect(await insert([M({ candidate_user_id: B }), M({ candidate_user_id: B }), M({ candidate_user_id: C, status: null })])).toMatchObject({ code: "23505", wrote: 0 });
+    expect(await insert([M({ candidate_user_id: C, status: null }), M({ candidate_user_id: B }), M({ candidate_user_id: B })])).toMatchObject({ code: "23502", wrote: 0 });
+    expect(await write({ values: [M({ candidate_user_id: B }), M({ candidate_user_id: C })] })).toEqual({ code: "ok", message: "", wrote: 2 });
+  });
+
+  it("proves the conflict target is a unique index before trusting it to refuse the repeat", async () => {
+    // A repeat on a NON-PK target: uq_journey_preset covers exactly these two
+    // columns, so the clause can be dropped and the index refuses the repeat.
+    const item = { candidate_user_id: A, text: "t", owner: "borivon", preset_key: "p1" };
+    const journey = (over: Partial<QueryIntent>) => runWrite(intent({ table: "candidate_journey_items", action: "upsert", ...over }), registry, run);
+    expect(await journey({ onConflict: ["candidate_user_id", "preset_key"], values: [item, { ...item, text: "u" }] })).toMatchObject({ code: "21000" });
+    // A target no unique index covers is Postgres' 42P10 — never two stored rows.
+    expect(await journey({ onConflict: ["text"], values: [item, { ...item, preset_key: "p2" }] })).toMatchObject({ code: "42P10" });
+    expect(Number(db.prepare(`SELECT count(*) AS n FROM candidate_journey_items`).get()!.n)).toBe(0);
+    // The same 42P10 when there is no repeat at all — there SQLite refuses the
+    // statement itself, and errors.ts recognises its wording.
+    expect(await journey({ onConflict: ["text"], values: [item] })).toMatchObject({ code: "42P10" });
+  });
+});
+
+/* ───────────── a PATCH only reads its payload when it has a row ──────────── */
+
+/**
+ * PostgREST 14.5 builds the new values with json_to_record in a LATERAL beside
+ * the target table, and the planner makes the TABLE the outer side of that nested
+ * loop — so an UPDATE whose filter matches nothing never runs the input function.
+ * Measured in PGlite 18.3 on that statement: with the table analyzed (any real
+ * table is), `{due_date:"29.05.2004"}` answers 0 rows for EVERY filter that
+ * matches nothing, at 0 / 12 / 92 / 367 / 771 / 4,882 rows, and 22008 as soon as
+ * one row matches. On the primary key it answers 0 rows even un-analyzed.
+ */
+describe.skipIf(!DatabaseSync)("a PATCH only reads its payload when the UPDATE has a row", () => {
+  let db: Db;
+  let run: (sql: string, params: unknown[]) => Promise<{ results: Row[]; meta: { changes?: number } }>;
+  const HAS = uuid(1);
+  const ABSENT = uuid(999);
+
+  beforeAll(() => {
+    db = new DatabaseSync!(":memory:");
+    db.exec(fs.readFileSync("d1/schema.sql", "utf8"));
+    db.prepare(`INSERT INTO assistant_reminders (id, owner_user_id, text) VALUES (?, ?, 'call the clinic')`).run(HAS, U1);
+    run = async (sql, params) => {
+      const stmt = db.prepare(sql);
+      const reads = /^\s*select/i.test(sql) || /\bRETURNING\b/i.test(sql);
+      const results = reads ? stmt.all(...(params as never[])) : (stmt.run(...(params as never[])), []);
+      return { results, meta: { changes: Number(db.prepare(`SELECT changes() AS n`).get()!.n) } };
+    };
+  });
+
+  const patch = (id: string, values: Record<string, unknown>) =>
+    runWrite(intent({ table: "assistant_reminders", action: "update", values: [values], where: [cmp("id", "eq", id)] }), registry, run);
+
+  it("answers 0 rows when the filter matches nothing, and the input error when it matches", async () => {
+    expect(await patch(ABSENT, { due_date: "29.05.2004" })).toEqual({ rows: [], changes: 0 });
+    expect(await patch(HAS, { due_date: "29.05.2004" })).toEqual({
+      code: "22008", message: 'date/time field value out of range: "29.05.2004"',
+      details: null, hint: 'Perhaps you need a different "datestyle" setting.', status: 400,
+    });
+    // Every input-function code goes the same way, and the probe never writes.
+    expect(await patch(ABSENT, { remind_count: 2.5 })).toEqual({ rows: [], changes: 0 });
+    expect(await patch(HAS, { remind_count: 2.5 })).toMatchObject({ code: "22P02" });
+    expect(db.prepare(`SELECT due_date, remind_count FROM assistant_reminders WHERE id = ?`).get(HAS)).toEqual({ due_date: null, remind_count: 0 });
+  });
+
+  it("reports the first bad column by name, as json_to_record's conversion order does", async () => {
+    expect(await patch(HAS, { remind_count: "x", due_date: "y" })).toMatchObject({ code: "22007", message: 'invalid input syntax for type date: "y"' });
+  });
+
+  it("still refuses an unknown column outright, which Postgres refuses while planning", async () => {
+    const out = await runWrite(intent({ table: "assistant_reminders", action: "update", values: [{ nope: "29.05.2004" }], where: [cmp("id", "eq", ABSENT)] }), registry, run);
+    expect(out).toMatchObject({ code: "42703" });
+  });
+
+  it("writes the good value when the row is there", async () => {
+    expect(await patch(HAS, { due_date: "2004-05-29" })).toEqual({ rows: [], changes: 1 });
+    expect(db.prepare(`SELECT due_date FROM assistant_reminders WHERE id = ?`).get(HAS)!.due_date).toBe("2004-05-29");
   });
 });

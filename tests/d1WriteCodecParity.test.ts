@@ -34,6 +34,17 @@ const COHORT = "00000000-0000-4000-8000-0000000c0de1";
 const PROBE_REMINDER = "00000000-0000-4000-8000-0000000c0de2";
 const id = (tag: number, n: number) => `c0dec${tag}00-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
+/**
+ * The parents of the foreign keys this suite writes children for. The copy now
+ * carries live's FKs (d1/schema.sql), so without these rows the cohort upsert and
+ * the affiliate_earnings probe are refused with 23503 before they can prove
+ * anything. Both are deleted after their children, in CLEANUP's order.
+ */
+const PARENTS: [string, unknown[]][] = [
+  [`INSERT INTO "academy_cohorts" ("id", "name") VALUES (?, ?)`, [COHORT, MARK]],
+  [`INSERT INTO "affiliates" ("id", "code", "dash_token_hash", "name") VALUES (?, ?, ?, ?)`, [USER, `${MARK}-code`, `${MARK}-hash`, MARK]],
+];
+
 const CLEANUP: [string, unknown[]][] = [
   [`DELETE FROM "calendar_events" WHERE "title" = ?`, [MARK]],
   [`DELETE FROM "notifications" WHERE "doc_name" = ? AND "doc_id" = ?`, [MARK, USER]],
@@ -44,6 +55,9 @@ const CLEANUP: [string, unknown[]][] = [
   [`DELETE FROM "candidate_pipeline" WHERE "user_id" = ?`, [USER]],
   [`DELETE FROM "employers" WHERE "name" LIKE ?`, [`${MARK}%`]],
   [`DELETE FROM "affiliate_earnings" WHERE "affiliate_id" = ?`, [USER]],
+  [`DELETE FROM "candidate_journey_items" WHERE "candidate_user_id" = ?`, [USER]],
+  [`DELETE FROM "academy_cohorts" WHERE "id" = ?`, [COHORT]],
+  [`DELETE FROM "affiliates" WHERE "id" = ?`, [USER]],
 ];
 const countOf = (del: string) => del.replace(/^DELETE FROM/, "SELECT count(*) AS n FROM");
 
@@ -100,6 +114,7 @@ describe.skipIf(!ENABLED)("writes answer like Supabase, against the D1 copy", ()
       const n = Number((await d1.run(countOf(sql), params)).results[0]?.n);
       if (n !== 0) throw new Error(`rows this suite did not write already match its cleanup: ${sql}`);
     }
+    for (const [sql, params] of PARENTS) await d1.run(sql, params);
   }, 120_000);
 
   afterAll(async () => {
@@ -176,6 +191,73 @@ describe.skipIf(!ENABLED)("writes answer like Supabase, against the D1 copy", ()
       message: "ON CONFLICT DO UPDATE command cannot affect row a second time",
     });
     expect((await db.from("academy_cohort_members").select("cohort_id").eq("candidate_user_id", id(3, 1))).data).toEqual([]);
+  }, 120_000);
+
+  it("lets an earlier row's NOT NULL or CHECK beat the repeat, as Postgres does", async () => {
+    // Measured in PGlite 18.3 on PostgREST 14.5's own INSERT … ON CONFLICT
+    // statement: Postgres reaches 21000 only AT the repeated row, so a row before
+    // it that breaks NOT NULL is 23502 and one that breaks a CHECK is 23514. Live
+    // Supabase cannot be asked — it is read-only here — so this holds the copy to
+    // what that measurement says, and to writing nothing either way.
+    const row = { cohort_id: COHORT, candidate_user_id: id(4, 1), current_level: "A1", status: "active" };
+    const target = { onConflict: "cohort_id,candidate_user_id", ignoreDuplicates: false };
+    const upsert = (rows: Record<string, unknown>[]) =>
+      db.from("academy_cohort_members").upsert(rows, target).select("candidate_user_id");
+    const stored = async () => (await db.from("academy_cohort_members").select("cohort_id", { count: "exact", head: true }).eq("cohort_id", COHORT)).count;
+    const before = await stored();
+
+    const nullFirst = await upsert([{ ...row, candidate_user_id: id(4, 2), status: null }, { ...row, candidate_user_id: id(4, 3) }, { ...row, candidate_user_id: id(4, 3) }]);
+    expect([nullFirst.status, nullFirst.error?.code]).toEqual([400, "23502"]);
+    expect(nullFirst.error?.message).toBe('null value in column "status" of relation "academy_cohort_members" violates not-null constraint');
+
+    const checkFirst = await upsert([{ ...row, candidate_user_id: id(4, 4), status: "nope" }, { ...row, candidate_user_id: id(4, 5) }, { ...row, candidate_user_id: id(4, 5) }]);
+    expect([checkFirst.status, checkFirst.error?.code]).toEqual([400, "23514"]);
+    expect(checkFirst.error?.message).toBe('new row for relation "academy_cohort_members" violates check constraint "academy_cohort_members_status_check"');
+
+    // …and the repeat itself is still 21000, even with a broken row AFTER it.
+    const repeatFirst = await upsert([{ ...row, candidate_user_id: id(4, 6) }, { ...row, candidate_user_id: id(4, 6) }, { ...row, candidate_user_id: id(4, 7), status: null }]);
+    expect([repeatFirst.status, repeatFirst.error?.code]).toEqual([500, "21000"]);
+    expect(await stored()).toBe(before);
+  }, 120_000);
+
+  it("proves a non-PK conflict target is a unique index before trusting it to refuse the repeat", async () => {
+    const item = { candidate_user_id: USER, text: MARK, owner: "borivon", preset_key: `${MARK}-1` };
+    const journey = (rows: Record<string, unknown>[], onConflict: string) =>
+      db.from("candidate_journey_items").upsert(rows, { onConflict, ignoreDuplicates: false }).select("id");
+    // uq_journey_preset covers exactly (candidate_user_id, preset_key).
+    const repeat = await journey([item, { ...item, text: `${MARK} again` }], "candidate_user_id,preset_key");
+    expect([repeat.status, repeat.error?.code]).toEqual([500, "21000"]);
+    // `text` has no unique index: Postgres refuses that target while planning.
+    const bogus = await journey([item, { ...item, preset_key: `${MARK}-2` }], "text");
+    expect([bogus.status, bogus.error?.code]).toEqual([400, "42P10"]);
+    expect(bogus.error?.message).toBe("there is no unique or exclusion constraint matching the ON CONFLICT specification");
+    // The same answer with no repeat at all, where SQLite refuses the statement itself.
+    expect((await journey([item], "text")).error?.code).toBe("42P10");
+    expect((await db.from("candidate_journey_items").select("id", { count: "exact", head: true }).eq("candidate_user_id", USER)).count).toBe(0);
+  }, 120_000);
+
+  it("answers a PATCH whose payload it cannot read with 0 rows when the filter matches nothing", async () => {
+    // PostgREST 14.5 reads the payload with json_to_record in a LATERAL beside the
+    // target table, and the planner makes the table the outer side of that nested
+    // loop — so an UPDATE matching no row never runs the input function. Measured
+    // in PGlite 18.3: 0 rows for every filter that matches nothing, 22008 as soon
+    // as one matches.
+    const absent = id(5, 1);
+    const missed = await db.from("assistant_reminders").update({ due_date: "29.05.2004" }).eq("id", absent).select("id");
+    expect([missed.status, missed.error, missed.data]).toEqual([200, null, []]);
+
+    const present = id(5, 2);
+    expect((await db.from("assistant_reminders").insert({ id: present, owner_user_id: USER, text: MARK })).error).toBeNull();
+    const hit = await db.from("assistant_reminders").update({ due_date: "29.05.2004" }).eq("id", present).select("id");
+    expect(hit.status).toBe(400);
+    expect(errorFields(hit.error)).toEqual({
+      code: "22008",
+      details: null,
+      hint: 'Perhaps you need a different "datestyle" setting.',
+      message: 'date/time field value out of range: "29.05.2004"',
+    });
+    const after = await db.from("assistant_reminders").select("due_date").eq("id", present);
+    expect(after.data).toEqual([{ due_date: null }]);
   }, 120_000);
 
   it("writes rows whose keys differ: NULL for the missing key, or its default under missing=default", async () => {
