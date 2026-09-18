@@ -31,8 +31,28 @@ export async function fetchLiveOpenApi(env) {
   return res.json();
 }
 
+/**
+ * Paths that exist in Supabase ONLY, by design, and that D1 must never answer.
+ * The login backup's export function (supabase/auth_users_backup.sql) is called
+ * with a plain fetch to Supabase, never through the service client, so the copy
+ * has nothing to implement. Without this, running that migration would turn the
+ * drift gate red and d1/cutover.mjs would refuse the switch over a function the
+ * copy does not need.
+ */
+export const SUPABASE_ONLY_PATHS = new Set(["/rpc/bv_auth_users_backup_page"]);
+
+function withoutSupabaseOnly(doc) {
+  if (!doc?.paths) return doc;
+  const paths = Object.fromEntries(Object.entries(doc.paths).filter(([p]) => !SUPABASE_ONLY_PATHS.has(p)));
+  return { ...doc, paths };
+}
+
 /** Every structural difference, one readable line each. Empty = identical. */
-export function diffOpenApi(live, snap) {
+export function diffOpenApi(liveDoc, snapDoc) {
+  // Filtered before every comparison, the final whole-document one included:
+  // skipping only the path loop would report "documents differ only in key order".
+  const live = withoutSupabaseOnly(liveDoc);
+  const snap = withoutSupabaseOnly(snapDoc);
   const out = [];
   const j = (v) => JSON.stringify(v);
   const keys = (a, b) => [...new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})])].sort();

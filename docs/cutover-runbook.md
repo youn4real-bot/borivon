@@ -165,3 +165,25 @@ then race live writes.
 Supabase stays the login service and the rollback target. Before downgrading, confirm the journal is healthy
 (above) and that nothing reads Supabase data (no new `[shadow-d1]` lines, `d1Backend: true`). Keep every table:
 the replay writes back into them.
+
+### Before downgrading Supabase to Free
+
+Free has no backups, and it pauses a project after about 7 days without database activity (then nobody can log
+in). The 06:00 UTC cron covers both (`lib/supabaseFreePlanSafety.ts`, riding `/api/cron/briefing`). Do not downgrade
+until every box is ticked.
+
+- [ ] This code is deployed (`npm run cf:build && npm run cf:deploy`). Without the key it only logs
+  `[auth-backup] AUTH_BACKUP_KEY is not set` and skips the backup.
+- [ ] `supabase/auth_users_backup.sql` has been run in the Supabase SQL editor (a read-only export, service_role
+  only; `d1/check-drift.mjs` ignores the function it adds).
+- [ ] On your laptop: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Save the value in
+  your password manager first (a lost key means backups nobody can open), then `npx wrangler secret put AUTH_BACKUP_KEY`.
+  Keep it OUT of `.env.local`: `npm run cf:build` compiles that file into the Worker bundle, so the key would ship
+  inside it and `wrangler secret delete` would no longer take it away. Set it per shell when you decrypt instead.
+- [ ] After the next 06:00 UTC run, the Worker logs (dashboard → Workers → borivon → Logs) show `[supabase-keepalive] ok`
+  and `[auth-backup] ok backups/auth-users/<date>.json.enc accounts=<N>`, and no "Supabase keep-alive failed" or
+  "Login backup failed" message or email arrived.
+- [ ] That backup opens locally, in a folder outside the repo (the script refuses anywhere inside a git checkout):
+  `npx wrangler r2 object get borivon-files/backups/auth-users/<date>.json.enc --file C:\Users\<you>\Desktop\auth.enc --remote`,
+  then `$env:AUTH_BACKUP_KEY="<key>"; node d1/decrypt-auth-backup.mjs C:\Users\<you>\Desktop\auth.enc C:\Users\<you>\Desktop\auth.json`
+  prints `<N>` accounts. Delete both files afterwards.

@@ -45,6 +45,17 @@ describe("diffOpenApi", () => {
     ]));
   });
 
+  it("ignores the login backup's export function, which only Supabase answers, and nothing else", () => {
+    // Running supabase/auth_users_backup.sql must not make d1/cutover.mjs refuse the switch.
+    const live = clone();
+    live.paths["/rpc/bv_auth_users_backup_page"] = { get: {} };
+    expect(diffOpenApi(live, snap)).toEqual([]);
+    expect(diffOpenApi(snap, live)).toEqual([]);
+    // A lookalike is still drift.
+    live.paths["/rpc/bv_auth_users_backup_page_v2"] = { get: {} };
+    expect(diffOpenApi(live, snap)).toEqual(["path added: /rpc/bv_auth_users_backup_page_v2"]);
+  });
+
   it("does not print row data — only structure lives in the document", () => {
     const live = clone();
     live.info.version = "99";
