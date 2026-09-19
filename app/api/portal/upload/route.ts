@@ -35,7 +35,12 @@ const ALLOWED_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
-const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+// 25 MB, the same ceiling app/api/portal/u/[token] already accepts and the
+// same number DocUploader promises on the login-less page. It was 10 MB here,
+// which silently refused real scans: on 2026-09-19 the founder's uploads into a
+// candidate's Notenuebersicht answered 413 twice and the admin panel showed
+// nothing at all, so it read as "upload is broken".
+const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 
 // Passport OCR can hit Azure Computer Vision + Google Vision fallback +
 // embedded-JPEG retry path — 20-40s worst-case on a noisy phone scan. Pin
@@ -747,7 +752,7 @@ export async function POST(req: NextRequest) {
   // form fields; the exact per-file limit is still enforced below.
   const declared = Number(req.headers.get("content-length") ?? 0);
   if (Number.isFinite(declared) && declared > MAX_SIZE_BYTES + 2 * 1024 * 1024) {
-    return NextResponse.json({ error: "Fichier trop volumineux. Maximum 10 Mo." }, { status: 413 });
+    return NextResponse.json({ error: "Fichier trop volumineux. Maximum 25 Mo." }, { status: 413 });
   }
 
   const formData = await req.formData();
@@ -767,6 +772,11 @@ export async function POST(req: NextRequest) {
   // admin-on-behalf path, so the invariant is enforced here rather than trusted
   // per call site.
   const fileType = canonicalizeFileType(fileKey, sentType);
+  // Say so when a caller still disagrees. The correction is silent otherwise,
+  // and a page that sends the wrong label would keep doing it unseen -- this
+  // line is how the next one gets found (ported from production bfdb2b3-era
+  // diagnosability: a swallowed failure costs a day of guessing).
+  if (fileType !== sentType) console.warn(`[upload] label "${sentType}" belongs to another slot than fileKey "${fileKey}" -- stored as "${fileType}"`);
   const forUserId = (formData.get("forUserId") as string) ?? null;
 
   // Admin override: allow admins to upload on behalf of a candidate.
@@ -872,7 +882,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Type non autorisé." }, { status: 415 });
   }
   if (file.size > MAX_SIZE_BYTES) {
-    return NextResponse.json({ error: "Fichier trop volumineux. Maximum 10 Mo." }, { status: 413 });
+    return NextResponse.json({ error: "Fichier trop volumineux. Maximum 25 Mo." }, { status: 413 });
   }
 
   const arrayBuffer = await file.arrayBuffer();
@@ -893,8 +903,18 @@ export async function POST(req: NextRequest) {
   // ── Per-box PDF page cap ─────────────────────────────────────────────────────
   // Count pages READ-ONLY (load + getPageCount, never re-save) so passport bytes
   // are never touched (LAW #39). A parse failure does NOT block the upload — the
-  // 10 MB size cap above is the backstop.
-  if ((sniffedType ?? file.type) === "application/pdf") {
+  // size cap above is the backstop.
+  //
+  // ADMIN UPLOADS ARE EXEMPT. This cap is a candidate-facing guardrail against
+  // dumping a 40-page scan into the passport box; an admin or sub-admin
+  // uploading FOR a candidate is staff doing data entry on a document they can
+  // see, and the size cap still bounds them. On 2026-09-19 the founder’s 1.78 MB
+  // scan was refused twice by this cap in production (two POSTs → 413
+  // PDF_TOO_MANY_PAGES) while the admin panel showed nothing at all — which is
+  // what "I try to upload any document and it’s not working" actually was. Real
+  // paperwork runs long: a Berufserlaubnis, an Impfnachweis or a three-year
+  // Notenuebersicht all exceed these numbers routinely.
+  if (!uploadedByAdmin && (sniffedType ?? file.type) === "application/pdf") {
     let pageCount = 0;
     try {
       const probe = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
