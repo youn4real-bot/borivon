@@ -6,7 +6,7 @@ import { middleware } from "@/middleware";
 import {
   freezeDecision, maintenanceResponse, pickLang, writesFrozen, isMaintenanceBody,
   MAINTENANCE_MESSAGES, MAINTENANCE_RETRY_AFTER_SEC, MAINTENANCE_EVENT, reportIfMaintenance, isFreezeTolerantPath,
-  isReadOnlyPostPath, readOnlyPostPaths,
+  isReadOnlyPostPath, readOnlyPostPaths, isMaintenanceUploadError, maintenanceBody,
 } from "@/lib/maintenance";
 import { isFrozenWrite, withWriteFreeze, buildServiceFetch } from "@/lib/d1/serviceFetch";
 
@@ -289,6 +289,36 @@ describe("the POSTs that only read", () => {
     for (const p of ["/api/portal/admin/cv-draft", "/api/portal/upload", "/api/portal/me/passport-data"]) {
       expect((await middleware(req("POST", p))).status, p).toBe(503);
     }
+  });
+});
+
+describe("the login-less upload page", () => {
+  /**
+   * components/DocUploader.tsx showed ONE error for every failure: "try again
+   * with a PDF or photo (max 25 MB)". During the freeze that tells a nurse on
+   * the login-less link that her file is wrong, so she re-shoots the photo and
+   * gives up. She now gets the maintenance line — but only if the 503 is
+   * actually recognised in the shape Uppy really hands over.
+   */
+  const body = () => maintenanceBody("fr");
+
+  it("recognises the freeze in the shape @uppy/xhr-upload really emits (an XMLHttpRequest)", () => {
+    // Its TYPES promise { status, body }; the runtime passes the request, whose
+    // body is responseText. Reading only `body` made the whole fix dead code.
+    expect(isMaintenanceUploadError({ status: 503, responseText: JSON.stringify(body()) })).toBe(true);
+    expect(isMaintenanceUploadError({ status: 503, body: body() })).toBe(true);
+  });
+
+  it("does not mistake a real upload failure for the freeze", () => {
+    expect(isMaintenanceUploadError(undefined)).toBe(false);
+    expect(isMaintenanceUploadError({ status: 0, responseText: "" })).toBe(false);          // network dropped
+    expect(isMaintenanceUploadError({ status: 413, responseText: '{"error":"too big"}' })).toBe(false);
+    expect(isMaintenanceUploadError({ status: 503, responseText: "<html>bad gateway" })).toBe(false); // a real outage
+    expect(isMaintenanceUploadError({ status: 503, responseText: '{"error":"nope"}' })).toBe(false);  // 503, wrong body
+  });
+
+  it("the upload route it posts to is NOT exempt — it really does write", () => {
+    expect(freezeDecision("POST", "/api/portal/u/some-token")).toBe("block");
   });
 });
 

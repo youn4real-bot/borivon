@@ -236,6 +236,26 @@ export function isMaintenanceBody(json: unknown): json is MaintenanceBody {
   return !!json && typeof json === "object" && (json as { code?: unknown }).code === MAINTENANCE_CODE;
 }
 
+/**
+ * Is this failed upload the write freeze rather than a bad file?
+ *
+ * @uppy/xhr-upload's TYPES say the third argument of "upload-error" is
+ * `{ status, body }`, but the RUNTIME emits the raw XMLHttpRequest
+ * (xhr-upload/lib/index.js: `emit("upload-error", file, buildResponseError(...),
+ * request)`). Reading `body` there is always undefined, so the maintenance
+ * answer would never be recognised and this whole fix would be dead code on
+ * switch night. Read both shapes, and parse the body when it is text.
+ */
+export function isMaintenanceUploadError(response: unknown): boolean {
+  const r = response as { status?: number; body?: unknown; responseText?: string } | undefined;
+  if (!r || r.status !== 503) return false;
+  let json: unknown = r.body ?? r.responseText;
+  if (typeof json === "string") {
+    try { json = JSON.parse(json); } catch { return false; }
+  }
+  return isMaintenanceBody(json);
+}
+
 /** The DOM event components/MaintenanceNotice.tsx listens for. */
 export const MAINTENANCE_EVENT = "bv:maintenance";
 

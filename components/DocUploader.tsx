@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import XHRUpload from "@uppy/xhr-upload";
 import { UploadCloud, Loader2, RotateCcw, Camera, PauseCircle } from "lucide-react";
-import { isMaintenanceBody, MAINTENANCE_MESSAGES, type MaintenanceLang } from "@/lib/maintenance";
+import { isMaintenanceUploadError, MAINTENANCE_MESSAGES, type MaintenanceLang } from "@/lib/maintenance";
 
 export default function DocUploader({
   token,
@@ -44,7 +44,11 @@ export default function DocUploader({
   useEffect(() => {
     const onProg = (p: number) => setPct(Math.max(2, Math.min(100, Math.round(p))));
     const onSucc = () => { setPhase("idle"); onDoneRef.current(); };
-    const onErr = () => setPhase("error");
+    // Uppy re-emits a failed upload on "error" AFTER "upload-error" (core's
+    // upload() catch calls informAndEmit), so a plain setPhase("error") here
+    // would overwrite the maintenance state a moment after it was set, and the
+    // nurse would be back to "your file is wrong".
+    const onErr = () => setPhase((p) => (p === "paused" ? p : "error"));
     /**
      * The upload can fail because the site is merely PAUSED: during the final
      * Supabase → D1 copy the route answers 503 with the maintenance body
@@ -55,12 +59,8 @@ export default function DocUploader({
      * again, and concludes the document did not go through. Read the body and
      * say what is actually happening instead.
      */
-    const onUploadErr = (
-      _file: unknown,
-      _error: unknown,
-      response?: { status?: number; body?: unknown },
-    ) => {
-      if (response?.status === 503 && isMaintenanceBody(response.body)) { setPhase("paused"); return; }
+    const onUploadErr = (_file: unknown, _error: unknown, response?: unknown) => {
+      if (isMaintenanceUploadError(response)) { setPhase("paused"); return; }
       setPhase("error");
     };
     uppy.on("progress", onProg);
@@ -76,6 +76,10 @@ export default function DocUploader({
   const add = (file: File) => {
     setPhase("uploading");
     setPct(0);
+    // Drop whatever was added before. Without this, sending the SAME file again
+    // — exactly what she does after "try again shortly" — is refused by Uppy as
+    // a duplicate, which lands in the catch below and shows the file error.
+    try { uppy.clear(); } catch { /* an upload in flight: addFile below decides */ }
     try { uppy.addFile({ name: file.name, type: file.type, data: file }); }
     catch { setPhase("error"); }
   };
