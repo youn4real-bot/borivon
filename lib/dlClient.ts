@@ -326,7 +326,15 @@ export async function runDlTokenRound(jwt: string, deps: DlRoundDeps): Promise<D
   let live = jwt;
   const state: DlRetryState = { transientFails: 0, refreshed: false };
 
-  for (;;) {
+  // A HARD structural bound, on top of planDlRetry's own budgets. A legitimate
+  // round needs at most one refresh plus DL_MAX_TRANSIENT_ATTEMPTS waits, so
+  // this can never fire in practice — it exists because the bug being fixed
+  // here WAS an unbounded retry loop, and the next person to edit planDlRetry
+  // should get a round that ends rather than a page that quietly hammers
+  // production again.
+  const maxSteps = DL_MAX_TRANSIENT_ATTEMPTS * 2 + 4;
+
+  for (let step = 0; step < maxSteps; step++) {
     if (!deps.isAlive()) return { token: null, jwt: live, stopped: null };
     const outcome = await deps.mint(live);
     if (!deps.isAlive()) return { token: null, jwt: live, stopped: null };
@@ -352,6 +360,7 @@ export async function runDlTokenRound(jwt: string, deps: DlRoundDeps): Promise<D
     state.transientFails++;
     await deps.sleep(plan.delayMs);
   }
+  return { token: null, jwt: live, stopped: "unavailable" };
 }
 
 // ─── "Your session expired" — a page-wide fact, not a per-component one ──────
