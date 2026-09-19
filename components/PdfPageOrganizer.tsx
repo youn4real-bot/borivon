@@ -66,7 +66,7 @@ export function PdfPageOrganizer({
     (async () => {
       try {
         const res = await fetch(fetchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (!res.ok) throw new Error("load");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const pdfjsLib = await import("pdfjs-dist");
@@ -92,8 +92,19 @@ export function PdfPageOrganizer({
         }
         URL.revokeObjectURL(url);
         if (!cancelled.current) { setPages(out); setLoading(false); }
-      } catch {
-        if (!cancelled.current) { setError(L("Could not open this PDF.", "PDF konnte nicht geöffnet werden.", "Impossible d'ouvrir ce PDF.")); setLoading(false); }
+      } catch (e) {
+        // One catch covers the fetch, res.ok, the blob, the pdfjs import,
+        // getDocument, every page render and toDataURL. A sub-admin reported
+        // this exact message on 2026-09-18 with nothing in the console, and it
+        // could not be attributed to any layer from the outside — every
+        // /api/portal/file request in her session answered 200. Say which layer
+        // failed so the next report is diagnosable instead of a guess.
+        console.error("[PdfPageOrganizer] load failed:", fetchUrl, e);
+        if (!cancelled.current) {
+          const why = e instanceof Error && /^HTTP d+$/.test(e.message) ? ` (${e.message})` : "";
+          setError(L("Could not open this PDF.", "PDF konnte nicht geöffnet werden.", "Impossible d'ouvrir ce PDF.") + why);
+          setLoading(false);
+        }
       }
     })();
     return () => { cancelled.current = true; };
