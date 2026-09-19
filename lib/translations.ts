@@ -224,6 +224,10 @@ export interface Translation {
   // ── Admin: error toasts (showError) ────────────────────────────────────────
   adErrVerify: string; adErrNetwork: string; adErrPassportSave: string; adErrDocStatus: string;
   adErrPipeline: string; adErrProfile: string; adErrPassportStatus: string; adErrDelete: string;
+  // Added after the "I tap it and nothing happens" reports: each key below names
+  // a click handler that used to fail behind nothing but a console.error.
+  adErrDownload: string; adErrRotate: string; adErrLinkOrg: string;
+  adErrBranding: string; adErrAttachSend: string; adErrAutosave: string;
   // ── Admin: invite + agencies + filters + needs panel ───────────────────────
   adInviteLink: string; adCopy: string; adReset: string;
   adAgencies: string; adAgencyAdmin: string; adAgencyMember: string;
@@ -514,6 +518,12 @@ export const translations: Record<Lang, Translation> = {
     adErrProfile: "Échec de l'enregistrement du profil — veuillez réessayer.",
     adErrPassportStatus: "Échec de la mise à jour du statut du passeport — veuillez réessayer.",
     adErrDelete: "Échec de la suppression du candidat",
+    adErrDownload: "Échec du téléchargement — veuillez réessayer.",
+    adErrRotate: "La rotation n'a pas pu être enregistrée — le document se rouvrira dans l'ancien sens.",
+    adErrLinkOrg: "Impossible de rattacher la candidate à cette agence — veuillez réessayer.",
+    adErrBranding: "Impossible d'enregistrer le branding du CV — veuillez réessayer.",
+    adErrAttachSend: "Refus enregistré, mais la capture d'écran n'a pas pu être envoyée.",
+    adErrAutosave: "Les modifications ne s'enregistrent pas — vérifiez votre connexion.",
     // Admin: invite + agencies + filters + needs
     adInviteLink: "Lien d'invitation", adCopy: "Copier", adReset: "Réinitialiser",
     adAgencies: "Agences", adAgencyAdmin: "Admin agence", adAgencyMember: "Membre",
@@ -816,6 +826,12 @@ export const translations: Record<Lang, Translation> = {
     adErrProfile: "Failed to save profile — please try again.",
     adErrPassportStatus: "Failed to update passport status — please try again.",
     adErrDelete: "Failed to delete candidate",
+    adErrDownload: "Download failed — please try again.",
+    adErrRotate: "The rotation could not be saved — the document will reopen at the old angle.",
+    adErrLinkOrg: "Could not link the candidate to this agency — please try again.",
+    adErrBranding: "Could not save the CV branding setting — please try again.",
+    adErrAttachSend: "Rejection saved, but the screenshot could not be sent.",
+    adErrAutosave: "Changes are not saving — check your connection.",
     // Admin: invite + agencies + filters + needs
     adInviteLink: "Invite link", adCopy: "Copy", adReset: "Reset",
     adAgencies: "Agencies", adAgencyAdmin: "Agency Admin", adAgencyMember: "Member",
@@ -1118,6 +1134,12 @@ export const translations: Record<Lang, Translation> = {
     adErrProfile: "Profil konnte nicht gespeichert werden — bitte erneut versuchen.",
     adErrPassportStatus: "Pass-Status konnte nicht aktualisiert werden — bitte erneut versuchen.",
     adErrDelete: "Kandidat konnte nicht gelöscht werden",
+    adErrDownload: "Herunterladen fehlgeschlagen — bitte erneut versuchen.",
+    adErrRotate: "Die Drehung konnte nicht gespeichert werden — das Dokument öffnet wieder im alten Winkel.",
+    adErrLinkOrg: "Kandidatin konnte dieser Agentur nicht zugeordnet werden — bitte erneut versuchen.",
+    adErrBranding: "CV-Branding konnte nicht gespeichert werden — bitte erneut versuchen.",
+    adErrAttachSend: "Ablehnung gespeichert, aber der Screenshot konnte nicht gesendet werden.",
+    adErrAutosave: "Änderungen werden nicht gespeichert — bitte Verbindung prüfen.",
     // Admin: invite + agencies + filters + needs
     adInviteLink: "Einladungslink", adCopy: "Kopieren", adReset: "Zurücksetzen",
     adAgencies: "Agenturen", adAgencyAdmin: "Agentur-Admin", adAgencyMember: "Mitglied",

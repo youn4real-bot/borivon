@@ -1094,6 +1094,44 @@ export default function DashboardPage() {
   }, [userId, lang]);
 
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
+  /** One-line failure notice inside the preview overlay. The slot-message
+   *  system is keyed to a document row, and the overlay covers every row — so
+   *  an action taken from inside the viewer (rotating a page) had nowhere at
+   *  all to report itself and simply failed in silence. Auto-clears. */
+  const [previewNotice, setPreviewNotice] = useState<string | null>(null);
+  const previewNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPreviewNotice = useCallback((msg: string) => {
+    if (previewNoticeTimer.current) clearTimeout(previewNoticeTimer.current);
+    setPreviewNotice(msg);
+    previewNoticeTimer.current = setTimeout(() => setPreviewNotice(null), 6000);
+  }, []);
+  useEffect(() => () => { if (previewNoticeTimer.current) clearTimeout(previewNoticeTimer.current); }, []);
+  // A new document in the viewer starts with a clean slate.
+  useEffect(() => { setPreviewNotice(null); }, [previewDoc?.id]);
+  /** Rotating a page PATCHes documents.rotation. LAW #39 keeps passport bytes
+   *  untouched, so that row IS the orientation: when the PATCH fails and
+   *  nobody says so, the candidate rotates, closes, reopens to find it
+   *  sideways again, and repeats — which is how it was reported. */
+  const rotateFailedMsg = lang === "de"
+    ? "Die Drehung konnte nicht gespeichert werden — das Dokument öffnet wieder im alten Winkel."
+    : lang === "fr"
+      ? "La rotation n'a pas pu être enregistrée — le document se rouvrira dans l'ancien sens."
+      : "The rotation could not be saved — the document will reopen at the old angle.";
+  /** Single rotate-persist path for all four viewers (native iOS frame and
+   *  EmbedPdfViewer, passport and non-passport). Each used to inline the same
+   *  fetch with no `res.ok` check and a console-only catch. */
+  const persistRotation = (docId: string) => {
+    fetch(`/api/portal/documents/${docId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: JSON.stringify({ deltaRotation: 90 }),
+    })
+      .then(r => { if (!r.ok) { console.error("[rotation] persist failed:", r.status); showPreviewNotice(rotateFailedMsg); } })
+      .catch(e => { console.error("[rotation] persist failed:", e); showPreviewNotice(rotateFailedMsg); });
+  };
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   // Set when a notification click carries a doc_id — resolved to a preview
@@ -2104,7 +2142,14 @@ export default function DashboardPage() {
       const a    = document.createElement("a");
       a.href = url; a.download = fn; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { console.error("[merge-pdf]", e); }
+    } catch (e) {
+      // The iOS branch above already reports through onError; this one only
+      // logged, so on desktop the spinner spun, stopped, and no file arrived
+      // and no message appeared. pairKey IS the row's slot key, so the failure
+      // lands on the row she clicked — same as every other download error.
+      console.error("[merge-pdf]", e);
+      setSlotMsgTimed({ key: pairKey, ok: false, type: "errDownload" });
+    }
     finally { clearSpin(); }
   }
 
@@ -2419,6 +2464,10 @@ export default function DashboardPage() {
             <div className="min-w-0 flex-1 mr-3">
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{translateDocLabel(previewDoc.file_type, lang as "fr" | "en" | "de")}</p>
               <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
+              {/* Failure notice for actions taken from inside the viewer. */}
+              {previewNotice && (
+                <p role="status" className="text-[11px] mt-1 leading-snug" style={{ color: "var(--danger)" }}>{previewNotice}</p>
+              )}
             </div>
             {/* Passport preview is identical to any other doc (Sprachzertifikat
                 etc.) — no extra "Passport data" button. The data form is shown
@@ -2561,14 +2610,7 @@ export default function DashboardPage() {
                         // A generated preview has no stored row to persist a
                         // rotation against — rotating it is view-only.
                         if (previewDoc.__renderUrl || !previewDoc.id) return;
-                        fetch(`/api/portal/documents/${previewDoc.id}`, {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                          },
-                          body: JSON.stringify({ deltaRotation: 90 }),
-                        }).catch(e => console.error("[rotation] persist failed:", e));
+                        persistRotation(previewDoc.id);
                       }}
                     />
                     {pendingSignReq && (
@@ -2598,14 +2640,7 @@ export default function DashboardPage() {
                     docId={previewDoc.id}
                     initialRotation={_docRotation}
                     onRotate={() => {
-                      fetch(`/api/portal/documents/${previewDoc.id}`, {
-                        method: "PATCH",
-                        headers: {
-                          "Content-Type": "application/json",
-                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                        },
-                        body: JSON.stringify({ deltaRotation: 90 }),
-                      }).catch(e => console.error("[rotation] persist failed:", e));
+                      persistRotation(previewDoc.id);
                     }}
                   />
                   {/* Click overlay — opens sign modal when doc has a pending sign request */}
@@ -4026,14 +4061,7 @@ export default function DashboardPage() {
                           src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc!.id)}`, dlt!)}
                           title={previewDoc!.file_name}
                           onRotate={() => {
-                            fetch(`/api/portal/documents/${previewDoc!.id}`, {
-                              method: "PATCH",
-                              headers: {
-                                "Content-Type": "application/json",
-                                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                              },
-                              body: JSON.stringify({ deltaRotation: 90 }),
-                            }).catch(e => console.error("[rotation] persist failed:", e));
+                            persistRotation(previewDoc!.id);
                           }}
                         />
                       );
@@ -4048,14 +4076,7 @@ export default function DashboardPage() {
                       docId={previewDoc!.id}
                       initialRotation={(previewDoc as { rotation?: number | null }).rotation ?? 0}
                       onRotate={() => {
-                        fetch(`/api/portal/documents/${previewDoc!.id}`, {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                          },
-                          body: JSON.stringify({ deltaRotation: 90 }),
-                        }).catch(e => console.error("[rotation] persist failed:", e));
+                        persistRotation(previewDoc!.id);
                       }}
                     />
                   ) : (
