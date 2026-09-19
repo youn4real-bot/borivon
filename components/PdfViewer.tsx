@@ -32,7 +32,7 @@ import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
 import { getCachedRotation, bumpCachedRotation } from "@/lib/rotationStore";
-import { pdfLoadOptions } from "@/lib/pdfjs";
+import { loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -145,15 +145,12 @@ export function PdfViewer({
 
     let destroy: (() => void) | null = null;
 
-    import("pdfjs-dist").then(pdfjsLib => {
+    // loadPdfjs (lib/pdfjs.ts) owns the BUILD and the worker: the legacy build
+    // everywhere, and no web worker on iOS. Importing "pdfjs-dist" straight
+    // would also ship a SECOND copy of the library to any admin who opens the
+    // page organiser in the same session.
+    loadPdfjs().then(pdfjsLib => {
       if (cancelled) return;
-
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-          "pdfjs-dist/build/pdf.worker.min.mjs",
-          import.meta.url,
-        ).toString();
-      }
 
       // pdfLoadOptions (lib/pdfjs.ts) is the SINGLE source of truth for the
       // critical render options — wasmUrl (CCITTFax/JBIG2/JPEG2000 image
@@ -708,7 +705,7 @@ function PdfPage({
         textTaskRef.current?.cancel();
         textContainer.innerHTML = "";
         try {
-          const { TextLayer } = await import("pdfjs-dist");
+          const { TextLayer } = await loadPdfjs();
           if (!cancelled) {
             const textLayer = new TextLayer({
               textContentSource: page.streamTextContent(),
