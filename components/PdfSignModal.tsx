@@ -32,6 +32,7 @@ const T = {
     note: "Note:",
     noPreview: "No PDF preview available",
     replace: "Replace", removingBg: "Removing background…",
+    sigSaveFailed: "Signed — but your signature was not saved for next time.",
   },
   fr: {
     close: "Fermer", confirm: "Confirmer & signer", signing: "Signature…",
@@ -42,6 +43,7 @@ const T = {
     note: "Note :",
     noPreview: "Aperçu PDF indisponible",
     replace: "Remplacer", removingBg: "Suppression du fond…",
+    sigSaveFailed: "Signé — mais votre signature n'a pas été enregistrée pour la prochaine fois.",
   },
   de: {
     close: "Schließen", confirm: "Bestätigen & unterschreiben", signing: "Wird unterschrieben…",
@@ -52,6 +54,7 @@ const T = {
     note: "Hinweis:",
     noPreview: "PDF-Vorschau nicht verfügbar",
     replace: "Ersetzen", removingBg: "Hintergrund wird entfernt…",
+    sigSaveFailed: "Unterschrieben — Ihre Unterschrift wurde aber nicht für das nächste Mal gespeichert.",
   },
 } as const;
 type Lang = keyof typeof T;
@@ -88,6 +91,11 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [usingSaved, setUsingSaved] = useState(false);
   const [wantSave, setWantSave]     = useState(true);
   const [savingSig, setSavingSig]   = useState(false);
+  /** The signature itself went through, but keeping it for next time did not.
+   *  Its own flag rather than `err`, which is the red "your signature did not
+   *  go through" line — saying that over a document she HAS signed would send
+   *  her to sign it again. */
+  const [sigSaveFailed, setSigSaveFailed] = useState(false);
   const [bgRemoving, setBgRemoving] = useState(false);
   const [dropDragOver, setDropDragOver] = useState(false);
 
@@ -254,11 +262,21 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       if (!res.ok) { setErr(j.error ?? "Error"); return; }
       if (wantSave && sigData && sigData !== savedSig) {
         setSavingSig(true);
+        // `.then(() => setSavedSig(sigData))` marked it saved whatever came
+        // back, and the .catch was empty: she ticks "save for next time", it
+        // silently does not, and the next document makes her photograph her
+        // signature all over again with no idea why.
         fetch("/api/portal/me/signature", {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ signature: sigData }),
-        }).then(() => setSavedSig(sigData)).catch(() => {}).finally(() => setSavingSig(false));
+        })
+          .then(r => {
+            if (r.ok) { setSavedSig(sigData); setSigSaveFailed(false); }
+            else { console.error("[sign] signature save failed:", r.status); setSigSaveFailed(true); }
+          })
+          .catch(e => { console.error("[sign] signature save failed:", e); setSigSaveFailed(true); })
+          .finally(() => setSavingSig(false));
       }
       setSignedUrl(j.signedPdfUrl ?? null);
       onSigned(request.id);
@@ -653,6 +671,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
               </div>
 
               {err && <p className="text-[12px] mt-2" style={{ color: "var(--danger)" }}>{err}</p>}
+              {sigSaveFailed && !err && (
+                <p role="status" className="text-[11.5px] mt-2" style={{ color: "var(--warning)" }}>{t.sigSaveFailed}</p>
+              )}
             </div>
             )}
           </>

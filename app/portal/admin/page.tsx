@@ -2874,15 +2874,29 @@ export default function AdminPage() {
     }
   }
 
+  /** Every wizard-structure write below is optimistic: the screen changes
+   *  first and the request follows. None of them used to read the response and
+   *  all of them swallowed the throw, so a 403 on a stale token or a 500 left
+   *  the new arrangement on screen and the old one in the database — the admin
+   *  drags the boxes, they stay dragged, and days later they are back where
+   *  they started. Reverting silently would be just as confusing mid-drag, so
+   *  say it instead and let the next load show the truth. */
+  function reportStructureSaveFailed() {
+    showError(lang === "de" ? "Änderung wurde nicht gespeichert — bitte Seite neu laden und erneut versuchen."
+      : lang === "fr" ? "La modification n'a pas été enregistrée — rechargez la page et réessayez."
+      : "That change was not saved — reload the page and try again.");
+  }
+
   async function saveSlotOrder(phase: string, slots: { id: string; position: number; category_id?: string | null }[]) {
     if (!accessToken) return;
     try {
-      await fetch("/api/portal/phase-slots", {
+      const r = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ positions: slots }),
       });
-    } catch { /* network error */ }
+      if (!r.ok) reportStructureSaveFailed();
+    } catch { reportStructureSaveFailed(); }
   }
 
   // ── Slot-category helpers ───────────────────────────────────────────────
@@ -2905,12 +2919,13 @@ export default function AdminPage() {
   async function saveCategoryOrder(phase: string, cats: SlotCategory[]) {
     if (!accessToken) return;
     try {
-      await fetch("/api/portal/phase-slot-categories", {
+      const r = await fetch("/api/portal/phase-slot-categories", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ positions: cats.map(c => ({ id: c.id, position: c.position })) }),
       });
-    } catch { /* offline */ }
+      if (!r.ok) reportStructureSaveFailed();
+    } catch { reportStructureSaveFailed(); }
   }
   // Renumber EVERYTHING into a clean unified scale and persist.
   //  • Top-level units (loose boxes + categories) get sequential ranks 0..T-1,
@@ -2961,18 +2976,19 @@ export default function AdminPage() {
         const j = await res.json().catch(() => ({}));
         alert((j as { error?: string }).error ?? "Could not create category");
       }
-    } catch { /* offline */ }
+    } catch { reportStructureSaveFailed(); }
   }
   async function renameCategory(phase: string, id: string, label: string) {
     setSlotCategories(prev => ({ ...prev, [phase]: (prev[phase] ?? []).map(c => c.id === id ? { ...c, label } : c) }));
     if (!accessToken) return;
     try {
-      await fetch("/api/portal/phase-slot-categories", {
+      const r = await fetch("/api/portal/phase-slot-categories", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ id, label }),
       });
-    } catch { /* offline */ }
+      if (!r.ok) reportStructureSaveFailed();
+    } catch { reportStructureSaveFailed(); }
   }
   async function deleteSlotCategory(phase: string, id: string) {
     const before = phaseSlots[phase] ?? [];
@@ -2984,12 +3000,13 @@ export default function AdminPage() {
     setSlotCategories(prev => ({ ...prev, [phase]: cats }));
     if (accessToken) {
       try {
-        await fetch("/api/portal/phase-slot-categories", {
+        const r = await fetch("/api/portal/phase-slot-categories", {
           method: "DELETE",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ id }),
         });
-      } catch { /* offline */ }
+        if (!r.ok) reportStructureSaveFailed();
+      } catch { reportStructureSaveFailed(); }
     }
     const orderBefore = buildTopOrder(before.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsBefore);
     const order: TopUnit[] = [
