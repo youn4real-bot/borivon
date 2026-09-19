@@ -743,6 +743,16 @@ export async function POST(req: NextRequest) {
   //
   // Its own rate-limit bucket, checked before the upload bucket below, so a
   // phone stuck in a retry loop can never spend the 20/min a real upload needs.
+  //
+  // READING THE LINE. `sent` and `ms` separate the two causes that both look
+  // like "network error with no POST in this log":
+  //   sent=0, ms small   -> the body was never readable; the browser gave up
+  //                         before opening a socket (a dead File handle).
+  //   sent>0, ms large   -> bytes were flowing and the connection died
+  //                         mid-body; Cloudflare never invokes a Worker for an
+  //                         incomplete request, which is why nothing is here.
+  // status>0 means it DID reach a server and the answer is in the Worker log
+  // above; kind=auth means her JWT had expired, not that the network failed.
   const contentType = req.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const rlDiag = await enforceUserRateLimit("upload-diag", `u:${user.id}`, { limit: 12, windowMs: 60_000 });
