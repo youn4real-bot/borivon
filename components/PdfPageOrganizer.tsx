@@ -229,7 +229,13 @@ export function PdfPageOrganizer({
         // A missing platform API surfaces as a TypeError no matter which step
         // it lands in — that is the browser, not the file.
         const kind: Stage = stage === "read" && err?.name === "TypeError" ? "engine" : stage;
-        const detail = err?.name ? ` (${err.name})` : "";
+        // The only error we throw ourselves is `HTTP <status>`, and for it
+        // err.name is the useless "Error". Show the status instead: "(HTTP 404)"
+        // tells whoever reads the screenshot that the file is gone, "(Error)"
+        // tells them nothing. Everything else keeps the name, which is the
+        // informative half there (TypeError, NotSupportedError, ...).
+        const httpStatus = /^HTTP \d+$/.test(err?.message ?? "");
+        const detail = httpStatus ? ` (${err?.message})` : err?.name ? ` (${err.name})` : "";
         const text =
           kind === "fetch"
             ? L("Could not download this file.", "Datei konnte nicht geladen werden.", "Impossible de télécharger ce fichier.")
