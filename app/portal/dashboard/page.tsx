@@ -201,7 +201,7 @@ const ALLOWED_ALL = [
 ];
 const OTHER_KEYS = ["other"];
 const ID_KEYS = ["id"];
-const MAX_MB = 10;
+const MAX_MB = 25;   // matches MAX_SIZE_BYTES in app/api/portal/upload/route.ts
 
 // Renders **bold** markers in translation strings
 function B({ text }: { text: string }) {
