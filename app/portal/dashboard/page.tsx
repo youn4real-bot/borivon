@@ -472,7 +472,10 @@ export default function DashboardPage() {
     }
   }, [loading, router]);
 
-  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages" | "errNetwork" | "errDownload";
+  // "warnOldKept": the new file uploaded fine but deleting the one it replaced
+  // failed, so BOTH are now in the slot. Its own type because the upload itself
+  // succeeded — colouring this like a failed upload would be a lie.
+  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages" | "errNetwork" | "errDownload" | "warnOldKept";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
@@ -532,6 +535,12 @@ export default function DashboardPage() {
      *  the admin already pre-filled before sending). Used for the submit
      *  gating instead of `fields`. */
     nativeFieldCount: number;
+    /** The template fetch has already come back a failure, so there is nothing
+     *  left to wait for. Without it the two fetch sites either opened the modal
+     *  on a spinner that only spoke after 15 s, or (the notification deep-link)
+     *  opened nothing at all — she taps "sign your contract", the page scrolls,
+     *  and that is the entire response. Shows the same message immediately. */
+    loadFailed?: boolean;
   };
   const [fillForm, setFillForm] = useState<FillFormState | null>(null);
   const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
@@ -626,11 +635,16 @@ export default function DashboardPage() {
     // Make sure the row is reachable after the modal closes — never leave a
     // deep-linked slot trapped inside a category the candidate folded.
     if (slot.category_id) setFoldedCats(prev => { const n = new Set(prev); n.delete(slot.category_id!); return n; });
-    fetch(`/api/portal/slot-template?slotId=${slot.id}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    }).then(r => r.ok ? r.blob() : null).then(blob => {
-      if (!blob) return;
-      const pdfUrl = URL.createObjectURL(blob);
+    // ALWAYS open the modal, even when the template does not load.
+    //
+    // This used to be `if (!blob) return;` with `.catch(() => {})` after it:
+    // when the template fetch 401'd on a tab left open past the JWT refresh, or
+    // the connection dropped, the notification deep-link did nothing whatsoever.
+    // She taps "sign your employment contract", the page scrolls to the row,
+    // and that is the whole of it — no modal, no error, no retry, and the
+    // notification stays unread-looking. Opening with `loadFailed` shows her the
+    // same "close it, reload, try again" line the slow-load case already shows.
+    const openFill = (pdfUrl: string | null, loadFailed: boolean) => {
       setFillForm({
         slotId: slot.id,
         fields: slot.form_fields ?? [],
@@ -641,13 +655,19 @@ export default function DashboardPage() {
         highlight: true,
         nativeMode: !!slot.pdf_has_native_fields,
         nativeFieldCount: 0,
+        loadFailed,
       });
       setAutoOpenSlotId(null);
       // Strip ?slot= from URL so refreshing doesn't reopen.
       const url = new URL(window.location.href);
       url.searchParams.delete("slot");
       window.history.replaceState({}, "", url.toString());
-    }).catch(() => {});
+    };
+    fetch(`/api/portal/slot-template?slotId=${slot.id}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(r => r.ok ? r.blob() : null).then(blob => {
+      openFill(blob ? URL.createObjectURL(blob) : null, !blob);
+    }).catch(() => openFill(null, true));
   }, [autoOpenSlotId, authToken, dynamicSlots]);
 
   // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
@@ -1708,6 +1728,31 @@ export default function DashboardPage() {
     uploadFile(file, key);
   }
 
+  /** Second half of a replace: bin the document the new upload supersedes.
+   *
+   *  Both call sites used to fire this DELETE and only console.error the
+   *  failure — and neither read the response, so a 403 or a 500 counted as
+   *  done. The slot then held BOTH files: her rejected first attempt sitting
+   *  next to the corrected one, with a green "uploaded" message over the top
+   *  and an admin left to guess which is the real document. Reload the list
+   *  either way (the honest state is what is actually on the server) and say
+   *  plainly when the old copy is still there. */
+  async function deleteReplacedDoc(oldId: string, key: string) {
+    let ok = false;
+    try {
+      const r = await fetch(`/api/portal/documents/${oldId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      ok = r.ok;
+      if (!ok) console.error("[replace] cleanup delete failed:", r.status);
+    } catch (e) {
+      console.error("[replace] cleanup delete failed:", e);
+    }
+    if (userId) { try { await loadDocs(userId, true); } catch { /* the list simply stays as it was */ } }
+    if (!ok) setSlotMsgTimed({ key, ok: false, type: "warnOldKept" });
+  }
+
   function uploadFile(file: File, key: string, attempt = 1) {
     if (!userId) return;
     setUploadingKey(key);
@@ -1754,10 +1799,7 @@ export default function DashboardPage() {
         const oldForKey = replaceForKeyRef.current;
         replaceDocIdRef.current = null; replaceForKeyRef.current = null;
         if (oldId && oldForKey === key) {
-          fetch(`/api/portal/documents/${oldId}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${authToken}` },
-          }).catch(e => console.error("[replace] cleanup delete failed:", e));
+          void deleteReplacedDoc(oldId, key);
         }
         setSlotMsgTimed({ key, ok: true, type: "success" });
         setUploadingKey(null);
@@ -1852,10 +1894,7 @@ export default function DashboardPage() {
           replaceDocIdRef.current  = null;
           replaceForKeyRef.current = null;
           if (oldId && oldForKey === key) {
-            fetch(`/api/portal/documents/${oldId}`, {
-              method: "DELETE",
-              headers: { Authorization: `Bearer ${authToken}` },
-            }).catch(e => console.error("[replace] cleanup delete failed:", e));
+            void deleteReplacedDoc(oldId, key);
           }
           loadDocs(userId, true);
           // Passport: show confirmation modal with extracted data
@@ -3263,18 +3302,26 @@ export default function DashboardPage() {
               : ((isFillSlot || isInlineSign) && !uploaded) ? () => {
                   const slotId = item.key;
                   const fields = (item as {form_fields?: import("@/lib/pdfFieldEmbed").FormField[]}).form_fields ?? [];
-                  fetch(`/api/portal/slot-template?slotId=${slotId}`, {
-                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-                  }).then(r => r.ok ? r.blob() : null).then(blob => {
-                    const pdfUrl = blob ? URL.createObjectURL(blob) : null;
+                  const openFillRow = (pdfUrl: string | null, loadFailed: boolean) => {
                     const slotRow = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === slotId);
                     setFillForm({
                       slotId, fields, values: {}, pdfUrl,
                       sigZone: itemSigZone, signedSig: null, highlight: false,
                       nativeMode: !!slotRow?.pdf_has_native_fields,
                       nativeFieldCount: 0,
+                      loadFailed,
                     });
-                  });
+                  };
+                  // There was no .catch here at all: an offline tap threw into an
+                  // unhandled rejection and setFillForm never ran, so the row
+                  // click produced nothing on screen. And when the response was
+                  // simply not ok, the modal opened on a spinner that stayed
+                  // mute for a further 15 seconds over a failure already known.
+                  fetch(`/api/portal/slot-template?slotId=${slotId}`, {
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                  }).then(r => r.ok ? r.blob() : null).then(blob => {
+                    openFillRow(blob ? URL.createObjectURL(blob) : null, !blob);
+                  }).catch(() => openFillRow(null, true));
                 }
               : (!uploaded || isOther) ? () => openPicker(item.key)
               // Visa CV → preview the NO-LOGO render (clone of cv_de, logo stripped).
@@ -3449,6 +3496,7 @@ export default function DashboardPage() {
                            msg.type === "errAllTypes" ? t.pErrAllTypes :
                            msg.type === "errSize" ? t.pErrSize.replace("{size}", String(MAX_MB)) :
                            msg.type === "errNetwork" ? t.pErrNetwork :
+                           msg.type === "warnOldKept" ? (lang === "fr" ? "Envoyé — mais l'ancien fichier n'a pas pu être supprimé, les deux sont encore là." : lang === "de" ? "Hochgeladen — die alte Datei konnte aber nicht gelöscht werden, beide sind noch da." : "Uploaded — but the old file could not be removed, so both are still here.") :
                            msg.type === "errDownload" ? (lang === "fr" ? "Échec du téléchargement — réessayez." : lang === "de" ? "Herunterladen fehlgeschlagen — erneut versuchen." : "Download failed — please try again.") :
                            msg.type === "errPages" ? (lang === "fr" ? `Trop de pages — limite pour ce type : ${msg.n}.` : lang === "de" ? `Zu viele Seiten — Limit für diesen Typ: ${msg.n}.` : `Too many pages — limit for this type: ${msg.n}.`) :
                            t.pErrUpload}
@@ -5119,14 +5167,19 @@ export default function DashboardPage() {
             <div className="flex-1 overflow-auto p-3">
               {!fillForm.pdfUrl ? (
                 <div className="h-full flex flex-col items-center justify-center gap-3">
-                  <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                  {/* A spinner next to "it isn't loading" says the opposite of
+                      the message — once the fetch has already failed there is
+                      nothing in flight to represent. */}
+                  {!fillForm.loadFailed && (
+                    <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                  )}
                   {/* A SPINNER WITH A DEADLINE. This used to spin forever when
                       the template fetch failed — an expired token on a tab left
                       open, or a dropped connection. She taps the row for her
                       Arbeitsvertrag or her visa form, the modal opens, and it
                       turns for as long as she is willing to wait, with no error
                       and nothing to act on. */}
-                  {fillFormStalled && (
+                  {(fillFormStalled || fillForm.loadFailed) && (
                     <p role="alert" className="text-[12px] text-center px-4" style={{ color: "var(--danger)" }}>
                       {lang === "de" ? "Das Formular lädt nicht. Schließen Sie es, laden Sie die Seite neu und versuchen Sie es erneut."
                         : lang === "fr" ? "Le formulaire ne se charge pas. Fermez-le, rechargez la page puis réessayez."
