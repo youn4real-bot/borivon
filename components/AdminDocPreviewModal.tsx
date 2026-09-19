@@ -11,8 +11,8 @@ import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { isIOSDevice } from "@/lib/platform";
-import { triggerIosDownload } from "@/lib/iosDownload";
-import { useDlToken, withDlt } from "@/lib/dlClient";
+import { triggerIosDownload, triggerIosDownloadWithToken } from "@/lib/iosDownload";
+import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { translateDocLabel } from "@/lib/fileKeys";
@@ -31,6 +31,9 @@ const dm = {
     failApprove: "Failed to approve — please try again.",
     netError: "Network error — please try again.",
     failReject: "Failed to reject — please try again.",
+    failRotate: "The rotation could not be saved — it will reopen at the old angle.",
+    failAttach: "Rejected, but the screenshot could not be sent.",
+    failDownload: "Download failed — please try again.",
   },
   fr: {
     passportData: "Données passeport",
@@ -45,6 +48,9 @@ const dm = {
     failApprove: "Échec de l'approbation — veuillez réessayer.",
     netError: "Erreur réseau — veuillez réessayer.",
     failReject: "Échec du refus — veuillez réessayer.",
+    failRotate: "La rotation n'a pas pu être enregistrée — le document se rouvrira dans l'ancien sens.",
+    failAttach: "Refusé, mais la capture d'écran n'a pas pu être envoyée.",
+    failDownload: "Échec du téléchargement — veuillez réessayer.",
   },
   de: {
     passportData: "Passdaten",
@@ -59,6 +65,9 @@ const dm = {
     failApprove: "Genehmigung fehlgeschlagen — bitte erneut versuchen.",
     netError: "Netzwerkfehler — bitte erneut versuchen.",
     failReject: "Ablehnung fehlgeschlagen — bitte erneut versuchen.",
+    failRotate: "Die Drehung konnte nicht gespeichert werden — das Dokument öffnet wieder im alten Winkel.",
+    failAttach: "Abgelehnt, aber der Screenshot konnte nicht gesendet werden.",
+    failDownload: "Herunterladen fehlgeschlagen — bitte erneut versuchen.",
   },
 };
 
@@ -209,7 +218,7 @@ export function AdminDocPreviewModal({
       }
       if (shot) {
         try {
-          await fetch("/api/portal/admin/messages", {
+          const ar = await fetch("/api/portal/admin/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
             body: JSON.stringify({
@@ -218,7 +227,20 @@ export function AdminDocPreviewModal({
               attachment: shot,
             }),
           });
-        } catch (e) { console.error("[reject] attach failed:", e); }
+          // The response was never read and the throw was swallowed, so the
+          // modal closed exactly as on success — while the candidate got a
+          // rejection with no picture of what was wrong with her document.
+          if (!ar.ok) throw new Error(`HTTP ${ar.status}`);
+        } catch (e) {
+          console.error("[reject] attach failed:", e);
+          // The rejection itself DID land, so keep that and leave the modal
+          // open with the note instead of closing on a half-done action.
+          setActionError(dt.failAttach);
+          setRejectOpen(false);
+          setSavedAs("rejected");
+          onUpdated?.({ ...doc, status: "rejected", feedback: fb });
+          return;
+        }
       }
       setRejectOpen(false);
       setSavedAs("rejected");
@@ -305,6 +327,31 @@ export function AdminDocPreviewModal({
   const iosDownloadUrl = overrideFetchUrl
     ? (blobUrl ?? "")
     : (dlt ? withDlt(withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}`), dlt) : "");
+
+  /** The Download button used to be `if (iosDownloadUrl) triggerIosDownload(…)`
+   *  — and `iosDownloadUrl` is empty whenever the short-lived dl token has not
+   *  minted. That mint 401s in bursts (617 of 637 calls over three days from
+   *  one admin client), so on the iPhone the button was simply dead for
+   *  minutes at a time: tap, nothing, tap again, nothing, no explanation.
+   *  Mint inside the tap gesture instead, and say so if even that fails. */
+  async function iosDownload() {
+    const name = (overrideFetchUrl && renderedName) || doc.file_name;
+    if (iosDownloadUrl) { triggerIosDownload(iosDownloadUrl, name); return; }
+    if (overrideFetchUrl || !accessToken) {
+      // A generated preview has no server URL to fall back to — its bytes only
+      // exist as the blob that has not arrived yet.
+      setActionError(dt.failDownload);
+      return;
+    }
+    await triggerIosDownloadWithToken({
+      href: (tk) => withDlt(withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}`), tk),
+      filename: name,
+      token: null,
+      mint: () => mintDlToken(accessToken),
+      onSettled: () => {},
+      onError: () => setActionError(dt.failDownload),
+    });
+  }
 
   // Portal to document.body so this modal always escapes any ancestor
   // stacking-context created by backdrop-filter (e.g. the mobile bottom bar).
@@ -417,7 +464,7 @@ export function AdminDocPreviewModal({
             {iosMode ? (
               <button
                 type="button"
-                onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, (overrideFetchUrl && renderedName) || doc.file_name); }}
+                onClick={() => { void iosDownload(); }}
                 title={dt.download} aria-label={dt.download}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)", background: "transparent", border: "none" }}>
@@ -502,7 +549,12 @@ export function AdminDocPreviewModal({
                     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
                   },
                   body: JSON.stringify({ deltaRotation: 90 }),
-                }).catch(e => console.error("[rotation] persist failed:", e));
+                })
+                  // A failed PATCH used to leave the page rotated on screen and
+                  // the angle unsaved, so the strip reopened sideways every time
+                  // and the admin rotated it again, and again.
+                  .then(r => { if (!r.ok) { console.error("[rotation] persist failed:", r.status); setActionError(dt.failRotate); } })
+                  .catch(e => { console.error("[rotation] persist failed:", e); setActionError(dt.failRotate); });
               }}
             />
             )
@@ -519,7 +571,12 @@ export function AdminDocPreviewModal({
                     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
                   },
                   body: JSON.stringify({ deltaRotation: 90 }),
-                }).catch(e => console.error("[rotation] persist failed:", e));
+                })
+                  // A failed PATCH used to leave the page rotated on screen and
+                  // the angle unsaved, so the strip reopened sideways every time
+                  // and the admin rotated it again, and again.
+                  .then(r => { if (!r.ok) { console.error("[rotation] persist failed:", r.status); setActionError(dt.failRotate); } })
+                  .catch(e => { console.error("[rotation] persist failed:", e); setActionError(dt.failRotate); });
               };
               // Native iframe for iOS (WebKit blanks the pdf.js canvas).
               // Otherwise the pdf.js PdfViewer for every doc INCLUDING
@@ -560,7 +617,7 @@ export function AdminDocPreviewModal({
                 <p className="text-[12.5px] opacity-80 mb-4">{dt.downloadToOpen}</p>
                 {iosMode ? (
                   <button type="button"
-                    onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, (overrideFetchUrl && renderedName) || doc.file_name); }}
+                    onClick={() => { void iosDownload(); }}
                     className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
                     style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", border: "none" }}>
                     <Download size={13} strokeWidth={1.8} /> {dt.download}
