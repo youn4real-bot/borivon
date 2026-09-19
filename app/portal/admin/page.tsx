@@ -1442,6 +1442,11 @@ export default function AdminPage() {
   const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
   const [sigPdfLoading, setSigPdfLoading] = useState(false);
+  /** The slot's PDF exists but could not be fetched or rendered. Without this
+   *  the wizard fell straight through to its "drop a PDF here" zone, which
+   *  says the slot has no document — so the admin re-uploads a template that
+   *  was there all along, or concludes the whole step is broken. */
+  const [sigPdfLoadError, setSigPdfLoadError] = useState(false);
   const [sigManualPdf, setSigManualPdf] = useState<string | null>(null); // base64 when admin uploads PDF manually
   const [sigAdminSig, setSigAdminSig] = useState<string | null>(null);
   const [sigAdminWantSave, setSigAdminWantSave] = useState(true);
@@ -1486,7 +1491,10 @@ export default function AdminPage() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!res.ok || cancelled) {
-          if (!cancelled) console.warn("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
+          if (!cancelled) {
+            console.warn("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
+            setSigPdfLoadError(true);
+          }
           return;
         }
         const buf = await res.arrayBuffer();
@@ -1501,11 +1509,15 @@ export default function AdminPage() {
         setSigPdfBase64(b64);
       } catch (e) {
         console.error("[sigModal] fetch exception:", e);
+        if (!cancelled) setSigPdfLoadError(true);
       }
       finally { if (!cancelled) setSigPdfLoading(false); }
     })();
     return () => { cancelled = true; };
   }, [sigModal, accessToken]);
+  // A different slot starts clean — otherwise one failed load would mark every
+  // later slot as broken for the rest of the session.
+  useEffect(() => { setSigPdfLoadError(false); }, [sigModal]);
 
   // Delete candidate confirmation
   const [deleteCandidateConfirm, setDeleteCandidateConfirm] = useState(false);
@@ -7744,13 +7756,22 @@ export default function AdminPage() {
               ) : sigPdfBase64 ? (
                 <div className="p-3">
                   <PdfZonePicker pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
-                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); setSigPdfLoadError(true); }}
                     defaultParty={sigMode === "admin-only" ? "admin" : "candidate"}
                     partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
                     partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
                     onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)} />
                 </div>
               ) : (
+                <>
+                {sigPdfLoadError && (
+                  <p role="alert" className="mx-4 mt-4 text-[12px] leading-snug px-3 py-2 rounded-xl"
+                    style={{ color: "var(--danger)", background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                    {lang === "fr" ? "Le PDF de cette étape n'a pas pu être chargé. Ce n'est pas qu'il manque — rechargez la page avant d'en téléverser un autre."
+                      : lang === "de" ? "Das PDF dieses Schritts konnte nicht geladen werden. Es fehlt nicht — bitte Seite neu laden, bevor Sie ein neues hochladen."
+                      : "This step's PDF could not be loaded. It is not missing — reload the page before uploading another one."}
+                  </p>
+                )}
                 <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
                   style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
                   onClick={() => sigManualFileRef.current?.click()}
@@ -7787,6 +7808,7 @@ export default function AdminPage() {
                     {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
                   </button>
                 </div>
+                </>
               )}
             </div>
             {/* ── Sticky sig section (admin — covers org + supreme admin zones) ── */}
@@ -9168,7 +9190,7 @@ export default function AdminPage() {
                   <PdfZonePicker
                     pdfBase64={sigPdfBase64}
                     onChange={zones => setSigZones(zones)}
-                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); setSigPdfLoadError(true); }}
                     partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
                     partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
                     onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)}
@@ -9176,6 +9198,15 @@ export default function AdminPage() {
                 </div>
               ) : (
                 /* Big drop zone — primary action when Drive fails */
+                <>
+                {sigPdfLoadError && (
+                  <p role="alert" className="mx-4 mt-4 text-[12px] leading-snug px-3 py-2 rounded-xl"
+                    style={{ color: "var(--danger)", background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                    {lang === "fr" ? "Le PDF de cette étape n'a pas pu être chargé. Ce n'est pas qu'il manque — rechargez la page avant d'en téléverser un autre."
+                      : lang === "de" ? "Das PDF dieses Schritts konnte nicht geladen werden. Es fehlt nicht — bitte Seite neu laden, bevor Sie ein neues hochladen."
+                      : "This step's PDF could not be loaded. It is not missing — reload the page before uploading another one."}
+                  </p>
+                )}
                 <div
                   className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
                   style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
@@ -9216,6 +9247,7 @@ export default function AdminPage() {
                     {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
                   </button>
                 </div>
+                </>
               )}
             </div>
 
