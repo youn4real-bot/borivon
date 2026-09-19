@@ -37,6 +37,7 @@ import {
   type UploadFailure, type UploadFailMsgType,
 } from "@/lib/uploadFailure";
 import { stabilizePickedFile } from "@/lib/pickedFile";
+import { createRetryScheduler, type RetryScheduler } from "@/lib/uploadRetryQueue";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader } from "@/components/ui/states";
@@ -679,37 +680,16 @@ export default function DashboardPage() {
     setSlotMsg(msg);
   };
 
-  // A queued upload retry, plus the teardown that cancels its wake-up listeners.
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelRetryRef = useRef<(() => void) | null>(null);
-  const cancelPendingRetry = () => {
-    cancelRetryRef.current?.();
-    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
-    cancelRetryRef.current = null;
+  // The queue for the next upload attempt. See lib/uploadRetryQueue.ts: the
+  // backoff is a floor, and coming back online or returning to the tab cuts it
+  // short, because those are the two moments a mobile upload becomes possible.
+  const retryQueueRef = useRef<RetryScheduler | null>(null);
+  const getRetryQueue = () => {
+    if (!retryQueueRef.current) retryQueueRef.current = createRetryScheduler(window, document);
+    return retryQueueRef.current;
   };
-
-  /**
-   * Wait `delay` before the next attempt — but treat the delay as a floor, not
-   * a sentence. Coming back online or switching back to the tab is precisely
-   * when a mobile upload becomes possible again, so either one fires the retry
-   * immediately instead of leaving her staring at a stalled bar.
-   */
-  const scheduleUploadRetry = (delay: number, run: () => void) => {
-    cancelPendingRetry();
-    let fired = false;
-    const cleanup = () => {
-      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
-      window.removeEventListener("online", fire);
-      document.removeEventListener("visibilitychange", onVisible);
-      cancelRetryRef.current = null;
-    };
-    function fire() { if (fired) return; fired = true; cleanup(); run(); }
-    function onVisible() { if (document.visibilityState === "visible") fire(); }
-    retryTimerRef.current = setTimeout(fire, delay);
-    cancelRetryRef.current = cleanup;
-    window.addEventListener("online", fire);
-    document.addEventListener("visibilitychange", onVisible);
-  };
+  const cancelPendingRetry = () => retryQueueRef.current?.cancel();
+  const scheduleUploadRetry = (delay: number, run: () => void) => getRetryQueue().schedule(delay, run);
 
   // Cleanup XHR and timers on unmount
   useEffect(() => {
