@@ -101,6 +101,7 @@ export interface Translation {
   pSideID: string; pSideNursing: string; pSideTrans: string; pSideOther: string;
   pWelcomeBack: string; pWelcomeBackSub: string;
   pUploadSuccess: string; pErrPdfOnly: string; pErrAllTypes: string; pErrSize: string; pErrImageOnly: string;
+  pErrIdTypes: string;
   pErrUpload: string; pErrNetwork: string; pSkipSaved: string; pDropHere: string;
   // One sentence per cause. "Netzwerkfehler" used to stand for an expired
   // session, a dead phone signal, a stalled upload and a 500 alike, so nobody
@@ -392,6 +393,7 @@ export const translations: Record<Lang, Translation> = {
     pSideID: "Essentiels", pSideNursing: "Documents", pSideTrans: "Traductions", pSideOther: "Autres",
     pWelcomeBack: "Bon retour,", pWelcomeBackSub: "Continuez là où vous en étiez.",
     pUploadSuccess: "✓ {label} déposé avec succès.", pErrPdfOnly: "PDF uniquement pour ce type de document.", pErrAllTypes: "PDF, JPG, PNG ou DOCX uniquement.", pErrSize: "Fichier trop volumineux. Max {size} Mo.", pErrImageOnly: "Image uniquement (JPG, PNG) — pas de PDF pour le passeport.",
+    pErrIdTypes: "PDF ou photo (JPG, PNG) pour le passeport.",
     pErrUpload: "Erreur lors de l'envoi.", pErrNetwork: "Erreur réseau. Réessayez.",
     pErrOffline: "Pas de connexion. Le document sera envoyé dès le retour du réseau.",
     pErrFileGone: "Le fichier n'est plus lisible. Sélectionnez-le à nouveau.",
@@ -708,6 +710,7 @@ export const translations: Record<Lang, Translation> = {
     pSideID: "Essentials", pSideNursing: "Documents", pSideTrans: "Translations", pSideOther: "Others",
     pWelcomeBack: "Welcome back,", pWelcomeBackSub: "Continue where you left off.",
     pUploadSuccess: "✓ {label} uploaded successfully.", pErrPdfOnly: "PDF only for this document type.", pErrAllTypes: "PDF, JPG, PNG or DOCX only.", pErrSize: "File too large. Max {size} MB.", pErrImageOnly: "Image only (JPG, PNG) — no PDF for passport.",
+    pErrIdTypes: "PDF or a photo (JPG, PNG) for the passport.",
     pErrUpload: "Upload error. Please try again.", pErrNetwork: "Network error. Please try again.",
     pErrOffline: "No connection. The document will be sent as soon as you are back online.",
     pErrFileGone: "The file can no longer be read. Please pick it again.",
@@ -1024,6 +1027,7 @@ export const translations: Record<Lang, Translation> = {
     pSideID: "Essentielles", pSideNursing: "Unterlagen", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",
     pUploadSuccess: "✓ {label} erfolgreich hochgeladen.", pErrPdfOnly: "Nur PDF für diesen Dokumenttyp.", pErrAllTypes: "Nur PDF, JPG, PNG oder DOCX.", pErrSize: "Datei zu groß. Max {size} MB.", pErrImageOnly: "Nur Bild (JPG, PNG) — kein PDF für Reisepass.",
+    pErrIdTypes: "PDF oder Foto (JPG, PNG) für den Reisepass.",
     pErrUpload: "Fehler beim Hochladen.", pErrNetwork: "Netzwerkfehler. Bitte erneut versuchen.",
     pErrOffline: "Keine Verbindung. Das Dokument wird gesendet, sobald Sie wieder online sind.",
     pErrFileGone: "Die Datei ist nicht mehr lesbar. Bitte erneut auswählen.",
