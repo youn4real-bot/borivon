@@ -102,6 +102,11 @@ export interface Translation {
   pWelcomeBack: string; pWelcomeBackSub: string;
   pUploadSuccess: string; pErrPdfOnly: string; pErrAllTypes: string; pErrSize: string; pErrImageOnly: string;
   pErrUpload: string; pErrNetwork: string; pSkipSaved: string; pDropHere: string;
+  // One sentence per cause. "Netzwerkfehler" used to stand for an expired
+  // session, a dead phone signal, a stalled upload and a 500 alike, so nobody
+  // — candidate or founder — could tell what to do next. See lib/uploadFailure.ts.
+  pErrOffline: string; pErrFileGone: string; pErrTimeout: string;
+  pErrAuth: string; pErrBusy: string; pErrServer: string; pUploadRetrying: string;
   pTranslationsNote: string; pScanQualityNote: string; pOriginalsOnlyNote: string;
   pScanQualityShort: string; pOriginalsOnlyShort: string; pTranslationsShort: string;
   pWhatIsThis: string; pAddrHintBtn: string; pPostalHintBtn: string;
@@ -383,7 +388,15 @@ export const translations: Record<Lang, Translation> = {
     pSideID: "Essentiels", pSideNursing: "Documents", pSideTrans: "Traductions", pSideOther: "Autres",
     pWelcomeBack: "Bon retour,", pWelcomeBackSub: "Continuez là où vous en étiez.",
     pUploadSuccess: "✓ {label} déposé avec succès.", pErrPdfOnly: "PDF uniquement pour ce type de document.", pErrAllTypes: "PDF, JPG, PNG ou DOCX uniquement.", pErrSize: "Fichier trop volumineux. Max {size} Mo.", pErrImageOnly: "Image uniquement (JPG, PNG) — pas de PDF pour le passeport.",
-    pErrUpload: "Erreur lors de l'envoi.", pErrNetwork: "Erreur réseau. Réessayez.", pSkipSaved: "Progression sauvegardée — revenez quand vous voulez !", pDropHere: "Déposez ici pour envoyer",
+    pErrUpload: "Erreur lors de l'envoi.", pErrNetwork: "Erreur réseau. Réessayez.",
+    pErrOffline: "Pas de connexion. Le document sera envoyé dès le retour du réseau.",
+    pErrFileGone: "Le fichier n'est plus lisible. Sélectionnez-le à nouveau.",
+    pErrTimeout: "L'envoi s'est interrompu. Réessayez avec une meilleure connexion.",
+    pErrAuth: "Session expirée. Rechargez la page et reconnectez-vous.",
+    pErrBusy: "Trop d'envois à la suite. Patientez un instant.",
+    pErrServer: "Problème de notre côté. Réessayez dans un instant.",
+    pUploadRetrying: "Connexion instable — nouvelle tentative ({n}/{max})…",
+    pSkipSaved: "Progression sauvegardée — revenez quand vous voulez !", pDropHere: "Déposez ici pour envoyer",
     pTranslationsNote: "Ces documents sont les traductions certifiées en allemand de vos originaux. Ne re-déposez pas les originaux ici.",
     pScanQualityNote: "📄 Seuls les documents scannés avec un scanner à plat sont acceptés. Les photos prises avec un téléphone ou via CamScanner seront automatiquement rejetées.",
     pOriginalsOnlyNote: "📎 Déposez uniquement les documents originaux ici. Les traductions certifiées en allemand seront demandées séparément à l'étape suivante.",
@@ -685,7 +698,15 @@ export const translations: Record<Lang, Translation> = {
     pSideID: "Essentials", pSideNursing: "Documents", pSideTrans: "Translations", pSideOther: "Others",
     pWelcomeBack: "Welcome back,", pWelcomeBackSub: "Continue where you left off.",
     pUploadSuccess: "✓ {label} uploaded successfully.", pErrPdfOnly: "PDF only for this document type.", pErrAllTypes: "PDF, JPG, PNG or DOCX only.", pErrSize: "File too large. Max {size} MB.", pErrImageOnly: "Image only (JPG, PNG) — no PDF for passport.",
-    pErrUpload: "Upload error. Please try again.", pErrNetwork: "Network error. Please try again.", pSkipSaved: "Progress saved — come back anytime!", pDropHere: "Drop here to upload",
+    pErrUpload: "Upload error. Please try again.", pErrNetwork: "Network error. Please try again.",
+    pErrOffline: "No connection. The document will be sent as soon as you are back online.",
+    pErrFileGone: "The file can no longer be read. Please pick it again.",
+    pErrTimeout: "The upload stalled. Please try again on a better connection.",
+    pErrAuth: "Session expired. Reload the page and sign in again.",
+    pErrBusy: "Too many uploads in a row. Please wait a moment.",
+    pErrServer: "Something broke on our side. Please try again in a moment.",
+    pUploadRetrying: "Connection unstable — retrying ({n}/{max})…",
+    pSkipSaved: "Progress saved — come back anytime!", pDropHere: "Drop here to upload",
     pTranslationsNote: "These are certified German translations of your original documents. Do not upload the originals again here.",
     pScanQualityNote: "📄 Only documents scanned with a flatbed scanner are accepted. Photos taken with a phone or via CamScanner apps will be automatically rejected.",
     pOriginalsOnlyNote: "📎 Upload original documents only here. Certified German translations will be requested separately in the next step.",
@@ -987,7 +1008,15 @@ export const translations: Record<Lang, Translation> = {
     pSideID: "Essentielles", pSideNursing: "Unterlagen", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",
     pUploadSuccess: "✓ {label} erfolgreich hochgeladen.", pErrPdfOnly: "Nur PDF für diesen Dokumenttyp.", pErrAllTypes: "Nur PDF, JPG, PNG oder DOCX.", pErrSize: "Datei zu groß. Max {size} MB.", pErrImageOnly: "Nur Bild (JPG, PNG) — kein PDF für Reisepass.",
-    pErrUpload: "Fehler beim Hochladen.", pErrNetwork: "Netzwerkfehler. Bitte erneut versuchen.", pSkipSaved: "Fortschritt gespeichert — kommen Sie jederzeit wieder!", pDropHere: "Hier ablegen zum Hochladen",
+    pErrUpload: "Fehler beim Hochladen.", pErrNetwork: "Netzwerkfehler. Bitte erneut versuchen.",
+    pErrOffline: "Keine Verbindung. Das Dokument wird gesendet, sobald Sie wieder online sind.",
+    pErrFileGone: "Die Datei ist nicht mehr lesbar. Bitte erneut auswählen.",
+    pErrTimeout: "Der Upload ist stehen geblieben. Bitte mit besserer Verbindung erneut versuchen.",
+    pErrAuth: "Sitzung abgelaufen. Seite neu laden und erneut anmelden.",
+    pErrBusy: "Zu viele Uploads hintereinander. Bitte einen Moment warten.",
+    pErrServer: "Fehler auf unserer Seite. Bitte gleich noch einmal versuchen.",
+    pUploadRetrying: "Verbindung instabil — neuer Versuch ({n}/{max})…",
+    pSkipSaved: "Fortschritt gespeichert — kommen Sie jederzeit wieder!", pDropHere: "Hier ablegen zum Hochladen",
     pTranslationsNote: "Dies sind beglaubigte deutsche Übersetzungen Ihrer Originaldokumente. Laden Sie die Originale hier nicht erneut hoch.",
     pScanQualityNote: "📄 Nur mit einem Flachbettscanner gescannte Dokumente werden akzeptiert. Mit dem Handy oder CamScanner aufgenommene Fotos werden automatisch abgelehnt.",
     pOriginalsOnlyNote: "📎 Laden Sie hier nur Originaldokumente hoch. Beglaubigte deutsche Übersetzungen werden separat im nächsten Schritt angefordert.",

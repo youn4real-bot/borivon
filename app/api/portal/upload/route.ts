@@ -13,6 +13,7 @@ import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
 import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType } from "@/lib/passportSanity";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
 import { LABEL_TO_FILE_KEY, labelForUpload, resolveFileKey } from "@/lib/fileKeys";
+import { formatUploadDiag } from "@/lib/uploadFailure";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -726,6 +727,43 @@ export async function POST(req: NextRequest) {
   );
   const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+  // ── Client-side failure beacon ───────────────────────────────────────────────
+  // An upload that fails in the browser never reaches this route -- that is the
+  // whole point of it. On 2026-09-19 a candidate's passport upload died with
+  // "Netzwerkfehler" and the Cloudflare log had no POST here at all in the
+  // surrounding hours, so there was nothing to look at and no way to tell a
+  // dropped cellular connection from a file handle the OS had reclaimed.
+  //
+  // The browser now posts a few hundred bytes of JSON to THIS authenticated
+  // route when an attempt dies (lib/uploadFailure.ts builds it). Same auth, no
+  // new public surface, and it lands in the Worker log next to the upload
+  // route's own lines -- where whoever debugs the next one will already be
+  // looking. A tiny body gets through connections that a 20 MB one cannot.
+  //
+  // Its own rate-limit bucket, checked before the upload bucket below, so a
+  // phone stuck in a retry loop can never spend the 20/min a real upload needs.
+  //
+  // READING THE LINE. `sent` and `ms` separate the two causes that both look
+  // like "network error with no POST in this log":
+  //   sent=0, ms small   -> the body was never readable; the browser gave up
+  //                         before opening a socket (a dead File handle).
+  //   sent>0, ms large   -> bytes were flowing and the connection died
+  //                         mid-body; Cloudflare never invokes a Worker for an
+  //                         incomplete request, which is why nothing is here.
+  // status>0 means it DID reach a server and the answer is in the Worker log
+  // above; kind=auth means her JWT had expired, not that the network failed.
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const rlDiag = await enforceUserRateLimit("upload-diag", `u:${user.id}`, { limit: 12, windowMs: 60_000 });
+    if (!rlDiag.ok) return new NextResponse(null, { status: 204 }); // shedding a log line must never look like a failure
+    const body = await req.json().catch(() => null) as { diag?: unknown } | null;
+    if (!body || typeof body !== "object" || !body.diag) {
+      return NextResponse.json({ error: "Expected a multipart upload." }, { status: 400 });
+    }
+    console.warn(`[upload][client-fail] user=${user.id} ${formatUploadDiag(body.diag)}`);
+    return new NextResponse(null, { status: 204 });
+  }
 
   // ── Rate limit ───────────────────────────────────────────────────────────────
   // Uploads hit Drive + DB + (sometimes) OCR — expensive and abuse-prone.

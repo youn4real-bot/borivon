@@ -31,6 +31,13 @@ import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import { flushSync } from "react-dom";
 import type { BindingId } from "@/lib/pdfAcroFormFill";
 import { removeImageBg } from "@/lib/removeImageBg";
+import {
+  classifyUploadFailure, shouldRetryUpload, uploadRetryDelayMs,
+  MAX_UPLOAD_ATTEMPTS, UPLOAD_FAIL_MSG,
+  type UploadFailure, type UploadFailMsgType,
+} from "@/lib/uploadFailure";
+import { stabilizePickedFile } from "@/lib/pickedFile";
+import { createRetryScheduler, type RetryScheduler } from "@/lib/uploadRetryQueue";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader } from "@/components/ui/states";
@@ -474,7 +481,12 @@ export default function DashboardPage() {
     }
   }, [loading, router]);
 
-  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages" | "errNetwork" | "errDownload";
+  // One type per CAUSE, not one type for "it broke". "Netzwerkfehler" used to
+  // cover an expired session, a dead phone signal, a stalled upload, a 500 and
+  // a photo the OS had reclaimed — so a candidate could not tell whether to
+  // wait, re-pick the file or log back in. lib/uploadFailure.ts decides which.
+  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages"
+    | "errNetwork" | "errDownload" | UploadFailMsgType | "retrying";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
@@ -662,14 +674,36 @@ export default function DashboardPage() {
     if (msg) slotMsgTimer.current = setTimeout(() => setSlotMsg(null), 5000);
   };
 
+  /** A message that must NOT vanish after 5 s — the "retrying (2/4)" notice has
+   *  to still be on screen when the 8-second backoff finally fires, or the wait
+   *  reads as the page having silently given up. */
+  const setSlotMsgSticky = (msg: SlotMsg | null) => {
+    if (slotMsgTimer.current) { clearTimeout(slotMsgTimer.current); slotMsgTimer.current = null; }
+    setSlotMsg(msg);
+  };
+
+  // The queue for the next upload attempt. See lib/uploadRetryQueue.ts: the
+  // backoff is a floor, and coming back online or returning to the tab cuts it
+  // short, because those are the two moments a mobile upload becomes possible.
+  const retryQueueRef = useRef<RetryScheduler | null>(null);
+  const getRetryQueue = () => {
+    if (!retryQueueRef.current) retryQueueRef.current = createRetryScheduler(window, document);
+    return retryQueueRef.current;
+  };
+  const cancelPendingRetry = () => retryQueueRef.current?.cancel();
+  const scheduleUploadRetry = (delay: number, run: () => void) => getRetryQueue().schedule(delay, run);
+
   // Cleanup XHR and timers on unmount
   useEffect(() => {
     return () => {
       xhrRef.current?.abort();
+      // A queued retry must die with the page, or it fires against a slot that
+      // is no longer on screen and re-POSTs a 20 MB body for nobody.
+      cancelPendingRetry();
       if (skipTimerRef.current) clearTimeout(skipTimerRef.current);
       if (slotMsgTimer.current) clearTimeout(slotMsgTimer.current);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [exampleUrl, setExampleUrl]     = useState<string | null>(null);
   const [showWorkGuide, setShowWorkGuide] = useState(false);
   // ⋯ menu for builder docs (CV / cover letter) — edit lives here, like the admin.
@@ -1658,25 +1692,90 @@ export default function DashboardPage() {
     return fromDocs.filter(d => d.file_type === key);
   }
 
+  /**
+   * Tell the server about a failure that never reached it.
+   *
+   * An upload that dies in the browser leaves nothing in the Worker log — no
+   * request, no status, no size. On 2026-09-19 that is exactly what happened:
+   * a candidate's passport upload showed "Netzwerkfehler" and Cloudflare had no
+   * POST /api/portal/upload at all in the surrounding hours, so the only
+   * evidence was a screenshot. This posts a few hundred bytes of JSON to that
+   * SAME authenticated route (no new public endpoint) so the next one is a log
+   * line. keepalive so it still goes out if she closes the tab in frustration.
+   */
+  function postUploadDiag(diag: Record<string, unknown>) {
+    if (!authToken) return;
+    try {
+      const conn = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
+      fetch("/api/portal/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          diag: {
+            online: typeof navigator !== "undefined" ? navigator.onLine : true,
+            net: conn?.effectiveType,
+            hidden: typeof document !== "undefined" && document.visibilityState === "hidden",
+            ...diag,
+          },
+        }),
+        keepalive: true,
+      }).catch(() => { /* diagnostics must never break, or delay, an upload */ });
+    } catch { /* ditto */ }
+  }
+
   // ── Auto-upload (no confirm step) ──────────────────────────────────────────
-  function handleFile(file: File, key: string) {
+  async function handleFile(file: File, key: string, input?: HTMLInputElement | null) {
+    const clearInput = () => { if (input) input.value = ""; };
     const allowed = OTHER_KEYS.includes(key) ? ALLOWED_ALL : ALLOWED_PDF_ONLY;
     if (!allowed.includes(file.type)) {
+      clearInput();
       setSlotMsgTimed({ key, ok: false, type: OTHER_KEYS.includes(key) ? "errAllTypes" : "errPdfOnly" });
       return;
     }
     if (file.size > MAX_MB * 1024 * 1024) {
+      clearInput();
       setSlotMsgTimed({ key, ok: false, type: "errSize" });
       return;
     }
-    uploadFile(file, key);
+
+    // TAKE THE BYTES BEFORE ANYTHING CAN TAKE THEM AWAY.
+    //
+    // `file` is not bytes — it is a handle to a file the OS still owns, and the
+    // browser's permission to read it is tied to the live selection in the
+    // input. XHR only reads it at send() time, asynchronously, long after this
+    // handler has returned. If the handle has gone stale by then (the input was
+    // reset, a camera capture's temp copy was reclaimed, a memory warning after
+    // photographing a passport) the read fails, the browser fires `error`, and
+    // NOT ONE BYTE goes on the wire — which is exactly the signature of the
+    // 2026-09-19 failure: "Netzwerkfehler" on the phone, no POST in the Worker
+    // log. Reading it here, inside the pick, turns the handle into plain bytes
+    // that no OS decision can invalidate, and that every retry can re-send.
+    setUploadingKey(key);      // reading 20 MB off flash storage is not instant
+    setSlotProgress(0);
+    setSlotMsgSticky(null);
+    const stable = await stabilizePickedFile(file);
+    clearInput();              // safe now — we are holding the bytes, not a handle
+    if (!stable.ok) {
+      console.error("[upload] picked file unreadable:", stable.reason);
+      setUploadingKey(null);
+      // Actionable, and true: no retry can revive a dead handle, only a fresh pick.
+      setSlotMsgTimed({ key, ok: false, type: "errFileGone" });
+      postUploadDiag({
+        slot: key, attempt: 0, kind: "fileGone", status: 0,
+        bytes: file.size, mime: file.type, ms: 0, sent: 0, final: true,
+      });
+      return;
+    }
+    uploadFile(stable.file, key);
   }
 
   function uploadFile(file: File, key: string, attempt = 1) {
     if (!userId) return;
+    // A fresh upload supersedes any retry still queued for an earlier one.
+    if (attempt === 1) cancelPendingRetry();
     setUploadingKey(key);
-    setSlotProgress(0);
-    setSlotMsg(null);
+    if (attempt === 1) setSlotProgress(0);
+    if (attempt === 1) setSlotMsgSticky(null);
     // Snapshot the doc ids that exist FOR THIS SLOT right now. Must be
     // per-slot (getDocAll(key)), NOT all docs: a global snapshot meant a
     // pre-existing doc for this slot could read as "new" after a genuinely
@@ -1697,16 +1796,37 @@ export default function DashboardPage() {
     // Dynamic slots store the UUID as file_type so getDoc(slotId) can match directly
     const fileType = isDynamic ? key : item!.label;
 
-    // Failure handler with self-heal + one silent retry. Before EVER showing
-    // an error: (1) reload docs and check whether the file actually landed
-    // (fast-upload response lost but server persisted it) → silent success;
-    // (2) on a transient (network / 5xx / 429 / status 0) retry once quietly;
-    // (3) only a genuine, repeated failure shows the red message. This is the
-    // "accept fast uploads, don't show that error" fix.
-    const transientTypes = new Set(["errNetwork"]);
-    const failSettle = async (type: "errUpload" | "errNetwork", transient: boolean) => {
+    // How long this attempt has been going and how far the body actually got —
+    // the two numbers that separate "the connection died at byte 0" from "it
+    // sent 18 MB and then the server never answered". Both go in the beacon.
+    const startedAt = Date.now();
+    let sentBytes = 0;
+
+    // A mobile upload does not always FAIL — sometimes it just stops. A lost
+    // cellular hand-off leaves the XHR open with no further progress and no
+    // error event ever, so the bar crept to 98.6% and sat there forever while
+    // the candidate waited on a document that was never going anywhere. Give up
+    // on our own terms instead, so the retry schedule can take over.
+    const STALL_SENDING_MS = 45_000; // while bytes should still be moving
+    const STALL_SERVER_MS  = 90_000; // body sent; passport OCR + Drive, route caps at 60s
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let stalled = false;
+    const clearStall = () => { if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; } };
+
+    /**
+     * Failure handler: self-heal, then retry properly, then say WHY.
+     *
+     * (1) Reload the docs first — a fast upload whose response was lost still
+     *     persisted server-side, and showing an error for a file that landed is
+     *     worse than any of this. (2) Retry a transient cause on a real backoff
+     *     (the old code retried once, instantly, into the same dead air a phone
+     *     was already in). (3) Only then show a red message, and show the one
+     *     that names the actual cause.
+     */
+    const failSettle = async (failure: UploadFailure) => {
       xhrRef.current = null;
       stopProgressCreep();
+      clearStall();
       let fresh: Doc[] | undefined;
       try { fresh = await loadDocs(userId, true); } catch { /* ignore */ }
       const landed = (fresh ? getDocAll(key, fresh) : getDocAll(key))
@@ -1727,13 +1847,26 @@ export default function DashboardPage() {
         setUploadingKey(null);
         return;
       }
-      if ((transient || transientTypes.has(type)) && attempt < 2) {
-        // Quiet retry — no error shown, the progress bar simply continues.
-        uploadFile(file, key, attempt + 1);
+
+      const retrying = shouldRetryUpload(failure, attempt);
+      // Every attempt is reported, not just the last one: the sequence itself
+      // ("died at byte 0 four times" vs "died at 18 MB once") is the diagnosis.
+      postUploadDiag({
+        slot: key, attempt, kind: failure.kind, status: failure.status,
+        bytes: file.size, mime: file.type, ms: Date.now() - startedAt,
+        sent: sentBytes, final: !retrying,
+      });
+
+      if (retrying) {
+        // Say it out loud. The old retry was silent, so a phone hand-off looked
+        // exactly like the page having quietly given up on her document.
+        setSlotMsgSticky({ key, ok: false, type: "retrying", n: attempt + 1 });
+        setSlotProgress(0);
+        scheduleUploadRetry(uploadRetryDelayMs(attempt), () => uploadFile(file, key, attempt + 1));
         return;
       }
       replaceDocIdRef.current = null; replaceForKeyRef.current = null;
-      setSlotMsgTimed({ key, ok: false, type });
+      setSlotMsgTimed({ key, ok: false, type: UPLOAD_FAIL_MSG[failure.kind] });
       setUploadingKey(null);
     };
 
@@ -1759,14 +1892,24 @@ export default function DashboardPage() {
     // load/error/abort lands first settles it; later ones are ignored.
     let settled = false;
     stopProgressCreep();
+    /** (Re)start the watchdog. Every sign of life pushes the deadline out. */
+    const armStall = (ms: number) => {
+      clearStall();
+      stallTimer = setTimeout(() => { stalled = true; xhr.abort(); }, ms);
+    };
     xhr.upload.addEventListener("progress", (e) => {
+      armStall(STALL_SENDING_MS);
       if (!e.lengthComputable) return;
+      sentBytes = e.loaded;
       // Reserve headroom (85%) in smooth mode so the post-upload server
       // processing has room to keep moving; plain mode keeps the old 90%.
       const ceil = smoothMode ? 85 : 90;
       const pct = Math.round((e.loaded / e.total) * ceil);
       setSlotProgress(p => (pct > p ? pct : p));
     });
+    // Body fully sent: from here the wait is the server's, which is allowed to
+    // take far longer (passport OCR), so hand the watchdog the longer deadline.
+    xhr.upload.addEventListener("load", () => armStall(STALL_SERVER_MS));
     if (smoothMode) {
       // When the request body finishes sending, the perceived wait is pure
       // server processing. Asymptotically ease toward 99% — fast at first,
@@ -1802,6 +1945,7 @@ export default function DashboardPage() {
       settled = true;
       xhrRef.current = null;
       stopProgressCreep();
+      clearStall();
       setSlotProgress(100);
       try {
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -1848,9 +1992,10 @@ export default function DashboardPage() {
             }
           }
         } else {
-          // Non-2xx. status 0 / 429 / 5xx are transient (retry); but FIRST
-          // verify it didn't actually land — fast uploads often persist
-          // server-side while the response is lost.
+          // The request DID reach a server — classifyUploadFailure decides
+          // whether that status is worth retrying and which sentence she sees.
+          // But FIRST verify it didn't actually land: fast uploads often
+          // persist server-side while the response is lost.
           const st = xhr.status;
           // Per-box page-cap rejection → show the specific limit (translated).
           if (st === 413) {
@@ -1866,13 +2011,13 @@ export default function DashboardPage() {
               }
             } catch { /* not our structured error → fall through to generic */ }
           }
-          void failSettle("errUpload", st === 0 || st === 429 || st >= 500);
+          void failSettle(classifyUploadFailure({ event: "status", status: st, online: navigator.onLine }));
           return;
         }
       } catch {
         // Parse/handler threw (e.g. passport JSON). If the doc landed,
         // failSettle resolves it to a clean success instead of an error.
-        void failSettle("errUpload", false);
+        void failSettle({ kind: "rejected", transient: false, status: xhr.status });
         return;
       }
       setUploadingKey(null);
@@ -1880,19 +2025,45 @@ export default function DashboardPage() {
     xhr.addEventListener("error", () => {
       if (settled) return;
       settled = true;
-      void failSettle("errNetwork", true);
+      // The 2026-09-19 passport failure landed exactly here. `error` on its own
+      // says nothing — navigator.onLine at least separates "no signal, wait"
+      // from "something else killed the connection", and the beacon in
+      // failSettle carries how many bytes had gone out before it died.
+      void failSettle(classifyUploadFailure({ event: "error", online: navigator.onLine }));
+    });
+    xhr.addEventListener("timeout", () => {
+      if (settled) return;
+      settled = true;
+      void failSettle(classifyUploadFailure({ event: "timeout" }));
     });
     xhr.addEventListener("abort", () => {
       if (settled) return;
       settled = true;
+      // Our own watchdog aborted a dead-but-open request: that is a failure to
+      // retry, not a cancellation. Only a real cancellation stays silent.
+      if (stalled) { void failSettle(classifyUploadFailure({ event: "stall" })); return; }
       xhrRef.current = null;
       stopProgressCreep();
+      clearStall();
       replaceDocIdRef.current = null; replaceForKeyRef.current = null;
       setUploadingKey(null);
     });
-    xhr.open("POST", "/api/portal/upload");
-    if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
-    xhr.send(fd);
+    try {
+      xhr.open("POST", "/api/portal/upload");
+      if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
+      // Nothing has been sent yet, so start the watchdog here: a request that
+      // never gets a single progress event is the worst case of all — it is
+      // what "no POST in the Worker log" looks like from the inside.
+      armStall(STALL_SENDING_MS);
+      xhr.send(fd);
+    } catch (e) {
+      // send() throws synchronously when the body cannot be read at all. That
+      // never reached the user before — it fell through as an unhandled error
+      // and the bar simply sat there.
+      console.error("[upload] send() threw:", e);
+      settled = true;
+      void failSettle(classifyUploadFailure({ event: "readError" }));
+    }
   }
 
   function openPicker(key: string) {
@@ -1909,12 +2080,19 @@ export default function DashboardPage() {
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     const k = pendingKeyRef.current ?? activeKey;
-    // Allow re-picking the SAME file again later (onChange won't fire if the
-    // input still holds the previous selection).
-    e.target.value = "";
-    if (file && k) handleFile(file, k);
+    // The input still has to be cleared — onChange won't fire if it is still
+    // holding the previous selection, so re-picking the SAME file would do
+    // nothing. But it is cleared INSIDE handleFile, after the bytes have been
+    // read, not here before them. Resetting the input drops the read grant
+    // that came with the selection, and XHR only reads the file at send()
+    // time: clearing first could leave the upload holding a handle to a file
+    // it is no longer allowed to open, which fires `error` with nothing ever
+    // put on the wire. That is the "network error" with no POST in the log.
+    if (!file || !k) { input.value = ""; return; }
+    void handleFile(file, k, input);
   }
 
   // Issue 13.2: give visible feedback when a download fails (used by both the
@@ -2002,11 +2180,45 @@ export default function DashboardPage() {
     }
   }
 
+  /**
+   * The sentence for a slot message — ONE function, used by both the slot row
+   * and the paired sub-row. They each had their own ternary chain, and the
+   * sub-row's ended at "Fehler beim Hochladen." for everything it did not know
+   * about: every network failure in a translation sub-slot was already being
+   * swallowed there. A new cause added to MsgType now cannot go missing at one
+   * site and not the other.
+   */
+  function slotMsgText(m: SlotMsg, label: string): string {
+    switch (m.type) {
+      case "success":      return t.pUploadSuccess.replace("{label}", label);
+      case "errPdfOnly":   return t.pErrPdfOnly;
+      case "errAllTypes":  return t.pErrAllTypes;
+      case "errSize":      return t.pErrSize.replace("{size}", String(MAX_MB));
+      case "errNetwork":   return t.pErrNetwork;
+      case "errOffline":   return t.pErrOffline;
+      case "errFileGone":  return t.pErrFileGone;
+      case "errTimeout":   return t.pErrTimeout;
+      case "errAuth":      return t.pErrAuth;
+      case "errBusy":      return t.pErrBusy;
+      case "errServer":    return t.pErrServer;
+      case "retrying":     return t.pUploadRetrying
+        .replace("{n}", String(m.n ?? 2))
+        .replace("{max}", String(MAX_UPLOAD_ATTEMPTS));
+      case "errDownload":  return lang === "fr" ? "Échec du téléchargement — réessayez."
+        : lang === "de" ? "Herunterladen fehlgeschlagen — erneut versuchen."
+        : "Download failed — please try again.";
+      case "errPages":     return lang === "fr" ? `Trop de pages — limite pour ce type : ${m.n}.`
+        : lang === "de" ? `Zu viele Seiten — Limit für diesen Typ: ${m.n}.`
+        : `Too many pages — limit for this type: ${m.n}.`;
+      case "errUpload":    return t.pErrUpload;
+    }
+  }
+
   const onDrop = useCallback((e: React.DragEvent, key: string) => {
     e.preventDefault();
     setDragOverKey(null);
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file, key);
+    if (file) void handleFile(file, key);
   // handleFile depends on userId/docs via closure — re-create when they change
   }, [userId, docs]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3085,7 +3297,7 @@ export default function DashboardPage() {
                                   <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{sub.subDoc.feedback}</p>
                                 )}
                                 {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)", transition: "width .26s linear" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{Math.round(slotProgress)}%</p></div>}
-                                {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : subMsg.type === "errPages" ? (lang === "fr" ? `Trop de pages — limite : ${subMsg.n}.` : lang === "de" ? `Zu viele Seiten — Limit: ${subMsg.n}.` : `Too many pages — limit: ${subMsg.n}.`) : t.pErrUpload}</p>}
+                                {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : subMsg.type === "retrying" ? "var(--warning)" : "var(--danger)" }}>{slotMsgText(subMsg, sub.subLabel)}</p>}
                               </div>
                               {!isSubUp && !sub.subDoc && (
                                 <span
@@ -3411,15 +3623,8 @@ export default function DashboardPage() {
 
                       {/* Slot message */}
                       {msg && (
-                        <p className="mt-1.5 text-xs" style={{ color: msg.ok ? "var(--success)" : "var(--danger)" }}>
-                          {msg.type === "success" ? t.pUploadSuccess.replace("{label}", ALL_ITEMS.find(i => i.key === msg.key)?.label ?? "") :
-                           msg.type === "errPdfOnly" ? t.pErrPdfOnly :
-                           msg.type === "errAllTypes" ? t.pErrAllTypes :
-                           msg.type === "errSize" ? t.pErrSize.replace("{size}", String(MAX_MB)) :
-                           msg.type === "errNetwork" ? t.pErrNetwork :
-                           msg.type === "errDownload" ? (lang === "fr" ? "Échec du téléchargement — réessayez." : lang === "de" ? "Herunterladen fehlgeschlagen — erneut versuchen." : "Download failed — please try again.") :
-                           msg.type === "errPages" ? (lang === "fr" ? `Trop de pages — limite pour ce type : ${msg.n}.` : lang === "de" ? `Zu viele Seiten — Limit für diesen Typ: ${msg.n}.` : `Too many pages — limit for this type: ${msg.n}.`) :
-                           t.pErrUpload}
+                        <p className="mt-1.5 text-xs" style={{ color: msg.ok ? "var(--success)" : msg.type === "retrying" ? "var(--warning)" : "var(--danger)" }}>
+                          {slotMsgText(msg, ALL_ITEMS.find(i => i.key === msg.key)?.label ?? "")}
                         </p>
                       )}
 
