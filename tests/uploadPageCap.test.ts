@@ -107,12 +107,14 @@ describe("PDF page cap — admin uploads are exempt", () => {
 
 describe("PDF page cap — the candidate guardrail must survive the exemption", () => {
   it("a candidate is still refused past the cap, with a decodable reason", async () => {
-    const r = await post("abitur_transcript", "Abitur Notenübersicht", await pdfOf(3), false);
+    // 12 pages against abitur_transcript's cap of 10 (the caps were raised on
+    // 2026-09-19: 2 pages never fitted a diploma with its apostille).
+    const r = await post("abitur_transcript", "Abitur Notenübersicht", await pdfOf(12), false);
     expect(r.status).toBe(413);
     // The dashboard localises on this code, so it is part of the contract.
     expect(r.body.code).toBe("PDF_TOO_MANY_PAGES");
-    expect(r.body.pages).toBe(3);
-    expect(r.body.limit).toBe(2);
+    expect(r.body.pages).toBe(12);
+    expect(r.body.limit).toBe(10);
   });
 
   it("a candidate within the cap is accepted", async () => {

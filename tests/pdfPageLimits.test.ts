@@ -3,16 +3,16 @@ import { pdfPageLimit, PDF_PAGE_LIMITS, DEFAULT_PDF_PAGE_LIMIT } from "../lib/pd
 
 describe("pdfPageLimit (per-box PDF page caps)", () => {
   it("returns the exact cap for a known box", () => {
-    expect(pdfPageLimit("id")).toBe(2);
-    expect(pdfPageLimit("letter")).toBe(1);
+    expect(pdfPageLimit("id")).toBe(6);
+    expect(pdfPageLimit("letter")).toBe(5);
     expect(pdfPageLimit("studyprog")).toBe(10);
-    expect(pdfPageLimit("cv_de")).toBe(2);
+    expect(pdfPageLimit("cv_de")).toBe(5);
     expect(pdfPageLimit("transcript")).toBe(PDF_PAGE_LIMITS.transcript);
   });
 
   it("caps original and translation SEPARATELY (same number, independent boxes)", () => {
-    expect(pdfPageLimit("diploma")).toBe(2);
-    expect(pdfPageLimit("diploma_de")).toBe(2);
+    expect(pdfPageLimit("diploma")).toBe(8);
+    expect(pdfPageLimit("diploma_de")).toBe(8);
     expect(pdfPageLimit("studyprog")).toBe(10);
     expect(pdfPageLimit("studyprog_de")).toBe(10);
     expect(pdfPageLimit("work_experience")).toBe(10);

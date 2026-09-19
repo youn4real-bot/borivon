@@ -2561,7 +2561,17 @@ export default function AdminPage() {
         // server said, in the admin's language.
         console.error("[adminDocUpload] upload failed:", res.status);
         let msg = "";
-        try { const j = await res.json(); if (j?.error) msg = String(j.error); } catch { /* not JSON */ }
+        try {
+          const j = await res.json();
+          // The page cap is the refusal an admin actually meets, and the route
+          // answers it in French only — say it in the admin's language, with
+          // the two numbers that tell him what to do (split or rescan).
+          if (j?.code === "PDF_TOO_MANY_PAGES" && typeof j.limit === "number") {
+            msg = lang === "de" ? `Zu viele Seiten: ${j.pages} — Limit ${j.limit} für dieses Dokument.`
+              : lang === "fr" ? `Trop de pages : ${j.pages} — limite ${j.limit} pour ce document.`
+              : `Too many pages: ${j.pages} — limit ${j.limit} for this document.`;
+          } else if (j?.error) msg = String(j.error);
+        } catch { /* not JSON */ }
         if (!msg) msg = res.status === 413
           ? (lang === "de" ? "Datei zu gross. Maximal 25 MB." : lang === "fr" ? "Fichier trop volumineux. Maximum 25 Mo." : "File too large. Maximum 25 MB.")
           : `HTTP ${res.status}`;
