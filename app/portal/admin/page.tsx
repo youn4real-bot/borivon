@@ -10,9 +10,9 @@ import { translations } from "@/lib/translations";
 import { useLang } from "@/components/LangContext";
 import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
 import { isIOSDevice } from "@/lib/platform";
-import { triggerIosDownload } from "@/lib/iosDownload";
+import { triggerIosDownload, triggerIosDownloadWithToken } from "@/lib/iosDownload";
 import { downloadProfilePhoto } from "@/lib/photoDownload";
-import { useDlToken, withDlt, appendDlt } from "@/lib/dlClient";
+import { useDlToken, withDlt, appendDlt, mintDlToken } from "@/lib/dlClient";
 import { PdfViewer } from "@/components/PdfViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
@@ -416,6 +416,11 @@ export default function AdminPage() {
   const router = useRouter();
   const { lang } = useLang();
   const t = translations[lang];
+  /** Live mirror of `t` for callbacks that are memoised with empty deps (the
+   *  candidate-status autosave) — without it they would keep whatever language
+   *  was active on first render. */
+  const tRef = useRef(t);
+  tRef.current = t;
   const [accessToken, setAccessToken] = useState("");
   // Pre-minted short-lived signed download token (kept fresh) so iOS file
   // URLs carry ?dlt= not the raw admin JWT, readable in-gesture.
@@ -654,13 +659,22 @@ export default function AdminPage() {
   // bootstrap fetch below; written on every drag via saveVisumDocOrder.
   const [visumDocOrder, setVisumDocOrder] = useState<string[]>([]);
   async function saveVisumDocOrder(orderKeys: string[]) {
+    // "best-effort — local state already updated" was the whole problem: the
+    // response was never even read, so a 403 (LAW #25 scope) or a 500 left the
+    // dragged order sitting on screen while the database kept the old one. The
+    // admin reorders the Visum documents that EVERY candidate sees, reloads
+    // days later, finds them back as they were, and drags them again.
+    const orderFailed = lang === "de" ? "Die neue Reihenfolge wurde nicht gespeichert — bitte erneut versuchen."
+      : lang === "fr" ? "Le nouvel ordre n'a pas été enregistré — veuillez réessayer."
+      : "The new order was not saved — please try again.";
     try {
-      await fetch("/api/portal/phase-doc-order", {
+      const r = await fetch("/api/portal/phase-doc-order", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ phase: "visum", order_keys: orderKeys }),
       });
-    } catch { /* best-effort — local state already updated */ }
+      if (!r.ok) showError(orderFailed);
+    } catch { showError(orderFailed); }
   }
   // Phone single-scroll: blob URL of the previewed passport so it can be
   // rendered as a strip at the top of the passport-info card (one page:
@@ -1136,6 +1150,11 @@ export default function AdminPage() {
   const statusSeedRef  = useRef<string>("");
   const statusSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusFormRef  = useRef<CandStatus>(EMPTY_STATUS);
+  /** Consecutive failed autosaves. The retry loop below is endless and was
+   *  entirely silent: the "Saved" tick simply never appeared, which reads as
+   *  "I have not typed anything yet", so the admin kept editing a form that
+   *  had stopped reaching the server. Two failures in a row = say it. */
+  const statusFailStreak = useRef(0);
 
   // Load which agencies this candidate is already shared with. Runs whenever
   // the selected candidate changes; failure leaves the toggle absent rather
@@ -1254,21 +1273,25 @@ export default function AdminPage() {
       });
       if (r.ok) {
         statusSeedRef.current = JSON.stringify(snap);
+        statusFailStreak.current = 0;
         setStatusAutoSaved(true);
         setTimeout(() => setStatusAutoSaved(false), 1600);
       } else {
         let msg = `HTTP ${r.status}`;
         try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
         console.error("[candidate-status autosave] failed:", msg);
+        noteStatusSaveFailure();
         // Retry once (network/transient) — never lose the edit.
         if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
         statusSaveTimer.current = setTimeout(() => { void persistStatus(snap, uid, tok); }, 4000);
       }
     } catch (e) {
       console.error("[candidate-status autosave] error:", e);
+      noteStatusSaveFailure();
       if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
       statusSaveTimer.current = setTimeout(() => { void persistStatus(snap, uid, tok); }, 4000);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Debounced per-change autosave while the modal is open.
@@ -1422,6 +1445,11 @@ export default function AdminPage() {
   const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
   const [sigPdfLoading, setSigPdfLoading] = useState(false);
+  /** The slot's PDF exists but could not be fetched or rendered. Without this
+   *  the wizard fell straight through to its "drop a PDF here" zone, which
+   *  says the slot has no document — so the admin re-uploads a template that
+   *  was there all along, or concludes the whole step is broken. */
+  const [sigPdfLoadError, setSigPdfLoadError] = useState(false);
   const [sigManualPdf, setSigManualPdf] = useState<string | null>(null); // base64 when admin uploads PDF manually
   const [sigAdminSig, setSigAdminSig] = useState<string | null>(null);
   const [sigAdminWantSave, setSigAdminWantSave] = useState(true);
@@ -1466,7 +1494,10 @@ export default function AdminPage() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!res.ok || cancelled) {
-          if (!cancelled) console.warn("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
+          if (!cancelled) {
+            console.warn("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
+            setSigPdfLoadError(true);
+          }
           return;
         }
         const buf = await res.arrayBuffer();
@@ -1481,11 +1512,15 @@ export default function AdminPage() {
         setSigPdfBase64(b64);
       } catch (e) {
         console.error("[sigModal] fetch exception:", e);
+        if (!cancelled) setSigPdfLoadError(true);
       }
       finally { if (!cancelled) setSigPdfLoading(false); }
     })();
     return () => { cancelled = true; };
   }, [sigModal, accessToken]);
+  // A different slot starts clean — otherwise one failed load would mark every
+  // later slot as broken for the rest of the session.
+  useEffect(() => { setSigPdfLoadError(false); }, [sigModal]);
 
   // Delete candidate confirmation
   const [deleteCandidateConfirm, setDeleteCandidateConfirm] = useState(false);
@@ -1499,6 +1534,15 @@ export default function AdminPage() {
     const id = Date.now();
     setAdminToast({ msg, id });
     setTimeout(() => setAdminToast(t => t?.id === id ? null : t), 4000);
+  }
+
+  /** Called by the candidate-status autosave on every failed attempt. The first
+   *  failure stays quiet (one flaked request on mobile data is normal and the
+   *  4 s retry usually fixes it); from the second consecutive one the admin is
+   *  told, and then every fourth so a long outage nags without spamming. */
+  function noteStatusSaveFailure() {
+    const n = ++statusFailStreak.current;
+    if (n === 2 || (n > 2 && n % 4 === 0)) showError(tRef.current.adErrAutosave);
   }
 
   // Keep accessToken fresh — Supabase silently refreshes JWTs every ~55 min.
@@ -2845,15 +2889,29 @@ export default function AdminPage() {
     }
   }
 
+  /** Every wizard-structure write below is optimistic: the screen changes
+   *  first and the request follows. None of them used to read the response and
+   *  all of them swallowed the throw, so a 403 on a stale token or a 500 left
+   *  the new arrangement on screen and the old one in the database — the admin
+   *  drags the boxes, they stay dragged, and days later they are back where
+   *  they started. Reverting silently would be just as confusing mid-drag, so
+   *  say it instead and let the next load show the truth. */
+  function reportStructureSaveFailed() {
+    showError(lang === "de" ? "Änderung wurde nicht gespeichert — bitte Seite neu laden und erneut versuchen."
+      : lang === "fr" ? "La modification n'a pas été enregistrée — rechargez la page et réessayez."
+      : "That change was not saved — reload the page and try again.");
+  }
+
   async function saveSlotOrder(phase: string, slots: { id: string; position: number; category_id?: string | null }[]) {
     if (!accessToken) return;
     try {
-      await fetch("/api/portal/phase-slots", {
+      const r = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ positions: slots }),
       });
-    } catch { /* network error */ }
+      if (!r.ok) reportStructureSaveFailed();
+    } catch { reportStructureSaveFailed(); }
   }
 
   // ── Slot-category helpers ───────────────────────────────────────────────
@@ -2876,12 +2934,13 @@ export default function AdminPage() {
   async function saveCategoryOrder(phase: string, cats: SlotCategory[]) {
     if (!accessToken) return;
     try {
-      await fetch("/api/portal/phase-slot-categories", {
+      const r = await fetch("/api/portal/phase-slot-categories", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ positions: cats.map(c => ({ id: c.id, position: c.position })) }),
       });
-    } catch { /* offline */ }
+      if (!r.ok) reportStructureSaveFailed();
+    } catch { reportStructureSaveFailed(); }
   }
   // Renumber EVERYTHING into a clean unified scale and persist.
   //  • Top-level units (loose boxes + categories) get sequential ranks 0..T-1,
@@ -2932,18 +2991,19 @@ export default function AdminPage() {
         const j = await res.json().catch(() => ({}));
         alert((j as { error?: string }).error ?? "Could not create category");
       }
-    } catch { /* offline */ }
+    } catch { reportStructureSaveFailed(); }
   }
   async function renameCategory(phase: string, id: string, label: string) {
     setSlotCategories(prev => ({ ...prev, [phase]: (prev[phase] ?? []).map(c => c.id === id ? { ...c, label } : c) }));
     if (!accessToken) return;
     try {
-      await fetch("/api/portal/phase-slot-categories", {
+      const r = await fetch("/api/portal/phase-slot-categories", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ id, label }),
       });
-    } catch { /* offline */ }
+      if (!r.ok) reportStructureSaveFailed();
+    } catch { reportStructureSaveFailed(); }
   }
   async function deleteSlotCategory(phase: string, id: string) {
     const before = phaseSlots[phase] ?? [];
@@ -2955,12 +3015,13 @@ export default function AdminPage() {
     setSlotCategories(prev => ({ ...prev, [phase]: cats }));
     if (accessToken) {
       try {
-        await fetch("/api/portal/phase-slot-categories", {
+        const r = await fetch("/api/portal/phase-slot-categories", {
           method: "DELETE",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ id }),
         });
-      } catch { /* offline */ }
+        if (!r.ok) reportStructureSaveFailed();
+      } catch { reportStructureSaveFailed(); }
     }
     const orderBefore = buildTopOrder(before.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsBefore);
     const order: TopUnit[] = [
@@ -3028,13 +3089,19 @@ export default function AdminPage() {
       try {
         const rejectedLabel = lang === "fr" ? "Refusé" : lang === "de" ? "Abgelehnt" : "Rejected";
         const msgBody = text.trim() ? text.trim() : `${rejectedLabel}: ${rejectTarget.label}`;
-        await fetch("/api/portal/admin/messages", {
+        const r = await fetch("/api/portal/admin/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ threadUserId: selectedUser, body: msgBody, attachment: shot }),
         });
+        // The response was never checked and the throw was swallowed. The
+        // admin circled the problem on the scan, hit Reject, and the modal
+        // closed exactly as on success — while the candidate received a
+        // rejection with no picture of what was wrong with her document.
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
       } catch (e) {
         console.error("[reject] attach send failed:", e);
+        showError(t.adErrAttachSend);
       }
     }
     closeRejectModal();
@@ -3226,22 +3293,37 @@ export default function AdminPage() {
       // that streams an octet-stream attachment, which triggers the native
       // "Do you want to download…" prompt. Same fix as the candidate side.
       if (isIOSDevice()) {
-        if (!dlt) return;
-        triggerIosDownload(
-          withDlt(`${base}&dl=1&name=${encodeURIComponent(doc.file_name)}`, dlt),
-          doc.file_name,
-        );
+        // Was `if (!dlt) return;` — a dead button. The dl-token mint 401s in
+        // bursts (617 of 637 calls over three days from one admin client), so
+        // `dlt` is null for minutes at a time and every Download tap on the
+        // iPhone did precisely nothing, with nothing on screen to explain it.
+        // Mint inside the gesture instead, and say so when even that fails.
+        void triggerIosDownloadWithToken({
+          href: (tk) => withDlt(`${base}&dl=1&name=${encodeURIComponent(doc.file_name)}`, tk),
+          filename: doc.file_name,
+          token: dlt,
+          mint: () => mintDlToken(accessToken),
+          onSettled: () => {},
+          onError: () => showError(t.adErrDownload),
+        });
         return;
       }
       fetch(base, { headers: { Authorization: `Bearer ${accessToken}` } })
-        .then(r => r.blob())
+        .then(async r => {
+          // `.then(r => r.blob())` with no status check saved the JSON error
+          // body under the document's own .pdf name — the admin opened a
+          // "downloaded" file that was 60 bytes of {"error":"..."} and read it
+          // as a corrupt document rather than a failed request.
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.blob();
+        })
         .then(blob => {
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url; a.download = doc.file_name; a.click();
           setTimeout(() => URL.revokeObjectURL(url), 0);
         })
-        .catch(err => console.error("Download error:", err));
+        .catch(err => { console.error("Download error:", err); showError(t.adErrDownload); });
     }
 
     // ── Passport Info Modal helpers ──────────────────────────────────────────
@@ -3617,14 +3699,18 @@ export default function AdminPage() {
                                 body: JSON.stringify({ deltaRotation: 90 }),
                               })
                                 .then((r) => {
-                                  if (!r.ok) { console.error("[rotation] persist failed:", r.status); return; }
+                                  // A failed PATCH left the page rotated on screen but
+                                  // the angle unsaved: reopening showed it sideways
+                                  // again and the admin re-rotated it forever, never
+                                  // told the save was the part that failed.
+                                  if (!r.ok) { console.error("[rotation] persist failed:", r.status); showError(t.adErrRotate); return; }
                                   // Keep the in-memory doc in step so closing and
                                   // reopening the strip shows the new angle.
                                   setPreviewDoc((d) => (d && d.id === id
                                     ? { ...d, rotation: (((d as { rotation?: number | null }).rotation ?? 0) + 90) % 360 }
                                     : d));
                                 })
-                                .catch((e) => console.error("[rotation] persist failed:", e));
+                                .catch((e) => { console.error("[rotation] persist failed:", e); showError(t.adErrRotate); });
                             }}
                           />
                         ) : (
@@ -3708,15 +3794,19 @@ export default function AdminPage() {
                             // iOS can't download a client blob — stream via
                             // GET (small payload in query), in-gesture anchor.
                             if (isIOSDevice() && accessToken) {
-                              if (!dlt) { setPassportDataPdfDl(false); return; }
                               const json = JSON.stringify({ groups: passportDisplayGroups, docTitle, docSubtitle, filename: outName });
                               const b64 = btoa(unescape(encodeURIComponent(json)))
                                 .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-                              triggerIosDownload(
-                                withDlt(`/api/portal/admin/passport-data-pdf?dl=1&d=${b64}`, dlt),
-                                outName,
-                                () => setPassportDataPdfDl(false),
-                              );
+                              // Was `if (!dlt) { setPassportDataPdfDl(false); return; }`:
+                              // the spinner blinked off and no file ever arrived.
+                              void triggerIosDownloadWithToken({
+                                href: (tk) => withDlt(`/api/portal/admin/passport-data-pdf?dl=1&d=${b64}`, tk),
+                                filename: outName,
+                                token: dlt,
+                                mint: () => mintDlToken(accessToken),
+                                onSettled: () => setPassportDataPdfDl(false),
+                                onError: () => showError(t.adErrDownload),
+                              });
                               return;
                             }
 
@@ -3730,7 +3820,13 @@ export default function AdminPage() {
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement("a");
                             a.href = url; a.download = outName; a.click(); URL.revokeObjectURL(url);
-                          } catch (e) { console.error(e); }
+                          } catch (e) {
+                            // The spinner used to stop and nothing else happened —
+                            // indistinguishable from a download the browser silently
+                            // saved somewhere the admin could not find.
+                            console.error(e);
+                            showError(t.adErrDownload);
+                          }
                           setPassportDataPdfDl(false);
                         }}
                         disabled={passportDataPdfDl}
@@ -4578,15 +4674,30 @@ export default function AdminPage() {
                                           // re-highlights immediately.
                                           if (selectedUser && accessToken) {
                                             const uid = selectedUser;
+                                            const prevOrgs = candidateOrgs[uid] ?? [];
                                             setCandidateOrgs(prev => ({
                                               ...prev,
                                               [uid]: [{ id: a.id, name: a.name }, ...(prev[uid] ?? []).filter(o => o.id !== a.id)],
                                             }));
+                                            // The optimistic pill lit up and stayed lit even
+                                            // when the POST 403'd or 500'd, so the candidate
+                                            // looked assigned to an agency she was never
+                                            // linked to — invisible until someone wondered
+                                            // why the org dashboard did not list her.
                                             void fetch(`/api/portal/admin/organizations/${a.id}/candidates`, {
                                               method: "POST",
                                               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
                                               body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
-                                            }).catch(() => {});
+                                            })
+                                              .then(r => {
+                                                if (r.ok) return;
+                                                setCandidateOrgs(prev => ({ ...prev, [uid]: prevOrgs }));
+                                                showError(t.adErrLinkOrg);
+                                              })
+                                              .catch(() => {
+                                                setCandidateOrgs(prev => ({ ...prev, [uid]: prevOrgs }));
+                                                showError(t.adErrLinkOrg);
+                                              });
                                           }
                                         }}
                                         className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
@@ -4730,12 +4841,24 @@ export default function AdminPage() {
                                   next === "agency"  ? { cv_use_agency_branding: true,  cv_use_borivon_branding: true  } :
                                   next === "borivon" ? { cv_use_agency_branding: false, cv_use_borivon_branding: true  } :
                                                        { cv_use_agency_branding: false, cv_use_borivon_branding: false };
+                                const before = {
+                                  cv_use_agency_branding:  profiles[selectedUser]?.cv_use_agency_branding,
+                                  cv_use_borivon_branding: profiles[selectedUser]?.cv_use_borivon_branding,
+                                };
                                 setProfiles(p => ({ ...p, [selectedUser]: { ...p[selectedUser], ...patch } }));
+                                // "optimistic revert handled below if needed" was never
+                                // true — nothing below reverted anything. The radio moved,
+                                // the PATCH failed, and the next admin CV came out with
+                                // the branding nobody had actually saved.
+                                const undo = () => {
+                                  setProfiles(p => ({ ...p, [selectedUser]: { ...p[selectedUser], ...before } }));
+                                  showError(t.adErrBranding);
+                                };
                                 fetch("/api/portal/admin", {
                                   method: "PATCH",
                                   headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
                                   body: JSON.stringify({ userId: selectedUser, profile: patch }),
-                                }).catch(() => { /* optimistic revert handled below if needed */ });
+                                }).then(r => { if (!r.ok) undo(); }).catch(undo);
                               };
                               const Lcv = lang === "de" ? {
                                 title: "CV-Branding (Admin-Download)",
@@ -5348,15 +5471,20 @@ export default function AdminPage() {
                                             const mfn = mergedPdfName(origDocs[0]?.file_name, slot.label);
                                             // iOS: server-route navigation → native download prompt.
                                             if (isIOSDevice()) {
-                                              if (!dlt) return;
-                                              triggerIosDownload(
-                                                withDlt(
+                                              // Was `if (!dlt) return;` — a dead tap whenever
+                                              // the dl-token mint had 401'd or not landed yet.
+                                              void triggerIosDownloadWithToken({
+                                                href: (tk) => withDlt(
                                                   `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocs[0].id)}&transDocId=${encodeURIComponent(transDocs[0].id)}` +
                                                     `&dl=1&name=${encodeURIComponent(mfn)}`,
-                                                  dlt,
+                                                  tk,
                                                 ),
-                                                mfn,
-                                              );
+                                                filename: mfn,
+                                                token: dlt,
+                                                mint: () => mintDlToken(accessToken),
+                                                onSettled: () => {},
+                                                onError: () => showError(t.adErrDownload),
+                                              });
                                               return;
                                             }
                                             setMergePdfDl(prev => new Set(prev).add(slot.id));
@@ -5373,7 +5501,7 @@ export default function AdminPage() {
                                               a.download = mfn;
                                               a.click();
                                               URL.revokeObjectURL(url);
-                                            } catch (e) { console.error(e); }
+                                            } catch (e) { console.error(e); showError(t.adErrDownload); }
                                             setMergePdfDl(prev => { const n = new Set(prev); n.delete(slot.id); return n; });
                                           }}>
                                           {isDualMergeDl
@@ -5780,7 +5908,10 @@ export default function AdminPage() {
                               if (pb.isCv) {
                                 fetch(`${visaUrl}&dl=1`, { headers: { Authorization: `Bearer ${accessToken}` } })
                                   .then(async r => {
-                                    if (!r.ok) return;
+                                    // `if (!r.ok) return;` plus an empty .catch meant the
+                                    // Visa-CV download button was a no-op on any failure:
+                                    // the admin clicked, nothing downloaded, nothing said.
+                                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
                                     // Use the route's Content-Disposition name
                                     // (<vorname>_<nachname>_pflegekraft_lebenslauf_visum.pdf).
                                     const cd = r.headers.get("Content-Disposition") || "";
@@ -5788,7 +5919,7 @@ export default function AdminPage() {
                                     const b = await r.blob();
                                     const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 4000);
                                   })
-                                  .catch(() => {});
+                                  .catch(err => { console.error("[visa-cv download]", err); showError(t.adErrDownload); });
                               } else if (pdoc) { downloadDoc(pdoc); }
                             };
                             const submitted = !!pdoc;
@@ -6494,14 +6625,18 @@ export default function AdminPage() {
                                         // iOS: navigate to the server route (token in query,
                                         // octet-stream) → native download prompt.
                                         if (isIOSDevice()) {
-                                          if (!dlt) return;
-                                          triggerIosDownload(
-                                            withDlt(
+                                          // Was `if (!dlt) return;` — a dead tap.
+                                          void triggerIosDownloadWithToken({
+                                            href: (tk) => withDlt(
                                               `/api/portal/passport-pdf?userId=${encodeURIComponent(selectedUser)}&dl=1`,
-                                              dlt,
+                                              tk,
                                             ),
-                                            pdfFn,
-                                          );
+                                            filename: pdfFn,
+                                            token: dlt,
+                                            mint: () => mintDlToken(accessToken),
+                                            onSettled: () => {},
+                                            onError: () => showError(t.adErrDownload),
+                                          });
                                           return;
                                         }
                                         setPassportPdfDl(true);
@@ -6512,7 +6647,7 @@ export default function AdminPage() {
                                           const url = URL.createObjectURL(blob);
                                           const a = document.createElement("a");
                                           a.href = url; a.download = pdfFn; a.click(); URL.revokeObjectURL(url);
-                                        } catch (e) { console.error(e); }
+                                        } catch (e) { console.error(e); showError(t.adErrDownload); }
                                         setPassportPdfDl(false);
                                       }}
                                       disabled={passportPdfDl} title="Download PDF" aria-label="Download"
@@ -6696,15 +6831,19 @@ export default function AdminPage() {
                                     if (isMergeDl) return;
                                     const mfn = mergedPdfName(origDoc?.file_name, item.label);
                                     if (isIOSDevice()) {
-                                      if (!dlt) return;
-                                      triggerIosDownload(
-                                        withDlt(
+                                      // Was `if (!dlt) return;` — a dead tap.
+                                      void triggerIosDownloadWithToken({
+                                        href: (tk) => withDlt(
                                           `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDoc!.id)}&transDocId=${encodeURIComponent(transDoc!.id)}` +
                                             `&dl=1&name=${encodeURIComponent(mfn)}`,
-                                          dlt,
+                                          tk,
                                         ),
-                                        mfn,
-                                      );
+                                        filename: mfn,
+                                        token: dlt,
+                                        mint: () => mintDlToken(accessToken),
+                                        onSettled: () => {},
+                                        onError: () => showError(t.adErrDownload),
+                                      });
                                       return;
                                     }
                                     setMergePdfDl(prev => new Set(prev).add(item.key));
@@ -6721,7 +6860,7 @@ export default function AdminPage() {
                                       a.download = mfn;
                                       a.click();
                                       URL.revokeObjectURL(url);
-                                    } catch (e) { console.error(e); }
+                                    } catch (e) { console.error(e); showError(t.adErrDownload); }
                                     setMergePdfDl(prev => { const n = new Set(prev); n.delete(item.key); return n; });
                                   }}>
                                   {isMergeDl
@@ -7626,13 +7765,22 @@ export default function AdminPage() {
               ) : sigPdfBase64 ? (
                 <div className="p-3">
                   <PdfZonePicker pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
-                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); setSigPdfLoadError(true); }}
                     defaultParty={sigMode === "admin-only" ? "admin" : "candidate"}
                     partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
                     partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
                     onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)} />
                 </div>
               ) : (
+                <>
+                {sigPdfLoadError && (
+                  <p role="alert" className="mx-4 mt-4 text-[12px] leading-snug px-3 py-2 rounded-xl"
+                    style={{ color: "var(--danger)", background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                    {lang === "fr" ? "Le PDF de cette étape n'a pas pu être chargé. Ce n'est pas qu'il manque — rechargez la page avant d'en téléverser un autre."
+                      : lang === "de" ? "Das PDF dieses Schritts konnte nicht geladen werden. Es fehlt nicht — bitte Seite neu laden, bevor Sie ein neues hochladen."
+                      : "This step's PDF could not be loaded. It is not missing — reload the page before uploading another one."}
+                  </p>
+                )}
                 <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
                   style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
                   onClick={() => sigManualFileRef.current?.click()}
@@ -7669,6 +7817,7 @@ export default function AdminPage() {
                     {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
                   </button>
                 </div>
+                </>
               )}
             </div>
             {/* ── Sticky sig section (admin — covers org + supreme admin zones) ── */}
@@ -9051,7 +9200,7 @@ export default function AdminPage() {
                   <PdfZonePicker
                     pdfBase64={sigPdfBase64}
                     onChange={zones => setSigZones(zones)}
-                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); setSigPdfLoadError(true); }}
                     partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
                     partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
                     onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)}
@@ -9059,6 +9208,15 @@ export default function AdminPage() {
                 </div>
               ) : (
                 /* Big drop zone — primary action when Drive fails */
+                <>
+                {sigPdfLoadError && (
+                  <p role="alert" className="mx-4 mt-4 text-[12px] leading-snug px-3 py-2 rounded-xl"
+                    style={{ color: "var(--danger)", background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                    {lang === "fr" ? "Le PDF de cette étape n'a pas pu être chargé. Ce n'est pas qu'il manque — rechargez la page avant d'en téléverser un autre."
+                      : lang === "de" ? "Das PDF dieses Schritts konnte nicht geladen werden. Es fehlt nicht — bitte Seite neu laden, bevor Sie ein neues hochladen."
+                      : "This step's PDF could not be loaded. It is not missing — reload the page before uploading another one."}
+                  </p>
+                )}
                 <div
                   className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
                   style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
@@ -9099,6 +9257,7 @@ export default function AdminPage() {
                     {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
                   </button>
                 </div>
+                </>
               )}
             </div>
 

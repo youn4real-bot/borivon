@@ -485,8 +485,13 @@ export default function DashboardPage() {
   // cover an expired session, a dead phone signal, a stalled upload, a 500 and
   // a photo the OS had reclaimed — so a candidate could not tell whether to
   // wait, re-pick the file or log back in. lib/uploadFailure.ts decides which.
+  //
+  // "warnOldKept" is the one member that is NOT a cause of a failed upload: the
+  // new file arrived, but deleting the one it replaced did not, so BOTH sit in
+  // the slot. It stays its own type because her action DID succeed — the slot
+  // is wrong, and she is the only person in a position to notice.
   type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages"
-    | "errNetwork" | "errDownload" | UploadFailMsgType | "retrying";
+    | "errNetwork" | "errDownload" | "warnOldKept" | UploadFailMsgType | "retrying";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
@@ -546,6 +551,12 @@ export default function DashboardPage() {
      *  the admin already pre-filled before sending). Used for the submit
      *  gating instead of `fields`. */
     nativeFieldCount: number;
+    /** The template fetch has already come back a failure, so there is nothing
+     *  left to wait for. Without it the two fetch sites either opened the modal
+     *  on a spinner that only spoke after 15 s, or (the notification deep-link)
+     *  opened nothing at all — she taps "sign your contract", the page scrolls,
+     *  and that is the entire response. Shows the same message immediately. */
+    loadFailed?: boolean;
   };
   const [fillForm, setFillForm] = useState<FillFormState | null>(null);
   const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
@@ -640,11 +651,16 @@ export default function DashboardPage() {
     // Make sure the row is reachable after the modal closes — never leave a
     // deep-linked slot trapped inside a category the candidate folded.
     if (slot.category_id) setFoldedCats(prev => { const n = new Set(prev); n.delete(slot.category_id!); return n; });
-    fetch(`/api/portal/slot-template?slotId=${slot.id}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    }).then(r => r.ok ? r.blob() : null).then(blob => {
-      if (!blob) return;
-      const pdfUrl = URL.createObjectURL(blob);
+    // ALWAYS open the modal, even when the template does not load.
+    //
+    // This used to be `if (!blob) return;` with `.catch(() => {})` after it:
+    // when the template fetch 401'd on a tab left open past the JWT refresh, or
+    // the connection dropped, the notification deep-link did nothing whatsoever.
+    // She taps "sign your employment contract", the page scrolls to the row,
+    // and that is the whole of it — no modal, no error, no retry, and the
+    // notification stays unread-looking. Opening with `loadFailed` shows her the
+    // same "close it, reload, try again" line the slow-load case already shows.
+    const openFill = (pdfUrl: string | null, loadFailed: boolean) => {
       setFillForm({
         slotId: slot.id,
         fields: slot.form_fields ?? [],
@@ -655,13 +671,19 @@ export default function DashboardPage() {
         highlight: true,
         nativeMode: !!slot.pdf_has_native_fields,
         nativeFieldCount: 0,
+        loadFailed,
       });
       setAutoOpenSlotId(null);
       // Strip ?slot= from URL so refreshing doesn't reopen.
       const url = new URL(window.location.href);
       url.searchParams.delete("slot");
       window.history.replaceState({}, "", url.toString());
-    }).catch(() => {});
+    };
+    fetch(`/api/portal/slot-template?slotId=${slot.id}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(r => r.ok ? r.blob() : null).then(blob => {
+      openFill(blob ? URL.createObjectURL(blob) : null, !blob);
+    }).catch(() => openFill(null, true));
   }, [autoOpenSlotId, authToken, dynamicSlots]);
 
   // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
@@ -1130,6 +1152,44 @@ export default function DashboardPage() {
   }, [userId, lang]);
 
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
+  /** One-line failure notice inside the preview overlay. The slot-message
+   *  system is keyed to a document row, and the overlay covers every row — so
+   *  an action taken from inside the viewer (rotating a page) had nowhere at
+   *  all to report itself and simply failed in silence. Auto-clears. */
+  const [previewNotice, setPreviewNotice] = useState<string | null>(null);
+  const previewNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPreviewNotice = useCallback((msg: string) => {
+    if (previewNoticeTimer.current) clearTimeout(previewNoticeTimer.current);
+    setPreviewNotice(msg);
+    previewNoticeTimer.current = setTimeout(() => setPreviewNotice(null), 6000);
+  }, []);
+  useEffect(() => () => { if (previewNoticeTimer.current) clearTimeout(previewNoticeTimer.current); }, []);
+  // A new document in the viewer starts with a clean slate.
+  useEffect(() => { setPreviewNotice(null); }, [previewDoc?.id]);
+  /** Rotating a page PATCHes documents.rotation. LAW #39 keeps passport bytes
+   *  untouched, so that row IS the orientation: when the PATCH fails and
+   *  nobody says so, the candidate rotates, closes, reopens to find it
+   *  sideways again, and repeats — which is how it was reported. */
+  const rotateFailedMsg = lang === "de"
+    ? "Die Drehung konnte nicht gespeichert werden — das Dokument öffnet wieder im alten Winkel."
+    : lang === "fr"
+      ? "La rotation n'a pas pu être enregistrée — le document se rouvrira dans l'ancien sens."
+      : "The rotation could not be saved — the document will reopen at the old angle.";
+  /** Single rotate-persist path for all four viewers (native iOS frame and
+   *  EmbedPdfViewer, passport and non-passport). Each used to inline the same
+   *  fetch with no `res.ok` check and a console-only catch. */
+  const persistRotation = (docId: string) => {
+    fetch(`/api/portal/documents/${docId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: JSON.stringify({ deltaRotation: 90 }),
+    })
+      .then(r => { if (!r.ok) { console.error("[rotation] persist failed:", r.status); showPreviewNotice(rotateFailedMsg); } })
+      .catch(e => { console.error("[rotation] persist failed:", e); showPreviewNotice(rotateFailedMsg); });
+  };
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   // Set when a notification click carries a doc_id — resolved to a preview
@@ -1769,6 +1829,31 @@ export default function DashboardPage() {
     uploadFile(stable.file, key);
   }
 
+  /** Second half of a replace: bin the document the new upload supersedes.
+   *
+   *  Both call sites used to fire this DELETE and only console.error the
+   *  failure — and neither read the response, so a 403 or a 500 counted as
+   *  done. The slot then held BOTH files: her rejected first attempt sitting
+   *  next to the corrected one, with a green "uploaded" message over the top
+   *  and an admin left to guess which is the real document. Reload the list
+   *  either way (the honest state is what is actually on the server) and say
+   *  plainly when the old copy is still there. */
+  async function deleteReplacedDoc(oldId: string, key: string) {
+    let ok = false;
+    try {
+      const r = await fetch(`/api/portal/documents/${oldId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      ok = r.ok;
+      if (!ok) console.error("[replace] cleanup delete failed:", r.status);
+    } catch (e) {
+      console.error("[replace] cleanup delete failed:", e);
+    }
+    if (userId) { try { await loadDocs(userId, true); } catch { /* the list simply stays as it was */ } }
+    if (!ok) setSlotMsgTimed({ key, ok: false, type: "warnOldKept" });
+  }
+
   function uploadFile(file: File, key: string, attempt = 1) {
     if (!userId) return;
     // A fresh upload supersedes any retry still queued for an earlier one.
@@ -1838,10 +1923,7 @@ export default function DashboardPage() {
         const oldForKey = replaceForKeyRef.current;
         replaceDocIdRef.current = null; replaceForKeyRef.current = null;
         if (oldId && oldForKey === key) {
-          fetch(`/api/portal/documents/${oldId}`, {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${authToken}` },
-          }).catch(e => console.error("[replace] cleanup delete failed:", e));
+          void deleteReplacedDoc(oldId, key);
         }
         setSlotMsgTimed({ key, ok: true, type: "success" });
         setUploadingKey(null);
@@ -1960,10 +2042,7 @@ export default function DashboardPage() {
           replaceDocIdRef.current  = null;
           replaceForKeyRef.current = null;
           if (oldId && oldForKey === key) {
-            fetch(`/api/portal/documents/${oldId}`, {
-              method: "DELETE",
-              headers: { Authorization: `Bearer ${authToken}` },
-            }).catch(e => console.error("[replace] cleanup delete failed:", e));
+            void deleteReplacedDoc(oldId, key);
           }
           loadDocs(userId, true);
           // Passport: show confirmation modal with extracted data
@@ -2204,6 +2283,9 @@ export default function DashboardPage() {
       case "retrying":     return t.pUploadRetrying
         .replace("{n}", String(m.n ?? 2))
         .replace("{max}", String(MAX_UPLOAD_ATTEMPTS));
+      case "warnOldKept":  return lang === "fr" ? "Envoyé — mais l’ancien fichier n’a pas pu être supprimé, les deux sont encore là."
+        : lang === "de" ? "Hochgeladen — die alte Datei konnte aber nicht gelöscht werden, beide sind noch da."
+        : "Uploaded — but the old file could not be removed, so both are still here.";
       case "errDownload":  return lang === "fr" ? "Échec du téléchargement — réessayez."
         : lang === "de" ? "Herunterladen fehlgeschlagen — erneut versuchen."
         : "Download failed — please try again.";
@@ -2318,7 +2400,14 @@ export default function DashboardPage() {
       const a    = document.createElement("a");
       a.href = url; a.download = fn; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { console.error("[merge-pdf]", e); }
+    } catch (e) {
+      // The iOS branch above already reports through onError; this one only
+      // logged, so on desktop the spinner spun, stopped, and no file arrived
+      // and no message appeared. pairKey IS the row's slot key, so the failure
+      // lands on the row she clicked — same as every other download error.
+      console.error("[merge-pdf]", e);
+      setSlotMsgTimed({ key: pairKey, ok: false, type: "errDownload" });
+    }
     finally { clearSpin(); }
   }
 
@@ -2634,6 +2723,10 @@ export default function DashboardPage() {
             <div className="min-w-0 flex-1 mr-3">
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{translateDocLabel(previewDoc.file_type, lang as "fr" | "en" | "de")}</p>
               <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
+              {/* Failure notice for actions taken from inside the viewer. */}
+              {previewNotice && (
+                <p role="status" className="text-[11px] mt-1 leading-snug" style={{ color: "var(--danger)" }}>{previewNotice}</p>
+              )}
             </div>
             {/* Passport preview is identical to any other doc (Sprachzertifikat
                 etc.) — no extra "Passport data" button. The data form is shown
@@ -2776,14 +2869,7 @@ export default function DashboardPage() {
                         // A generated preview has no stored row to persist a
                         // rotation against — rotating it is view-only.
                         if (previewDoc.__renderUrl || !previewDoc.id) return;
-                        fetch(`/api/portal/documents/${previewDoc.id}`, {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                          },
-                          body: JSON.stringify({ deltaRotation: 90 }),
-                        }).catch(e => console.error("[rotation] persist failed:", e));
+                        persistRotation(previewDoc.id);
                       }}
                     />
                     {pendingSignReq && (
@@ -2813,14 +2899,7 @@ export default function DashboardPage() {
                     docId={previewDoc.id}
                     initialRotation={_docRotation}
                     onRotate={() => {
-                      fetch(`/api/portal/documents/${previewDoc.id}`, {
-                        method: "PATCH",
-                        headers: {
-                          "Content-Type": "application/json",
-                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                        },
-                        body: JSON.stringify({ deltaRotation: 90 }),
-                      }).catch(e => console.error("[rotation] persist failed:", e));
+                      persistRotation(previewDoc.id);
                     }}
                   />
                   {/* Click overlay — opens sign modal when doc has a pending sign request */}
@@ -3443,18 +3522,26 @@ export default function DashboardPage() {
               : ((isFillSlot || isInlineSign) && !uploaded) ? () => {
                   const slotId = item.key;
                   const fields = (item as {form_fields?: import("@/lib/pdfFieldEmbed").FormField[]}).form_fields ?? [];
-                  fetch(`/api/portal/slot-template?slotId=${slotId}`, {
-                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-                  }).then(r => r.ok ? r.blob() : null).then(blob => {
-                    const pdfUrl = blob ? URL.createObjectURL(blob) : null;
+                  const openFillRow = (pdfUrl: string | null, loadFailed: boolean) => {
                     const slotRow = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === slotId);
                     setFillForm({
                       slotId, fields, values: {}, pdfUrl,
                       sigZone: itemSigZone, signedSig: null, highlight: false,
                       nativeMode: !!slotRow?.pdf_has_native_fields,
                       nativeFieldCount: 0,
+                      loadFailed,
                     });
-                  });
+                  };
+                  // There was no .catch here at all: an offline tap threw into an
+                  // unhandled rejection and setFillForm never ran, so the row
+                  // click produced nothing on screen. And when the response was
+                  // simply not ok, the modal opened on a spinner that stayed
+                  // mute for a further 15 seconds over a failure already known.
+                  fetch(`/api/portal/slot-template?slotId=${slotId}`, {
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                  }).then(r => r.ok ? r.blob() : null).then(blob => {
+                    openFillRow(blob ? URL.createObjectURL(blob) : null, !blob);
+                  }).catch(() => openFillRow(null, true));
                 }
               : (!uploaded || isOther) ? () => openPicker(item.key)
               // Visa CV → preview the NO-LOGO render (clone of cv_de, logo stripped).
@@ -4234,14 +4321,7 @@ export default function DashboardPage() {
                           src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc!.id)}`, dlt!)}
                           title={previewDoc!.file_name}
                           onRotate={() => {
-                            fetch(`/api/portal/documents/${previewDoc!.id}`, {
-                              method: "PATCH",
-                              headers: {
-                                "Content-Type": "application/json",
-                                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                              },
-                              body: JSON.stringify({ deltaRotation: 90 }),
-                            }).catch(e => console.error("[rotation] persist failed:", e));
+                            persistRotation(previewDoc!.id);
                           }}
                         />
                       );
@@ -4256,14 +4336,7 @@ export default function DashboardPage() {
                       docId={previewDoc!.id}
                       initialRotation={(previewDoc as { rotation?: number | null }).rotation ?? 0}
                       onRotate={() => {
-                        fetch(`/api/portal/documents/${previewDoc!.id}`, {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                          },
-                          body: JSON.stringify({ deltaRotation: 90 }),
-                        }).catch(e => console.error("[rotation] persist failed:", e));
+                        persistRotation(previewDoc!.id);
                       }}
                     />
                   ) : (
@@ -5306,14 +5379,19 @@ export default function DashboardPage() {
             <div className="flex-1 overflow-auto p-3">
               {!fillForm.pdfUrl ? (
                 <div className="h-full flex flex-col items-center justify-center gap-3">
-                  <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                  {/* A spinner next to "it isn't loading" says the opposite of
+                      the message — once the fetch has already failed there is
+                      nothing in flight to represent. */}
+                  {!fillForm.loadFailed && (
+                    <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                  )}
                   {/* A SPINNER WITH A DEADLINE. This used to spin forever when
                       the template fetch failed — an expired token on a tab left
                       open, or a dropped connection. She taps the row for her
                       Arbeitsvertrag or her visa form, the modal opens, and it
                       turns for as long as she is willing to wait, with no error
                       and nothing to act on. */}
-                  {fillFormStalled && (
+                  {(fillFormStalled || fillForm.loadFailed) && (
                     <p role="alert" className="text-[12px] text-center px-4" style={{ color: "var(--danger)" }}>
                       {lang === "de" ? "Das Formular lädt nicht. Schließen Sie es, laden Sie die Seite neu und versuchen Sie es erneut."
                         : lang === "fr" ? "Le formulaire ne se charge pas. Fermez-le, rechargez la page puis réessayez."

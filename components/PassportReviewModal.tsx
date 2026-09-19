@@ -22,8 +22,8 @@ import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { useLang } from "@/components/LangContext";
 import { natToLang, COUNTRY_MAP } from "@/lib/countries";
 import { isIOSDevice } from "@/lib/platform";
-import { triggerIosDownload } from "@/lib/iosDownload";
-import { useDlToken, withDlt } from "@/lib/dlClient";
+import { triggerIosDownloadWithToken } from "@/lib/iosDownload";
+import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import {
   type PassportProfile, type PassportGroup,
   PASSPORT_SNAPSHOT_FIELDS, isFilled, canApprove, unconfirmedCount,
@@ -280,10 +280,19 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
       const docSubtitle = T("Extracted and confirmed passport information", "Extrahierte und bestätigte Reisepassdaten", "Informations de passeport extraites et confirmées");
       const outName = `${slug(prof.first_name)}_${slug(prof.last_name)}_pflegekraft_reisepass_daten.pdf`;
       if (isIOSDevice() && accessToken) {
-        if (!dlt) { setPdfDl(false); return; }
         const json = JSON.stringify({ groups, docTitle, docSubtitle, filename: outName });
         const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-        triggerIosDownload(withDlt(`/api/portal/admin/passport-data-pdf?dl=1&d=${b64}`, dlt), outName, () => setPdfDl(false));
+        // Was `if (!dlt) { setPdfDl(false); return; }` — the spinner blinked
+        // off and no file ever came. The dl-token mint 401s in bursts, so on
+        // the iPhone that dead branch is where the button usually landed.
+        await triggerIosDownloadWithToken({
+          href: (tk) => withDlt(`/api/portal/admin/passport-data-pdf?dl=1&d=${b64}`, tk),
+          filename: outName,
+          token: dlt,
+          mint: () => mintDlToken(accessToken),
+          onSettled: () => setPdfDl(false),
+          onError: () => setErr(T("Download failed — try again", "Herunterladen fehlgeschlagen", "Échec du téléchargement")),
+        });
         return;
       }
       const res = await fetch("/api/portal/admin/passport-data-pdf", {
@@ -295,7 +304,12 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = outName; a.click(); URL.revokeObjectURL(url);
-    } catch (e) { console.error("[passport data pdf]", e); }
+    } catch (e) {
+      // Only logged before: the spinner stopped and nothing arrived, which
+      // reads as a download the browser filed somewhere unfindable.
+      console.error("[passport data pdf]", e);
+      setErr(T("Download failed — try again", "Herunterladen fehlgeschlagen", "Échec du téléchargement"));
+    }
     setPdfDl(false);
   }
 
