@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   const db = getServiceSupabase();
   const { data: row, error: rowErr } = await db
     .from("documents")
-    .select("id, user_id, file_name, file_type, status, feedback, r2_key, drive_file_id, file_sha256, rotation, uploaded_at")
+    .select("id, user_id, file_name, file_type, status, feedback, r2_key, drive_file_id, file_sha256, rotation, uploaded_at, file_path")
     .eq("id", docId)
     .maybeSingle();
   if (rowErr || !row) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     id: string; user_id: string; file_name: string | null; file_type: string | null;
     status: string | null; feedback: string | null; r2_key: string | null;
     drive_file_id: string | null; file_sha256: string | null; rotation: number | null; uploaded_at: string | null;
+    file_path: string | null;
   };
 
   // LAW #25 — per-candidate scope.
