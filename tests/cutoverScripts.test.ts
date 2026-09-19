@@ -32,7 +32,7 @@ describe("verify-r2-copy: a failed download is not a mismatch", () => {
   it("returns the bytes when the download really worked", async () => {
     const r = await download("https://x/obj", {}, "supabase", "k", async () => res(200, "hello"));
     expect(r.ok).toBe(true);
-    expect(Buffer.from(r.bytes).toString()).toBe("hello");
+    expect(r.bytes?.toString()).toBe("hello");
   });
 
   it("no longer lets two identical error pages count as 'identical'", async () => {
@@ -52,15 +52,16 @@ describe("check-drift: the refusal says why", () => {
 
   it("carries Supabase's own explanation, not a bare status", async () => {
     globalThis.fetch = (async () => res(401, '{"message":"Invalid API key","hint":"Double check your key"}')) as typeof fetch;
-    await expect(fetchLiveOpenApi(env)).rejects.toThrow(/HTTP 401.*Invalid API key/s);
+    await expect(fetchLiveOpenApi(env)).rejects.toThrow(/HTTP 401[\s\S]*Invalid API key/);
   });
 
   it("says so when the body is empty, and never prints the key it sent", async () => {
     globalThis.fetch = (async () => res(503, "")) as typeof fetch;
     await expect(fetchLiveOpenApi(env)).rejects.toThrow(/HTTP 503 — \(empty body\)/);
     globalThis.fetch = (async () => res(401, "rejected")) as typeof fetch;
-    await expect(fetchLiveOpenApi({ ...env, SUPABASE_SERVICE_ROLE_KEY: "s3cr3t-not-echoed" }))
-      .rejects.toThrow(/^(?!.*s3cr3t-not-echoed).*$/s);
+    const err = await fetchLiveOpenApi({ ...env, SUPABASE_SERVICE_ROLE_KEY: "s3cr3t-not-echoed" }).catch((e: Error) => e);
+    expect((err as Error).message).toContain("HTTP 401");
+    expect((err as Error).message).not.toContain("s3cr3t-not-echoed");
   });
 });
 
