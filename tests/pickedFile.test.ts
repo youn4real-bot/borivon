@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { stabilizePickedFile, SNAPSHOT_MAX_BYTES } from "@/lib/pickedFile";
 
+/** Uint8Array → BlobPart. TS models Uint8Array over ArrayBufferLike, which is
+ *  not assignable to BlobPart under this tsconfig; the value is a valid part. */
+const part = (u8: Uint8Array): BlobPart => u8 as unknown as BlobPart;
+
 /** A File whose bytes can be read exactly `reads` times, then the handle dies —
  *  the behaviour of a camera capture whose temp copy the OS has reclaimed. */
 function dyingFile(bytes: Uint8Array, name: string, type: string, reads = 1): File {
-  const real = new File([bytes], name, { type, lastModified: 1_700_000_000_000 });
+  const real = new File([part(bytes)], name, { type, lastModified: 1_700_000_000_000 });
   let left = reads;
   const dead = () => {
     const e = new Error("The operation is insecure.");
@@ -42,7 +46,7 @@ describe("stabilizePickedFile", () => {
   it("LAW #39: the copy is byte-identical — nothing is parsed or re-saved", async () => {
     // A scanner-produced passport PDF must arrive exactly as picked.
     const pdf = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
-    const res = await stabilizePickedFile(new File([pdf], "reisepass.pdf", { type: "application/pdf" }));
+    const res = await stabilizePickedFile(new File([part(pdf)], "reisepass.pdf", { type: "application/pdf" }));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(new Uint8Array(await res.file.arrayBuffer())).toEqual(pdf);
@@ -50,7 +54,7 @@ describe("stabilizePickedFile", () => {
   });
 
   it("keeps name, type and lastModified so the server still names the file correctly", async () => {
-    const f = new File([new Uint8Array([1, 2, 3])], "scan.png", { type: "image/png", lastModified: 42 });
+    const f = new File([part(new Uint8Array([1, 2, 3]))], "scan.png", { type: "image/png", lastModified: 42 });
     const res = await stabilizePickedFile(f);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -79,7 +83,7 @@ describe("stabilizePickedFile", () => {
   });
 
   it("refuses a truncated read rather than uploading a corrupt scan", async () => {
-    const real = new File([new Uint8Array(1000)], "short.jpg", { type: "image/jpeg" });
+    const real = new File([part(new Uint8Array(1000))], "short.jpg", { type: "image/jpeg" });
     const truncated = Object.create(real, {
       arrayBuffer: { value: async () => new ArrayBuffer(400) },
     }) as File;
@@ -90,7 +94,7 @@ describe("stabilizePickedFile", () => {
   });
 
   it("streams the very largest scans from the handle, but still proves it is readable", async () => {
-    const big = new File([new Uint8Array(64)], "big.pdf", { type: "application/pdf" });
+    const big = new File([part(new Uint8Array(64))], "big.pdf", { type: "application/pdf" });
     Object.defineProperty(big, "size", { value: SNAPSHOT_MAX_BYTES + 1 });
     const res = await stabilizePickedFile(big);
     expect(res.ok).toBe(true);
@@ -109,7 +113,7 @@ describe("stabilizePickedFile", () => {
   it("falls back to streaming when the phone cannot allocate the copy", async () => {
     // Out of memory must not be reported as "your photo is gone" — the upload
     // can still succeed straight from the handle.
-    const real = new File([new Uint8Array(8)], "huge.jpg", { type: "image/jpeg" });
+    const real = new File([part(new Uint8Array(8))], "huge.jpg", { type: "image/jpeg" });
     const oom = Object.create(real, {
       arrayBuffer: { value: async () => { throw new RangeError("Array buffer allocation failed"); } },
     }) as File;
