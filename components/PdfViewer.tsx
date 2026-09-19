@@ -32,7 +32,7 @@ import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
 import { getCachedRotation, bumpCachedRotation } from "@/lib/rotationStore";
-import { pdfLoadOptions } from "@/lib/pdfjs";
+import { loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -145,15 +145,15 @@ export function PdfViewer({
 
     let destroy: (() => void) | null = null;
 
-    import("pdfjs-dist").then(pdfjsLib => {
+    // loadPdfjs (lib/pdfjs.ts) picks the BUILD and decides where the
+    // worker runs. It is shared with the page organiser on purpose: two
+    // entry points would ship two copies of pdf.js, and a TextLayer from
+    // one build applied to a document opened by the other is a class of
+    // bug nobody would think to look for. The build it picks is the
+    // polyfilled one — the fix for "Could not open this PDF." on an
+    // iPhone below iOS 17.4.
+    loadPdfjs().then(pdfjsLib => {
       if (cancelled) return;
-
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-          "pdfjs-dist/build/pdf.worker.min.mjs",
-          import.meta.url,
-        ).toString();
-      }
 
       // pdfLoadOptions (lib/pdfjs.ts) is the SINGLE source of truth for the
       // critical render options — wasmUrl (CCITTFax/JBIG2/JPEG2000 image
@@ -708,7 +708,7 @@ function PdfPage({
         textTaskRef.current?.cancel();
         textContainer.innerHTML = "";
         try {
-          const { TextLayer } = await import("pdfjs-dist");
+          const { TextLayer } = await loadPdfjs();
           if (!cancelled) {
             const textLayer = new TextLayer({
               textContentSource: page.streamTextContent(),

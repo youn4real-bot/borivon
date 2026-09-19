@@ -599,6 +599,11 @@ export function AdminDocPreviewModal({
           fetchUrl={`/api/portal/file?docId=${doc.id}`}
           accessToken={accessToken}
           label={doc.file_type || doc.file_name || "PDF"}
+          // LAW #39 third lock. The route refuses a passport and the button
+          // above is hidden for one; the organiser closes its own Save too,
+          // and it needs the raw file_type to do that — `label` falls back to
+          // file_name, which a passport does not have to advertise itself in.
+          fileType={doc.file_type}
           lang={lang}
           onClose={() => setOrganizeOpen(false)}
           onSaved={() => { onUpdated?.(doc); onClose(); }}
