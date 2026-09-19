@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     .from("documents")
     // r2_key / file_sha256 / status are read so the OUTGOING scan can be
     // preserved on an archived row before this one is overwritten (LAW #33).
-    .select("id, user_id, file_name, file_type, drive_file_id, r2_key, file_sha256, status, feedback, rotation, uploaded_at")
+    .select("id, user_id, file_name, file_type, drive_file_id, r2_key, file_sha256, status, feedback, rotation, uploaded_at, file_path")
     .eq("id", docId)
     .maybeSingle();
   if (!docRow) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
     r2_key: string | null; file_sha256: string | null;
     status: string | null; feedback: string | null;
     rotation: number | null; uploaded_at: string | null;
+    file_path: string | null;
   };
   if (d.user_id !== userId) {
     return NextResponse.json({ error: "Mismatch" }, { status: 403 });

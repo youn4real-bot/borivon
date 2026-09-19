@@ -892,8 +892,18 @@ export async function POST(req: NextRequest) {
   // ── Per-box PDF page cap ─────────────────────────────────────────────────────
   // Count pages READ-ONLY (load + getPageCount, never re-save) so passport bytes
   // are never touched (LAW #39). A parse failure does NOT block the upload — the
-  // 10 MB size cap above is the backstop.
-  if ((sniffedType ?? file.type) === "application/pdf") {
+  // size cap above is the backstop.
+  //
+  // ADMIN UPLOADS ARE EXEMPT. This cap is a candidate-facing guardrail against
+  // dumping a 40-page scan into the passport box; an admin or sub-admin
+  // uploading FOR a candidate is staff doing data entry on a document they can
+  // see, and the size cap still bounds them. On 2026-09-19 the founder's 1.78 MB
+  // scan was refused twice by this cap in production (two POSTs → 413
+  // PDF_TOO_MANY_PAGES) while the admin panel showed nothing at all — which is
+  // what "I try to upload any document and it's not working" actually was. Real
+  // paperwork runs long: a Berufserlaubnis, an Impfnachweis or a three-year
+  // Notenuebersicht all exceed these numbers routinely.
+  if (!uploadedByAdmin && (sniffedType ?? file.type) === "application/pdf") {
     let pageCount = 0;
     try {
       const probe = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });

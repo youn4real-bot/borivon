@@ -74,4 +74,43 @@ describe("archivedCopyOf", () => {
   it("never carries the source row's id — it must insert as a new row", () => {
     expect(archivedCopyOf(row)).not.toHaveProperty("id");
   });
+
+  /**
+   * The regression that made the page organiser fail 100% of the time, from the
+   * day it shipped until 2026-09-19. `documents.file_path` is NOT NULL with no
+   * database default; the archived clone never set it, so Postgres refused the
+   * INSERT with
+   *
+   *   null value in column "file_path" of relation "documents"
+   *   violates not-null constraint
+   *
+   * and both callers abort on a failed archive (correctly — losing the original
+   * is worse than not reordering), so every save answered 500. The suite was
+   * green throughout because it asserted every field EXCEPT this one and never
+   * touched a database. These tests are that gap closed.
+   */
+  it("carries file_path — NOT NULL in Postgres, so a missing one rejects the INSERT", () => {
+    const copy = archivedCopyOf({ ...row, file_path: "gdrive/1111/1700000000000" })!;
+    expect(copy.file_path).toBe("gdrive/1111/1700000000000");
+  });
+
+  it("still produces a usable file_path when the caller did not select one", () => {
+    // Degrade gracefully rather than 500 the whole operation: r2_key and
+    // drive_file_id are what actually reach the bytes, so an approximate
+    // bookkeeping path on an archived row costs nothing.
+    const copy = archivedCopyOf({ ...row, file_path: undefined }, new Date("2026-08-07T10:00:00.000Z"))!;
+    expect(copy.file_path).toBeTruthy();
+    expect(typeof copy.file_path).toBe("string");
+  });
+
+  it("every NOT NULL column without a database default is present and non-null", () => {
+    // user_id, file_name and file_path are NOT NULL with no default (id,
+    // rotation and uploaded_by_admin all default in the database). If this ever
+    // fails again, every reorder and every passport replace is 500-ing in prod.
+    const copy = archivedCopyOf({ ...row, file_path: "r2/1111/1" })! as Record<string, unknown>;
+    for (const col of ["user_id", "file_name", "file_path"]) {
+      expect(copy[col], `${col} must be non-null`).not.toBeNull();
+      expect(copy[col], `${col} must be present`).toBeDefined();
+    }
+  });
 });

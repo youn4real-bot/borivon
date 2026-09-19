@@ -30,6 +30,11 @@ export type DocBytesRef = {
   file_sha256?: string | null;
   rotation?: number | null;
   uploaded_at?: string | null;
+  /**
+   * NOT NULL in Postgres with no default, so the archived clone has to carry
+   * one or the INSERT is rejected outright. Callers must SELECT it.
+   */
+  file_path?: string | null;
 };
 
 /**
@@ -53,6 +58,14 @@ export function archivePatch(now = new Date()): { superseded_at: string } {
  *
  * Returns null when there is nothing to preserve (no previous bytes anywhere),
  * so the caller can skip the insert instead of writing an empty archived row.
+ *
+ * Every column that is NOT NULL in Postgres has to be present here, or the
+ * archive INSERT is rejected and the caller aborts to protect the original —
+ * which is exactly how the page organiser came to fail 100% of the time:
+ * `file_path` was missing, Postgres refused the clone, and every reorder
+ * answered 500 "Could not archive the previous version". The NOT NULL columns
+ * without a database default are user_id, file_name and file_path; `rotation`
+ * and `uploaded_by_admin` default in the database, `id` generates its own.
  */
 export function archivedCopyOf(row: DocBytesRef, now = new Date()): (DocBytesRef & { superseded_at: string }) | null {
   if (!row.r2_key && !row.drive_file_id) return null;
@@ -70,6 +83,12 @@ export function archivedCopyOf(row: DocBytesRef, now = new Date()): (DocBytesRef
     file_sha256: row.file_sha256 ?? null,
     rotation: row.rotation ?? 0,
     uploaded_at: row.uploaded_at ?? now.toISOString(),
+    // The row's own bookkeeping path when it has one. The fallback keeps a
+    // caller that forgot to SELECT file_path from 500-ing the whole operation:
+    // an approximate path on an archived row costs nothing, because r2_key /
+    // drive_file_id above are what actually reach the bytes.
+    file_path: row.file_path
+      ?? `${row.r2_key ? "r2" : "gdrive"}/${row.user_id}/${now.getTime()}`,
     superseded_at: now.toISOString(),
   };
 }
