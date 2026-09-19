@@ -9,6 +9,13 @@
  *     --site https://www.borivon.com                           the site to probe
  *     --out <dir>                                              export directory (must be OUTSIDE the repo)
  *     --keep-export                                            keep the export (it holds candidate personal data)
+ *     --drop-newer-d1-rows-in=<table>[,…]                      DANGEROUS. The import refuses when D1 holds rows the
+ *                                                              export does not know about. This names the tables whose
+ *                                                              D1-only rows may be DROPPED and replaced by Supabase's
+ *                                                              copy (it becomes d1/import.mjs --accept-newer-in=).
+ *                                                              Only for rows you have checked are gone from Supabase —
+ *                                                              a rehearsal write, a shadow artefact. Never for a table
+ *                                                              the live site wrote: that write exists nowhere else.
  *
  * The copy gates — the script REFUSES to go on if one fails:
  *   1. no screen waits on Realtime             no `.on("postgres_changes"` left in the app (see below)
@@ -87,6 +94,88 @@ export function findRealtimeSubscriptions(root, dirs = REALTIME_DIRS) {
 
 const q = (s) => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
 
+/**
+ * Every wrangler var a switch changes, in the order docs/cutover-runbook.md's
+ * flip step lists them, with what it must read in each direction. BOTH printed
+ * lists come from this one table. They used to be two hand-written lines, and the flip-back
+ * line was missing STORAGE_BACKEND: a founder following the terminal would have
+ * rolled the database back to Supabase and left every file on R2 (and, flipping
+ * forward, moved the database while the files stayed on Supabase). One table
+ * cannot drift from itself.
+ */
+export const SWITCH_VARS = [
+  { name: "DATA_BACKEND", flip: "d1", back: "supabase" },
+  { name: "SHADOW_D1_RATE", flip: "0", back: "0" },
+  { name: "MAINTENANCE_WRITES", flip: "0", back: "0" },
+  {
+    name: "STORAGE_BACKEND", flip: "r2", back: "supabase",
+    notes: {
+      // It ships ABSENT, so the flip ADDS the key rather than editing one — an
+      // operator looking for an existing line to change would find none.
+      flip: 'STORAGE_BACKEND is not in wrangler.jsonc yet — ADD the key (it is unset today). From here on, never DELETE it: unset 404s every file URL minted while R2 was active.',
+      back: 'Set STORAGE_BACKEND to "supabase" — do NOT delete the key: "supabase" redirects the URLs minted while R2 was active, unset 404s them.',
+    },
+  },
+];
+
+/** The `"vars"` edit for one direction, written the way the runbook writes it. */
+export function varEdit(direction) {
+  return SWITCH_VARS.map((v) => `"${v.name}": "${v[direction]}"`).join(",  ");
+}
+
+/** The warnings that belong under that direction's edit, in table order. */
+export function varNotes(direction) {
+  return SWITCH_VARS.map((v) => v.notes?.[direction]).filter(Boolean);
+}
+
+/**
+ * The name of the one supported way past d1/import.mjs's "D1 holds rows the
+ * export does not have" refusal. Spelled out here so the usage text, the step
+ * and the refusal cannot name it differently — before it existed, that refusal
+ * (which a rehearsal write or a shadow artefact triggers) left the operator with
+ * no supported move at all on switch night.
+ */
+export const DROP_NEWER_FLAG = "--drop-newer-d1-rows-in";
+
+/**
+ * The tables named on `--drop-newer-d1-rows-in`, from either spelling
+ * (`=a,b` or a following argument). Throws when the flag is given with nothing
+ * to drop: silently reading it as "no tables" would let the import refuse a
+ * second time with the operator certain they had already answered it.
+ */
+export function dropNewerTables(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    let value;
+    if (a.startsWith(`${DROP_NEWER_FLAG}=`)) value = a.slice(DROP_NEWER_FLAG.length + 1);
+    else if (a === DROP_NEWER_FLAG) value = args[++i];
+    else continue;
+    const tables = String(value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+    if (!tables.length || String(value).startsWith("--")) {
+      throw new Error(`${DROP_NEWER_FLAG} needs the tables whose D1-only rows may be dropped: ${DROP_NEWER_FLAG}=<table>[,…]`);
+    }
+    out.push(...tables);
+  }
+  return [...new Set(out)];
+}
+
+/** d1/import.mjs's arguments, with the drop-newer pass-through when it is asked for. */
+export function importArgs(root, out, dropNewerIn = []) {
+  return [root, out, ...(dropNewerIn.length ? [`--accept-newer-in=${dropNewerIn.join(",")}`] : [])];
+}
+
+/**
+ * What to do about d1/import.mjs's "D1 holds rows the export does not have"
+ * refusal — the one a rehearsal write or a shadow artefact leaves behind, and
+ * the one that had no supported answer at all: the operator could only edit D1
+ * by hand or give up the switch.
+ */
+export const IMPORT_NEWER_HINT =
+  `If it refused because D1 holds rows newer than the export, those rows exist in D1 alone (a rehearsal write, a shadow artefact — its output names the tables). ` +
+  `Check in Supabase that each named table really is missing them, then re-run with ${DROP_NEWER_FLAG}=<table>[,…] to DROP D1's copy and take Supabase's. ` +
+  `Never name a table the live site wrote: that write exists nowhere else.`;
+
 /** parity-check's arguments for the rollback gate. */
 export function rollbackParityArgs(root) {
   return [root, `--ignore=${Object.keys(REPLAY_RECOMPUTED).join(",")}`];
@@ -95,7 +184,7 @@ export function rollbackParityArgs(root) {
 export function freezeInstructions(root) {
   return [
     "FREEZE (before running this script with --i-mean-it):",
-    '  1. wrangler.jsonc "vars":  "MAINTENANCE_WRITES": "1"   (DATA_BACKEND stays "supabase")',
+    '  1. wrangler.jsonc "vars":  "MAINTENANCE_WRITES": "1"   (DATA_BACKEND stays "supabase", STORAGE_BACKEND stays absent — nothing moves yet)',
     "  2. npm run cf:build && npm run cf:deploy        — WRITE DOWN this Version ID: it is the emergency rollback target",
     `  3. node d1/cutover.mjs ${q(root)} --i-mean-it`,
   ];
@@ -104,12 +193,14 @@ export function freezeInstructions(root) {
 export function flipInstructions(root, site = SITE_DEFAULT) {
   return [
     "FLIP (you run these — this script never deploys):",
-    '  1. wrangler.jsonc "vars":  "DATA_BACKEND": "d1",  "SHADOW_D1_RATE": "0",  "MAINTENANCE_WRITES": "0"',
-    '     (CF_CRONS_ENABLED stays "true")',
+    `  1. wrangler.jsonc "vars":  ${varEdit("flip")}`,
+    '     (CF_CRONS_ENABLED stays "true"; STORAGE_SUPABASE_MIRROR stays unset — the mirror to Supabase Storage stays on)',
+    ...varNotes("flip").map((n) => `     ${n}`),
     "  2. npm run cf:build && npm run cf:deploy",
     "  3. prove it is live (a 200 on a page proves nothing):",
     `       curl -s "${site}/api/health?deep=1"                       → deps.d1Backend true, deps.writesFrozen false`,
     `       curl -s -X POST ${site}${FREEZE_PROBE_PATH}   → 404, NOT 503`,
+    "       open a candidate document in the portal                   → its URL is /api/storage/v1/object/… (the files are served from R2)",
     `  4. after the first save on the portal:  node d1/replay-journal.mjs ${q(root)}   → "1 pending" or more (the journal is recording)`,
   ];
 }
@@ -117,17 +208,21 @@ export function flipInstructions(root, site = SITE_DEFAULT) {
 /** The flip back — printed on its own only once the rollback gates pass. */
 export function flipBackInstructions(root, site = SITE_DEFAULT) {
   return [
-    '  R4. wrangler.jsonc "vars":  "DATA_BACKEND": "supabase",  "MAINTENANCE_WRITES": "0",  "SHADOW_D1_RATE": "0"',
+    `  R4. wrangler.jsonc "vars":  ${varEdit("back")}`,
+    ...varNotes("back").map((n) => `      ${n}`),
     "      npm run cf:build && npm run cf:deploy",
     `  R5. curl -s "${site}/api/health?deep=1"   → deps.d1Backend false, deps.writesFrozen false`,
-    `  R6. node d1/replay-journal.mjs ${q(root)} --archive --i-mean-it   (moves the replayed journal aside, so a later switch can run)`,
+    // The database half of a rollback leaves the files behind: uploads made while
+    // STORAGE_BACKEND was "r2" live in R2, and only the mirror put them in Supabase.
+    `  R6. node storage/copy-back-to-supabase.mjs ${q(root)} --flipped-at <FLIP time>   (dry run; --i-mean-it if it plans copies — repairs what the mirror missed)`,
+    `  R7. node d1/replay-journal.mjs ${q(root)} --archive --i-mean-it   (moves the replayed journal aside, so a later switch can run)`,
   ];
 }
 
 export function rollbackInstructions(root, site = SITE_DEFAULT) {
   return [
     "ROLLBACK (loses nothing — in this order):",
-    '  R1. wrangler.jsonc "vars":  "DATA_BACKEND": "d1",  "MAINTENANCE_WRITES": "1"   → npm run cf:build && npm run cf:deploy',
+    '  R1. wrangler.jsonc "vars":  "DATA_BACKEND": "d1",  "MAINTENANCE_WRITES": "1"   (STORAGE_BACKEND stays "r2" until R4) → npm run cf:build && npm run cf:deploy',
     `      curl -s -X POST ${site}${FREEZE_PROBE_PATH}   → 503 (writes stopped; D1 still answers reads)`,
     "  R2. wait 2 minutes — journal inserts finish after their responses",
     `  R3. node d1/replay-journal.mjs ${q(root)}                 (dry run: read the list and every WARN line)`,
@@ -186,6 +281,7 @@ const errText = (err) => (err instanceof Error ? err.message : String(err));
  *
  * @param {{
  *   root: string, mode?: "switch" | "rollback", site?: string, outDir?: string, keepExport?: boolean, dryRun?: boolean,
+ *   dropNewerIn?: string[],
  *   log?: (line: string) => void,
  *   exec?: (script: string, args: string[]) => number,
  *   fetchImpl?: typeof fetch,
@@ -205,7 +301,7 @@ export async function runCutover(opts) {
 async function runSwitch({
   root, site = SITE_DEFAULT, outDir, keepExport = false, dryRun = true, log = console.log,
   exec, fetchImpl = fetch, d1, exists = (rel) => fs.existsSync(path.join(root, rel)),
-  realtimeScan = () => findRealtimeSubscriptions(root),
+  realtimeScan = () => findRealtimeSubscriptions(root), dropNewerIn = [],
 }) {
   const ownOut = !outDir;
   const out = outDir ?? path.join(os.tmpdir(), `borivon-cutover-${new Date().toISOString().replace(/[:.]/g, "-")}`);
@@ -219,11 +315,14 @@ async function runSwitch({
       ? { id: "drift", title: "no schema drift since the snapshot", how: `node d1/check-drift.mjs ${q(root)}`, script: "d1/check-drift.mjs", args: [root] }
       : { id: "drift", title: "schema drift check", how: "d1/check-drift.mjs not present on this branch — skipped", skip: true },
     { id: "export", title: "export Supabase (read-only)", how: `node d1/export-data.mjs ${q(root)} ${q(out)}`, script: "d1/export-data.mjs", args: [root, out] },
-    { id: "import", title: "import into the D1 copy", how: `node d1/import.mjs ${q(root)} ${q(out)}`, script: "d1/import.mjs", args: [root, out] },
+    { id: "import", title: "import into the D1 copy", how: `node d1/import.mjs ${importArgs(root, out, dropNewerIn).map(q).join(" ")}`, script: "d1/import.mjs", args: importArgs(root, out, dropNewerIn), hint: IMPORT_NEWER_HINT },
     { id: "parity", title: "parity: every row, every table, 0 mismatches", how: `node d1/parity-check.mjs ${q(root)}`, script: "d1/parity-check.mjs", args: [root] },
   ];
 
   log(`${dryRun ? "DRY RUN — nothing below is executed." : "CUTOVER — running the copy steps."}  site=${site}`);
+  // Never let this pass unread in the scrollback: it is the one option here that
+  // destroys rows, and the tables it names lose their D1 copy without a prompt.
+  if (dropNewerIn.length) log(`${DROP_NEWER_FLAG}: D1-only rows in ${dropNewerIn.join(", ")} will be DROPPED and replaced by Supabase's copy.`);
   log("");
 
   if (insideRepo(root, out)) {
@@ -296,7 +395,7 @@ async function runSwitch({
     }
     if (step.id === "export") exported = true;
     const code = exec(step.script, step.args);
-    if (code !== 0) return refuse(step, `${step.script} exited ${code}`);
+    if (code !== 0) return refuse(step, `${step.script} exited ${code}${step.hint ? `. ${step.hint}` : ""}`);
     log("        ok");
   }
 
@@ -389,9 +488,11 @@ if (invokedDirectly) {
   const args = process.argv.slice(2);
   const root = args[0] && !args[0].startsWith("--") ? path.resolve(args[0]) : null;
   if (!root) {
-    console.error("usage: node d1/cutover.mjs <repo-root> [--rollback] [--i-mean-it] [--site URL] [--out DIR] [--keep-export]");
+    console.error(`usage: node d1/cutover.mjs <repo-root> [--rollback] [--i-mean-it] [--site URL] [--out DIR] [--keep-export] [${DROP_NEWER_FLAG}=<table>[,…]]`);
     process.exit(1);
   }
+  let dropNewerIn;
+  try { dropNewerIn = dropNewerTables(args); } catch (err) { console.error(errText(err)); process.exit(1); }
   const dryRun = !args.includes("--i-mean-it");
   let d1, target, registry;
   if (!dryRun) {
@@ -406,6 +507,7 @@ if (invokedDirectly) {
     site: argValue(args, "--site") ?? SITE_DEFAULT,
     outDir: argValue(args, "--out"),
     keepExport: args.includes("--keep-export"),
+    dropNewerIn,
     dryRun,
     d1,
     target,
