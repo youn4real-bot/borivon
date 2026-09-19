@@ -202,7 +202,26 @@ type Doc = {
 const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null } | null): boolean =>
   !!(d?.drive_file_id || d?.r2_key);
 
+// A candidate has a phone, not a scanner. The picker offers "Take Photo", she
+// takes one, and this gate refused it before a single byte was sent — which is
+// how "I cannot upload my passport" reached us on 2026-09-19. The SERVER has
+// accepted a photographed passport all along (app/api/portal/upload/route.ts,
+// ALLOWED_ID); only this line disagreed.
+//
+// WIDENED FOR THE PASSPORT ONLY, and deliberately not for the other boxes. A
+// qualification doc is half of an original/translated PAIR that admin and
+// candidate both merge into one file, and that merge is pdf-lib
+// (app/api/portal/documents/merge-pdf/route.ts: PDFDocument.load on both
+// sides). Hand it a JPEG and it throws into a bare 500 "Merge failed" — a new
+// silent failure, in the exact feature this branch is named after. The passport
+// has no translated counterpart and merge-pdf refuses it outright, so widening
+// it costs nothing. Widening the rest needs the merge taught to rasterise
+// first; until then they stay PDF and the picker stops offering a photo.
+//
+// HEIC is absent on purpose: neither this list nor the server stores it, and
+// iOS Safari hands <input type="file"> a JPEG anyway.
 const ALLOWED_PDF_ONLY = ["application/pdf"];
+const ALLOWED_ID = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const ALLOWED_ALL = [
   "application/pdf", "image/jpeg", "image/png", "image/webp",
   "application/msword",
@@ -491,7 +510,7 @@ export default function DashboardPage() {
   // the slot. It stays its own type because her action DID succeed — the slot
   // is wrong, and she is the only person in a position to notice.
   type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages"
-    | "errNetwork" | "errDownload" | "warnOldKept" | UploadFailMsgType | "retrying";
+    | "errNetwork" | "errDownload" | "warnOldKept" | "errIdTypes" | UploadFailMsgType | "retrying";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
@@ -1786,10 +1805,17 @@ export default function DashboardPage() {
   // ── Auto-upload (no confirm step) ──────────────────────────────────────────
   async function handleFile(file: File, key: string, input?: HTMLInputElement | null) {
     const clearInput = () => { if (input) input.value = ""; };
-    const allowed = OTHER_KEYS.includes(key) ? ALLOWED_ALL : ALLOWED_PDF_ONLY;
+    const allowed = OTHER_KEYS.includes(key) ? ALLOWED_ALL
+      : ID_KEYS.includes(key) ? ALLOWED_ID
+      : ALLOWED_PDF_ONLY;
     if (!allowed.includes(file.type)) {
       clearInput();
-      setSlotMsgTimed({ key, ok: false, type: OTHER_KEYS.includes(key) ? "errAllTypes" : "errPdfOnly" });
+      setSlotMsgTimed({
+        key, ok: false,
+        type: OTHER_KEYS.includes(key) ? "errAllTypes"
+          : ID_KEYS.includes(key) ? "errIdTypes"
+          : "errPdfOnly",
+      });
       return;
     }
     if (file.size > MAX_MB * 1024 * 1024) {
@@ -2271,6 +2297,7 @@ export default function DashboardPage() {
     switch (m.type) {
       case "success":      return t.pUploadSuccess.replace("{label}", label);
       case "errPdfOnly":   return t.pErrPdfOnly;
+      case "errIdTypes":   return t.pErrIdTypes;
       case "errAllTypes":  return t.pErrAllTypes;
       case "errSize":      return t.pErrSize.replace("{size}", String(MAX_MB));
       case "errNetwork":   return t.pErrNetwork;
@@ -4017,7 +4044,9 @@ export default function DashboardPage() {
         accept={
           activeKey && OTHER_KEYS.includes(activeKey)
             ? ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
-            : ".pdf,.jpg,.jpeg,.png,.webp"
+            : activeKey && ID_KEYS.includes(activeKey)
+              ? ".pdf,.jpg,.jpeg,.png,.webp"
+              : ".pdf"
         }
         onChange={onFileChange} />
 
