@@ -51,6 +51,9 @@ import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
 import { AdminSigSection } from "@/components/admin/AdminSigSection";
+// Tells the admin their session died instead of leaving every preview on a
+// spinner — this page's two abandoned tabs produced the 944 x 401 mint storm.
+import SessionExpiredNotice from "@/components/SessionExpiredNotice";
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
@@ -7861,6 +7864,7 @@ export default function AdminPage() {
   // ── CANDIDATE LIST VIEW ───────────────────────────────────────────────────────
   return (
     <>
+      <SessionExpiredNotice />
       {previewDoc && (
           <AdminDocPreviewModal
             doc={previewDoc}

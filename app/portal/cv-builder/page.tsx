@@ -53,6 +53,8 @@ import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload, triggerIosDownloadWithToken } from "@/lib/iosDownload";
 import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import { IosPreviewPending } from "@/components/IosPreviewPending";
+// A dead session here used to show as a CV preview that never loads.
+import SessionExpiredNotice from "@/components/SessionExpiredNotice";
 
 /**
  * The PDF preview stack, lazy — it only ever renders inside the preview overlay,
@@ -3784,6 +3786,7 @@ function CVBuilderInner() {
 
   return (
     <>
+    <SessionExpiredNotice />
     {/* Photo crop modal — opens whenever a candidate picks a new photo, so
         they can frame their face inside the circle before it lands on
         the CV + their profile avatar. */}
