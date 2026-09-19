@@ -45,6 +45,8 @@ import { PendingSignatures } from "@/components/PendingSignatures";
 import { InterviewPicker } from "@/components/InterviewPicker";
 import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
 import { SIGN_FILL_ENABLED } from "@/lib/features";
+// A candidate whose session dies otherwise just sees Download do nothing.
+import SessionExpiredNotice from "@/components/SessionExpiredNotice";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -2125,6 +2127,7 @@ export default function DashboardPage() {
   // ── WIZARD ─────────────────────────────────────────────────────────────────
   return (
     <>
+    <SessionExpiredNotice />
     {orgChecked && orgModalOpen && authToken && (
       <OrgCodeModal
         accessToken={authToken}
