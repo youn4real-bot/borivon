@@ -20,10 +20,19 @@
  *
  *  • Those bytes hang off the PAGE, in `page.objs`. Read in the installed
  *    pdfjs-dist 5.7.284: `PDFPageProxy.cleanup()` clears `_intentStates` and
- *    `objs`, which is where the decoded images live. Hold every page proxy and
+ *    `objs`, which is where the decoded images land. Hold every page proxy and
  *    the cost SUMS down the document; release each page the moment its
  *    thumbnail is drawn and the peak becomes the worst SINGLE page instead.
  *    That is the entire memory strategy here.
+ *
+ *    HOW FAR THAT WAS ACTUALLY VERIFIED, because the difference matters to
+ *    whoever tunes this next. The `cleanup()` behaviour is read out of the
+ *    library source. The SIZE of the saving is not: an attempt to measure it
+ *    in Node (six 2480x3508 pages, holding the proxies vs releasing them)
+ *    moved peak RSS by 10 MB either way, because `getOperatorList()` alone
+ *    does not materialise the bitmaps — the decode happens inside `render()`,
+ *    against a canvas Node does not have. So the lever is real and the number
+ *    behind it is unmeasured. Do not quote one.
  *
  *  • Not everything is releasable: the worker keeps a global image cache of up
  *    to 50 MB (`GlobalImageCache.MAX_BYTE_SIZE = 5e7`, same source) which
@@ -43,11 +52,11 @@
  *     how many pages are drawn before you scroll, and how big each drawing is —
  *     never on how many pages exist.
  *
- * Numbers above are read out of the pdf.js source and out of pixel arithmetic.
- * Nothing here was measured on an iPhone: no iOS device was available. What an
- * iPhone adds is that it answers a refused allocation by killing the tab rather
- * than throwing something catchable, which is why the budget is deliberately
- * tighter there than the arithmetic alone would require.
+ * Everything above is read out of the pdf.js source or out of pixel
+ * arithmetic. Nothing here was measured on an iPhone: no iOS device was
+ * available. What an iPhone adds is that it answers a refused allocation by
+ * killing the tab rather than throwing something catchable, which is why the
+ * budget is deliberately tighter there than the arithmetic alone requires.
  */
 
 /** Thumbnail box in CSS px on a wide screen. */
