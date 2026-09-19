@@ -46,6 +46,11 @@ T = the moment you start. Build and copy times are placeholders. Take the real n
 - Uploads, approvals, profile and passport saves show the calm maintenance notice or its message (FR/EN/DE).
   Chat and passport submit show the same message as their error.
 - `POST /api/book` answers 503: **a visitor cannot book a call during the window.** That cost is why the hour matters.
+- **Reading keeps working, and so does anything that only reads.** The admin search bar and its filters, the four
+  PDF generators (CV, cover letter, both passport data sheets), the B2 report and the signup form's
+  address check are POSTs that write nothing, so they are exempt and answer normally
+  (`lib/maintenance.ts` `READ_ONLY_POSTS`). Registration itself also still works: the browser calls Supabase
+  auth directly, never `/api`, and auth is not part of the copy.
 - `POST /api/leads` still runs. The founder gets the lead on Telegram at once, marked
   "Maintenance : pas encore enregistré dans le portail". The funnel keeps it in the visitor's browser and re-sends
   it on their next visit, when it lands in the table. If they never come back, the Telegram message is the only
@@ -60,9 +65,10 @@ T = the moment you start. Build and copy times are placeholders. Take the real n
 | | Open the portal and try an upload | the calm maintenance notice appears (FR/EN/DE), and nothing crashes |
 | +3 min | Wait 2 minutes so requests already in flight finish | |
 | +5 min | `node d1/cutover.mjs <repo-root> --i-mean-it` | realtime ok, freeze ok, journal ok, drift ok, export, import, **parity 0 mismatch(es)**, the export directory removed, then it prints FLIP |
+| | If the import step refuses with **D1 holds rows the export does not have**: those rows exist in D1 alone (a rehearsal write, a shadow artefact — it names the tables). Check in Supabase that each named table really is missing them, then re-run with `--drop-newer-d1-rows-in=<table>[,…]` to drop D1's copy and take Supabase's. **Never name a table the live site wrote**: that write exists nowhere else. | the re-run passes the import and reaches parity |
 | | If it prints **REFUSING**: stop. Fix the cause and re-run, or abort (below). A refusal after the export also removes the export (it holds candidate data). `--keep-export` keeps it, with a warning. | |
 | +files | `node storage/copy-to-r2.mjs <repo-root> --dry-run`. If it plans `copy` > 0, run it again without `--dry-run`. Supabase Storage cannot change during the freeze, and the app has never written R2, so no `--flipped-at` yet. | the plan line prints; any copies finish with `failed 0` |
-| | `node storage/verify-r2-copy.mjs <repo-root>` | **PARITY OK** |
+| | `node storage/verify-r2-copy.mjs <repo-root>` | **PARITY OK**. `DOWNLOAD FAILED (side) … HTTP <code>` means the check could not read a file (an expired key, a 404) — not that the copies differ; fix the access and re-run. `CONTENT <key>` is the real mismatch: both sides downloaded and the bytes differ. |
 | +copy | In `wrangler.jsonc`, set `"DATA_BACKEND": "d1"`, `"SHADOW_D1_RATE": "0"`, `"MAINTENANCE_WRITES": "0"` and `"STORAGE_BACKEND": "r2"` (leave `STORAGE_SUPABASE_MIRROR` unset: the mirror stays on), then `npm run cf:build && npm run cf:deploy` | build exits 0 |
 | | Write that Version ID down as **FLIP**, and the UTC time the deploy finished as **FLIP time** (ISO, e.g. `2026-09-15T01:40:00Z`): the storage scripts need it | |
 | +1 min | `curl -s "https://www.borivon.com/api/health?deep=1"` | `deps.d1Backend: true`, `deps.writesFrozen: false`, `deps.database: true` (that count now runs on D1) |
