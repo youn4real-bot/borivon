@@ -12,24 +12,31 @@
  * freely; this map is the single source of truth.
  */
 export const PDF_PAGE_LIMITS: Record<string, number> = {
+  // The tight caps below used to be 1-2 pages, which real Moroccan paperwork
+  // simply does not fit: a passport scan carries the photo page plus stamped
+  // pages, a diploma arrives with its apostille and certification, a
+  // Berufserlaubnis runs several pages and a vaccination booklet is a booklet.
+  // On 2026-09-19 the founder's own 3-page scan was refused twice with 413 and
+  // the admin panel showed nothing, so it read as "uploading is broken". These
+  // are guardrails against a whole dossier landing in one box, not a filing
+  // rule -- so they sit well above the real documents.
   // ── Essentials ──
-  id: 2,                  // Passport (Reisepass)
-  langcert: 2,            // B2 certificate
-  letter: 1,              // Cover letter (Anschreiben)
-  cv_de: 2,               // CV (Lebenslauf)
+  id: 6,                  // Passport (Reisepass) — photo page + stamped pages
+  langcert: 5,            // B2 certificate — certificate + transcript sheet
+  letter: 5,              // Cover letter (Anschreiben)
+  cv_de: 5,               // CV (Lebenslauf)
   // ── Qualifications — ORIGINAL and TRANSLATION (_de) are SEPARATE boxes, each
-  //    independently allowed the SAME number (study program = 10 for the
-  //    original PDF AND 10 for the translated copy). ──
-  diploma: 2,             diploma_de: 2,
+  //    independently allowed the SAME number. ──
+  diploma: 8,             diploma_de: 8,            // diploma + apostille + certification
   studyprog: 10,          studyprog_de: 10,
   transcript: 10,         transcript_de: 10,
-  abitur: 2,              abitur_de: 2,
-  abitur_transcript: 2,   abitur_transcript_de: 2,
+  abitur: 8,              abitur_de: 8,
+  abitur_transcript: 10,  abitur_transcript_de: 10,
   praktikum: 10,          praktikum_de: 10,
-  workcert: 2,            workcert_de: 2,           // Berufserlaubnis
+  workcert: 10,           workcert_de: 10,          // Berufserlaubnis
   work_experience: 10,    work_experience_de: 10,
-  impfung: 2,             impfung_de: 2,            // Vaccination (Impfnachweis)
-  // ── Other (Sonstiges) — original + translated copy, 10 each ──
+  impfung: 15,            impfung_de: 15,           // a vaccination booklet is a booklet
+  // ── Other (Sonstiges) — original + translated copy ──
   other: 10,              other_trans: 10,
 };
 
