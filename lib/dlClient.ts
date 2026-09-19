@@ -189,6 +189,29 @@ let inflight: { src: string; p: Promise<string> } | null = null;
 export function resetDlTokenCache(): void {
   cache = null;
   inflight = null;
+  lastAuthToken = null;
+}
+
+/** The JWT the current cache + session-expired flag were established under. */
+let lastAuthToken: string | null = null;
+
+/**
+ * Announce the auth token a hook is about to work with, and wipe session-bound
+ * state only if it is genuinely a DIFFERENT session.
+ *
+ * The distinction matters because several components mint at once — the admin
+ * page, an open AdminDocPreviewModal, PassportReviewModal — and they mount and
+ * unmount constantly with the SAME token. Resetting on every mount would throw
+ * away a good cached token each time a modal opens, and would clear the
+ * "session expired" notice the page had just raised, hiding the one message
+ * that explains why nothing works.
+ */
+export function noteAuthToken(jwt: string): void {
+  if (lastAuthToken === jwt) return;
+  lastAuthToken = jwt;
+  cache = null;
+  inflight = null;
+  clearDlSessionExpired();
 }
 
 /** What the cache would serve for this JWT right now, or null. */
@@ -471,10 +494,10 @@ export function useDlTokenState(authToken: string | null | undefined): DlTokenSt
   useEffect(() => {
     if (!authToken) { setToken(null); return; }
 
-    // A new auth token means a new session. Nothing minted for the previous one
-    // may survive into it, and a session that failed before deserves a clean try.
-    resetDlTokenCache();
-    clearDlSessionExpired();
+    // A new auth token means a new session: nothing minted for the previous one
+    // may survive into it, and a session that failed before deserves a clean
+    // try. Same token (a modal mounting alongside the page) changes nothing.
+    noteAuthToken(authToken);
 
     let alive = true;
     let busy = false;

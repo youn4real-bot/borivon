@@ -22,6 +22,7 @@ import {
   jwtSubject,
   mintDlToken,
   mintDlTokenOutcome,
+  noteAuthToken,
   peekDlTokenCache,
   planDlRetry,
   resetDlTokenCache,
@@ -200,6 +201,35 @@ describe("a stale cache entry is never reused", () => {
 
     resetDlTokenCache();
     expect(peekDlTokenCache(jwtA)).toBeNull();
+  });
+
+  it("a second component on the SAME session keeps the cache and the notice", async () => {
+    // The admin page, an open preview modal and the passport modal each run
+    // their own loop and mount/unmount constantly on one token. If mounting
+    // reset things, every modal open would throw away a good token and, worse,
+    // silently clear the "session expired" message the page had just raised.
+    const jwtA = jwtFor(USER_A);
+    const tokA = dlFor(USER_A);
+    vi.stubGlobal("fetch", async () => Response.json({ token: tokA, expiresInSec: 180 }));
+
+    noteAuthToken(jwtA);
+    await mintDlToken(jwtA);
+    expect(peekDlTokenCache(jwtA)).toBe(tokA);
+
+    noteAuthToken(jwtA); // a modal mounts
+    expect(peekDlTokenCache(jwtA)).toBe(tokA);
+
+    // ...and a raised notice survives that mount.
+    vi.stubGlobal("fetch", async () => new Response("", { status: 401 }));
+    await expect(mintDlToken(jwtFor(USER_B))).rejects.toThrow();
+    expect(isDlSessionExpired()).toBe(true);
+    noteAuthToken(jwtA);
+    expect(isDlSessionExpired()).toBe(true);
+
+    // A genuinely different token IS a new session: wipe and clear.
+    noteAuthToken(jwtFor(USER_A, "rotated"));
+    expect(peekDlTokenCache(jwtA)).toBeNull();
+    expect(isDlSessionExpired()).toBe(false);
   });
 
   it("will not serve a token inside the expiry guard band", async () => {
