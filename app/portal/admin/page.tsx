@@ -6933,10 +6933,16 @@ export default function AdminPage() {
                                 );
                               })()}
                               {/* Generic admin upload-on-behalf — every EMPTY single-doc box
-                                  (B2 certificate, and any future box) + the multi "Other" box.
-                                  The builder-driven CV/letter (their own edit menu above) and the
-                                  passport (special replace) are intentionally excluded. */}
-                              {selectedUser && ((!isMulti && !doc && item.key !== "letter" && item.key !== "cv_de" && item.key !== "id") || isMulti) && (
+                                  (B2 certificate, the passport, and any future box) + the multi
+                                  "Other" box. The builder-driven CV/letter keep their own edit menu
+                                  above, so they stay out.
+                                  The passport used to be excluded outright because it has a special
+                                  REPLACE path (triggerPassportPdfReplace, which needs an existing
+                                  row). That left no way to add the FIRST one: a sub-admin looking at
+                                  a candidate with no passport saw a Reisepass row with no button at
+                                  all and could not upload for her. The exclusion is only needed once
+                                  a passport exists, and `!doc` already says it does not. */}
+                              {selectedUser && ((!isMulti && !doc && item.key !== "letter" && item.key !== "cv_de") || isMulti) && (
                                 <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                                   <button type="button" title={lang === "fr" ? "Téléverser" : lang === "de" ? "Hochladen" : "Upload"} aria-label="Upload"
                                     onClick={(e) => { e.stopPropagation(); triggerAdminDocUpload(item.key, item.label); }}
