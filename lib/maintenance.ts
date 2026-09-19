@@ -94,6 +94,69 @@ export function isFreezeTolerantPath(pathname: string): boolean {
   return pathname === "/api/leads";
 }
 
+/**
+ * POSTs THAT ONLY READ — they pass while writes are frozen.
+ *
+ * The freeze decides on the HTTP METHOD, which is the right default: almost
+ * every POST here saves something. But a handful of routes are POSTs purely
+ * because they carry a body (a typed query, a CV payload), and blocking those
+ * makes a ten-minute planned pause look like a broken site: the admin's search
+ * bar and filters answer 503, and every "download the PDF" button fails. None
+ * of them changes a row, so none of them can cost the copy anything.
+ *
+ * Each entry was verified by reading the route. A route is listed ONLY if it
+ * writes no row, mints no durable token and sends no mail. `withWriteFreeze`
+ * (lib/d1/serviceFetch.ts) stays the backstop underneath: if one of these ever
+ * grows a write, the service client refuses it rather than letting it through.
+ *
+ * Deliberately NOT listed, though they look read-only:
+ *   /api/portal/classroom/token   — writes nothing, but hands out a 3-hour
+ *       LiveKit credential, and the session it opens writes attendance
+ *       telemetry that the freeze then refuses. A class that half-records is
+ *       worse than a class that says "paused"; it is tester-gated anyway.
+ *   /api/portal/admin/cv-autofill — returns a draft it never saves, so the only
+ *       thing it can produce is work the frozen autosave will refuse a moment
+ *       later. Saying "paused" up front is kinder than saying it after typing.
+ *   /api/portal/verify-turnstile  — a pure proxy to Cloudflare's siteverify,
+ *       but nothing in the app calls it (CAPTCHA is off), so the freeze can
+ *       never reach it and listing it would only widen the hole.
+ */
+const READ_ONLY_POSTS = new Set([
+  // The admin panel's whole way in. The bar POSTs the typed query; the model
+  // only fills a filter and the results come from a read. 503 here reads as
+  // "the portal is down" — it is the first thing the founder touches.
+  "/api/portal/admin/search",
+  // The Booking.com-style facets behind the same bar: counts + matches, no AI,
+  // no write. Blocked, every filter chip fails while the list still shows.
+  "/api/portal/admin/facets",
+  // The three PDF generators: each renders from the body (plus a profile read)
+  // and streams the bytes back. Nothing is stored — the candidate's browser
+  // receives the file, and the upload that would save it is a separate route
+  // that stays frozen.
+  "/api/portal/cv/generate",
+  "/api/portal/letter/generate",
+  "/api/portal/me/passport-data-pdf",
+  "/api/portal/admin/passport-data-pdf",
+  // "Where is everyone in their German B2" — a summary report rendered from
+  // reads, scoped by LAW #25. Same family as the generators above.
+  "/api/portal/admin/b2-report",
+  // The signup form's "is this address already registered" check. It only
+  // lists auth users. It matters during the freeze because registration itself
+  // does NOT come through /api (the browser calls Supabase auth directly, and
+  // auth is not part of the copy) — so signup keeps working, and a 503 here
+  // would break the form in front of it for no reason at all.
+  "/api/portal/check-email",
+]);
+
+export function isReadOnlyPostPath(pathname: string): boolean {
+  return READ_ONLY_POSTS.has(pathname);
+}
+
+/** The exempt paths, for the runbook and the tests. */
+export function readOnlyPostPaths(): string[] {
+  return [...READ_ONLY_POSTS];
+}
+
 export type FreezeDecision = "pass" | "block" | "skip-cron";
 
 /**
@@ -103,6 +166,8 @@ export type FreezeDecision = "pass" | "block" | "skip-cron";
 export function freezeDecision(method: string, pathname: string): FreezeDecision {
   if (!(pathname === "/api" || pathname.startsWith("/api/"))) return "pass";
   if (isHealthPath(pathname) || isFreezeTolerantPath(pathname)) return "pass";
+  // A POST that only reads is not a write, whatever the method says.
+  if (isReadOnlyPostPath(pathname)) return "pass";
   // Cron routes are GETs that WRITE (reminders, chases, briefings logging what
   // they sent). Skipping them whatever the method is the only way they do no
   // work during the copy.
@@ -169,6 +234,26 @@ export function cronSkipResponse(): Response {
 /** Does this parsed JSON body come from the freeze? (Client side.) */
 export function isMaintenanceBody(json: unknown): json is MaintenanceBody {
   return !!json && typeof json === "object" && (json as { code?: unknown }).code === MAINTENANCE_CODE;
+}
+
+/**
+ * Is this failed upload the write freeze rather than a bad file?
+ *
+ * @uppy/xhr-upload's TYPES say the third argument of "upload-error" is
+ * `{ status, body }`, but the RUNTIME emits the raw XMLHttpRequest
+ * (xhr-upload/lib/index.js: `emit("upload-error", file, buildResponseError(...),
+ * request)`). Reading `body` there is always undefined, so the maintenance
+ * answer would never be recognised and this whole fix would be dead code on
+ * switch night. Read both shapes, and parse the body when it is text.
+ */
+export function isMaintenanceUploadError(response: unknown): boolean {
+  const r = response as { status?: number; body?: unknown; responseText?: string } | undefined;
+  if (!r || r.status !== 503) return false;
+  let json: unknown = r.body ?? r.responseText;
+  if (typeof json === "string") {
+    try { json = JSON.parse(json); } catch { return false; }
+  }
+  return isMaintenanceBody(json);
 }
 
 /** The DOM event components/MaintenanceNotice.tsx listens for. */

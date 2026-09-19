@@ -6,6 +6,7 @@ import { middleware } from "@/middleware";
 import {
   freezeDecision, maintenanceResponse, pickLang, writesFrozen, isMaintenanceBody,
   MAINTENANCE_MESSAGES, MAINTENANCE_RETRY_AFTER_SEC, MAINTENANCE_EVENT, reportIfMaintenance, isFreezeTolerantPath,
+  isReadOnlyPostPath, readOnlyPostPaths, isMaintenanceUploadError, maintenanceBody,
 } from "@/lib/maintenance";
 import { isFrozenWrite, withWriteFreeze, buildServiceFetch } from "@/lib/d1/serviceFetch";
 
@@ -205,6 +206,119 @@ describe("leads during the freeze", () => {
     // Only that exact route: a booking (calendar event + reminders) cannot be half-done.
     for (const p of ["/api/book", "/api/leads/export", "/api/leadsx"]) expect(freezeDecision("POST", p), p).toBe("block");
     expect(isFrozenWrite("POST", "https://p.supabase.co/rest/v1/leads")).toBe(true);
+  });
+});
+
+describe("the POSTs that only read", () => {
+  /**
+   * The freeze decides on the METHOD, so a POST that only reads would answer
+   * 503 and the pause would look like an outage: the admin search bar, the
+   * filters and every "download the PDF" button. These paths were each read
+   * line by line before being listed; these tests hold that reading in place.
+   */
+  const EXEMPT = [
+    "/api/portal/admin/search",
+    "/api/portal/admin/facets",
+    "/api/portal/cv/generate",
+    "/api/portal/letter/generate",
+    "/api/portal/me/passport-data-pdf",
+    "/api/portal/admin/passport-data-pdf",
+    "/api/portal/admin/b2-report",
+    "/api/portal/check-email",
+  ];
+
+  it("is exactly the list the module exports", () => {
+    expect(readOnlyPostPaths().sort()).toEqual([...EXEMPT].sort());
+  });
+
+  it("lets each of them POST through, flag on", async () => {
+    vi.stubEnv("MAINTENANCE_WRITES", "1");
+    for (const p of EXEMPT) {
+      expect(freezeDecision("POST", p), p).toBe("pass");
+      expect(passedThrough(await middleware(req("POST", p))), p).toBe(true);
+    }
+  });
+
+  it("every exempt path is a real route with a POST handler", () => {
+    // A typo here would be silent: the Set would simply never match, the route
+    // would keep 503-ing, and nothing would say so until switch day.
+    for (const p of EXEMPT) {
+      const file = `app${p}/route.ts`;
+      expect(fs.existsSync(file), file).toBe(true);
+      expect(fs.readFileSync(file, "utf8"), file).toContain("export async function POST");
+    }
+  });
+
+  it("none of them writes a row, mints a token or sends mail", () => {
+    // The reason each one is on the list. If a write is ever added to one of
+    // these files this fails here, before it can slip past the freeze on
+    // switch night. (withWriteFreeze in lib/d1/serviceFetch.ts is the runtime
+    // backstop for the same mistake.)
+    const WRITES = /\.(insert|upsert|delete|upload)\(|\.update\(\s*\{|sendEmail|resend\.|mintClassroomToken|admin\.(createUser|updateUserById|deleteUser)/;
+    // Prove the pattern can fail before trusting it to pass: a route that
+    // really does write must match it.
+    expect(WRITES.test(fs.readFileSync("app/api/portal/upload/route.ts", "utf8"))).toBe(true);
+    expect(WRITES.test(fs.readFileSync("app/api/portal/classroom/token/route.ts", "utf8"))).toBe(true);
+    for (const p of EXEMPT) {
+      const src = fs.readFileSync(`app${p}/route.ts`, "utf8");
+      expect(src.match(WRITES)?.[0] ?? null, `${p} grew a write`).toBe(null);
+    }
+  });
+
+  it("does NOT exempt the look-alikes that are not read-only", () => {
+    // classroom/token writes no row but hands out a 3-hour LiveKit credential,
+    // and the class it opens writes attendance telemetry the freeze refuses —
+    // a class that half-records is worse than one that says "paused".
+    expect(freezeDecision("POST", "/api/portal/classroom/token")).toBe("block");
+    // cv-autofill never saves; its whole output is work the frozen autosave
+    // would refuse a moment later.
+    expect(freezeDecision("POST", "/api/portal/admin/cv-autofill")).toBe("block");
+    // The admin panel's own POST is the document review — a real write.
+    expect(freezeDecision("POST", "/api/portal/admin")).toBe("block");
+    // Prefix matching would be a hole: these are not the exempt routes.
+    for (const p of ["/api/portal/admin/searchx", "/api/portal/admin/search/save", "/api/portal/cv/generate/publish"]) {
+      expect(freezeDecision("POST", p), p).toBe("block");
+      expect(isReadOnlyPostPath(p), p).toBe(false);
+    }
+  });
+
+  it("still blocks the saves on the same pages", async () => {
+    vi.stubEnv("MAINTENANCE_WRITES", "1");
+    // The CV page can render a PDF and cannot save the draft behind it; the
+    // admin can search and cannot approve. That is the whole point.
+    for (const p of ["/api/portal/admin/cv-draft", "/api/portal/upload", "/api/portal/me/passport-data"]) {
+      expect((await middleware(req("POST", p))).status, p).toBe(503);
+    }
+  });
+});
+
+describe("the login-less upload page", () => {
+  /**
+   * components/DocUploader.tsx showed ONE error for every failure: "try again
+   * with a PDF or photo (max 25 MB)". During the freeze that tells a nurse on
+   * the login-less link that her file is wrong, so she re-shoots the photo and
+   * gives up. She now gets the maintenance line — but only if the 503 is
+   * actually recognised in the shape Uppy really hands over.
+   */
+  const body = () => maintenanceBody("fr");
+
+  it("recognises the freeze in the shape @uppy/xhr-upload really emits (an XMLHttpRequest)", () => {
+    // Its TYPES promise { status, body }; the runtime passes the request, whose
+    // body is responseText. Reading only `body` made the whole fix dead code.
+    expect(isMaintenanceUploadError({ status: 503, responseText: JSON.stringify(body()) })).toBe(true);
+    expect(isMaintenanceUploadError({ status: 503, body: body() })).toBe(true);
+  });
+
+  it("does not mistake a real upload failure for the freeze", () => {
+    expect(isMaintenanceUploadError(undefined)).toBe(false);
+    expect(isMaintenanceUploadError({ status: 0, responseText: "" })).toBe(false);          // network dropped
+    expect(isMaintenanceUploadError({ status: 413, responseText: '{"error":"too big"}' })).toBe(false);
+    expect(isMaintenanceUploadError({ status: 503, responseText: "<html>bad gateway" })).toBe(false); // a real outage
+    expect(isMaintenanceUploadError({ status: 503, responseText: '{"error":"nope"}' })).toBe(false);  // 503, wrong body
+  });
+
+  it("the upload route it posts to is NOT exempt — it really does write", () => {
+    expect(freezeDecision("POST", "/api/portal/u/some-token")).toBe("block");
   });
 });
 

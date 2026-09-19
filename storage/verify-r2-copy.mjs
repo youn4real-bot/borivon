@@ -14,17 +14,45 @@
  * eTags are still compared for every object) — for a quick re-check.
  */
 import crypto from "node:crypto";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { PREFIX, cfHeaders, encPath, listR2, listSupabaseBucket, listSupabaseBuckets, loadEnv, r2ObjectUrl, sbHeaders, splitKey } from "./listing.mjs";
 import { normEtag } from "./sync-plan.mjs";
 
 const CONCURRENCY = 6;
 
-const root = process.argv[2];
-if (!root) { console.error("usage: node storage/verify-r2-copy.mjs <repo-root> [--sample N]"); process.exit(1); }
+// Run as a script it reads argv and the env; imported (by a test) it must do
+// neither — same idiom as d1/cutover.mjs.
+const invokedDirectly = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+const root = invokedDirectly ? process.argv[2] : null;
+if (invokedDirectly && !root) { console.error("usage: node storage/verify-r2-copy.mjs <repo-root> [--sample N]"); process.exit(1); }
 const sIdx = process.argv.indexOf("--sample");
 const sample = sIdx > 0 ? Number(process.argv[sIdx + 1]) : Infinity;
-const cfg = loadEnv(root);
+const cfg = invokedDirectly ? loadEnv(root) : null;
 const sha = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+
+/**
+ * Download one object, telling a FAILED download from a real difference.
+ *
+ * `fetch(...).then(r => r.arrayBuffer())` hashes whatever came back, so an
+ * expired key, a 404 or a rate-limit answer became "CONTENT <key>" — the
+ * founder reading that on switch night would go hunting for a corrupted file
+ * that is perfectly fine, and the copy would be held up over nothing. Worse,
+ * an error body identical on both sides would hash the same and be counted as
+ * "identical". So: check the status first, and name the side that failed.
+ */
+export async function download(url, headers, side, key, fetchImpl = fetch) {
+  let r;
+  try { r = await fetchImpl(url, { headers }); }
+  catch (err) { return { ok: false, why: `DOWNLOAD FAILED (${side}) ${PREFIX}/${key}: ${err.message}` }; }
+  if (!r.ok) {
+    // The body of an error is short and usually says exactly what is wrong
+    // ("Object not found", "invalid signature"), so keep a little of it.
+    const detail = (await r.text().catch(() => "")).slice(0, 120).replace(/\s+/g, " ").trim();
+    return { ok: false, why: `DOWNLOAD FAILED (${side}) ${PREFIX}/${key}: HTTP ${r.status}${detail ? ` — ${detail}` : ""}` };
+  }
+  return { ok: true, bytes: Buffer.from(await r.arrayBuffer()) };
+}
 
 async function pool(items, worker) {
   let i = 0;
@@ -33,7 +61,7 @@ async function pool(items, worker) {
   }));
 }
 
-(async () => {
+if (invokedDirectly) await (async () => {
   const buckets = await listSupabaseBuckets(cfg);
   const inR2 = await listR2(cfg);
   const problems = [];
@@ -54,11 +82,14 @@ async function pool(items, worker) {
       if (index >= sample) { matched++; return; }
       const { bucket: b, path } = splitKey(key);
       const [a, c] = await Promise.all([
-        fetch(`${cfg.sbUrl}/storage/v1/object/${encodeURIComponent(b)}/${encPath(path)}`, { headers: sbHeaders(cfg) }).then((r) => r.arrayBuffer()),
-        fetch(r2ObjectUrl(cfg, `${PREFIX}/${key}`), { headers: cfHeaders(cfg) }).then((r) => r.arrayBuffer()),
+        download(`${cfg.sbUrl}/storage/v1/object/${encodeURIComponent(b)}/${encPath(path)}`, sbHeaders(cfg), "supabase", key),
+        download(r2ObjectUrl(cfg, `${PREFIX}/${key}`), cfHeaders(cfg), "r2", key),
       ]);
+      // A download that did not happen is not a comparison: it is neither a
+      // match nor a mismatch, and it must not be counted as either.
+      if (!a.ok || !c.ok) { for (const d of [a, c]) if (!d.ok) problems.push(d.why); return; }
       hashed++;
-      if (sha(Buffer.from(a)) !== sha(Buffer.from(c))) problems.push(`CONTENT ${PREFIX}/${key}`);
+      if (sha(a.bytes) !== sha(c.bytes)) problems.push(`CONTENT ${PREFIX}/${key}: both downloaded, the bytes differ`);
       else matched++;
     });
     process.stdout.write(`${bucket.id}: ${objects.length} checked\n`);

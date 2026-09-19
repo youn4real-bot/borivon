@@ -24,10 +24,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { generatedProblems, readEnvFile } from "./guards.mjs";
 
+/**
+ * The refusal an operator can act on.
+ *
+ * This runs as step 4 of the switch, and it used to fail with nothing but
+ * `HTTP 401` — which is every one of "the service key rotated", "the key in
+ * .env.local is the anon one", "the project is paused" and "PostgREST is
+ * restarting". Supabase's own body says which ("Invalid API key", "JWT
+ * expired", "Project is paused"), so carry it: on switch night the difference
+ * between guessing and reading is the length of the freeze. Truncated and
+ * whitespace-collapsed so a stray HTML error page cannot bury the line, and it
+ * quotes only the ANSWER — the request's key is never printed.
+ */
 export async function fetchLiveOpenApi(env) {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   const res = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/`, { method: "GET", headers: { apikey: key, Authorization: `Bearer ${key}` } });
-  if (!res.ok) throw new Error(`Supabase OpenAPI read failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 300);
+    throw new Error(`Supabase OpenAPI read failed: HTTP ${res.status}${body ? ` — ${body}` : " — (empty body)"}`);
+  }
   return res.json();
 }
 
