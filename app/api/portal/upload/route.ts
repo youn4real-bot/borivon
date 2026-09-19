@@ -772,6 +772,11 @@ export async function POST(req: NextRequest) {
   // admin-on-behalf path, so the invariant is enforced here rather than trusted
   // per call site.
   const fileType = canonicalizeFileType(fileKey, sentType);
+  // Say so when a caller still disagrees. The correction is silent otherwise,
+  // and a page that sends the wrong label would keep doing it unseen -- this
+  // line is how the next one gets found (ported from production bfdb2b3-era
+  // diagnosability: a swallowed failure costs a day of guessing).
+  if (fileType !== sentType) console.warn(`[upload] label "${sentType}" belongs to another slot than fileKey "${fileKey}" -- stored as "${fileType}"`);
   const forUserId = (formData.get("forUserId") as string) ?? null;
 
   // Admin override: allow admins to upload on behalf of a candidate.
