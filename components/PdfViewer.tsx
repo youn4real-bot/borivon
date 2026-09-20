@@ -33,6 +33,8 @@ import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
 import { getCachedRotation, bumpCachedRotation } from "@/lib/rotationStore";
 import { loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
+import { useLang } from "@/components/LangContext";
+import { classifyOpenError, docFailureMessage, type DocFailureLayer } from "@/lib/documentFetch";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -50,6 +52,22 @@ export type PageOverlayInfo = {
   scale: number;       // current scale factor
 };
 export type PageOverlayFn = (info: PageOverlayInfo) => React.ReactNode;
+
+/**
+ * The one technical fact worth putting on screen in brackets.
+ *
+ * pdf.js's exception classes set `name` to their own class name
+ * (`InvalidPDFException`, `PasswordException`, …), which is the informative
+ * half. A plain `new Error("…")` has the useless name "Error", so its message
+ * is shown instead — that is what carries "Setting up fake worker failed".
+ */
+function nameOf(e: unknown): string {
+  const err = e as { name?: unknown; message?: unknown } | null | undefined;
+  const name = typeof err?.name === "string" ? err.name : "";
+  if (name && name !== "Error") return name;
+  const message = typeof err?.message === "string" ? err.message : "";
+  return message.slice(0, 80) || "unknown";
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PdfViewer
@@ -125,7 +143,18 @@ export function PdfViewer({
   // the server can't bake rotation into the PDF). Normalised to 0/90/180/270.
   const [rotation, setRotation]   = useState(() => getCachedRotation(docId, initialRotation ?? 0));
   const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(false);
+  /**
+   * WHICH LAYER refused, not merely "something went wrong".
+   *
+   * This used to be a bare `boolean` rendered as the one English sentence
+   * "Preview not available". An expired session, a 404, an iPhone too old to
+   * run pdf.js and a genuinely corrupt scan all printed that same line, and
+   * three of the four are not the file's fault — so the admin went looking at
+   * the document every time. `detail` carries the one technical fact (an error
+   * name, a status) that survives a screenshot forwarded from a phone.
+   */
+  const [failure, setFailure] = useState<{ layer: DocFailureLayer; detail: string } | null>(null);
+  const { lang } = useLang();
 
   scaleRef.current = scale;
 
@@ -133,7 +162,7 @@ export function PdfViewer({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setError(false);
+    setFailure(null);
     setPdf(null);
     setPageSizes([]);
     setIntrinsicRotations([]);
@@ -190,10 +219,30 @@ export function PdfViewer({
           setLoading(false);
           onPagesLoaded?.(doc.numPages);
         })
-        .catch(() => {
-          if (!cancelled) { setError(true); setLoading(false); onError?.(); }
+        .catch((e: unknown) => {
+          // pdf.js may have fetched `src` itself (a plain URL rather than a
+          // blob), so a 404 or a 500 surfaces HERE as MissingPDFException /
+          // UnexpectedResponseException. classifyOpenError keeps those on the
+          // download layer instead of calling the file unreadable.
+          if (cancelled) return;
+          console.error("[pdf-viewer] could not open the document:", e);
+          setFailure({ layer: classifyOpenError(e), detail: nameOf(e) });
+          setLoading(false);
+          onError?.();
         });
-    });
+    })
+      // WITHOUT THIS CATCH THE SPINNER NEVER STOPS. `loadPdfjs()` is a dynamic
+      // import: on a flaky connection the chunk request fails, the promise
+      // rejects, and because nothing was attached to it `setLoading(false)` was
+      // never reached — the modal span forever with no error anywhere on
+      // screen. That is one of the two "endless spinner" reports.
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        console.error("[pdf-viewer] the PDF engine would not load:", e);
+        setFailure({ layer: "engine", detail: nameOf(e) });
+        setLoading(false);
+        onError?.();
+      });
 
     return () => { cancelled = true; destroy?.(); };
   }, [src]);
@@ -463,12 +512,21 @@ export function PdfViewer({
             <Spinner size="md" />
           </div>
         )}
-        {!loading && error && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>Preview not available</p>
+        {!loading && failure && (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            height: "100%", padding: "1rem", textAlign: "center", gap: 6,
+          }}>
+            {/* Names the layer in FR/EN/DE (LAW #19). "Preview not available"
+                said the same nothing for an expired session, a missing file,
+                an old iPhone and a corrupt scan. */}
+            <p style={{ fontSize: 13.5, fontWeight: 600, color: "rgba(255,255,255,0.86)", maxWidth: 420 }}>
+              {docFailureMessage(failure.layer, lang)}
+            </p>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{failure.detail}</p>
           </div>
         )}
-        {!loading && !error && pdf && pageSizes.length > 0 && (
+        {!loading && !failure && pdf && pageSizes.length > 0 && (
           <div ref={pagesWrapRef} style={{
             display: "flex",
             flexDirection: "column",
@@ -495,7 +553,7 @@ export function PdfViewer({
       </div>
 
       {/* ── Toolbar ── */}
-      {!loading && !error && pdf && (
+      {!loading && !failure && pdf && (
         <div
           style={{
             position: "absolute",

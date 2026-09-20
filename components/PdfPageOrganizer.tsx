@@ -59,6 +59,7 @@ import {
   type PdfOpenFailure, type PdfOpenStage,
 } from "@/lib/pdfOpenFailure";
 import { NARROW_VIEWPORT_PX, createThumbQueue, eagerThumbCount, thumbScale } from "@/lib/pdfThumbBudget";
+import { fetchDocumentBlob, docFailureMessage, DocumentFetchError } from "@/lib/documentFetch";
 
 type Page = { from: number; rotate: number; removed: boolean; thumb: string | null };
 
@@ -223,25 +224,27 @@ export function PdfPageOrganizer({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let pdf: any = null;
       try {
-        const res = await fetch(fetchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (!res.ok) {
-          // The STATUS is the whole diagnosis: 401 is an expired session, 403 is
-          // LAW #25 scope, 404 is a row that moved, 5xx is us. A plain
-          // `new Error("HTTP 401")` would have shown "(Error)" on screen — true
-          // and worthless — so the number goes in the name the admin photographs.
-          const err = new Error(`HTTP ${res.status}`);
-          err.name = `HTTP ${res.status}`;
-          throw err;
-        }
-        const blob = await res.blob();
+        // Was `if (!res.ok) throw …` followed by a bare `res.blob()`. The status
+        // check was there, but nothing looked at the BODY — so a route that
+        // caught its own error and answered 200 with `{"error":…}` produced a
+        // blob: URL of JSON, and pdf.js reported the document as unreadable.
+        const { blob } = await fetchDocumentBlob(
+          fetchUrl, { headers: { Authorization: `Bearer ${accessToken}` } }, "pdf",
+        );
         url = URL.createObjectURL(blob);
 
-        stage = "engine";
         const pdfjsLib = await loadPdfjs();
 
         stage = "read";
         pdf = await pdfjsLib.getDocument(pdfLoadOptions(url)).promise;
-        if (cancelled.current) { try { pdf?.destroy?.(); } catch { /* already gone */ } URL.revokeObjectURL(url); return; }
+        // Was a bare `return`, which left this document and its blob URL alive:
+        // docRef had not been assigned yet, so the cleanup below had nothing to
+        // destroy and a closed window leaked the whole decoded PDF.
+        if (cancelled.current) {
+          try { pdf?.destroy?.(); } catch { /* already gone */ }
+          URL.revokeObjectURL(url);
+          return;
+        }
 
         // Show the grid the moment we know how many pages there are. From here
         // on nothing is fatal: the list exists, so the window is usable even if
@@ -258,17 +261,28 @@ export function PdfPageOrganizer({
         const head = eagerThumbCount(count, { ios: isIOSDevice() });
         for (let i = 0; i < head; i++) drawPage(i);
       } catch (e) {
-        const err = e as { name?: string } | null;
-        const kind = classifyPdfOpenFailure(stage, e);
+        const err = e as { name?: string; message?: string } | null;
         // Always in the console with the step, the verdict and the engine plan —
         // the visible text is one line; this is what a developer needs when the
         // founder forwards a screenshot from a phone nobody here can open.
         const engine = currentPdfEngine();
+        const fetchFailure = e instanceof DocumentFetchError ? e : null;
+        const kind: PdfOpenFailure | null = fetchFailure ? null : classifyPdfOpenFailure(stage, e);
         console.error(
-          `[pdf-organizer] failed at "${stage}" -> ${kind} `
+          `[pdf-organizer] failed at "${stage}" -> ${fetchFailure ? fetchFailure.layer : kind} `
           + `(engine: ${engine ? `${engine.plan}, structuredClone=${engine.structuredClone}` : "not reached"}):`, e);
+        // The name is the informative half for a pdf.js exception
+        // (InvalidPDFException, PasswordException) and for a DocumentFetchError,
+        // whose name IS the fact ("HTTP 404", "text/html"). A plain Error's
+        // name is the useless "Error", so its message is shown instead.
+        const detail = err?.name && err.name !== "Error" ? err.name : err?.message?.slice(0, 60);
         if (!cancelled.current) {
-          setError(pdfOpenFailureMessage(kind, lang, err?.name));
+          // A DocumentFetchError already knows its layer: it checked the status
+          // AND the body, so it alone can say "the server sent a message, not a
+          // file". classifyPdfOpenFailure keeps everything pdf.js threw.
+          setError(fetchFailure
+            ? docFailureMessage(fetchFailure.layer, lang, detail)
+            : pdfOpenFailureMessage(kind as PdfOpenFailure, lang, err?.name));
           setLoading(false); setScanning(0);
         }
         // Nothing to keep open: the document never got far enough to be read.

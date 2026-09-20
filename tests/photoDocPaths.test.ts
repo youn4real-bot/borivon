@@ -192,10 +192,28 @@ describe("a refused preview is not rendered as if it were the document", () => {
     // It used to hand a 415 body straight to the PDF viewer, which then said
     // the document could not be opened -- "this file is corrupt", when what
     // really happened is that the server said no, and said why.
-    expect(PREVIEW_MODAL).toMatch(/\.then\(async r => \{[\s\S]{0,800}?if \(!r\.ok\)/);
-    expect(PREVIEW_MODAL).toContain("isMergeRefusalCode(code)");
-    expect(PREVIEW_MODAL, "and a null result must not be blobbed")
-      .toContain("if (!mounted || !blob) return;");
+    //
+    // The inline `if (!r.ok)` this used to match has been replaced by
+    // fetchDocumentBlob, which checks the STATUS and then the BYTES and
+    // throws rather than returning something blobbable. The invariant is
+    // unchanged and now stricter, so it is pinned at its new address.
+    expect(PREVIEW_MODAL, "the checked fetch is the only way bytes arrive")
+      .toMatch(/fetchDocumentBlob\([\s\S]{0,400}?expectedBodyFor\(/);
+    expect(PREVIEW_MODAL, "nothing may blob a raw response behind its back")
+      .not.toMatch(/(?:return|await|=)\s*r\.blob\(\)/);
+  });
+
+  it("a refusal keeps its own reason instead of becoming a failed download", () => {
+    // fetchDocumentBlob deliberately leaves an error body on the wire. The
+    // merged preview is the exception: it is our own route, and it answers
+    // "these two cannot be joined" as a code. Without this the refusal is
+    // reported as a broken download, which sends the admin hunting a fault
+    // that does not exist.
+    expect(PREVIEW_MODAL, "only the generated preview reads the error body")
+      .toContain("{ readErrorBody: !!overrideFetchUrl }");
+    expect(PREVIEW_MODAL).toContain("isMergeRefusalCode(err.code)");
+    expect(PREVIEW_MODAL, "and it must show the refusal wording, not the layer")
+      .toMatch(/isMergeRefusalCode\(err\.code\)[\s\S]{0,200}?setPreviewError\(dt\.previewMergeRefused\)/);
   });
 
   it("it shows the reason instead of spinning for ever", () => {

@@ -17,6 +17,10 @@ import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { translateDocLabel } from "@/lib/fileKeys";
+import {
+  fetchDocumentBlob, expectedBodyFor, docFailureMessage,
+  DocumentFetchError, type DocFailureLayer,
+} from "@/lib/documentFetch";
 
 const dm = {
   en: {
@@ -37,6 +41,8 @@ const dm = {
     failDownload: "Download failed — please try again.",
     previewFailed: (status: number) => `This preview could not be loaded (${status}).`,
     previewMergeRefused: "These two documents cannot be joined into one file — open them separately.",
+    retry: "Try again",
+    preparing: "Could not prepare the preview — check your connection.",
   },
   fr: {
     passportData: "Données passeport",
@@ -56,6 +62,8 @@ const dm = {
     failDownload: "Échec du téléchargement — veuillez réessayer.",
     previewFailed: (status: number) => `Cet aperçu n'a pas pu être chargé (${status}).`,
     previewMergeRefused: "Ces deux documents ne peuvent pas être réunis en un seul — ouvrez-les séparément.",
+    retry: "Réessayer",
+    preparing: "Impossible de préparer l'aperçu — vérifiez votre connexion.",
   },
   de: {
     passportData: "Passdaten",
@@ -75,6 +83,8 @@ const dm = {
     failDownload: "Herunterladen fehlgeschlagen — bitte erneut versuchen.",
     previewFailed: (status: number) => `Diese Vorschau konnte nicht geladen werden (${status}).`,
     previewMergeRefused: "Diese beiden Dokumente lassen sich nicht zu einer Datei zusammenführen — bitte einzeln öffnen.",
+    retry: "Erneut versuchen",
+    preparing: "Vorschau konnte nicht vorbereitet werden — bitte Verbindung prüfen.",
   },
 };
 
@@ -96,7 +106,11 @@ type Doc = {
 };
 
 export function AdminDocPreviewModal({
-  doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available", readOnly = false,
+  // `noPreviewText` is deliberately NOT destructured: it is accepted for the
+  // five call sites that still pass it and has never been read in this
+  // component. Its default was the English literal "Preview not available" —
+  // the same one-size-fits-nothing sentence this change is removing.
+  doc, accessToken, onClose, onUpdated, readOnly = false,
   onShowPassportData, sideBySide = false, overrideFetchUrl,
 }: {
   doc: Doc;
@@ -105,6 +119,7 @@ export function AdminDocPreviewModal({
   onUpdated?: (doc: Doc) => void;
   /** Hide approve/reject — nothing has been submitted to review (blank templates). */
   readOnly?: boolean;
+  /** @deprecated Never rendered — each failure now names its own layer. */
   noPreviewText?: string;
   onShowPassportData?: () => void;
   sideBySide?: boolean;
@@ -141,6 +156,21 @@ export function AdminDocPreviewModal({
   // e.g. "..._lebenslauf.pdf" without the "_visum" suffix).
   const [renderedName, setRenderedName] = useState<string | null>(null);
 
+  /**
+   * Why the preview is not on screen — never just "it is not on screen".
+   *
+   * The old effect handed `r.blob()` straight to a renderer with no `r.ok`
+   * check, so a 401/404/500 became a blob: URL full of error text: pdf.js got
+   * "Unauthorized" and blamed the file, the <img> showed a broken-image glyph,
+   * and the iOS frame rendered the error PAGE as a document. And when the fetch
+   * REJECTED, the only handler was a console.error — `blobUrl` stayed null and
+   * the modal sat on its spinner forever with nothing on screen.
+   */
+  const [previewFail, setPreviewFail] =
+    useState<{ layer: DocFailureLayer; detail: string } | null>(null);
+  /** Bumped by "Try again" — re-runs the fetch effect without reopening. */
+  const [reloadNonce, setReloadNonce] = useState(0);
+
   // Authenticated fetch via our API → blob URL. Used for both the viewer
   // and the download button (no need to refetch).
   useEffect(() => {
@@ -158,6 +188,8 @@ export function AdminDocPreviewModal({
     if (isIOSDevice() && !overrideFetchUrl && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
     setRenderedName(null);
     setPreviewError(null);
+    setPreviewFail(null);
+    setBlobUrl(null);
     // Stable doc id → server resolves the CURRENT drive_file_id (never the
     // archived old one after a replace). Same rule as fileBase below.
     const fetchUrl = overrideFetchUrl
@@ -166,42 +198,55 @@ export function AdminDocPreviewModal({
     let mounted = true;
     let url = "";
     const ctrl = new AbortController();
-    fetch(fetchUrl, {
-      signal: ctrl.signal,
-      cache: "no-store",
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-    })
-      .then(async r => {
-        // A non-200 body used to be turned into a blob and handed straight to
-        // the PDF viewer, which then reported that the document could not be
-        // opened -- i.e. "this file is corrupt", when what actually happened
-        // is that the server said no. A merged preview now refuses for a real
-        // reason (415: one half is a WebP photo, which pdf-lib has no embedder
-        // for), and that reason has to reach the person looking at it.
-        if (!r.ok) {
-          const code = overrideFetchUrl
-            ? await r.json().then((b: { error?: string }) => b?.error).catch(() => undefined)
-            : undefined;
-          if (mounted) {
-            setPreviewError(isMergeRefusalCode(code) ? dt.previewMergeRefused : dt.previewFailed(r.status));
-          }
-          return null;
-        }
+
+    // fetchDocumentBlob (lib/documentFetch) checks the STATUS and then the
+    // BYTES before anything downstream treats them as a file. `expect` is
+    // derived from the name the viewer will switch on below, so the .pdf branch
+    // gets the strict "%PDF- or nothing" rule and a photo still passes.
+    fetchDocumentBlob(
+      fetchUrl,
+      {
+        signal: ctrl.signal,
+        cache: "no-store",
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      },
+      expectedBodyFor(overrideFetchUrl ? "generated.pdf" : doc.file_name),
+      // A GENERATED preview is our own merge route, and it answers a
+      // REFUSAL (these two halves cannot be joined - one is a WebP photo
+      // pdf-lib has no embedder for) as a small JSON code. That is a
+      // different sentence from "the download failed", so this one caller
+      // asks for the body. A stored file's error body stays unread.
+      { readErrorBody: !!overrideFetchUrl },
+    )
+      .then(({ blob, contentDisposition }) => {
+        if (!mounted) return;
         if (overrideFetchUrl) {
-          const cd = r.headers.get("Content-Disposition") || "";
-          const m = /filename="?([^"]+)"?/i.exec(cd);
-          if (m?.[1] && mounted) setRenderedName(m[1]);
+          const m = /filename="?([^"]+)"?/i.exec(contentDisposition ?? "");
+          if (m?.[1]) setRenderedName(m[1]);
         }
-        return r.blob();
-      })
-      .then(blob => {
-        if (!mounted || !blob) return;
         url = URL.createObjectURL(blob);
         setBlobUrl(url);
       })
-      .catch(err => { if (err.name !== "AbortError") console.error("Preview fetch error:", err); });
+      .catch((err: unknown) => {
+        if ((err as { name?: string } | null)?.name === "AbortError") return;
+        if (!mounted) return;
+        console.error("[doc-preview] could not load the document:", err);
+        // A REFUSAL is not a fault. The merge route saying "these two
+        // cannot be joined" has a sentence of its own, and the layered
+        // failure panel would report it as a broken download instead.
+        if (err instanceof DocumentFetchError && isMergeRefusalCode(err.code)) {
+          setPreviewError(dt.previewMergeRefused);
+          return;
+        }
+        const f = err instanceof DocumentFetchError
+          ? { layer: err.layer, detail: err.detail }
+          // Anything that is not a DocumentFetchError got past the fetch, so
+          // the fault is on this side (createObjectURL, out of memory).
+          : { layer: "parse" as DocFailureLayer, detail: (err as Error)?.name || "unknown" };
+        setPreviewFail(f);
+      });
     return () => { mounted = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [overrideFetchUrl, doc.id, doc.drive_file_id, accessToken]);
+  }, [overrideFetchUrl, doc.id, doc.drive_file_id, doc.file_name, accessToken, reloadNonce]);
 
   async function approve() {
     if (submitting) return;
@@ -332,7 +377,27 @@ export function AdminDocPreviewModal({
   // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
   // The native frame is a top-level <iframe> request that can't send an
   // Authorization header, so it needs the same signed token on desktop too.
-  const dlt = useDlToken((iosMode || (isPdfDoc && !overrideFetchUrl)) ? accessToken : null);
+  const hookDlt = useDlToken((iosMode || (isPdfDoc && !overrideFetchUrl)) ? accessToken : null);
+  /** A token minted by the "Try again" button, when the background loop is stuck. */
+  const [manualDlt, setManualDlt] = useState<string | null>(null);
+  const dlt = hookDlt ?? manualDlt;
+  /**
+   * On iOS a stored PDF is rendered by the native frame straight off the server
+   * URL, which needs the signed ?dlt= token — WebKit carries no Authorization
+   * header on an iframe. Until that token minted, the body rendered a Spinner
+   * AND NOTHING ELSE, with no time limit: the mint endpoint 401s in bursts, so
+   * a sub-admin's iPhone showed an eternal spinner on a document that was
+   * perfectly fine. Wait a bounded time, then say so and offer a way out.
+   */
+  const needsDlt = isPdfDoc && iosMode && !overrideFetchUrl;
+  const [tokenSlow, setTokenSlow] = useState(false);
+  useEffect(() => {
+    if (!needsDlt || dlt) { setTokenSlow(false); return; }
+    // Long enough that a normal mint (plus one 1s retry) never trips it, short
+    // enough that nobody decides the portal is broken and closes the window.
+    const id = setTimeout(() => setTokenSlow(true), 12_000);
+    return () => clearTimeout(id);
+  }, [needsDlt, dlt]);
   // Address by the STABLE doc id, NOT the volatile drive_file_id. After a
   // "PDF ersetzen" the drive_file_id changes; any device still holding the
   // old doc object (e.g. Android not yet refreshed) would keep fetching the
@@ -377,6 +442,47 @@ export function AdminDocPreviewModal({
       onSettled: () => {},
       onError: () => setActionError(dt.failDownload),
     });
+  }
+
+  /** Re-run whichever step failed, without making the admin reopen the doc. */
+  async function retryPreview() {
+    setPreviewFail(null);
+    setTokenSlow(false);
+    // The iOS frame is waiting on a token, not on bytes — mint one inside the
+    // tap instead of waiting for the background loop's next attempt.
+    if (needsDlt && !dlt && accessToken) {
+      try {
+        setManualDlt(await mintDlToken(accessToken));
+      } catch (e) {
+        console.error("[doc-preview] dl token would not mint:", e);
+        setPreviewFail({ layer: "download", detail: "dl-token" });
+      }
+      return;
+    }
+    setReloadNonce(n => n + 1);
+  }
+
+  /**
+   * The one panel every failure lands in. Deliberately the same slate the
+   * viewers use, so a failure reads as "this pane, this document" rather than
+   * as the whole modal having broken.
+   */
+  function failurePanel(message: string, detail?: string) {
+    return (
+      <div style={{
+        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", background: "#525659",
+        color: "#fff", padding: "1rem", textAlign: "center", gap: 8,
+      }}>
+        <p className="text-[13.5px] font-semibold" style={{ maxWidth: 420 }}>{message}</p>
+        {detail && <p className="text-[11px]" style={{ opacity: 0.5 }}>{detail}</p>}
+        <button type="button" onClick={() => { void retryPreview(); }}
+          className="inline-flex items-center gap-2 px-4 py-2 text-[12.5px] font-semibold mt-1"
+          style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", border: "none", cursor: "pointer" }}>
+          {dt.retry}
+        </button>
+      </div>
+    );
   }
 
   // Portal to document.body so this modal always escapes any ancestor
@@ -553,12 +659,20 @@ export function AdminDocPreviewModal({
 
         {/* ── Body ── PDF / image / "download to view" fallback */}
         <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-          {nativePdf ? (
+          {/* The download / content layers said no. Says WHICH, in FR/EN/DE,
+              instead of handing the error body to a renderer and letting the
+              admin guess from a blank pane. */}
+          {previewFail ? (
+            failurePanel(docFailureMessage(previewFail.layer, lang), previewFail.detail)
+          ) : nativePdf ? (
             // Native PDF iframe straight from the server route — no blob
             // wait, no blank pdf.js canvas (the JPEG2000 passport bug).
             // Used for ALL passports + everything on iOS. Waits for the token.
             !iosPreviewUrl ? (
-              <div className="w-full h-full flex items-center justify-center"><Spinner /></div>
+              // Bounded. This used to be a Spinner with no time limit at all.
+              tokenSlow
+                ? failurePanel(dt.preparing, "dl-token")
+                : <div className="w-full h-full flex items-center justify-center"><Spinner /></div>
             ) : (
             <IosPdfFrame
               src={iosPreviewUrl}
@@ -633,6 +747,12 @@ export function AdminDocPreviewModal({
                   { /* eslint-disable-next-line @next/next/no-img-element */ }
                   <img src={blobUrl} alt={doc.file_name}
                     draggable={false}
+                    // The sniff upstream already refuses an HTML/JSON error
+                    // body, so this catches what is left: a real image file
+                    // the browser cannot decode (a truncated upload, a HEIC
+                    // renamed .jpg). Without it the pane shows the browser's
+                    // broken-image glyph and not one word of explanation.
+                    onError={() => setPreviewFail({ layer: "parse", detail: ext })}
                     style={{ maxWidth: "90vw", maxHeight: "85vh", objectFit: "contain", userSelect: "none", pointerEvents: "none" }} />
                 </ZoomPanRotateViewer>
               );
