@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleCandidateIds, getVisibleCandidateScope } from "@/lib/admin-auth";
 import { readFailureResponse } from "@/lib/readFailure";
+import { shouldUseAdminNotifDocId, learnFromDocIdAttempt } from "@/lib/adminNotifDocId";
 
 // GET — fetch latest admin notifications.
 // Full admins see everything. Sub-admins / org admins see only notifications
@@ -61,6 +62,15 @@ export async function GET(req: NextRequest) {
   // list, and the client simply gets no deep link (today's behaviour) rather
   // than an empty bell. The founder runs SQL by hand -- an un-run migration must
   // never cost him the notifications themselves.
+  //
+  // THE PROBE IS GONE. This used to run a separate `select doc_id limit 1`
+  // FIRST, sequentially, before the four queries below — so the bell paid an
+  // extra Supabase round trip on every poll and every tap, to re-learn an
+  // answer that cannot change while the isolate lives. Now the real query asks
+  // for the column, and lib/adminNotifDocId.ts remembers what happened: once
+  // the answer is "not there", the legacy column list is taken FIRST and the
+  // doomed attempt never happens again. Run the migration and the next isolate
+  // picks the column up by itself.
   const COLS_BASE = "id, type, user_name, user_email, doc_type, doc_name, read, created_at";
   type NotifRow = {
     id: string; type: string; user_name: string; user_email: string;
@@ -68,16 +78,23 @@ export async function GET(req: NextRequest) {
     /** absent until supabase/admin_notifications_doc_id.sql is run */
     doc_id?: string | null;
   };
-  let COLS = `${COLS_BASE}, doc_id`;
-  {
-    const probe = await db.from("admin_notifications").select("doc_id").limit(1);
-    if (probe.error) COLS = COLS_BASE;
-  }
   const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  let listQ = db.from("admin_notifications").select(COLS)
-    .order("created_at", { ascending: false }).limit(40);
-  let unreadListQ = db.from("admin_notifications").select(COLS).eq("read", false)
-    .order("created_at", { ascending: false }).limit(40);
+
+  // The two LIST queries are the only ones that name columns, so they are the
+  // only ones a missing doc_id can break; the counts select "id" and run once.
+  const listQueries = (cols: string) => {
+    let listQ = db.from("admin_notifications").select(cols)
+      .order("created_at", { ascending: false }).limit(40);
+    let unreadListQ = db.from("admin_notifications").select(cols).eq("read", false)
+      .order("created_at", { ascending: false }).limit(40);
+    // LAW #25: the SAME scope filter on every query — list AND counts.
+    if (scopeEmails) {
+      listQ       = listQ.in("user_email", scopeEmails);
+      unreadListQ = unreadListQ.in("user_email", scopeEmails);
+    }
+    return [listQ, withUnread ? unreadListQ : null] as const;
+  };
+
   // Badge + 48h banner come from head-only COUNTS over the whole table, not the
   // 40 rows above — deriving them client-side capped "Unread" at the window and
   // hid every overdue item as soon as 40 newer rows existed.
@@ -85,17 +102,25 @@ export async function GET(req: NextRequest) {
     .eq("read", false);
   let overdueQ = db.from("admin_notifications").select("id", { count: "exact", head: true })
     .eq("read", false).lte("created_at", cutoff48h);
-  // LAW #25: the SAME scope filter on every query — list AND counts.
   if (scopeEmails) {
-    listQ       = listQ.in("user_email", scopeEmails);
-    unreadListQ = unreadListQ.in("user_email", scopeEmails);
     unreadQ     = unreadQ.in("user_email", scopeEmails);
     overdueQ    = overdueQ.in("user_email", scopeEmails);
   }
 
-  const [listRes, unreadListRes, unreadRes, overdueRes] = await Promise.all([
-    listQ, withUnread ? unreadListQ : null, unreadQ, overdueQ,
+  const usedDocId = shouldUseAdminNotifDocId();
+  const [firstListQ, firstUnreadQ] = listQueries(usedDocId ? `${COLS_BASE}, doc_id` : COLS_BASE);
+  let [listRes, unreadListRes, unreadRes, overdueRes] = await Promise.all([
+    firstListQ, firstUnreadQ, unreadQ, overdueQ,
   ]);
+
+  // One retry, once per isolate, and only when the column itself is what was
+  // refused — never on a network blip, which would switch the deep link off
+  // for the life of the isolate for a reason that has nothing to do with the
+  // schema.
+  if (learnFromDocIdAttempt(usedDocId, listRes.error).retryWithoutDocId) {
+    const [retryListQ, retryUnreadQ] = listQueries(COLS_BASE);
+    [listRes, unreadListRes] = await Promise.all([retryListQ, retryUnreadQ]);
+  }
 
   if (listRes.error) {
     console.error("[admin notifications GET] failed:", listRes.error);
