@@ -185,6 +185,9 @@ export interface Translation {
   aLoadFailedTitle: string; aLoadFailedSub: string; aLoadRetry: string; aLoadRetrying: string;
   // The bell pointed at a document the panel could not open.
   aDocOpenFailed: string;
+  // A supporting list (agencies, employers) whose request failed. "None yet"
+  // there told the founder to go and create agencies that already exist.
+  aListLoadFailed: string;
   aPending: string; aDone: string;
   aAllReviewedTitle: string; aAllReviewed: string;
   aNoPendingSection: string; aGoPending: string;
@@ -493,6 +496,7 @@ export const translations: Record<Lang, Translation> = {
     aLoadFailedSub: "La liste des candidats n'a pas pu être chargée ({reason}). Elle n'est pas vide — elle est inconnue.",
     aLoadRetry: "Réessayer", aLoadRetrying: "Chargement…",
     aDocOpenFailed: "Impossible d'ouvrir ce document. Ouvrez-le depuis la fiche du candidat.",
+    aListLoadFailed: "Liste non chargée — rechargez la page. (Elle n'est pas vide.)",
     aPending: "en attente", aDone: "Terminé",
     aAllReviewedTitle: "Tous les documents examinés", aAllReviewed: "Rien à traiter pour ce candidat.",
     aNoPendingSection: "Aucun document en attente dans cette section.", aGoPending: "Aller aux documents en attente →",
@@ -814,6 +818,7 @@ export const translations: Record<Lang, Translation> = {
     aLoadFailedSub: "The candidate list failed to load ({reason}). It is not empty — it is unknown.",
     aLoadRetry: "Try again", aLoadRetrying: "Loading…",
     aDocOpenFailed: "Couldn't open that document. Open it from the candidate's file instead.",
+    aListLoadFailed: "This list failed to load — reload the page. (It is not empty.)",
     aPending: "pending", aDone: "Done",
     aAllReviewedTitle: "All documents reviewed", aAllReviewed: "Nothing left to action for this candidate.",
     aNoPendingSection: "No pending documents in this section.", aGoPending: "Go to pending →",
@@ -1135,6 +1140,7 @@ export const translations: Record<Lang, Translation> = {
     aLoadFailedSub: "Die Kandidatenliste konnte nicht geladen werden ({reason}). Sie ist nicht leer — sie ist unbekannt.",
     aLoadRetry: "Erneut versuchen", aLoadRetrying: "Wird geladen…",
     aDocOpenFailed: "Dieses Dokument konnte nicht geöffnet werden. Bitte über die Kandidatenakte öffnen.",
+    aListLoadFailed: "Liste nicht geladen — Seite neu laden. (Sie ist nicht leer.)",
     aPending: "ausstehend", aDone: "Erledigt",
     aAllReviewedTitle: "Alle Dokumente geprüft", aAllReviewed: "Nichts mehr zu tun für diesen Kandidaten.",
     aNoPendingSection: "Keine ausstehenden Dokumente in diesem Bereich.", aGoPending: "Zu ausstehenden Dokumenten →",

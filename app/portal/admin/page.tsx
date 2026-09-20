@@ -642,6 +642,13 @@ export default function AdminPage() {
   // only trace was a console.error he never sees on a phone. null = it loaded.
   const [adminLoadError, setAdminLoadError] = useState<string | null>(null);
   const [adminReloading, setAdminReloading] = useState(false);
+  // Same shape, smaller blast radius: the agency and employer pickers read
+  // two bootstrap fetches that swallow their own failure. An empty allOrgs
+  // rendered "Noch keine Agenturen — unter Arbeitgeber → Agenturen anlegen",
+  // which does not just misinform: it sends the founder to create agencies
+  // that already exist. Say the list did not load instead.
+  const [orgsLoadFailed, setOrgsLoadFailed] = useState(false);
+  const [employersLoadFailed, setEmployersLoadFailed] = useState(false);
   const [feedbacks, setFeedbacks]     = useState<Record<string, string>>({});
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
   const [saving, setSaving]           = useState<Record<string, boolean>>({});
@@ -1777,15 +1784,23 @@ export default function AdminPage() {
         // b) Org list (for org switcher + Status->Assign agency picker)
         fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
-          .then(j => { if (!cancelled && j?.orgs) setAllOrgs(j.orgs); })
-          .catch(() => {}),
+          .then(j => {
+            if (cancelled) return;
+            if (j?.orgs) setAllOrgs(j.orgs);
+            else setOrgsLoadFailed(true);
+          })
+          .catch(() => { if (!cancelled) setOrgsLoadFailed(true); }),
         // b2) Employer list (for Status->Assign employer/site picker).
         //     Picker shape includes agencyId so we can split into
         //     "sites under an agency" vs "direct employers".
         fetch("/api/portal/admin/employers", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
-          .then(j => { if (!cancelled && j?.employers) setAllEmployers(j.employers); })
-          .catch(() => {}),
+          .then(j => {
+            if (cancelled) return;
+            if (j?.employers) setAllEmployers(j.employers);
+            else setEmployersLoadFailed(true);
+          })
+          .catch(() => { if (!cancelled) setEmployersLoadFailed(true); }),
         // c) Bearbeitung phase slots
         fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
@@ -4900,8 +4915,12 @@ export default function AdminPage() {
                                         style={pill(shownAgencyId === a.id)}>{a.name}</button>
                                     ))}
                                     {allOrgs.length === 0 && (
-                                      <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-                                        Noch keine Agenturen — unter Arbeitgeber → Agenturen anlegen.
+                                      <p className="text-[11px]" style={{ color: orgsLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                                        {orgsLoadFailed
+                                          ? t.aListLoadFailed
+                                          : (lang === "de" ? "Noch keine Agenturen — unter Arbeitgeber → Agenturen anlegen."
+                                            : lang === "fr" ? "Aucune agence pour le moment — créez-en une sous Employeurs → Agences."
+                                            : "No agencies yet — create one under Employers → Agencies.")}
                                       </p>
                                     )}
                                   </div>
@@ -4923,8 +4942,12 @@ export default function AdminPage() {
                                             style={pill(shownSiteId === e.id)}>{e.name}</button>
                                         ))}
                                       {allEmployers.filter(e => e.agencyId === shownAgencyId).length === 0 && (
-                                        <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-                                          Diese Agentur hat noch keine Arbeitgeber.
+                                        <p className="text-[11px]" style={{ color: employersLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                                          {employersLoadFailed
+                                            ? t.aListLoadFailed
+                                            : (lang === "de" ? "Diese Agentur hat noch keine Arbeitgeber."
+                                              : lang === "fr" ? "Cette agence n'a pas encore d'employeur."
+                                              : "This agency has no employers yet.")}
                                         </p>
                                       )}
                                     </div>
@@ -4952,10 +4975,12 @@ export default function AdminPage() {
                                       style={pill(shownDirectEmpId === emp.id)}>{emp.name}</button>
                                   ))}
                                   {allEmployers.filter(e => !e.agencyId).length === 0 && !addingEmployer && (
-                                    <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-                                      {lang === "de" ? "Noch keine direkten Arbeitgeber."
-                                        : lang === "fr" ? "Aucun employeur direct pour le moment."
-                                        : "No direct employers yet."}
+                                    <p className="text-[11px]" style={{ color: employersLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                                      {employersLoadFailed
+                                        ? t.aListLoadFailed
+                                        : (lang === "de" ? "Noch keine direkten Arbeitgeber."
+                                          : lang === "fr" ? "Aucun employeur direct pour le moment."
+                                          : "No direct employers yet.")}
                                     </p>
                                   )}
                                 </div>
@@ -9194,7 +9219,12 @@ export default function AdminPage() {
                           </button>
                         );
                       })}
-                      {allOrgs.length === 0 && <p className="text-[11px]" style={{ color: "var(--w3)" }}>No agencies yet</p>}
+                      {allOrgs.length === 0 && (
+                        <p className="text-[11px]" style={{ color: orgsLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                          {orgsLoadFailed ? t.aListLoadFailed
+                            : lang === "de" ? "Noch keine Agenturen" : lang === "fr" ? "Aucune agence" : "No agencies yet"}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -9221,8 +9251,9 @@ export default function AdminPage() {
                           );
                         })}
                         {allEmployers.length === 0 && (
-                          <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-                            {lang === "de" ? "Keine Arbeitgeber" : lang === "fr" ? "Aucun employeur" : "No employers yet"}
+                          <p className="text-[11px]" style={{ color: employersLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                            {employersLoadFailed ? t.aListLoadFailed
+                              : lang === "de" ? "Keine Arbeitgeber" : lang === "fr" ? "Aucun employeur" : "No employers yet"}
                           </p>
                         )}
                       </div>

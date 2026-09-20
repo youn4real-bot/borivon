@@ -109,8 +109,31 @@ describe("a failed data load is never rendered as an empty queue", () => {
       .toContain("consumeDeepLink: false");
   });
 
+  it("the agency and employer pickers stop claiming the list is empty", () => {
+    // "Noch keine Agenturen — unter Arbeitgeber → Agenturen anlegen" over a
+    // FAILED fetch does not just misinform: it sends the founder to create
+    // agencies that already exist.
+    for (const [state, fetchPath, setter] of [
+      ["setOrgsLoadFailed", "/api/portal/admin/organizations", "setAllOrgs("],
+      ["setEmployersLoadFailed", "/api/portal/admin/employers", "setAllEmployers("],
+    ] as const) {
+      // The path appears several times (lazy re-fetches too); take the
+      // BOOTSTRAP one — the call whose own .then populates the list.
+      let at = -1;
+      for (let i = ADMIN.indexOf(fetchPath); i >= 0; i = ADMIN.indexOf(fetchPath, i + 1)) {
+        if (ADMIN.slice(i, i + 600).includes(setter)) { at = i; break; }
+      }
+      expect(at, `${fetchPath} bootstrap fetch not found`).toBeGreaterThan(-1);
+      const branch = ADMIN.slice(at, at + 600);
+      expect(branch, `a non-OK ${fetchPath} must be recorded, not swallowed`).toContain(`${state}(true)`);
+      expect(branch, "and a thrown one too").toMatch(new RegExp(`catch\\([^)]*\\)\\s*=>\\s*\\{[^}]*${state}\\(true\\)`));
+    }
+    const shown = ADMIN.match(/t\.aListLoadFailed/g) ?? [];
+    expect(shown.length, "every one of those empty states must be able to say so").toBeGreaterThanOrEqual(5);
+  });
+
   it("LAW #19: the failure wording exists in all three languages", () => {
-    for (const key of ["aLoadFailedTitle", "aLoadFailedSub", "aLoadRetry", "aLoadRetrying", "aDocOpenFailed"] as const) {
+    for (const key of ["aLoadFailedTitle", "aLoadFailedSub", "aLoadRetry", "aLoadRetrying", "aDocOpenFailed", "aListLoadFailed"] as const) {
       const seen = new Set<string>();
       for (const lang of ["fr", "en", "de"] as const) {
         const msg = translations[lang][key];
