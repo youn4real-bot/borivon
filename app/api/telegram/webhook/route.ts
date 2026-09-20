@@ -140,6 +140,21 @@ const TG_SYSTEM = [
 
 const ok = () => new Response("ok");
 
+/**
+ * What the founder is told when the AI half is switched off (ASSISTANT_ENABLED - see
+ * lib/vertexModel's header). ONE wording, shared by both billing gates below, so the two
+ * refusals can never drift apart into "it broke" and "it is off".
+ *
+ * It names what STILL works, because most of this bot does: replying to a reminder ping,
+ * /today, /start, /help and confirming or cancelling an already-staged action are all
+ * deterministic code with no model behind them. A refusal that did not say so would read
+ * as "the bot is dead" and send him hunting for a bug that is not there.
+ */
+const AI_OFF_STILL_WORKS =
+  "Still working, free: reply to a reminder ping (\"done\", or a new time to snooze), /today, /start, /help, and \"yes\"/\"no\" on something already staged.";
+const AI_OFF_HOW_TO_UNDO =
+  "To switch the AI back on: set ASSISTANT_ENABLED=\"true\" in wrangler.jsonc, then npm run cf:build && npm run cf:deploy (the rebuild is required - the value is baked into the Worker).";
+
 // Once-per-cold-start guard for the pending-migration heads-up (so it can't nag per message).
 let migrationCheckRan = false;
 
@@ -189,26 +204,26 @@ export async function POST(req: NextRequest) {
   }
   if (String(chatId) !== allowed) return ok(); // stranger → silently ignore
 
-  // 2b) BILLING OFF-SWITCH (ASSISTANT_ENABLED — see lib/vertexModel's header).
+  // 2b) THE BILLING OFF-SWITCH IS NOT HERE. It began here, one line after the chat lock,
+  // and that position was wrong: ASSISTANT_ENABLED gates SPEND, and most of this handler
+  // spends nothing. Returning here also killed every free, deterministic path below — none
+  // of which involves a model at all:
   //
-  // Placed HERE, immediately after the chat lock, for three reasons:
-  //  • It is ahead of the voice-note branch below, which transcribes on Gemini BEFORE any
-  //    other check runs — gating only at vertexModel() would still bill for every voice
-  //    note the founder sends.
-  //  • It is ahead of the dedupe INSERT and the migration probe, so a message to a switched-
-  //    off bot costs no database writes either.
-  //  • It is BEHIND the chat lock, so a stranger who finds the bot still learns nothing —
-  //    only the founder ever sees this reply.
+  //  • REPLY TO A REMINDER PING (3.3). handleReminderPingReply is pure DB. There is no
+  //    portal UI for assistant_reminders, so replying to the ping is the ONLY way to close
+  //    one, while the per-minute cron keeps firing pings — free, by design. With the gate
+  //    up here a recurring reminder would have pinged the founder forever with no way to
+  //    answer it. That is the reason this moved.
+  //  • /today (3.35) — computeBriefing reads the database, no model.
+  //  • /start and /help (3) — a constant string.
+  //  • CONFIRM / CANCEL a staged write (3.5) — code-enforced precisely so it does NOT
+  //    depend on a model; something he already approved must still be applyable.
+  //  • the quiet / mute / rule / "remind me to X" intercepts (3.7–3.9) — plain writes.
   //
-  // We answer rather than going silent: he asked for the billing to stop, not for the bot to
-  // look broken. Silence is indistinguishable from a crash, and he would go hunting for a bug
-  // that isn't there. One short line says it is off ON PURPOSE and how to undo it — and a
-  // Telegram send is free, so the reply itself costs nothing. Returns 200 so Telegram marks
-  // the update delivered and stops retrying it.
-  if (!assistantEnabled()) {
-    await tgSend(chatId, "Assistant is OFF — AI billing stopped, nothing here runs.\nTo switch it back on: set ASSISTANT_ENABLED=true, then rebuild and deploy.");
-    return ok();
-  }
+  // The gate now sits exactly where the money starts, in two places and only two:
+  //   #1 the voice branch below — transcription is a paid Gemini call;
+  //   #2 section 3.95 — the model run, and the file-upload turn that exists to feed it.
+  // Both are still BEHIND the chat lock, so a stranger who finds the bot learns nothing.
 
   // PENDING-MIGRATION heads-up: a feature can sit silently DEAD on a migration the founder
   // forgot to run (e.g. test-account marking). Once per cold start, probe the gates and, if
@@ -285,6 +300,16 @@ export async function POST(req: NextRequest) {
   let voiceTranscript: string | null = null;
   const voiceLike = msg.voice ?? msg.audio;
   if (voiceLike) {
+    // BILLING GATE #1 (ASSISTANT_ENABLED). Transcription is a paid Gemini call — the one
+    // that does not come through vertexModel() — so it stops with the switch. Refused HERE,
+    // before a single byte is downloaded, and not left to lib/transcribeVoice's null: that
+    // null surfaces as "I couldn't catch that voice note", which reads like a failure and
+    // would have him resending it. Say the real reason, and the way round it (type it).
+    if (!assistantEnabled()) {
+      await tgSend(chatId, `AI is OFF — billing stopped, so I can't transcribe a voice note. Type it instead; the free commands still run.\n\n${AI_OFF_STILL_WORKS}\n${AI_OFF_HOW_TO_UNDO}`);
+      await markResponded();
+      return ok();
+    }
     const audio = await tgGetFileBytes(voiceLike.file_id);
     if (!audio) { await tgSend(chatId, "Couldn't fetch that voice note — resend it or type it."); return ok(); }
     void tgSendChatAction(chatId, "typing");
@@ -297,15 +322,15 @@ export async function POST(req: NextRequest) {
     if (vt.truncated) await tgSend(chatId, "That voice note was long — I may have missed the end. If a task is missing, send the rest.");
   }
 
-  // 3) Fast paths.
+  // 3) Fast paths. A constant string — free, so it answers whatever the switch says. When
+  // the AI is off it SAYS so and lists what still runs: /help is the first thing anyone
+  // sends a bot that looks broken, so it is the right place to explain that it isn't.
   if (text === "/start" || text === "/help") {
-    await tgSend(chatId, "🎓 Borivon ops bot.\nAsk me anything about your candidates, or tap the mic to speak. Try:\n• what should I do today?\n• who has B2 due in the next 3 months?\n• remind me to call the embassy Monday\n\n/today — your daily briefing");
+    await tgSend(chatId, assistantEnabled()
+      ? "🎓 Borivon ops bot.\nAsk me anything about your candidates, or tap the mic to speak. Try:\n• what should I do today?\n• who has B2 due in the next 3 months?\n• remind me to call the embassy Monday\n\n/today — your daily briefing"
+      : `🎓 Borivon ops bot — the AI half is OFF on purpose (billing stopped). Questions, voice notes and filing a document need the paid model, so those are refused.\n\n${AI_OFF_STILL_WORKS}\n${AI_OFF_HOW_TO_UNDO}`);
     return ok();
   }
-
-  const flashModel = vertexModel("flash");
-  if (!flashModel) { await tgSend(chatId, "The assistant isn't connected yet (no model key configured — set ANTHROPIC_API_KEY or the Google Vertex keys)."); return ok(); }
-  const proModel = vertexModel("pro") ?? flashModel;
 
   const adminUserId = await getAdminUserId();
   const scope: AssistantScope = {
@@ -638,6 +663,32 @@ export async function POST(req: NextRequest) {
       return ok();
     }
   }
+
+  // 3.95) BILLING OFF-SWITCH (ASSISTANT_ENABLED — see lib/vertexModel's header), gate #2.
+  //
+  // THIS is where the money starts. Everything above has returned already or cost nothing;
+  // everything below reaches the model — including the file branch in section 4, which
+  // stages bytes to R2 only so the model can identify the candidate, so refusing here also
+  // stops an upload that could never be filed.
+  //
+  // It answers rather than going silent: he asked for the billing to stop, not for the bot
+  // to look broken, and a Telegram send is free. markResponded() stamps the update so a
+  // Telegram retry of the same message is read as answered rather than as a died turn to
+  // re-process. Returns 200 so Telegram marks it delivered and stops retrying.
+  if (!assistantEnabled()) {
+    await tgSend(chatId, `AI is OFF — billing stopped, so I can't answer that one.\n\n${AI_OFF_STILL_WORKS}\n${AI_OFF_HOW_TO_UNDO}`);
+    await markResponded();
+    return ok();
+  }
+
+  // The brain. Built HERE, not up at the fast paths where it used to sit: a null model
+  // dead-ended the WHOLE handler with "the assistant isn't connected yet", which silenced
+  // the free reminder / briefing / confirm paths above any time a key was missing — the
+  // same fault the misplaced switch had, from a different cause. Below this line a brain is
+  // genuinely required, so a null here is a real dead end.
+  const flashModel = vertexModel("flash");
+  if (!flashModel) { await tgSend(chatId, "The assistant isn't connected yet (no model key configured — set ANTHROPIC_API_KEY or the Google Vertex keys)."); return ok(); }
+  const proModel = vertexModel("pro") ?? flashModel;
 
   // 4) Build the user turn (attached file / voice / text).
   const caption = (msg.caption || "").trim();
