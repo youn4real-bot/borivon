@@ -703,24 +703,30 @@ export function AdminDocPreviewModal({
             )
           ) : blobUrl ? (() => {
             const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
+            // Hoisted out of the PDF branch: a PHOTOGRAPHED document needs the
+            // same saved angle. It used to be a PDF-only closure, so the image
+            // viewer's rotate button was a private view toggle — the admin
+            // straightened a sideways diploma, closed the preview, and the
+            // angle was gone, while the merged dossier the employer receives
+            // reads documents.rotation and knew nothing about it.
+            const persistRotate = () => {
+              // Don't persist when previewing a synthetic doc (e.g. merged PDF).
+              if (overrideFetchUrl || !doc.id) return;
+              fetch(`/api/portal/documents/${doc.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                },
+                body: JSON.stringify({ deltaRotation: 90 }),
+              })
+                // A failed PATCH used to leave the page rotated on screen and
+                // the angle unsaved, so the strip reopened sideways every time
+                // and the admin rotated it again, and again.
+                .then(r => { if (!r.ok) { console.error("[rotation] persist failed:", r.status); setActionError(dt.failRotate); } })
+                .catch(e => { console.error("[rotation] persist failed:", e); setActionError(dt.failRotate); });
+            };
             if (ext === "pdf") {
-              const persistRotate = () => {
-                // Don't persist when previewing a synthetic doc (e.g. merged PDF).
-                if (overrideFetchUrl || !doc.id) return;
-                fetch(`/api/portal/documents/${doc.id}`, {
-                  method: "PATCH",
-                  headers: {
-                    "Content-Type": "application/json",
-                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                  },
-                  body: JSON.stringify({ deltaRotation: 90 }),
-                })
-                  // A failed PATCH used to leave the page rotated on screen and
-                  // the angle unsaved, so the strip reopened sideways every time
-                  // and the admin rotated it again, and again.
-                  .then(r => { if (!r.ok) { console.error("[rotation] persist failed:", r.status); setActionError(dt.failRotate); } })
-                  .catch(e => { console.error("[rotation] persist failed:", e); setActionError(dt.failRotate); });
-              };
               // Native iframe for iOS (WebKit blanks the pdf.js canvas).
               // Otherwise the pdf.js PdfViewer for every doc INCLUDING
               // passports — LAW #39 means we serve pristine passport bytes and
@@ -746,7 +752,15 @@ export function AdminDocPreviewModal({
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
             if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
               return (
-                <ZoomPanRotateViewer>
+                // The browser already turned this <img> by its EXIF tag, so
+                // what she sees is upright. documents.rotation is the EXTRA
+                // turn on top, and lib/mergeDocs.ts composes the two the same
+                // way — which is what keeps the preview and the merged dossier
+                // showing the same page the same way up.
+                <ZoomPanRotateViewer
+                  initialRotation={doc.rotation ?? 0}
+                  onRotate={persistRotate}
+                >
                   { /* eslint-disable-next-line @next/next/no-img-element */ }
                   <img src={blobUrl} alt={doc.file_name}
                     draggable={false}

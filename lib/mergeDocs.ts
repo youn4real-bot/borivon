@@ -33,7 +33,10 @@
  */
 
 import { PDFDocument, degrees, type PDFPage } from "pdf-lib";
-import { detectDocKind, pngPixelCount, type DocKind, type MergeRefusalCode } from "@/lib/docBytes";
+import {
+  detectDocKind, pngPixelCount, readJpegOrientation, exifOrientationRotationCw,
+  type DocKind, type MergeRefusalCode,
+} from "@/lib/docBytes";
 
 /** A4 at 72 dpi, portrait. */
 export const A4_WIDTH_PT = 595.28;
@@ -129,6 +132,54 @@ export function fitContain(
   return { x: (pageWidth - width) / 2, y: (pageHeight - height) / 2, width, height };
 }
 
+/**
+ * Where to draw a picture, and how far to turn it, so that EXIF orientation is
+ * honoured on the page.
+ *
+ * `box` is the rectangle the picture should END UP filling, in the page's own
+ * coordinates, already measured in DISPLAY dimensions (width and height
+ * swapped for a quarter turn). This returns the arguments pdf-lib's drawImage
+ * needs to land exactly there.
+ *
+ * Why the offsets: drawImage rotates about its (x, y) corner, not about the
+ * centre, so a turned image walks off the page unless x/y are moved to the
+ * corner the rotation sweeps FROM. pdf-lib's angle is counter-clockwise in PDF
+ * user space, while EXIF speaks clockwise as seen on screen -- hence the
+ * (360 - cw) conversion. Getting that sign wrong turns a sideways diploma the
+ * wrong way twice, which looks like the original bug.
+ *
+ * Pure, and exported, because this is the arithmetic worth pinning: a rotated
+ * page that is merely off-centre still "works" on screen and is very hard to
+ * notice in a merged dossier.
+ */
+export function imageDrawPlacement(
+  box: { x: number; y: number; width: number; height: number },
+  cw: 0 | 90 | 180 | 270,
+): { x: number; y: number; width: number; height: number; rotate: number } {
+  // The picture's own (unrotated) extent: a quarter turn swaps it back.
+  const natW = cw % 180 === 90 ? box.height : box.width;
+  const natH = cw % 180 === 90 ? box.width : box.height;
+  const rotate = (360 - cw) % 360;
+  switch (cw) {
+    case 90:  return { x: box.x,             y: box.y + box.height, width: natW, height: natH, rotate };
+    case 180: return { x: box.x + box.width, y: box.y + box.height, width: natW, height: natH, rotate };
+    case 270: return { x: box.x + box.width, y: box.y,              width: natW, height: natH, rotate };
+    default:  return { x: box.x,             y: box.y,              width: natW, height: natH, rotate: 0 };
+  }
+}
+
+/**
+ * The rotation a photograph needs before anyone looks at it.
+ *
+ * A phone writes the sensor's landscape frame plus an EXIF tag; the browser
+ * obeys the tag, so the preview is upright, and pdf-lib does not, so the merged
+ * copy the employer receives lies on its side. Reading it here is what keeps
+ * those two views of the same file in agreement.
+ */
+export function sourceExifRotationCw(bytes: Uint8Array, kind: DocKind): 0 | 90 | 180 | 270 {
+  return kind === "jpeg" ? exifOrientationRotationCw(readJpegOrientation(bytes)) : 0;
+}
+
 /** documents.rotation is applied the same way to a copied page and a new one. */
 function applyRotation(page: PDFPage, rotation: number | undefined): void {
   const rot = (((rotation ?? 0) % 360) + 360) % 360;
@@ -192,10 +243,26 @@ export async function mergeDocumentsToPdf(sources: MergeSource[]): Promise<Merge
       const image = kind === "jpeg"
         ? await merged.embedJpg(src.bytes)
         : await merged.embedPng(src.bytes);
-      const [pageWidth, pageHeight] = imagePageSize(image.width, image.height);
+      // EXIF first, because it decides what the picture's dimensions even ARE.
+      // image.width/height come from the JPEG's own frame header, which for a
+      // phone photo is the sensor's landscape frame regardless of how the phone
+      // was held; a quarter turn swaps them, and the PAGE has to swap with them
+      // or a portrait diploma gets a landscape sheet and half the readable size.
+      const exifCw = sourceExifRotationCw(src.bytes, kind);
+      const quarter = exifCw % 180 === 90;
+      const shownW = quarter ? image.height : image.width;
+      const shownH = quarter ? image.width  : image.height;
+      const [pageWidth, pageHeight] = imagePageSize(shownW, shownH);
       const page = merged.addPage([pageWidth, pageHeight]);
-      const box = fitContain(image.width, image.height, pageWidth, pageHeight);
-      page.drawImage(image, box);
+      const box = fitContain(shownW, shownH, pageWidth, pageHeight);
+      // imageDrawPlacement returns the angle as a plain number so the geometry
+      // can be tested without pdf-lib; drawImage wants its Rotation wrapper.
+      const placed = imageDrawPlacement(box, exifCw);
+      page.drawImage(image, { ...placed, rotate: degrees(placed.rotate) });
+      // documents.rotation stays on top, as a page rotation, exactly as it is
+      // for a PDF half. It is what the admin chose while LOOKING at the
+      // EXIF-corrected preview, so it composes with the EXIF turn rather than
+      // replacing it.
       applyRotation(page, src.rotation);
     } catch {
       // A file that passed the magic-number check can still be structurally

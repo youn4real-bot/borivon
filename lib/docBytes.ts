@@ -148,3 +148,98 @@ export function isMergeRefusalCode(code: unknown): code is MergeRefusalCode {
 export function nameCannotMerge(fileName: string | null | undefined): boolean {
   return /\.webp$/i.test(fileName ?? "");
 }
+
+/**
+ * WHICH WAY UP IS THIS PHOTOGRAPH, REALLY?
+ *
+ * A phone camera does not turn the pixels when you turn the phone. It writes
+ * the sensor's own landscape frame and adds an EXIF Orientation tag saying how
+ * a viewer should turn it. Browsers obey that tag, so a photographed diploma
+ * looks perfectly upright in the portal's preview -- and pdf-lib's JpegEmbedder
+ * does not read EXIF at all, so the SAME file lands on its side in the merged
+ * dossier the German employer receives, permanently, with nothing on screen
+ * ever having hinted at it. That is this function's whole reason to exist.
+ *
+ * Returns the raw EXIF value 1..8, or null when there is no orientation tag
+ * (most scans, every PNG) -- null and 1 both mean "leave it alone".
+ *
+ * Bounded on purpose: it walks JPEG segment headers only, stops at the first
+ * APP1/Exif or at Start-of-Scan, and every read is guarded against a truncated
+ * or hostile file. These bytes come from candidate uploads.
+ */
+export function readJpegOrientation(buf: Uint8Array): number | null {
+  if (detectDocKind(buf) !== "jpeg") return null;
+  const len = buf.length;
+  let p = 2; // past the SOI marker
+  while (p + 4 <= len) {
+    if (buf[p] !== 0xff) { p++; continue; }   // resync: some writers pad segments
+    const marker = buf[p + 1];
+    if (marker === 0xff) { p++; continue; }   // fill byte, not a marker yet
+    // Standalone markers carry no length word.
+    if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd9) || marker === 0x01) { p += 2; continue; }
+    // Start of Scan: the compressed image begins here and EXIF never follows it.
+    if (marker === 0xda) return null;
+    const segLen = (buf[p + 2] << 8) | buf[p + 3];
+    if (segLen < 2) return null;              // malformed; refuse to guess
+    if (
+      marker === 0xe1 && p + 10 <= len &&
+      buf[p + 4] === 0x45 && buf[p + 5] === 0x78 && buf[p + 6] === 0x69 &&
+      buf[p + 7] === 0x66 && buf[p + 8] === 0x00 && buf[p + 9] === 0x00
+    ) {
+      return readTiffOrientation(buf, p + 10, Math.min(len, p + 2 + segLen));
+    }
+    p += 2 + segLen;
+  }
+  return null;
+}
+
+/** IFD0 of the TIFF block inside an APP1/Exif segment. `base` is its first byte. */
+function readTiffOrientation(buf: Uint8Array, base: number, end: number): number | null {
+  if (base + 8 > end) return null;
+  const little = buf[base] === 0x49 && buf[base + 1] === 0x49; // "II"
+  const big    = buf[base] === 0x4d && buf[base + 1] === 0x4d; // "MM"
+  if (!little && !big) return null;
+  const u16 = (o: number) => (little ? buf[o] | (buf[o + 1] << 8) : (buf[o] << 8) | buf[o + 1]);
+  const u32 = (o: number) =>
+    (little
+      ? buf[o] | (buf[o + 1] << 8) | (buf[o + 2] << 16) | (buf[o + 3] << 24)
+      : (buf[o] << 24) | (buf[o + 1] << 16) | (buf[o + 2] << 8) | buf[o + 3]) >>> 0;
+  if (u16(base + 2) !== 42) return null;      // TIFF magic
+  const ifd0 = base + u32(base + 4);
+  // An offset that points outside the segment is a broken (or crafted) file,
+  // not an orientation. Never walk off the buffer on a candidate's upload.
+  if (ifd0 < base + 8 || ifd0 + 2 > end) return null;
+  const entries = u16(ifd0);
+  for (let i = 0; i < entries; i++) {
+    const e = ifd0 + 2 + i * 12;
+    if (e + 12 > end) return null;
+    if (u16(e) !== 0x0112) continue;          // Orientation
+    if (u16(e + 2) !== 3) return null;        // must be SHORT
+    // A single SHORT sits in the first two bytes of the value field, under
+    // either byte order.
+    const v = u16(e + 8);
+    return v >= 1 && v <= 8 ? v : null;
+  }
+  return null;
+}
+
+/**
+ * The EXIF tag turned into plain clockwise degrees, which is what a page
+ * actually needs.
+ *
+ * Orientations 2, 4, 5 and 7 also MIRROR the picture. We deliberately keep only
+ * their rotation component: a mirrored certificate reads as a forgery, and a
+ * mirrored scan is never what a camera meant -- those four values essentially
+ * only appear from editing software. Rotating is the part that is always right.
+ *
+ * 5-8 are the quarter turns, which is why they are also the ones whose page has
+ * to swap width and height.
+ */
+export function exifOrientationRotationCw(orientation: number | null | undefined): 0 | 90 | 180 | 270 {
+  switch (orientation) {
+    case 3: case 4: return 180;
+    case 6: case 7: return 90;
+    case 5: case 8: return 270;
+    default: return 0;      // 1, 2, null, or anything we could not read
+  }
+}
