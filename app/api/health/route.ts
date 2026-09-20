@@ -20,7 +20,8 @@ const REQUIRED = [
 
 /**
  * `?deep=1` — additionally prove every external dependency is actually REACHABLE:
- * Google Workspace, R2, the database, and that email + payments are configured.
+ * Google Workspace, R2, the database, and that email is configured. (No payments
+ * probe: the paid plan was removed on 2026-09-20, so there is nothing to probe.)
  *
  * This exists because these failures are SILENT by design: the booking page's
  * busyIntervals() catches everything and returns [], so a completely dead calendar

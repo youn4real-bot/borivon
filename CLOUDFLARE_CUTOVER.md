@@ -46,7 +46,6 @@ config/DNS switch below.
    - **Not needed on the worker:** `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
      (presigned URLs are unused; the binding handles all R2 access).
    - **Must be present:** Supabase keys · `ADMIN_EMAIL` · `DL_TOKEN_SECRET` · `CRON_SECRET` ·
-     Stripe (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, price/lookup config) ·
      Google (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_DRIVE_FOLDER_ID`,
      `GOOGLE_WORKSPACE_CREDENTIALS`+`_SUBJECT`, `GMAIL_USER`, Vertex creds+project, OAuth
      client id/secret) · `AZURE_DOC_INTEL_ENDPOINT` + `AZURE_DOC_INTEL_KEY` (passport OCR) ·
@@ -59,8 +58,7 @@ config/DNS switch below.
      GMAIL_USER, GOOGLE_VERTEX_CREDENTIALS+PROJECT+LOCATION, GOOGLE_WORKSPACE_CREDENTIALS+SUBJECT,
      TELEGRAM_BOT_TOKEN+CHAT_ID+WEBHOOK_SECRET, GIPHY_API_KEY). **You still need to ADD these
      (website-specific, currently missing)** — copy the values from your Vercel project's env:
-     - **Payments:** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-     - **Drive + passport PDF + Vision OCR:** `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_DRIVE_FOLDER_ID`
+     - **Drive + passport PDF:** `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_DRIVE_FOLDER_ID`
      - **Passport OCR (primary):** `AZURE_DOC_INTEL_ENDPOINT`, `AZURE_DOC_INTEL_KEY`
      - **Captcha:** `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
      - **Base URL:** `NEXT_PUBLIC_BASE_URL` (= `https://www.borivon.com`)
@@ -76,7 +74,7 @@ config/DNS switch below.
      remaining website ones. `NEXT_PUBLIC_*` are public by design.
 5. **[me]** Smoke-test the worker URL end to end while DNS still points at Vercel:
    home page, login, a candidate dashboard, generate a CV, generate the passport sheet,
-   a Stripe test webhook (Stripe CLI → the worker URL), a file upload + download.
+   a file upload + download.
 
 > At this point the worker is fully functional on its `*.workers.dev` URL and the
 > live site/bot are still 100% on Vercel. Nothing has changed for users.
@@ -97,9 +95,10 @@ Do these close together. Each is individually reversible.
 3. **[you]** **Repoint the Telegram webhook** to the worker (one API call, instant,
    reversible): `setWebhook` → `https://www.borivon.com/api/telegram/webhook` with the
    existing secret token. (Reverting = point it back at the Vercel URL.)
-4. **[you]** **Update the Stripe webhook URL** in the Stripe dashboard to
-   `https://www.borivon.com/api/portal/stripe/webhook` (same path; the domain now
-   resolves to the worker). The signature secret is unchanged.
+4. ~~**Update the Stripe webhook URL.**~~ No longer applies: the paid plan was
+   removed on 2026-09-20 and `/api/portal/stripe/webhook` no longer exists. If a
+   Stripe endpoint is still configured in the Stripe dashboard, delete it there —
+   it can only ever hit a 404 now.
 5. **[you]** **Update redirect URLs:** Supabase Auth (the `…/portal/auth/callback`
    allow-list) and any Google OAuth redirect URIs — only if the host changes; since the
    host stays `www.borivon.com`, usually **no change needed**.
@@ -112,7 +111,6 @@ Do these close together. Each is individually reversible.
 - **[you/me]** Log in · open a candidate dashboard · generate a CV (downloads, looks right)
   · download the passport sheet · send a test message to the bot (it replies) · do a real
   file upload + download.
-- **[you]** Make a Stripe **test** purchase → confirm `payment_tier` flips to premium.
 - **[me]** Watch the worker logs (Cloudflare dashboard → Observability) for errors.
 - **[you/me]** Next morning: confirm the daily briefing/nudge fired exactly **once** (not
   twice — proves crons cut over cleanly).
@@ -125,7 +123,7 @@ Each step reverses independently — no data is lost (Supabase + R2 are shared):
 
 1. **Domain:** remove the Custom Domain from the worker / point `www` back to Vercel.
 2. **Telegram:** `setWebhook` back to the Vercel URL.
-3. **Stripe:** webhook URL back to Vercel (or it keeps working — same domain).
+3. **Stripe:** nothing to do — the paid plan was removed on 2026-09-20.
 4. **Crons:** set `CF_CRONS_ENABLED` ≠ `true` and restore `vercel.json` crons + redeploy.
 
 Vercel is never deleted until the Cloudflare deploy has run clean for a few days.
