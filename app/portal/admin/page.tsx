@@ -2652,9 +2652,22 @@ export default function AdminPage() {
           }
           return updated as typeof prev;
         });
+        // Closing the editor is the ONLY signal that the rename landed, so it
+        // belongs inside the success branch. It used to sit after the catch, so
+        // a 403 (LAW #25 scope) or a 500 closed the editor, discarded the typed
+        // name, and left the old label on screen unchanged — which reads as
+        // "the rename worked and I am looking at the new name". The admin found
+        // out on the next reload, days later, that a step every candidate sees
+        // still carried the old wording.
+        setEditingSlotId(null);
+        return;
       }
-    } catch { /* network error */ }
-    setEditingSlotId(null);
+      reportStructureSaveFailed();
+    } catch {
+      reportStructureSaveFailed();
+    }
+    // Editor stays OPEN on failure: the typed name is still in the inputs, so
+    // the retry is one more click rather than typing it out again.
   }
 
   async function deletePhaseSlot(slotId: string, phase: string, label?: string) {
@@ -3177,6 +3190,10 @@ export default function AdminPage() {
   async function saveSlotOrder(phase: string, slots: { id: string; position: number; category_id?: string | null }[]) {
     if (!accessToken) return;
     try {
+      // The response was never read. A 403 or a 500 left the boxes sitting in
+      // their new order on screen and in the old order in the database, so the
+      // reorder "worked" until a reload days later put it back — the same
+      // shape as the rename above.
       const r = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -3206,6 +3223,9 @@ export default function AdminPage() {
   async function saveCategoryOrder(phase: string, cats: SlotCategory[]) {
     if (!accessToken) return;
     try {
+      // Categories are half of the same drag: reflowAndSave writes the box
+      // order and the category order together, so a silent failure here loses
+      // exactly as much of the arrangement as a silent failure above.
       const r = await fetch("/api/portal/phase-slot-categories", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -3269,6 +3289,9 @@ export default function AdminPage() {
     setSlotCategories(prev => ({ ...prev, [phase]: (prev[phase] ?? []).map(c => c.id === id ? { ...c, label } : c) }));
     if (!accessToken) return;
     try {
+      // Same shape as the box rename: the caller has already closed the inline
+      // editor and the new heading is on screen, so an unread response means a
+      // refused rename looks exactly like an accepted one.
       const r = await fetch("/api/portal/phase-slot-categories", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -3287,6 +3310,10 @@ export default function AdminPage() {
     setSlotCategories(prev => ({ ...prev, [phase]: cats }));
     if (accessToken) {
       try {
+        // The category vanishes from the screen the moment this runs. If the
+        // DELETE is refused it is still in the database, so on the next load the
+        // group reappears and swallows the boxes the admin has just spent time
+        // rearranging outside it.
         const r = await fetch("/api/portal/phase-slot-categories", {
           method: "DELETE",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },

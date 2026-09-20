@@ -134,3 +134,64 @@ describe("a failed partner-share read is unknown, not 'no agency can see her'", 
       .toContain("loadPartnerShares(selectedUser)");
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 2 — the editor closes because the save landed, not because it returned
+// ───────────────────────────────────────────────────────────────────────────
+describe("a structure edit is only 'done' once the server says so", () => {
+  it("the rename closes its editor inside the success branch", () => {
+    const body = fnBody(ADMIN, "async function saveSlotLabel(");
+    const okAt = body.indexOf("if (res.ok) {");
+    const closeAt = body.indexOf("setEditingSlotId(null)");
+    const catchAt = body.indexOf("} catch {");
+    expect(okAt, "the success branch moved — re-point this test").toBeGreaterThan(-1);
+    expect(closeAt, "the editor is never closed at all now?").toBeGreaterThan(-1);
+    expect(catchAt, "the catch moved — re-point this test").toBeGreaterThan(-1);
+    // The whole bug in one assertion: the close used to sit AFTER the catch, so
+    // it ran on 403, on 500 and on a dead socket exactly as it ran on success.
+    expect(closeAt, "closing the editor after the catch is the bug itself").toBeLessThan(catchAt);
+    expect(closeAt, "and it must be inside the ok branch, not before it").toBeGreaterThan(okAt);
+  });
+
+  it("the rename says so when it fails, on a refusal and on a throw", () => {
+    const body = fnBody(ADMIN, "async function saveSlotLabel(");
+    const reports = body.match(/reportStructureSaveFailed\(\)/g) ?? [];
+    expect(reports.length, "both the non-OK response and the thrown fetch must report")
+      .toBeGreaterThanOrEqual(2);
+    expect(body, "an empty catch is how this failed silently for months")
+      .not.toMatch(/catch\s*\{\s*\}/);
+  });
+
+  it("the rename leaves the typed name in the editor to retry with", () => {
+    const body = fnBody(ADMIN, "async function saveSlotLabel(");
+    const tail = body.slice(body.indexOf("} catch {"));
+    expect(tail, "closing after the catch would discard what the admin typed")
+      .not.toContain("setEditingSlotId(null)");
+  });
+
+  it("the drag order checks its response — both halves of the same drag", () => {
+    for (const decl of ["async function saveSlotOrder(", "async function saveCategoryOrder("]) {
+      const body = fnBody(ADMIN, decl);
+      expect(body, `${decl} must read the response`).toMatch(/const r = await fetch\(/);
+      expect(body, `${decl} must report a refusal`).toContain("if (!r.ok) reportStructureSaveFailed();");
+      expect(body, `${decl} must report a thrown fetch too`)
+        .toContain("catch { reportStructureSaveFailed(); }");
+    }
+  });
+
+  it("renaming and deleting a category report their failures too", () => {
+    for (const decl of ["async function renameCategory(", "async function deleteSlotCategory("]) {
+      const body = fnBody(ADMIN, decl);
+      expect(body, `${decl} still swallows its failure`).toContain("reportStructureSaveFailed()");
+      expect(body, `${decl} still has an empty catch`).not.toMatch(/catch\s*\{\s*\}/);
+    }
+  });
+
+  it("LAW #19: the one wording for a lost structure edit exists in all three languages", () => {
+    const body = ADMIN.slice(ADMIN.indexOf("function reportStructureSaveFailed()"));
+    const block = body.slice(0, body.indexOf("\n  }"));
+    expect(block, "German wording missing").toContain("nicht gespeichert");
+    expect(block, "French wording missing").toContain("n'a pas été enregistrée");
+    expect(block, "English wording missing").toContain("was not saved");
+  });
+});
