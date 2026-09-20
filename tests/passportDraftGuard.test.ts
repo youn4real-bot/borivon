@@ -341,6 +341,28 @@ describe("the dashboard cannot autosave a form it never loaded", () => {
     expect(DASH).toMatch(/passportFormSeededRef\.current\s*=\s*false/);
   });
 
+  it("an unknown passport_status is not rendered as 'not submitted'", () => {
+    // SHAPE A on the bootstrap read: its error was destructured away, so a
+    // failed read set passportStatus to null — the same value as "she never
+    // submitted". An approved passport lost its colour (LAW #4) and the
+    // auto-open effect offered an editable Submit form over approved data.
+    expect(DASH).toContain("passportStatusKnown");
+    expect(DASH).toMatch(/const\s+readOk\s*=\s*classifyProfileRead\(read\)\s*!==\s*"failed";/);
+    expect(DASH).toMatch(/if\s*\(!readOk\)\s*\{[^}]*return;\s*\}/);
+    // The auto-open guard reads it, before it opens anything.
+    const guard = DASH.indexOf("if (!passportStatusKnown) return;");
+    const open = DASH.indexOf("reopenPassportData();", guard);
+    expect(guard).toBeGreaterThan(0);
+    expect(open).toBeGreaterThan(guard);
+  });
+
+  it("the retry redoes the read that actually failed", () => {
+    // A failed STATUS read must not pop the eighteen-field form open on a
+    // candidate who tapped "try again", not her passport box.
+    expect(DASH).toMatch(/if\s*\(passportLoadFailed === "status"\)\s*await refreshPassportStatus\(\);/);
+    expect(DASH).toMatch(/else await reopenPassportData\(\);/);
+  });
+
   it("a failed load says so in all three languages (LAW #19)", () => {
     expect(DASH).toContain("passportLoadFailed");
     expect(DASH).toContain("Ihre Passdaten konnten nicht geladen werden");

@@ -847,10 +847,26 @@ export default function DashboardPage() {
    * the autosave effect, so the effect already re-runs and reads it fresh.
    */
   const passportFormSeededRef = useRef(false);
-  /** The profile read for the passport form failed. Rendered as a banner with
-   *  a retry — the honest alternative to opening eighteen empty inputs. */
-  const [passportLoadFailed, setPassportLoadFailed] = useState(false);
+  /**
+   * A passport read failed. Rendered as a banner with a retry — the honest
+   * alternative to a blank that gets treated as the truth.
+   *
+   * The value says WHICH read, so the retry redoes that one:
+   *   "form"   — the eighteen-field profile read behind the data form. The
+   *              form deliberately did not open.
+   *   "status" — the bootstrap read of passport_status. Unknown is not
+   *              "not submitted", so nothing claims a review state.
+   */
+  const [passportLoadFailed, setPassportLoadFailed] = useState<null | "form" | "status">(null);
   const [passportLoadRetrying, setPassportLoadRetrying] = useState(false);
+  /**
+   * passport_status actually came back. False = we do not know it, which is a
+   * different thing from `passportStatus === null` ("she has not submitted").
+   * Guards the auto-open effect: offering an editable submit form over a
+   * passport an admin already approved is how a failed read turns into an
+   * edit nobody asked for.
+   */
+  const [passportStatusKnown, setPassportStatusKnown] = useState(true);
 
   /**
    * Re-open the passport-data modal AFTER first confirmation, populated from
@@ -873,10 +889,10 @@ export default function DashboardPage() {
     // and the form opened with eighteen empty inputs that the autosave then
     // wrote to the database. "I could not read it" is not "it is empty".
     if (classifyProfileRead(read) === "failed") {
-      setPassportLoadFailed(true);
+      setPassportLoadFailed("form");
       return false;
     }
-    setPassportLoadFailed(false);
+    setPassportLoadFailed(null);
     type ProfileRow = Partial<PassportData> & { passport_confirmed_fields?: unknown };
     const p = (read.data ?? {}) as ProfileRow;
     const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
@@ -901,13 +917,37 @@ export default function DashboardPage() {
     return true;
   }, [userId, lang]);
 
-  /** "Try again" on the load-failure banner. One read, and the form opens if
-   *  it lands — nothing here can put a blank form on screen. */
+  /** Re-read passport_status on its own. Returns false when the read failed,
+   *  so the caller can say "unknown" instead of writing null into the state
+   *  that every status colour and the auto-open guard read. */
+  const refreshPassportStatus = useCallback(async (uid?: string): Promise<boolean> => {
+    const id = uid ?? userId;
+    if (!id) return false;
+    const read = await getMyProfile("passport_status", { userId: id });
+    if (classifyProfileRead(read) === "failed") {
+      setPassportStatusKnown(false);
+      setPassportLoadFailed(prev => prev ?? "status");
+      return false;
+    }
+    setPassportStatusKnown(true);
+    setPassportStatus((read.data as { passport_status?: string | null } | null)?.passport_status ?? null);
+    setPassportLoadFailed(prev => (prev === "status" ? null : prev));
+    return true;
+  }, [userId]);
+
+  /** "Try again" on the load-failure banner — it redoes the read that failed,
+   *  and nothing here can put a blank form on screen. */
   const retryPassportLoad = useCallback(async () => {
     if (passportLoadRetrying) return;
     setPassportLoadRetrying(true);
-    try { await reopenPassportData(); } finally { setPassportLoadRetrying(false); }
-  }, [reopenPassportData, passportLoadRetrying]);
+    try {
+      // A failed status read must not pop the eighteen-field form open on a
+      // candidate who never asked for it — she tapped "try again", not her
+      // passport box.
+      if (passportLoadFailed === "status") await refreshPassportStatus();
+      else await reopenPassportData();
+    } finally { setPassportLoadRetrying(false); }
+  }, [reopenPassportData, refreshPassportStatus, passportLoadFailed, passportLoadRetrying]);
 
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
   const addressHintShown = useRef(false);
@@ -1281,6 +1321,9 @@ export default function DashboardPage() {
           // passport_status is admin-driven — always honor it.
           if (typeof row.passport_status === "string" || row.passport_status === null) {
             setPassportStatus(row.passport_status ?? null);
+            // A live row IS the answer the failed bootstrap read never gave.
+            setPassportStatusKnown(true);
+            setPassportLoadFailed(prev => (prev === "status" ? null : prev));
           }
           // ── Merged in from the old `profile-status-${userId}` channel ──────
           // That was a SECOND postgres_changes subscription on this same table
@@ -1422,6 +1465,10 @@ export default function DashboardPage() {
     // side-by-side. It's reachable on demand via the "Data" button in the
     // preview header, where it pops up centered ON TOP (not docked).
     if (previewDoc.status === "approved" && passportStatus === "approved") return;
+    // Unknown status = we cannot tell whether that guard above should have
+    // fired, so opening the editable form risks putting a Submit button in
+    // front of an approved passport. The banner already says to retry.
+    if (!passportStatusKnown) return;
     reopenPassportData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDoc?.id]);
@@ -1705,8 +1752,17 @@ export default function DashboardPage() {
         // a) Profile (passport / payment tier / verified flag)
         (async () => {
           try {
-            const { data } = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
+            const read = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
             if (cancelled) return;
+            // SHAPE A. The error was destructured away, so a failed read set
+            // passportStatus to null — the exact same value as "she has never
+            // submitted". An approved passport then rendered with no colour at
+            // all (LAW #4) and the auto-open effect offered her an editable
+            // submit form over data an admin had already approved.
+            const readOk = classifyProfileRead(read) !== "failed";
+            setPassportStatusKnown(readOk);
+            if (!readOk) { setPassportLoadFailed(prev => prev ?? "status"); return; }
+            const data = read.data;
             setPassportStatus(data?.passport_status ?? null);
             setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
             setManuallyVerified(!!data?.manually_verified);
@@ -3272,7 +3328,7 @@ export default function DashboardPage() {
             start, and the autosave wrote that blank over her stored passport
             while passport_status still read "approved". An empty form is a
             worse answer than this sentence. */}
-        {passportLoadFailed && (
+        {passportLoadFailed !== null && (
           <div className="mb-5 px-4 py-3 flex items-start gap-3"
             style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
             <AlertTriangle size={15} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
