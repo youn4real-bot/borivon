@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { planPdfWorker, pdfLoadOptions } from "@/lib/pdfjs";
+import { DOC_FAILURE_TEXT } from "@/lib/documentFetch";
 
 /**
  * Two things are pinned here.
@@ -22,6 +23,7 @@ import { planPdfWorker, pdfLoadOptions } from "@/lib/pdfjs";
 const PKG = path.join(process.cwd(), "node_modules", "pdfjs-dist");
 const installed = fs.existsSync(PKG);
 const read = (p: string) => fs.readFileSync(path.join(PKG, p), "utf8");
+const ORG = fs.readFileSync(path.join(process.cwd(), "components", "PdfPageOrganizer.tsx"), "utf8");
 
 describe("planPdfWorker", () => {
   it("uses a module worker on a current browser", () => {
@@ -100,5 +102,39 @@ describe.skipIf(!installed)("the installed pdfjs-dist still justifies the legacy
     // lib/pdfjs.ts reports it rather than pretending it chose wrong.
     expect(read("build/pdf.mjs")).toMatch(/class LoopbackPort \{[\s\S]{0,200}structuredClone\(/);
     expect(read("legacy/build/pdf.mjs")).not.toContain("web.structured-clone");
+  });
+});
+
+describe("the organiser still says WHICH step failed", () => {
+  it("in all three languages, from the shared table", () => {
+    // The three sentences used to be inline in this file. They moved to
+    // lib/documentFetch.ts when the same "which layer failed" answer was owed
+    // by AdminDocPreviewModal and PdfViewer too — three copies of one message
+    // table is how one of them ends up untranslated. The REQUIREMENT is
+    // unchanged and still asserted, now against the shared table;
+    // tests/documentFetch.test.ts checks every layer has fr/en/de and differs.
+    expect(DOC_FAILURE_TEXT.download.en).toBe("Could not download this file.");
+    expect(DOC_FAILURE_TEXT.download.de).toBe("Datei konnte nicht geladen werden.");
+    expect(DOC_FAILURE_TEXT.download.fr).toBe("Impossible de télécharger ce fichier.");
+  });
+
+  it("tells the steps apart instead of printing one message for everything", () => {
+    // Two classifiers live side by side on purpose. classifyPdfOpenFailure
+    // judges everything pdf.js throws and keeps its own stage vocabulary;
+    // a DocumentFetchError is the one verdict it cannot reach, because only
+    // the guard that read the response saw the status AND the bytes. Both
+    // must stay wired, or one class of failure loses its sentence.
+    expect(ORG).toMatch(/let stage: PdfOpenStage = "fetch"/);
+    expect(ORG).toContain("classifyPdfOpenFailure(stage, e)");
+    expect(ORG).toContain("DocumentFetchError");
+    expect(ORG).toMatch(/docFailureMessage\(fetchFailure\.layer, lang/);
+    expect(ORG).toMatch(/pdfOpenFailureMessage\(kind as PdfOpenFailure, lang/);
+  });
+
+  it("reads the document through the guard, never a bare res.blob()", () => {
+    // A bare `res.blob()` after an `res.ok` check still accepts a 200 whose
+    // body is `{"error":…}` — pdf.js then reports the DOCUMENT as unreadable.
+    expect(ORG).toContain("fetchDocumentBlob(");
+    expect(ORG).not.toMatch(/await res\.blob\(\)/);
   });
 });
