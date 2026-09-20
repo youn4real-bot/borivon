@@ -42,6 +42,29 @@ const NOTIF_DOC    = code("app/api/portal/admin/notifications/[id]/doc/route.ts"
 const UPLOAD_ROUTE = code("app/api/portal/upload/route.ts");
 const PASSPORT_PDF = code("app/api/portal/admin/replace-passport-pdf/route.ts");
 
+/**
+ * The body of `onDeepLink`, from its declaration to the first line that is
+ * exactly four spaces and a closing brace.
+ *
+ * Line-ending agnostic ON PURPOSE, and this is why it is a function rather
+ * than two copies of one expression. Both call sites used to scope themselves
+ * with `ADMIN.indexOf("\n    }\n", at)`. That literal cannot match on this
+ * repository: it is checked out with core.autocrlf=true, so the file on disk
+ * holds "\r\n    }\r\n" and the `}` is followed by "\r", not "\n". indexOf
+ * answered -1, `slice(at, -1)` silently fell back to everything up to the last
+ * character of a 9,500-line file, and both assertions were searching thousands
+ * of unrelated lines instead of this handler. They passed on a coincidence —
+ * the strings they look for happen to exist elsewhere in the panel — so
+ * deleting the code they guard would not have failed them.
+ */
+function onDeepLinkBody(): string {
+  const at = ADMIN.indexOf("async function onDeepLink");
+  expect(at, "onDeepLink not found — was it renamed?").toBeGreaterThan(-1);
+  const endRel = ADMIN.slice(at).search(/\r?\n {4}\}\r?\n/);
+  expect(endRel, "the end of onDeepLink was not found — was it reindented?").toBeGreaterThan(0);
+  return ADMIN.slice(at, at + endRel);
+}
+
 /** The array literal assigned to `name`, e.g. `const NAME = [ … ];`. */
 function list(src: string, name: string): string {
   const at = src.indexOf(`const ${name} = [`);
@@ -262,9 +285,7 @@ describe("an upload notification opens the document", () => {
   });
 
   it("the panel falls back to the row the server resolved", () => {
-    const at = ADMIN.indexOf("async function onDeepLink");
-    expect(at, "onDeepLink not found").toBeGreaterThan(-1);
-    const body = ADMIN.slice(at, ADMIN.indexOf("\n    }\n", at));
+    const body = onDeepLinkBody();
     expect(body).toContain("detail.doc");
     expect(body, "the local row wins when present — it has the freshest status")
       .toMatch(/local\s*\?\?\s*\(eventDoc/);
@@ -273,9 +294,7 @@ describe("an upload notification opens the document", () => {
 
   it("a lookup that failed is announced, not swallowed", () => {
     expect(BELL, "the bell must tell the panel the lookup failed").toContain("lookupFailed: true");
-    const at = ADMIN.indexOf("async function onDeepLink");
-    const body = ADMIN.slice(at, ADMIN.indexOf("\n    }\n", at));
-    expect(body).toContain("detail.lookupFailed");
+    expect(onDeepLinkBody()).toContain("detail.lookupFailed");
   });
 
   it("LAW #25: the lookup route scopes by candidate, not by supreme admin", () => {
