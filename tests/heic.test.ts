@@ -105,3 +105,90 @@ describe("the message she is shown", () => {
     expect(HEIC_CODE).toBe("HEIC_UNSUPPORTED");
   });
 });
+
+/**
+ * AND THE SENTENCE HAS TO REACH HER, IN HER OWN LANGUAGE, WHEREVER THE FILE
+ * CAME IN.
+ *
+ * The detector and HEIC_MESSAGE were only half the fix: the three SERVER
+ * routes answered with their own code, and then every CLIENT surface threw
+ * that answer away and showed its own generic line — "PDF or a photo (JPG,
+ * PNG)", "Only a PDF or a photo (JPG, PNG, WebP) can go here", "Upload failed.
+ * Please try again with a PDF or photo". Each is true and each tells someone
+ * holding a perfectly good photo nothing she can act on, because the phone,
+ * not she, chose the format.
+ */
+import { heicRefusalMessage } from "../lib/heic";
+import { slotDropVerdict, slotDropRefusalMessage } from "../lib/adminPanelRules";
+import { readFileSync } from "node:fs";
+
+describe("the HEIC sentence itself (LAW #19)", () => {
+  const langs = ["fr", "en", "de"] as const;
+
+  it("exists, differs, and is not a translation stub in any of the three", () => {
+    const said = langs.map(l => heicRefusalMessage(l));
+    expect(new Set(said).size, "one of the three is not actually translated").toBe(3);
+    for (const m of said) expect(m.trim().length).toBeGreaterThan(40);
+  });
+
+  it("names the format and gives her the way out, in every language", () => {
+    for (const l of langs) {
+      const m = heicRefusalMessage(l);
+      expect(m, `${l} must name the format`).toMatch(/HEIC/i);
+      expect(m, `${l} must point at the photo library`).toMatch(/Photos|Fotos/);
+      expect(m, `${l} must name the format that works`).toMatch(/JPEG/i);
+    }
+  });
+
+  it("never falls back to the sentence this replaces", () => {
+    for (const l of [...langs, "xx"]) {
+      expect(heicRefusalMessage(l)).not.toMatch(/PDF only|Nur PDF|uniquement/i);
+    }
+  });
+
+  it("an unknown language still gets a real sentence, not an empty one", () => {
+    expect(heicRefusalMessage("xx")).toBe(heicRefusalMessage("en"));
+  });
+});
+
+describe("every arrival point we can reach says it", () => {
+  it("the admin's drop target: its own reason, its own sentence", () => {
+    const heic = { type: "image/heic", name: "IMG_0421.HEIC" };
+    const v = slotDropVerdict(heic, "pdf-or-photo");
+    expect(v).toEqual({ ok: false, reason: "heic" });
+    for (const l of ["fr", "en", "de"] as const) {
+      expect(slotDropRefusalMessage("heic", l)).toBe(heicRefusalMessage(l));
+    }
+  });
+
+  it("the login-less upload link answers before Uppy can refuse it generically", () => {
+    // Uppy's own allowedFileTypes rejection is a bare restriction-failure with
+    // nothing to say, so the check has to come FIRST.
+    const UPLOADER = readFileSync("components/DocUploader.tsx", "utf8");
+    const check = UPLOADER.indexOf("isHeicUpload(file.type, file.name)");
+    const addFile = UPLOADER.indexOf("uppy.addFile(");
+    expect(check, "the uploader must recognise a HEIC at all").toBeGreaterThan(-1);
+    expect(check, "and before handing it to Uppy").toBeLessThan(addFile);
+    expect(UPLOADER).toContain("heicRefusalMessage(lang)");
+  });
+
+  it("and it reads the SERVER's answer, for a HEIC renamed .jpg", () => {
+    // No name or MIME check on this side can catch that one; the server
+    // sniffs the bytes and already answers with HEIC_CODE. That answer used
+    // to be discarded by an error handler that ignored the response body.
+    const UPLOADER = readFileSync("components/DocUploader.tsx", "utf8");
+    expect(UPLOADER).toMatch(/response\?\.body[\s\S]{0,120}HEIC_CODE/);
+  });
+
+  it("the server routes still answer with the shared code, not a local string", () => {
+    for (const route of [
+      "app/api/portal/upload/route.ts",
+      "app/api/portal/u/[token]/route.ts",
+      "app/api/portal/admin/replace-passport-pdf/route.ts",
+    ]) {
+      const src = readFileSync(route, "utf8");
+      expect(src, `${route} must use the shared code`).toContain("HEIC_CODE");
+      expect(src, `${route} must use the shared message`).toContain("HEIC_MESSAGE");
+    }
+  });
+});

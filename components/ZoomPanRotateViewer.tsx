@@ -31,17 +31,32 @@ const ZOOM_STEP = 1.25;
  * `minScale` is configurable so DOCX previews can lock at 100% (zooming
  * out smaller than the page makes no sense for documents). Default 0.25
  * keeps image previews flexible.
+ *
+ * `initialRotation` / `onRotate` make the turn STICK, the way it already does
+ * for a PDF. Without them the rotate button was a private view toggle: a
+ * photographed diploma lying on its side could be straightened on screen, the
+ * angle was forgotten on close, and nothing ever reached documents.rotation —
+ * which is the one column the merged dossier reads. Both are optional, so the
+ * DOCX and candidate previews that do not own a stored row behave exactly as
+ * they did.
  */
 export function ZoomPanRotateViewer({
   children,
   minScale = 0.25,
+  initialRotation = 0,
+  onRotate,
 }: {
   children: React.ReactNode;
   minScale?: number;
+  /** Persisted angle to open at, in degrees clockwise (documents.rotation). */
+  initialRotation?: number;
+  /** Called after each +90° turn, so the caller can persist it. */
+  onRotate?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale]       = useState(1);
-  const [rotation, setRotation] = useState(0); // multiples of 90°
+  // Seeded from the stored angle so the picture opens the way it was left.
+  const [rotation, setRotation] = useState(initialRotation); // multiples of 90°
   const [pan, setPan]           = useState({ x: 0, y: 0 });
   const draggingRef             = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const pinchRef                = useRef<{ startDist: number; startScale: number } | null>(null);
@@ -49,7 +64,16 @@ export function ZoomPanRotateViewer({
   function clamp(s: number) { return Math.min(MAX_SCALE, Math.max(minScale, s)); }
 
   function reset() {
-    setScale(1); setRotation(0); setPan({ x: 0, y: 0 });
+    // Back to the SAVED angle, not to zero: the stored rotation is a property
+    // of the document, not of this viewing session, and snapping it upright
+    // here would silently disagree with the merged PDF on the next open.
+    setScale(1); setRotation(initialRotation); setPan({ x: 0, y: 0 });
+  }
+
+  /** One quarter turn clockwise, then let the caller persist it. */
+  function rotateCw() {
+    setRotation(r => r + 90);
+    onRotate?.();
   }
 
   // Zoom anchored at a screen point (cursor or pinch center)
@@ -134,7 +158,7 @@ export function ZoomPanRotateViewer({
   // Double-click: toggle 100% ⇄ 200% (and reset rotation when collapsing back)
   function onDoubleClick(e: React.MouseEvent) {
     e.preventDefault();
-    if (scale === 1 && rotation === 0) {
+    if (scale === 1 && rotation === initialRotation) {
       zoomAt(2, e.clientX, e.clientY);
     } else {
       reset();
@@ -189,7 +213,7 @@ export function ZoomPanRotateViewer({
           <ZoomIn size={15} strokeWidth={1.8} />
         </ToolBtn>
         <div style={{ width: 1, height: 18, background: "var(--border)", margin: "0 4px" }} />
-        <ToolBtn onClick={() => setRotation(r => r + 90)} label="Rotate">
+        <ToolBtn onClick={rotateCw} label="Rotate">
           <RotateCw size={15} strokeWidth={1.8} />
         </ToolBtn>
       </div>

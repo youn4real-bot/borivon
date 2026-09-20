@@ -284,7 +284,12 @@ describe("a pair that cannot be merged says so, and does not say 'try again'", (
     expect(isMergeRefusalCode("unsupported_format")).toBe(true);
     expect(isMergeRefusalCode("image_too_large")).toBe(true);
     expect(isMergeRefusalCode("unreadable")).toBe(true);
-    expect(isMergeRefusalCode("too_large"), "the pair-size cap IS worth retrying elsewhere").toBe(false);
+    // "too_large" was deliberately LEFT OUT here, on the theory that a size
+    // cap is worth retrying. It is not: the same two files come to the same
+    // number of megabytes every time, so the client's fallback sentence
+    // ("Download failed - please try again") was an instruction that could
+    // only fail again. The pair-size cap now travels with the others.
+    expect(isMergeRefusalCode("too_large"), "retrying cannot shrink the same two files").toBe(true);
     expect(isMergeRefusalCode(undefined)).toBe(false);
     expect(isMergeRefusalCode(500)).toBe(false);
   });

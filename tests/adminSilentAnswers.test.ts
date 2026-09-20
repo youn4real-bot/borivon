@@ -257,12 +257,26 @@ describe("a file dropped on a slot row never disappears in silence", () => {
 
   it("and still refuse — out loud — what the server would not store", () => {
     expect(slotDropVerdict(docx, "pdf-or-photo")).toEqual({ ok: false, reason: "not-a-document" });
-    expect(slotDropVerdict({ type: "image/heic", name: "IMG_0421.HEIC" }, "pdf-or-photo"))
-      .toEqual({ ok: false, reason: "not-a-document" });
+  });
+
+  it("an iPhone HEIC gets its OWN reason, not the generic one", () => {
+    // It used to land in "not-a-document", whose sentence is "Only a PDF or a
+    // photo (JPG, PNG, WebP) can go here" — true, and useless to someone
+    // holding a perfectly good photo that the phone chose the format for.
+    for (const f of [
+      { type: "image/heic", name: "IMG_0421.HEIC" },
+      { type: "image/heif", name: "photo" },
+      { type: "application/octet-stream", name: "IMG_0421.heic" }, // the Files-app shape
+    ]) {
+      expect(slotDropVerdict(f, "pdf-or-photo"), f.name).toEqual({ ok: false, reason: "heic" });
+      expect(slotDropVerdict(f, "pdf"), `${f.name} on a PDF-only row`).toEqual({ ok: false, reason: "heic" });
+    }
+    // And a real photo is still just a photo.
+    expect(slotDropVerdict({ type: "image/jpeg", name: "IMG_0421.jpg" }, "pdf-or-photo")).toEqual({ ok: true });
   });
 
   it("LAW #19: every refusal has its own wording in all three languages", () => {
-    for (const reason of ["no-file", "not-pdf", "not-a-document"] as const) {
+    for (const reason of ["no-file", "not-pdf", "not-a-document", "heic"] as const) {
       const said = (["fr", "en", "de"] as const).map(l => slotDropRefusalMessage(reason, l));
       for (const msg of said) expect(msg.trim().length, `${reason} is blank`).toBeGreaterThan(0);
       expect(new Set(said).size, `${reason} is not actually translated`).toBe(3);

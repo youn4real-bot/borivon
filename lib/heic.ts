@@ -100,3 +100,38 @@ export function isHeicUpload(
   if (fileName && /\.(heic|heif)$/i.test(fileName.trim())) return true;
   return sniffHeic(head);
 }
+
+/**
+ * The sentence she is actually shown, in her own language (LAW #19).
+ *
+ * THE POINT OF A SEPARATE SENTENCE. Every type gate in the portal answers a
+ * rejected HEIC with its generic line -- "PDF or a photo (JPG, PNG) for this
+ * document", "Only PDF or a photo (JPG, PNG, WebP) can go here". Each is
+ * technically true and useless: she IS holding a photo, the phone chose the
+ * format, and nothing in that sentence tells her which of her own taps to
+ * change. This one names the format and gives her the two-tap way out.
+ *
+ * It lives HERE, beside the detector, rather than as three keys in
+ * lib/translations.ts, so that every arrival point -- the login-less upload
+ * link, the admin's drop target, the server routes' fallback English -- says
+ * the same thing. A second wording is how one of them drifts back to "PDF
+ * only".
+ *
+ * Deliberately two sentences: what it is, then what to do. The second one is
+ * the only part she needs.
+ */
+export function heicRefusalMessage(lang: string): string {
+  if (lang === "fr") {
+    return "Cette photo est au format HEIC (iPhone), qui ne peut pas être lu. "
+      + "Ouvrez Photos et choisissez l'image dans votre pellicule au lieu de Fichiers — "
+      + "l'iPhone envoie alors un JPEG automatiquement. Sinon, enregistrez-la en JPEG.";
+  }
+  if (lang === "de") {
+    return "Dieses Foto ist im HEIC-Format (iPhone) und kann nicht gelesen werden. "
+      + "Öffnen Sie Fotos und wählen Sie das Bild aus Ihren Aufnahmen statt aus Dateien — "
+      + "das iPhone sendet dann automatisch ein JPEG. Andernfalls speichern Sie es als JPEG.";
+  }
+  return "This photo is in HEIC format (iPhone), which cannot be read. "
+    + "Open Photos and pick the picture from your camera roll instead of Files — "
+    + "the iPhone then sends a JPEG by itself. Otherwise, save it as a JPEG.";
+}

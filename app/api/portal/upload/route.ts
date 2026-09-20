@@ -15,6 +15,7 @@ import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
 import { LABEL_TO_FILE_KEY, labelForUpload, resolveFileKey } from "@/lib/fileKeys";
 import { formatUploadDiag } from "@/lib/uploadFailure";
 import { isHeicUpload, HEIC_CODE, HEIC_MESSAGE } from "@/lib/heic";
+import { shouldUseAdminNotifDocId, learnFromDocIdAttempt } from "@/lib/adminNotifDocId";
 import {
   planOcr, base64JsonBody, pickEmbeddedJpegs, appendOcrText,
   OCR_MAX_BYTES, estimateOcrPeakBytes,
@@ -1278,14 +1279,21 @@ export async function POST(req: NextRequest) {
     // Schema-tolerant: doc_id arrives with supabase/admin_notifications_doc_id.sql,
     // and until that migration is run the insert is retried without it. An
     // un-migrated column must never cost the founder the notification itself.
+    //
+    // But the doomed attempt is not paid for twice. lib/adminNotifDocId.ts
+    // remembers, per isolate, what the last attempt taught us — so once the
+    // column is known to be missing this is ONE write, not a failed write plus
+    // a retry on every single upload, and the moment the migration is run the
+    // next isolate starts writing the deep link again with no deploy.
     const notifBase = {
       type: "upload", user_name: fullName, user_email: userEmail,
       doc_type: notifDocType, doc_name: structuredName,
     };
-    const { error: notifErr } = await db.from("admin_notifications").insert({ ...notifBase, doc_id: insertedId });
+    const withDocId = shouldUseAdminNotifDocId();
+    const { error: notifErr } = await db.from("admin_notifications")
+      .insert(withDocId ? { ...notifBase, doc_id: insertedId } : notifBase);
     if (notifErr) {
-      const nm = (notifErr as { message?: string }).message ?? "";
-      if (/doc_id|column .* does not exist|schema cache/i.test(nm)) {
+      if (learnFromDocIdAttempt(withDocId, notifErr).retryWithoutDocId) {
         const { error: retryErr } = await db.from("admin_notifications").insert(notifBase);
         if (retryErr) console.error("[upload] admin_notifications insert failed (no doc_id retry):", JSON.stringify(retryErr));
       } else {
