@@ -80,9 +80,23 @@
   // remove) to stop it. "0.25" = a quarter of reads — enough signal per day to
   // find shapes the parity tests never thought of, small enough that the extra
   // work after the response stays negligible.
+  // ASSISTANT_ENABLED — the AI billing switch (lib/vertexModel.ts documents it in full).
+  // "false" (or absent) means NOTHING in the app calls Gemini/Vertex: not the Telegram bot,
+  // not voice transcription, not the admin CV auto-fill, not the AI part of admin search,
+  // not the midday/evening commitment scan. Vertex bills per call, and the founder cut the
+  // AI spend on 2026-09-20, so this is off. The CODE IS ALL STILL HERE — only the calls are
+  // gated — so turning it back on is: set this to "true", then `npm run cf:build &&
+  // npm run cf:deploy`. The REBUILD is not optional: OpenNext bakes env vars into the Worker
+  // bundle at build time, so editing this value without rebuilding changes nothing.
+  // Plain var, NOT a secret — it is a boolean feature flag, so it belongs in version control
+  // where the state is visible, exactly like CF_CRONS_ENABLED above it.
+  //
+  // NOTE this does NOT touch GOOGLE_VERTEX_CREDENTIALS: that same service-account key is what
+  // lib/googleWorkspace.ts uses for the agency Drive mirror / Gmail / Calendar. The key stays.
   "vars": {
     "CF_CRONS_ENABLED": "true",
-    "SHADOW_D1_RATE": "0.25"
+    "SHADOW_D1_RATE": "0.25",
+    "ASSISTANT_ENABLED": "false"
   },
   "observability": {
     "enabled": true

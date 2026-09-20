@@ -13,7 +13,7 @@
  */
 import { generateText } from "ai";
 import { gmailSearch, gmailGet } from "@/lib/gmailApi";
-import { vertexModel, GEMINI_SAFETY } from "@/lib/vertexModel";
+import { vertexModel, GEMINI_SAFETY, assistantEnabled } from "@/lib/vertexModel";
 import { tgSend } from "@/lib/telegram";
 import { isBotQuiet } from "@/lib/botQuiet";
 import { isAutomationEnabled } from "@/lib/automationSettings";
@@ -66,6 +66,17 @@ export function parseExtractedPromises(raw: string): { what: string; due: string
  */
 export async function runCommitmentScan(ownerUserId: string, lookbackDays = 7, maxEmails = 12): Promise<number> {
   if (!ownerUserId) return 0;
+  // BILLING OFF-SWITCH (ASSISTANT_ENABLED — see lib/vertexModel's header). This scan is the
+  // ONLY scheduled job in the app that spends money: /api/cron/nudge runs it at midday and
+  // in the evening, and it makes one Gemini call PER recent email. Checked FIRST, ahead of
+  // the automation-settings lookup and the Gmail search below, so a switched-off bot costs
+  // neither a database read nor a Google API call — it just exits. Logged rather than silent,
+  // because "the commitment scan went quiet" must be traceable to this switch in the Worker
+  // logs and not mistaken for a broken cron.
+  if (!assistantEnabled()) {
+    console.log("[commitments] scan skipped — ASSISTANT_ENABLED is not \"true\" (AI billing is switched off)");
+    return 0;
+  }
   try {
     if (!(await isAutomationEnabled("commitments"))) return 0;
     const model = vertexModel("flash");
