@@ -10,6 +10,7 @@ import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
 import { savePassportDraft, writeLocalDraft, flushAndReleaseLocalDraft } from "@/lib/passportDraft";
+import { fetchPhaseSlots, emptyStateKind } from "@/lib/dashboardLoad";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -490,6 +491,17 @@ export default function DashboardPage() {
    *  read FAILS, instead of an empty list that looks like her uploads vanished. */
   const docsRef                   = useRef<Doc[]>([]);
   useEffect(() => { docsRef.current = docs; }, [docs]);
+  /**
+   * EMPTY vs BROKEN. Both of these used to be indistinguishable on screen: a
+   * failed documents read left every box neutral ("not submitted"), and a
+   * failed slots read rendered the same calm "Documents being configured."
+   * sentence an account with no slots shows. A nurse whose Bearbeitung and
+   * Visum boxes had just vanished was told they were being set up for her.
+   * These two drive a notice that says the load failed, and a retry.
+   */
+  const [docsLoadFailed, setDocsLoadFailed]   = useState(false);
+  const [slotsLoadFailed, setSlotsLoadFailed] = useState(false);
+  const [reloadRetrying, setReloadRetrying]   = useState(false);
   const [loading, setLoading]     = useState(true);
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
@@ -1721,30 +1733,39 @@ export default function DashboardPage() {
     }).catch(() => { /* best-effort */ });
   }, [authToken]);
 
+  /**
+   * Bearbeitung + Visum slots.
+   *
+   * This used to swallow a failed read into `{ slots: [] }` and then mark the
+   * load complete anyway, so a 500 on /phase-slots wiped every box a nurse had
+   * filled and replaced them with "Documents being configured." — the exact
+   * sentence a correctly-empty account shows. lib/dashboardLoad.ts now returns
+   * ok/failed and the page renders the difference.
+   */
   async function loadDynamicSlots(token: string) {
     if (dynamicSlotsLoaded) return;
-    try {
-      const [beaRes, visRes, beaCatRes, visCatRes] = await Promise.all([
-        fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/portal/phase-slots?phase=visum",        { headers: { Authorization: `Bearer ${token}` } }),
-        // Categories are READ-only here; failures (e.g. migration pending) just
-        // leave the list flat. Resolved server-side to the SAME scope as slots.
-        fetch("/api/portal/phase-slot-categories?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
-        fetch("/api/portal/phase-slot-categories?phase=visum",        { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
-      ]);
-      const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
-      const visJ = visRes.ok ? await visRes.json() : { slots: [] };
-      setDynamicSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
-      // Shared Visum doc order set by the admin's drag (phase_doc_order).
-      try {
-        const ordRes = await fetch("/api/portal/phase-doc-order", { headers: { Authorization: `Bearer ${token}` } });
-        if (ordRes.ok) { const oj = await ordRes.json(); if (oj?.orders && Array.isArray(oj.orders.visum)) setVisumDocOrder(oj.orders.visum as string[]); }
-      } catch { /* default order */ }
-      const beaCatJ = beaCatRes?.ok ? await beaCatRes.json() : { categories: [] };
-      const visCatJ = visCatRes?.ok ? await visCatRes.json() : { categories: [] };
-      setSlotCats({ bea: beaCatJ.categories ?? [], vis: visCatJ.categories ?? [] });
-      setDynamicSlotsLoaded(true); // set only on success — allows retry on failure
-    } catch { /* ignore — slots stay empty; guard stays false so next load retries */ }
+    setSlotsLoadFailed(false);
+    const res = await fetchPhaseSlots<PhaseSlot, SlotCategory>(fetch, token);
+    if (!res.ok) {
+      // Leave whatever is on screen alone — blanking the phases is precisely
+      // the damage being fixed — and let the empty state say the load failed.
+      setSlotsLoadFailed(true);
+      return;
+    }
+    setDynamicSlots({ bea: res.bea, vis: res.vis });
+    setSlotCats({ bea: res.catsBea, vis: res.catsVis });
+    if (res.visumOrder) setVisumDocOrder(res.visumOrder);
+    setDynamicSlotsLoaded(true); // set only on success — allows retry on failure
+  }
+
+  /** "Try again" from the failed-load notice / empty state. Retries BOTH reads
+   *  because one notice covers both, and re-reading what already worked costs
+   *  one request and removes any doubt about which half was broken. */
+  async function retryDashboardLoad() {
+    if (!authToken || !userId || reloadRetrying) return;
+    setReloadRetrying(true);
+    try { await Promise.allSettled([loadDynamicSlots(authToken), loadDocs(userId, true)]); }
+    finally { setReloadRetrying(false); }
   }
 
   async function loadDocs(uid: string, keepPhase = false) {
@@ -1769,6 +1790,7 @@ export default function DashboardPage() {
       const hadSuperseded = res.hadSuperseded;
       if (res.error) {
         console.error("loadDocs error:", res.error, uid);
+        setDocsLoadFailed(true); // say so — see the notice above the phase list
         // A FAILED read is not an empty document list. Returning [] here made a
         // single mobile-network blip blank every box back to "not submitted" —
         // her work looked erased, and the upload self-heal read the same empty
@@ -1776,6 +1798,7 @@ export default function DashboardPage() {
         // already on screen instead.
         return docsRef.current;
       }
+      setDocsLoadFailed(false);
       const rows = (res.data ?? []) as unknown as Row[];
       data = hadSuperseded ? rows.filter((d) => !d.superseded_at) : rows;
       // Deduplicate: only keep the latest doc per file slot (fileKey).
@@ -1792,6 +1815,7 @@ export default function DashboardPage() {
       });
       setDocs(fetched);
     } catch (err) {
+      setDocsLoadFailed(true);
       console.error("loadDocs exception:", err);
     }
     // Return the freshly-fetched list so callers (e.g. the upload self-heal)
@@ -3436,15 +3460,76 @@ export default function DashboardPage() {
 
               <div className="h-px mx-6" style={{ background: "var(--border)" }} />
 
-
-              {/* Empty state for dynamic phases with no slots configured yet */}
-              {dynamicSlotsLoaded && currentPhase.items.length === 0 && (phase === 2 || phase === 3) && (
-                <div className="px-6 py-10 text-center">
-                  <p className="text-[12px]" style={{ color: "var(--w3)" }}>
-                    {lang === "de" ? "Dokumente werden konfiguriert." : lang === "fr" ? "Documents en cours de configuration." : "Documents being configured."}
-                  </p>
+              {/* ── "This list may be wrong" strip ──
+                  A failed documents read leaves every box neutral, which is
+                  the SAME thing an account that has uploaded nothing looks
+                  like. Below, the two dynamic phases get a fuller failed state
+                  when they are also empty, so the strip stands down there to
+                  avoid saying it twice. */}
+              {(docsLoadFailed || slotsLoadFailed)
+                && !((phase === 2 || phase === 3) && slotsLoadFailed && currentPhase.items.length === 0) && (
+                <div className="mx-6 mt-3 px-3.5 py-2.5 flex items-start gap-2.5"
+                  style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
+                  <AlertTriangle size={14} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] leading-[1.45]" style={{ color: "var(--w2)" }}>
+                      {lang === "de" ? "Ihre Dokumente konnten nicht geladen werden — diese Liste ist möglicherweise unvollständig."
+                        : lang === "fr" ? "Impossible de charger vos documents — cette liste est peut-être incomplète."
+                        : "We couldn’t load your documents — this list may be incomplete."}
+                    </p>
+                    <button onClick={() => void retryDashboardLoad()} disabled={reloadRetrying}
+                      className="mt-1.5 text-[11.5px] font-semibold underline"
+                      style={{ color: "var(--gold)", opacity: reloadRetrying ? 0.6 : 1 }}>
+                      {reloadRetrying
+                        ? (lang === "de" ? "Wird geladen…" : lang === "fr" ? "Chargement…" : "Loading…")
+                        : (lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again")}
+                    </button>
+                  </div>
                 </div>
               )}
+
+              {/* ── Empty state for the two dynamic phases ──
+                  "Configured" and "we could not load them" are DIFFERENT
+                  sentences now. They used to be the same one: a 500 on
+                  /phase-slots emptied every Bearbeitung and Visum box and then
+                  told the nurse her documents were being set up for her. */}
+              {(phase === 2 || phase === 3) && (() => {
+                const kind = emptyStateKind({
+                  loaded: dynamicSlotsLoaded,
+                  failed: slotsLoadFailed,
+                  itemCount: currentPhase.items.length,
+                });
+                if (kind === "none" || kind === "loading") return null;
+                if (kind === "configuring") return (
+                  <div className="px-6 py-10 text-center">
+                    <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      {lang === "de" ? "Dokumente werden konfiguriert." : lang === "fr" ? "Documents en cours de configuration." : "Documents being configured."}
+                    </p>
+                  </div>
+                );
+                return (
+                  <div className="px-6 py-10 text-center">
+                    <AlertTriangle size={17} strokeWidth={1.9} style={{ color: "var(--warning)", margin: "0 auto 8px" }} />
+                    <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>
+                      {lang === "de" ? "Ihre Dokumente konnten nicht geladen werden."
+                        : lang === "fr" ? "Impossible de charger vos documents."
+                        : "We couldn’t load your documents."}
+                    </p>
+                    <p className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>
+                      {lang === "de" ? "Sie sind nicht verschwunden — nur diese Anfrage ist fehlgeschlagen."
+                        : lang === "fr" ? "Ils n’ont pas disparu — seule cette requête a échoué."
+                        : "They haven’t gone anywhere — only this request failed."}
+                    </p>
+                    <button onClick={() => void retryDashboardLoad()} disabled={reloadRetrying}
+                      className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] font-semibold"
+                      style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", opacity: reloadRetrying ? 0.6 : 1 }}>
+                      {reloadRetrying
+                        ? (lang === "de" ? "Wird geladen…" : lang === "fr" ? "Chargement…" : "Loading…")
+                        : (lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again")}
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Doc rows — borderless minimalist list */}
               <div className="px-3 pb-2">
