@@ -983,7 +983,10 @@ export default function DashboardPage() {
       const wroteLocal = writeLocalDraft(localStorage, { data: key, confirmed: confKey }, passportModal, confArr);
       // A refused localStorage is its OWN fault, not "the save failed": it means
       // the server copy is the only copy from here on, which she must be told.
-      setPassportSaveError(wroteLocal ? null : "local");
+      // A successful local write clears only the LOCAL fault — an outstanding
+      // "not saved to the server yet" is still true, and this effect re-runs on
+      // every keystroke, so clearing it here made the warning strobe.
+      setPassportSaveError(prev => (wroteLocal ? (prev === "local" ? null : prev) : "local"));
       // 2) Debounced server draft-save (cross-device permanence) — fields
       //    AND the confirmation checkboxes (toggling a box changes
       //    confirmedFields, which re-runs this effect).
@@ -1744,7 +1747,9 @@ export default function DashboardPage() {
    */
   async function loadDynamicSlots(token: string) {
     if (dynamicSlotsLoaded) return;
-    setSlotsLoadFailed(false);
+    // NOT cleared here. Clearing on entry made the failed empty state — and the
+    // "Try again" button inside it — disappear the instant it was tapped, so
+    // the button vanished from under her finger. It clears on success only.
     const res = await fetchPhaseSlots<PhaseSlot, SlotCategory>(fetch, token);
     if (!res.ok) {
       // Leave whatever is on screen alone — blanking the phases is precisely
@@ -1752,6 +1757,7 @@ export default function DashboardPage() {
       setSlotsLoadFailed(true);
       return;
     }
+    setSlotsLoadFailed(false);
     setDynamicSlots({ bea: res.bea, vis: res.vis });
     setSlotCats({ bea: res.catsBea, vis: res.catsVis });
     if (res.visumOrder) setVisumDocOrder(res.visumOrder);
