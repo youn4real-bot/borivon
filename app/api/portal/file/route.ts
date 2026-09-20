@@ -293,7 +293,16 @@ export async function GET(req: NextRequest) {
       const outBuf = isPdf
         ? await safeRotatePdf(obj.body, effectiveRotation)
         : obj.body;
-      const verified = isPassportFileType(fileType) && isPdf
+      // The gate is the DOCTYPE, not the format. `&& isPdf` used to sit here,
+      // and R2 is the branch every passport uploaded since the storage
+      // migration is served from — so the moment a candidate could photograph
+      // her passport, the LAW #39 audit stopped running for her entirely. A
+      // photo is exactly as destructible as a scan (a re-encode, a stray
+      // rotation, a truncated copy) and the hash is the only thing that would
+      // notice. ensurePassportIntegrity compares sha256 and nothing else, so it
+      // never needed a PDF: the condition bought nothing and switched off the
+      // net for the format most likely to arrive from now on.
+      const verified = isPassportFileType(fileType)
         ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "r2")
         : outBuf;
       return new NextResponse(new Uint8Array(verified), {

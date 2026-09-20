@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { servedMime, isPdfBytes, detectDocKind, isMergeRefusalCode, nameCannotMerge } from "../lib/docBytes";
 import { safeRotatePdf } from "../lib/pdfRotate";
@@ -81,6 +82,60 @@ describe("serving a document: the bytes name themselves", () => {
     const src = Buffer.from(jpeg());
     const out = await safeRotatePdf(src, 90);
     expect(Buffer.compare(out, src)).toBe(0);
+  });
+});
+
+describe("LAW #39: the integrity audit does not ask what shape the passport is", () => {
+  it("every serving branch gates on the doctype alone", () => {
+    // The R2 branch carried `isPassportFileType(fileType) && isPdf`, and R2 is
+    // where every passport uploaded since the storage migration lives. So the
+    // day a candidate could photograph her passport, the audit silently stopped
+    // covering her: the bytes were served with no hash comparison at all, and a
+    // divergence would have reached a reviewer as a document that simply looked
+    // wrong, with nothing in the log.
+    const calls = [...FILE_ROUTE.matchAll(/await ensurePassportIntegrity\(/g)];
+    expect(calls.length, "signed-storage, R2 and the legacy doc-cache mirror").toBe(3);
+    for (const call of calls) {
+      const from = FILE_ROUTE.lastIndexOf("isPassportFileType(fileType)", call.index);
+      expect(from, "each audit must be reached through the passport gate").toBeGreaterThan(-1);
+      const gate = FILE_ROUTE.slice(from, call.index);
+      expect(
+        gate,
+        "no format condition may be conjoined with the gate — a photo is as destructible as a scan",
+      ).toMatch(/^isPassportFileType\(fileType\)\s*\?\s*$/);
+    }
+  });
+
+  it("and the audit itself is a hash comparison, nothing else", () => {
+    // This is the claim the line above rests on. If the audit ever learns about
+    // formats, dropping the `&& isPdf` stops being free and this test says so
+    // before the next person has to re-derive it.
+    const at = FILE_ROUTE.indexOf("async function ensurePassportIntegrity");
+    expect(at, "ensurePassportIntegrity not found — was it renamed?").toBeGreaterThan(-1);
+    // Matched line-ending agnostically: this repository is checked out with
+    // core.autocrlf=true, so a literal "\n}\n" never matches and the slice
+    // would quietly run to the end of the file.
+    const endRel = FILE_ROUTE.slice(at).search(/\r?\n\}\r?\n/);
+    expect(endRel, "the end of ensurePassportIntegrity was not found").toBeGreaterThan(0);
+    const body = FILE_ROUTE.slice(at, at + endRel);
+    expect(body, "it hashes, it compares, it logs").toContain('createHash("sha256")');
+    for (const token of ["isPdfBytes", "detectDocKind", "PDFDocument", "safeRotatePdf"]) {
+      expect(body, `${token} here would make the audit format-dependent again`).not.toContain(token);
+    }
+  });
+
+  it("a photographed passport hashes like anything else", async () => {
+    // The mechanism, end to end on real bytes: same file, same digest; one
+    // flipped byte, different digest. Nothing in it needs a PDF.
+    const photo = Buffer.from(jpeg());
+    const scan = Buffer.from(await pdfBytes());
+    const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+    for (const bytes of [photo, scan]) {
+      expect(sha(bytes)).toBe(sha(Buffer.from(bytes)));
+      const tampered = Buffer.from(bytes);
+      tampered[tampered.length - 1] ^= 0xff;
+      expect(sha(tampered), "a mutated passport must not verify").not.toBe(sha(bytes));
+    }
   });
 });
 
