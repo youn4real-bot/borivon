@@ -56,7 +56,10 @@ describe("the passport box accepts a phone photo", () => {
   it("the picker offers a photo for the passport and only PDF elsewhere", () => {
     // Offering "Take Photo" on a box that then refuses the photo IS the bug.
     expect(DASHBOARD).toMatch(/ID_KEYS\.includes\(activeKey\)\s*\n?\s*\?\s*"\.pdf,\.jpg,\.jpeg,\.png,\.webp"/);
-    expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\n/);
+    // `\r?\n`: a Windows checkout (core.autocrlf) gives this file CRLF endings,
+    // and the bare `\n` made this assertion fail on the founder's own laptop
+    // while passing in CI — a red suite that says nothing about the code.
+    expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\r?\n/);
   });
 
   it("LAW #19: the refusal message exists in all three languages", () => {
