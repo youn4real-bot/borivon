@@ -49,6 +49,7 @@ import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS, canonicalDocLabel, translateDocLabel } from "@/lib/fileKeys";
 import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
+import { shareReadIsUnknown } from "@/lib/adminPanelRules";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
@@ -1147,6 +1148,16 @@ export default function AdminPage() {
   const [partnerShares, setPartnerShares] = useState<string[]>([]);
   const [shareBusy, setShareBusy]         = useState<string | null>(null);
   const [shareErr, setShareErr]           = useState<string | null>(null);
+  /** True when the "which agencies can see her" READ failed — the answer is
+   *  UNKNOWN, not "none". Without this flag a failed GET cleared partnerOrgs,
+   *  and an empty partnerOrgs renders NO share buttons at all: pixel-for-pixel
+   *  identical to a candidate no agency has ever been sent. The founder reads
+   *  that absence as the answer and acts on it — leaving her unshared because a
+   *  500 implied she already was, or re-granting an agency he had just pulled
+   *  back. The share row is the only thing a partner's API key checks, so a
+   *  wrong answer here is a real access decision made on a guess. */
+  const [shareLoadFailed, setShareLoadFailed] = useState(false);
+  const [shareLoadRetrying, setShareLoadRetrying] = useState(false);
   const [photoDlErr, setPhotoDlErr]       = useState(false);
   // Snapshot of the candidate's cv_draft loaded alongside the status
   // modal — surfaces the CV-builder B1/B2 decision-tree (Prüfung type,
@@ -1187,22 +1198,45 @@ export default function AdminPage() {
   const statusFailStreak = useRef(0);
 
   // Load which agencies this candidate is already shared with. Runs whenever
-  // the selected candidate changes; failure leaves the toggle absent rather
-  // than showing a wrong state, because a stale shared badge would be a lie
-  // about who can see her passport.
+  // the selected candidate changes; a stale shared badge would be a lie about
+  // who can see her passport, so the lists are still cleared on failure — but
+  // the failure is now RECORDED (shareLoadFailed) instead of being rendered as
+  // a confident "no agency can see her". Clearing without saying so was the
+  // bug: silence and "nobody" looked the same.
   async function loadPartnerShares(uid: string) {
     setShareErr(null);
+    setShareLoadFailed(false);
     try {
       const r = await fetch(`/api/portal/admin/partner-share?candidateUserId=${encodeURIComponent(uid)}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { setPartnerOrgs([]); setPartnerShares([]); return; }
+      if (!r.ok) {
+        setPartnerOrgs([]); setPartnerShares([]);
+        // shareReadIsUnknown keeps the one exception honest: a 403 is the route
+        // refusing this role on purpose (LAW #25), so the missing control IS the
+        // answer. A 401 on a JWT that expired while the tab sat open, a 500, a
+        // 400 — those leave the truth unknown and must say so.
+        setShareLoadFailed(shareReadIsUnknown(r.status));
+        return;
+      }
       setPartnerOrgs((j.organizations ?? []) as { id: string; name: string }[]);
       setPartnerShares(((j.shares ?? []) as { orgId: string }[]).map((x) => x.orgId));
     } catch {
+      // Offline / DNS / the Worker never answered — no status at all.
       setPartnerOrgs([]); setPartnerShares([]);
+      setShareLoadFailed(shareReadIsUnknown(null));
     }
+  }
+
+  /** The retry behind the "sharing unknown" pill. Separate from
+   *  loadPartnerShares so the pill can show a spinner while it runs — a retry
+   *  that looks like it did nothing is the same bug one level up. */
+  async function retryPartnerShares() {
+    if (!selectedUser || shareLoadRetrying) return;
+    setShareLoadRetrying(true);
+    try { await loadPartnerShares(selectedUser); }
+    finally { setShareLoadRetrying(false); }
   }
 
   // Grant or revoke. Optimistic, with rollback: a failed grant that LOOKED
@@ -3393,6 +3427,10 @@ export default function AdminPage() {
     setPartnerShares([]);
     setPartnerOrgs([]);
     setShareErr(null);
+    // Carrying the PREVIOUS candidate's failed read into this dossier would
+    // accuse a perfectly healthy load of having failed.
+    setShareLoadFailed(false);
+    setShareLoadRetrying(false);
     if (selectedUser && accessToken) loadPartnerShares(selectedUser);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser, accessToken]);
@@ -4521,6 +4559,33 @@ export default function AdminPage() {
                   </button>
                 );
               })}
+
+              {/* The buttons above ARE the answer to "who can pull her
+                  documents", so their absence is an answer too — and after a
+                  500, an expired JWT or a dropped connection it is the wrong
+                  one. Stand in their place and say the truth: not checked.
+                  Danger tone, never the plain "not shared" grey, so it can
+                  never be mistaken for one more agency that simply says no. */}
+              {shareLoadFailed && (
+                <button
+                  type="button"
+                  onClick={() => { void retryPartnerShares(); }}
+                  disabled={shareLoadRetrying}
+                  role="alert"
+                  title={lang === "de" ? "Die Liste der Agenturen konnte nicht geladen werden — klicken zum erneuten Prüfen"
+                    : lang === "fr" ? "La liste des agences n'a pas pu être chargée — cliquez pour revérifier"
+                    : "Could not load which agencies can see her — click to check again"}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
+                  style={{ background: "var(--bg2)", color: "var(--danger)", border: "1px solid var(--danger)" }}
+                >
+                  {shareLoadRetrying
+                    ? <Loader2 size={12} className="animate-spin" aria-hidden />
+                    : <AlertTriangle size={12} strokeWidth={2} />}
+                  {lang === "de" ? "Freigaben unbekannt — erneut prüfen"
+                    : lang === "fr" ? "Partages inconnus — revérifier"
+                    : "Sharing unknown — check again"}
+                </button>
+              )}
             </div>
 
             {/* ── Admin-only STATUS modal (LAW #36) — candidate never sees ── */}
