@@ -498,12 +498,12 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
               <p role="alert" className="text-[11px] font-medium leading-[1.4]" style={{ color: "var(--danger)" }}>{err}</p>
             )}
             <div className="flex items-center gap-2">
-            <div className="flex-1 inline-flex items-center gap-1.5 text-xs" style={{ color: err ? "var(--danger)" : autoSaved ? "var(--success)" : "var(--w3)" }}>
-              {autoSaved ? <><CheckCircle2 size={12} strokeWidth={1.8} /> {T("Auto-saved", "Automatisch gespeichert", "Enregistré automatiquement")}</> : <><Save size={12} strokeWidth={1.8} /> {T("Saves automatically", "Wird automatisch gespeichert", "Enregistrement automatique")}</>}
-            </div>
-            <button onClick={exitEdit} className="py-2 px-4 rounded-xl text-xs font-semibold" style={{ background: "var(--gold)", color: "#131312" }}>
-              {T("Done", "Fertig", "Terminé")}
-            </button>
+              <div className="flex-1 inline-flex items-center gap-1.5 text-xs" style={{ color: err ? "var(--danger)" : autoSaved ? "var(--success)" : "var(--w3)" }}>
+                {autoSaved ? <><CheckCircle2 size={12} strokeWidth={1.8} /> {T("Auto-saved", "Automatisch gespeichert", "Enregistré automatiquement")}</> : <><Save size={12} strokeWidth={1.8} /> {T("Saves automatically", "Wird automatisch gespeichert", "Enregistrement automatique")}</>}
+              </div>
+              <button onClick={exitEdit} className="py-2 px-4 rounded-xl text-xs font-semibold" style={{ background: "var(--gold)", color: "#131312" }}>
+                {T("Done", "Fertig", "Terminé")}
+              </button>
             </div>
           </div>
         ) : (!isApproved && !savedAs) ? (

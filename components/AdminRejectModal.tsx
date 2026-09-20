@@ -136,16 +136,16 @@ export function AdminRejectModal({
             </p>
           )}
           <div className="flex items-center justify-end gap-2">
-          <button onClick={onCancel} disabled={submitting}
-            className="px-3 py-1.5 rounded-lg text-[12px] font-medium disabled:opacity-40"
-            style={{ background: "transparent", color: "var(--w2)" }}>
-            {t.cancel}
-          </button>
-          <button onClick={handleSubmit} disabled={submitting || !text.trim()}
-            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
-            style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-            {submitting ? "…" : <><XCircle size={12} strokeWidth={1.8} /> {t.reject}</>}
-          </button>
+            <button onClick={onCancel} disabled={submitting}
+              className="px-3 py-1.5 rounded-lg text-[12px] font-medium disabled:opacity-40"
+              style={{ background: "transparent", color: "var(--w2)" }}>
+              {t.cancel}
+            </button>
+            <button onClick={handleSubmit} disabled={submitting || !text.trim()}
+              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+              style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+              {submitting ? "…" : <><XCircle size={12} strokeWidth={1.8} /> {t.reject}</>}
+            </button>
           </div>
         </div>
       </div>
