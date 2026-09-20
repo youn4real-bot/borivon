@@ -956,7 +956,9 @@ export default function DashboardPage() {
   // first appears — OCR extraction AND bootstrap localStorage restore — so
   // the data reaches the DB right away and is readable on ANY other device
   // (phone) without depending on the debounced editor save.
-  const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] = []) => {
+  // `confirmed` defaults to null, NOT []: an [] would tell the server to clear
+  // every LAW #38 tick, and none of this function's callers is a human click.
+  const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] | null = null) => {
     if (!token) return;
     void savePassportDraft({ fetchImpl: passportFetch, token, data, confirmed })
       .then(res => {
@@ -976,7 +978,9 @@ export default function DashboardPage() {
     const key = `bv-passport-pending-${userId}`;
     const confKey = `bv-passport-confirmed-${userId}`;
     let data: Record<string, unknown> | null = null;
-    let confirmed: string[] = [];
+    // null = the tick key was absent or unreadable, so we say nothing about the
+    // ticks. [] would say "she un-ticked everything", which nobody did.
+    let confirmed: string[] | null = null;
     try {
       const raw = localStorage.getItem(key);
       if (raw) data = JSON.parse(raw) as Record<string, unknown>;
@@ -1674,13 +1678,16 @@ export default function DashboardPage() {
           // Her own unsent draft, off this device — a real seed.
           passportFormSeededRef.current = true;
           setPassportModal(restored);
-          // Restore the saved checkboxes (same-device refresh).
-          let confArr: string[] = [];
+          // Restore the saved checkboxes (same-device refresh). null means the
+          // key was absent or unreadable — a legacy draft from before the
+          // checkboxes existed, or a browser that dropped it. Sending [] for
+          // that used to un-tick every box on the server (LAW #38).
+          let confArr: string[] | null = null;
           try {
             const cr = localStorage.getItem(`bv-passport-confirmed-${user.id}`);
             if (cr) confArr = (JSON.parse(cr) as unknown[]).filter((x): x is string => typeof x === "string");
           } catch { /* ignore */ }
-          setConfirmedFields(new Set(confArr as (keyof PassportData)[]));
+          setConfirmedFields(new Set((confArr ?? []) as (keyof PassportData)[]));
           // Recover legacy localStorage-only drafts (pre-DB-autosave): push
           // data + checkboxes to the DB so they sync to other devices.
           flushPassportDraft(restored, token, confArr);

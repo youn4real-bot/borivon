@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { savePassportDraft } from "../lib/passportDraft";
 import {
   classifyProfileRead,
   hasAnyPassportValue,
@@ -256,6 +257,40 @@ describe("POST /api/portal/passport", () => {
   });
 });
 
+// ── A missing local tick key is not an empty tick set ───────────────────────
+
+describe("savePassportDraft omits the ticks it does not know about", () => {
+  /** A fetch that records the body it was handed. */
+  function spy() {
+    const bodies: Record<string, unknown>[] = [];
+    const impl = (async (_i: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return { ok: true, status: 200 } as Response;
+    }) as unknown as typeof fetch;
+    return { impl, bodies };
+  }
+
+  it("no confirmed list at all leaves confirmed_fields out of the body", async () => {
+    const f = spy();
+    await savePassportDraft({ fetchImpl: f.impl, token: "jwt", data: { first_name: "SALMA" } });
+    // LAW #38: the bootstrap restore used to send [] here when the
+    // bv-passport-confirmed-<id> key was missing, un-ticking every box.
+    expect("confirmed_fields" in f.bodies[0]).toBe(false);
+  });
+
+  it("an explicit null leaves it out too", async () => {
+    const f = spy();
+    await savePassportDraft({ fetchImpl: f.impl, token: "jwt", data: { first_name: "S" }, confirmed: null });
+    expect("confirmed_fields" in f.bodies[0]).toBe(false);
+  });
+
+  it("an explicit [] is a human un-ticking everything and IS sent", async () => {
+    const f = spy();
+    await savePassportDraft({ fetchImpl: f.impl, token: "jwt", data: { first_name: "S" }, confirmed: [] });
+    expect(f.bodies[0].confirmed_fields).toEqual([]);
+  });
+});
+
 // ── The client-side seed gate ───────────────────────────────────────────────
 
 /** Source with comments blanked, offsets preserved: every fix here is
@@ -287,6 +322,15 @@ describe("the dashboard cannot autosave a form it never loaded", () => {
     expect(gate).toBeGreaterThan(0);
     expect(gate).toBeLessThan(localWrite);
     expect(gate).toBeLessThan(debounced);
+  });
+
+  it("a missing local tick key is carried as null, never as []", () => {
+    // Two readers of bv-passport-confirmed-<id>: the bootstrap restore and the
+    // retry button. Both must start from null so an absent key says nothing
+    // about the ticks instead of clearing them.
+    expect(DASH).toMatch(/let\s+confArr:\s*string\[\]\s*\|\s*null\s*=\s*null;/);
+    expect(DASH).toMatch(/let\s+confirmed:\s*string\[\]\s*\|\s*null\s*=\s*null;/);
+    expect(DASH).toMatch(/confirmed:\s*string\[\]\s*\|\s*null\s*=\s*null\)\s*=>/);
   });
 
   it("every seed that sets the form also claims it, and closing releases it", () => {
