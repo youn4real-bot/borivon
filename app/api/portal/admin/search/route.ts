@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { resolveAssistantScope } from "@/lib/assistantScope";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
-import { assembleSearchableCandidates } from "@/lib/candidateSearchData";
+import { assembleSearchableCandidateSet } from "@/lib/candidateSearchData";
 import { compileCandidateQuery, describeQuery, keywordParseQuery, isEmptyQuery, type CandidateQuery } from "@/lib/candidateSearch";
 import { parseQueryWithAI, type ParsedQuery } from "@/lib/candidateSearchAI";
 import { answerCandidateQuestion } from "@/lib/adminAssistant";
@@ -24,6 +24,14 @@ import { answerCandidateQuestion } from "@/lib/adminAssistant";
  * Degradation: no model / a timeout / unparseable output all fall back to the
  * keyword parser, so the bar always answers. PII stays home — only the typed query
  * ever reaches the model, never candidate data.
+ *
+ * "Always answers" never meant "always says a number". A failed read is reported
+ * as 503 { ok:false, code:"READ_FAILED", matched:null, total:null } — the same
+ * contract /api/portal/phase-slots uses — because the alternative, which this
+ * route shipped, was a 200 carrying results:[] and matched:0: the bar told the
+ * founder in a calm voice that nobody matched, when the truth was that the
+ * candidate directory had not loaded. Unknown is not empty, and a count that was
+ * never taken is null, not zero.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,10 +69,27 @@ export async function POST(req: NextRequest) {
     // overlaps the slow assembly with the model call; if the model instead
     // classifies it as an ASK, the assembled set is simply unused (ask is heavier
     // anyway). The default (blank query) is a filter that shows everyone.
-    const [candidates, parsed] = await Promise.all([
-      assembleSearchableCandidates(scope),
+    const [set, parsed] = await Promise.all([
+      assembleSearchableCandidateSet(scope),
       rawQuery ? parseQueryWithAI(rawQuery, nowMs) : Promise.resolve<ParsedQuery | null>({ mode: "filter", filter: {} }),
     ]);
+    const candidates = set.candidates;
+
+    // The set is a FLOOR, not the roster: the directory read did not finish.
+    // Filtering it would produce a number, and the bar would present that
+    // number as the answer — "no candidates match" said in the same calm voice
+    // it uses when that is true. A failed read is not a result, so it does not
+    // get rendered as one; the client shows "couldn't check" plus a retry.
+    // 503 (not 200) so no caller can mistake it for an answer by status alone.
+    if (!set.ok) {
+      return NextResponse.json({
+        ok: false,
+        mode: "list",
+        code: "READ_FAILED",
+        error: "Couldn't check who matches — the candidate list didn't load.",
+        results: [], filter: [], matched: null, total: null, usedAI: false, empty: false,
+      }, { status: 503 });
+    }
 
     // ── ASK MODE — a question about a specific candidate / a summary. The read-only
     // assistant answers in prose, grounded in real tool reads (it can change nothing).
@@ -97,9 +122,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error("[candidate-search] unexpected failure:", e instanceof Error ? e.message : e);
+    // Was 200 with matched:0, total:0, empty:true — a crash dressed as a
+    // finished search that found nobody. Same shape, same 503, same retry.
+    // matched/total are null, not 0: nothing was counted, so there is no count.
     return NextResponse.json(
-      { ok: false, mode: "list", error: "Search is temporarily unavailable — try again.", results: [], filter: [], matched: 0, total: 0, usedAI: false, empty: true },
-      { status: 200 },
+      { ok: false, mode: "list", code: "READ_FAILED", error: "Search is temporarily unavailable — try again.", results: [], filter: [], matched: null, total: null, usedAI: false, empty: false },
+      { status: 503 },
     );
   }
 }

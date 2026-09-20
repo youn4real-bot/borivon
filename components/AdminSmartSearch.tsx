@@ -76,7 +76,10 @@ export function AdminSmartSearch({
           return;
         }
         const data = (await r.json()) as SearchResponse & { error?: string };
-        // The route degrades to a 200 with ok:false rather than a 500 — show it.
+        // A failed read now arrives as 503 { ok:false, code:"READ_FAILED" } and is
+        // caught by the !r.ok branch above. This stays as the second lock: a 200
+        // that still says ok:false is a read that did not happen, and must never
+        // be rendered as "no candidates matched".
         if (data.ok === false) {
           setError(data.error || L("Search is temporarily unavailable — try again.", "Recherche momentanément indisponible — réessayez.", "Suche vorübergehend nicht verfügbar — erneut versuchen."));
           setRes(null); onResults(null);
@@ -149,8 +152,28 @@ export function AdminSmartSearch({
         </span>
       </div>
 
+      {/* A failed search is UNKNOWN, not "no matches". It used to be one faint
+          grey line that read like a hint, next to a candidate list quietly
+          restored to everyone — so the honest answer looked like the calm one.
+          It is now marked, and it carries the only thing that can change it:
+          a way to ask again. */}
       {error && (
-        <div className="mt-2 text-[12px]" style={{ color: "var(--w2)" }}>{error}</div>
+        <div
+          className="mt-2 px-2.5 py-2 text-[12px] flex items-center gap-2 flex-wrap"
+          role="status"
+          style={{ color: "var(--w2)", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.35)", borderRadius: 10 }}
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => void runSearch(q)}
+            disabled={loading || !q.trim()}
+            className="font-semibold px-2 py-0.5 rounded-md disabled:opacity-40"
+            style={{ color: "var(--w)", border: "1px solid var(--border)", background: "var(--card)" }}
+          >
+            {L("Try again", "Réessayer", "Erneut versuchen")}
+          </button>
+        </div>
       )}
 
       {/* ── ASK MODE — a grounded prose answer + clickable candidates ── */}
