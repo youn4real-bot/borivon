@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
 import { logUsage } from "@/lib/usage";
-import { vertexModel, chooseTier, looksWeak, escalationActive, GEMINI_SAFETY } from "@/lib/vertexModel";
+import { vertexModel, chooseTier, looksWeak, escalationActive, GEMINI_SAFETY, assistantEnabled } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -188,6 +188,27 @@ export async function POST(req: NextRequest) {
     return ok();
   }
   if (String(chatId) !== allowed) return ok(); // stranger → silently ignore
+
+  // 2b) BILLING OFF-SWITCH (ASSISTANT_ENABLED — see lib/vertexModel's header).
+  //
+  // Placed HERE, immediately after the chat lock, for three reasons:
+  //  • It is ahead of the voice-note branch below, which transcribes on Gemini BEFORE any
+  //    other check runs — gating only at vertexModel() would still bill for every voice
+  //    note the founder sends.
+  //  • It is ahead of the dedupe INSERT and the migration probe, so a message to a switched-
+  //    off bot costs no database writes either.
+  //  • It is BEHIND the chat lock, so a stranger who finds the bot still learns nothing —
+  //    only the founder ever sees this reply.
+  //
+  // We answer rather than going silent: he asked for the billing to stop, not for the bot to
+  // look broken. Silence is indistinguishable from a crash, and he would go hunting for a bug
+  // that isn't there. One short line says it is off ON PURPOSE and how to undo it — and a
+  // Telegram send is free, so the reply itself costs nothing. Returns 200 so Telegram marks
+  // the update delivered and stops retrying it.
+  if (!assistantEnabled()) {
+    await tgSend(chatId, "Assistant is OFF — AI billing stopped, nothing here runs.\nTo switch it back on: set ASSISTANT_ENABLED=true, then rebuild and deploy.");
+    return ok();
+  }
 
   // PENDING-MIGRATION heads-up: a feature can sit silently DEAD on a migration the founder
   // forgot to run (e.g. test-account marking). Once per cold start, probe the gates and, if
