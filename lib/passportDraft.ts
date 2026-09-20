@@ -46,7 +46,19 @@ export async function savePassportDraft(opts: {
   fetchImpl: typeof fetch;
   token: string;
   data: Record<string, unknown>;
-  confirmed: string[];
+  /**
+   * The human-ticked confirmation set, or `null`/omitted for "I am not talking
+   * about the ticks".
+   *
+   * LAW #38, and a real clearing vector: the bootstrap restore read the
+   * `bv-passport-confirmed-<id>` localStorage key, found it missing — a legacy
+   * draft written before the checkboxes existed, or a key a browser dropped —
+   * and sent `confirmed_fields: []`. The route wrote that empty array and
+   * un-ticked every box on a passport nobody had touched. A missing key is not
+   * an empty set, so the key now leaves the body entirely and the server keeps
+   * whatever the human last ticked.
+   */
+  confirmed?: string[] | null;
   /** Set when the caller is unmounting, so the request outlives the page. */
   keepalive?: boolean;
 }): Promise<DraftSaveResult> {
@@ -57,7 +69,11 @@ export async function savePassportDraft(opts: {
     const r = await opts.fetchImpl("/api/portal/passport", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.token}` },
-      body: JSON.stringify({ ...opts.data, confirmed_fields: opts.confirmed, __draft: true }),
+      body: JSON.stringify({
+        ...opts.data,
+        ...(Array.isArray(opts.confirmed) ? { confirmed_fields: opts.confirmed } : {}),
+        __draft: true,
+      }),
       ...(opts.keepalive ? { keepalive: true } : {}),
     });
     return { saved: r.ok === true, status: typeof r.status === "number" ? r.status : null };
@@ -95,7 +111,8 @@ export async function flushAndReleaseLocalDraft(opts: {
   fetchImpl: typeof fetch;
   token: string;
   data: Record<string, unknown>;
-  confirmed: string[];
+  /** Same contract as savePassportDraft: `null`/omitted leaves the ticks alone. */
+  confirmed?: string[] | null;
   storage: DraftStorage;
   keys: PassportDraftKeys;
 }): Promise<DraftFlushResult> {

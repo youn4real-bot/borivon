@@ -10,6 +10,7 @@ import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
 import { savePassportDraft, writeLocalDraft, flushAndReleaseLocalDraft } from "@/lib/passportDraft";
+import { classifyProfileRead } from "@/lib/passportDraftGuard";
 import { fetchPhaseSlots, emptyStateKind } from "@/lib/dashboardLoad";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
@@ -833,27 +834,75 @@ export default function DashboardPage() {
   const [passportModal, setPassportModal] = useState<PassportData | null>(null);
   const [passportSaving, setPassportSaving] = useState(false);
   const [confirmedFields, setConfirmedFields] = useState<Set<keyof PassportData>>(new Set());
+  /**
+   * The open form was seeded from a source that actually holds her passport —
+   * a profile read that SUCCEEDED, a fresh OCR extraction, or the local draft
+   * restored at bootstrap. False means the eighteen inputs on screen are not
+   * her data, and the autosave below must not treat them as an edit.
+   *
+   * This is the second half of the 62-profile wipe: the failed read put a
+   * blank form on screen, and 800 ms later the autosave wrote that blank over
+   * her stored name, passport number and dates. A ref, not state, because it
+   * always flips in the same tick as `setPassportModal` — which IS a dep of
+   * the autosave effect, so the effect already re-runs and reads it fresh.
+   */
+  const passportFormSeededRef = useRef(false);
+  /**
+   * A passport read failed. Rendered as a banner with a retry — the honest
+   * alternative to a blank that gets treated as the truth.
+   *
+   * The value says WHICH read, so the retry redoes that one:
+   *   "form"   — the eighteen-field profile read behind the data form. The
+   *              form deliberately did not open.
+   *   "status" — the bootstrap read of passport_status. Unknown is not
+   *              "not submitted", so nothing claims a review state.
+   */
+  const [passportLoadFailed, setPassportLoadFailed] = useState<null | "form" | "status">(null);
+  const [passportLoadRetrying, setPassportLoadRetrying] = useState(false);
+  /**
+   * passport_status actually came back. False = we do not know it, which is a
+   * different thing from `passportStatus === null` ("she has not submitted").
+   * Guards the auto-open effect: offering an editable submit form over a
+   * passport an admin already approved is how a failed read turns into an
+   * edit nobody asked for.
+   */
+  const [passportStatusKnown, setPassportStatusKnown] = useState(true);
 
   /**
    * Re-open the passport-data modal AFTER first confirmation, populated from
    * whatever the candidate already saved in candidate_profiles. Used by the
    * "Passport data" button in the doc preview popup AND by the auto-open
    * effect that fires while the passport is still in the verification phase.
+   *
+   * Returns false when the read failed and no form was opened, so a caller can
+   * say so instead of assuming the form is up.
    */
-  const reopenPassportData = useCallback(async () => {
-    if (!userId) return;
-    const { data } = await getMyProfile(
+  const reopenPassportData = useCallback(async (): Promise<boolean> => {
+    if (!userId) return false;
+    const read = await getMyProfile(
       "first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_confirmed_fields",
       { userId },
     );
+    // SHAPE A. `const { data } = await getMyProfile(...)` threw the error away,
+    // so a 500 / an expired JWT / Moroccan mobile data dropping out all came
+    // back as `data === null` — indistinguishable from "she has no row yet" —
+    // and the form opened with eighteen empty inputs that the autosave then
+    // wrote to the database. "I could not read it" is not "it is empty".
+    if (classifyProfileRead(read) === "failed") {
+      setPassportLoadFailed("form");
+      return false;
+    }
+    setPassportLoadFailed(null);
     type ProfileRow = Partial<PassportData> & { passport_confirmed_fields?: unknown };
-    const p = (data ?? {}) as ProfileRow;
+    const p = (read.data ?? {}) as ProfileRow;
     const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
     const filled: PassportData = { ...blank };
     (Object.keys(blank) as (keyof PassportData)[]).forEach(k => {
       const v = p[k];
       if (typeof v === "string") filled[k] = v;
     });
+    // Seeded from a read that succeeded — this form IS her data, so it may save.
+    passportFormSeededRef.current = true;
     setPassportModal({ ...filled, sex: normalizeSex(filled.sex, lang) });
     // LAW #38: confirmation boxes are ONLY ever set by an explicit human
     // tick. Restore EXACTLY the candidate's previously-saved (human-checked)
@@ -865,7 +914,40 @@ export default function DashboardPage() {
       ? (p.passport_confirmed_fields as unknown[]).filter((x): x is keyof PassportData => typeof x === "string")
       : [];
     setConfirmedFields(new Set(savedConfirmed));
+    return true;
   }, [userId, lang]);
+
+  /** Re-read passport_status on its own. Returns false when the read failed,
+   *  so the caller can say "unknown" instead of writing null into the state
+   *  that every status colour and the auto-open guard read. */
+  const refreshPassportStatus = useCallback(async (uid?: string): Promise<boolean> => {
+    const id = uid ?? userId;
+    if (!id) return false;
+    const read = await getMyProfile("passport_status", { userId: id });
+    if (classifyProfileRead(read) === "failed") {
+      setPassportStatusKnown(false);
+      setPassportLoadFailed(prev => prev ?? "status");
+      return false;
+    }
+    setPassportStatusKnown(true);
+    setPassportStatus((read.data as { passport_status?: string | null } | null)?.passport_status ?? null);
+    setPassportLoadFailed(prev => (prev === "status" ? null : prev));
+    return true;
+  }, [userId]);
+
+  /** "Try again" on the load-failure banner — it redoes the read that failed,
+   *  and nothing here can put a blank form on screen. */
+  const retryPassportLoad = useCallback(async () => {
+    if (passportLoadRetrying) return;
+    setPassportLoadRetrying(true);
+    try {
+      // A failed status read must not pop the eighteen-field form open on a
+      // candidate who never asked for it — she tapped "try again", not her
+      // passport box.
+      if (passportLoadFailed === "status") await refreshPassportStatus();
+      else await reopenPassportData();
+    } finally { setPassportLoadRetrying(false); }
+  }, [reopenPassportData, refreshPassportStatus, passportLoadFailed, passportLoadRetrying]);
 
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
   const addressHintShown = useRef(false);
@@ -914,7 +996,9 @@ export default function DashboardPage() {
   // first appears — OCR extraction AND bootstrap localStorage restore — so
   // the data reaches the DB right away and is readable on ANY other device
   // (phone) without depending on the debounced editor save.
-  const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] = []) => {
+  // `confirmed` defaults to null, NOT []: an [] would tell the server to clear
+  // every LAW #38 tick, and none of this function's callers is a human click.
+  const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] | null = null) => {
     if (!token) return;
     void savePassportDraft({ fetchImpl: passportFetch, token, data, confirmed })
       .then(res => {
@@ -934,7 +1018,9 @@ export default function DashboardPage() {
     const key = `bv-passport-pending-${userId}`;
     const confKey = `bv-passport-confirmed-${userId}`;
     let data: Record<string, unknown> | null = null;
-    let confirmed: string[] = [];
+    // null = the tick key was absent or unreadable, so we say nothing about the
+    // ticks. [] would say "she un-ticked everything", which nobody did.
+    let confirmed: string[] | null = null;
     try {
       const raw = localStorage.getItem(key);
       if (raw) data = JSON.parse(raw) as Record<string, unknown>;
@@ -976,6 +1062,20 @@ export default function DashboardPage() {
     const key = `bv-passport-pending-${userId}`;
     const confKey = `bv-passport-confirmed-${userId}`;
     if (passportModal) {
+      // A FORM THAT WAS NEVER LOADED IS NOT AN EDIT.
+      //
+      // The blocker this whole file was opened for: the profile read failed,
+      // the form opened with eighteen empty inputs, and this effect — which
+      // cannot tell "she cleared this field" from "we never loaded it" — sent
+      // that emptiness to /api/portal/passport 800 ms later. Her name, passport
+      // number, issue and expiry dates were nulled and every LAW #38 tick was
+      // cleared, while passport_status stayed "approved" so nothing flagged it.
+      //
+      // The ref is only true when the form was seeded from her actual data: a
+      // profile read that succeeded, a fresh OCR extraction, or the local draft
+      // restored at bootstrap. Anything else is a form we have no right to
+      // persist — not to the device, and not to the database.
+      if (!passportFormSeededRef.current) return;
       // 1) Instant local cache (refresh-safe) — data + checkboxes.
       const confArr = Array.from(confirmedFields);
       // Remember it for the close-flush above.
@@ -1026,6 +1126,9 @@ export default function DashboardPage() {
       // the Worker, an expired JWT — and BOTH stores were empty. Eighteen
       // fields typed on a phone, gone, and the modal just closed. Now the
       // release waits for `saved`, and a failure keeps her copy AND says so.
+      // The form is gone, so the next one must earn its seed again — a stale
+      // `true` would let a later failed read autosave a blank form.
+      passportFormSeededRef.current = false;
       const snap = lastPassportSnapshotRef.current;
       if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
       if (snap && authToken) {
@@ -1218,6 +1321,9 @@ export default function DashboardPage() {
           // passport_status is admin-driven — always honor it.
           if (typeof row.passport_status === "string" || row.passport_status === null) {
             setPassportStatus(row.passport_status ?? null);
+            // A live row IS the answer the failed bootstrap read never gave.
+            setPassportStatusKnown(true);
+            setPassportLoadFailed(prev => (prev === "status" ? null : prev));
           }
           // ── Merged in from the old `profile-status-${userId}` channel ──────
           // That was a SECOND postgres_changes subscription on this same table
@@ -1359,6 +1465,10 @@ export default function DashboardPage() {
     // side-by-side. It's reachable on demand via the "Data" button in the
     // preview header, where it pops up centered ON TOP (not docked).
     if (previewDoc.status === "approved" && passportStatus === "approved") return;
+    // Unknown status = we cannot tell whether that guard above should have
+    // fired, so opening the editable form risks putting a Submit button in
+    // front of an approved passport. The banner already says to retry.
+    if (!passportStatusKnown) return;
     reopenPassportData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDoc?.id]);
@@ -1612,14 +1722,19 @@ export default function DashboardPage() {
         try {
           const parsed = JSON.parse(pendingRaw) as PassportData;
           const restored = { ...parsed, sex: normalizeSex(parsed.sex ?? "", lang) };
+          // Her own unsent draft, off this device — a real seed.
+          passportFormSeededRef.current = true;
           setPassportModal(restored);
-          // Restore the saved checkboxes (same-device refresh).
-          let confArr: string[] = [];
+          // Restore the saved checkboxes (same-device refresh). null means the
+          // key was absent or unreadable — a legacy draft from before the
+          // checkboxes existed, or a browser that dropped it. Sending [] for
+          // that used to un-tick every box on the server (LAW #38).
+          let confArr: string[] | null = null;
           try {
             const cr = localStorage.getItem(`bv-passport-confirmed-${user.id}`);
             if (cr) confArr = (JSON.parse(cr) as unknown[]).filter((x): x is string => typeof x === "string");
           } catch { /* ignore */ }
-          setConfirmedFields(new Set(confArr as (keyof PassportData)[]));
+          setConfirmedFields(new Set((confArr ?? []) as (keyof PassportData)[]));
           // Recover legacy localStorage-only drafts (pre-DB-autosave): push
           // data + checkboxes to the DB so they sync to other devices.
           flushPassportDraft(restored, token, confArr);
@@ -1637,8 +1752,17 @@ export default function DashboardPage() {
         // a) Profile (passport / payment tier / verified flag)
         (async () => {
           try {
-            const { data } = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
+            const read = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
             if (cancelled) return;
+            // SHAPE A. The error was destructured away, so a failed read set
+            // passportStatus to null — the exact same value as "she has never
+            // submitted". An approved passport then rendered with no colour at
+            // all (LAW #4) and the auto-open effect offered her an editable
+            // submit form over data an admin had already approved.
+            const readOk = classifyProfileRead(read) !== "failed";
+            setPassportStatusKnown(readOk);
+            if (!readOk) { setPassportLoadFailed(prev => prev ?? "status"); return; }
+            const data = read.data;
             setPassportStatus(data?.passport_status ?? null);
             setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
             setManuallyVerified(!!data?.manually_verified);
@@ -2216,6 +2340,9 @@ export default function DashboardPage() {
               // replaces the old display-normalizer that discarded full words
               // (and German "W") down to "".
               const extracted = { ...raw, sex: canonSex(raw.sex) ?? "" };
+              // A fresh OCR extraction on a candidate the server told us has no
+              // stored data yet — a real seed, so this form may autosave.
+              passportFormSeededRef.current = true;
               setPassportModal(extracted);
               setConfirmedFields(new Set());
               // Push extracted data to the DB immediately so it's permanent +
@@ -3189,6 +3316,37 @@ export default function DashboardPage() {
                 style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", opacity: passportDraftRetrying ? 0.6 : 1 }}>
                 {passportDraftRetrying
                   ? (lang === "de" ? "Wird gesendet…" : lang === "fr" ? "Envoi…" : "Sending…")
+                  : (lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Passport data could not be loaded ──
+            The form deliberately did NOT open. Before this, a failed profile
+            read opened eighteen empty inputs that looked exactly like a fresh
+            start, and the autosave wrote that blank over her stored passport
+            while passport_status still read "approved". An empty form is a
+            worse answer than this sentence. */}
+        {passportLoadFailed !== null && (
+          <div className="mb-5 px-4 py-3 flex items-start gap-3"
+            style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
+            <AlertTriangle size={15} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] leading-[1.45]" style={{ color: "var(--w2)" }}>
+                {lang === "de"
+                  ? "Ihre Passdaten konnten nicht geladen werden. Ihre gespeicherten Daten sind unverändert — bitte versuchen Sie es erneut."
+                  : lang === "fr"
+                  ? "Vos données de passeport n’ont pas pu être chargées. Vos données enregistrées sont intactes — veuillez réessayer."
+                  : "Your passport data could not be loaded. Nothing you saved has changed — please try again."}
+              </p>
+              <button
+                onClick={() => void retryPassportLoad()}
+                disabled={passportLoadRetrying}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", opacity: passportLoadRetrying ? 0.6 : 1 }}>
+                {passportLoadRetrying
+                  ? (lang === "de" ? "Wird geladen…" : lang === "fr" ? "Chargement…" : "Loading…")
                   : (lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again")}
               </button>
             </div>
@@ -5132,9 +5290,16 @@ export default function DashboardPage() {
                           body: JSON.stringify({ ...passportModal, confirmed_fields: Array.from(confirmedFields) }),
                         });
                         if (!res.ok) {
+                          // The server's own words used to go straight into
+                          // this alert — raw Postgres English ("null value in
+                          // column ... violates not-null constraint") in front
+                          // of a nurse reading the portal in French (LAW #19).
+                          // The detail goes to the console; she gets a sentence
+                          // in her language.
                           const err = await res.json().catch(() => ({}));
+                          console.error("[passport] submit failed:", res.status, err?.error);
                           setPassportSaving(false);
-                          alert(err.error ?? t.dErrPassportSave);
+                          alert(t.dErrPassportSave);
                           return;
                         }
                       } catch {

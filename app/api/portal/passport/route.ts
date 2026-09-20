@@ -5,6 +5,7 @@ import { enforceRateLimit } from "@/lib/rateLimit";
 import { normalizeSex } from "@/lib/sex";
 import { natToLang } from "@/lib/countries";
 import { keepAlive } from "@/lib/keepAlive";
+import { planPassportWrite, PASSPORT_DRAFT_FIELDS } from "@/lib/passportDraftGuard";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
 function toIso(s: string | null | undefined): string | null {
@@ -117,7 +118,13 @@ export async function POST(req: NextRequest) {
     "issue_date","address_street","address_number","address_postal",
     "city_of_residence","country_of_residence","marital_status","children_ages",
   ]);
-  const confirmedFields: string[] = Array.isArray(body.confirmed_fields)
+  // LAW #38: a tick is a human click, so only a body that actually CARRIES the
+  // list may rewrite the column. A missing or malformed `confirmed_fields` used
+  // to fall through to `[]` and get written, which un-ticked every box without
+  // anyone clicking anything — the same autosave that blanked the fields also
+  // cleared the confirmations. Absent now means "not talking about the ticks".
+  const confirmedSupplied = Array.isArray(body.confirmed_fields);
+  const confirmedFields: string[] = confirmedSupplied
     ? Array.from(new Set(
         (body.confirmed_fields as unknown[])
           .filter((v): v is string => typeof v === "string" && KNOWN_FIELD_KEYS.has(v))
@@ -171,11 +178,52 @@ export async function POST(req: NextRequest) {
   // If the passport is "approved" and only address / contact fields changed,
   // keep it approved — the admin already validated the identity data.
   const db = getServiceSupabase();
-  const { data: existing } = await db
+  // Every column the form owns, not just the seven identity ones: the
+  // blank-over-stored guard below has to be able to see that SOMETHING is
+  // stored before it lets an empty payload through.
+  const { data: existing, error: readErr } = await db
     .from("candidate_profiles")
-    .select("first_name,last_name,dob,sex,nationality,passport_no,passport_expiry,passport_status")
+    .select(`${PASSPORT_DRAFT_FIELDS.join(",")},passport_status`)
     .eq("user_id", user.id)
-    .maybeSingle();
+    .maybeSingle<Record<string, string | null>>();
+
+  // SHAPE A, at its most expensive. This read is the only thing in the request
+  // that knows what is already stored, and its error used to be destructured
+  // away. A failed read left `existing` undefined, which reads exactly like
+  // "there is no row" — so the guard below would have waved an empty autosave
+  // straight over a filled passport. "I could not check" is not "it is empty":
+  // refuse the write and let the client retry.
+  if (readErr) {
+    console.error("[passport] profile read failed, refusing the write:", readErr.message);
+    return NextResponse.json({ error: "read_failed" }, { status: 503 });
+  }
+
+  // THE 62-PROFILE WIPE. The passport form opens on a failed profile read, so
+  // every input is empty; 800 ms later the autosave POSTs that emptiness and
+  // the upsert nulls her name, passport number and dates while
+  // `passport_status` stays "approved", so nothing anywhere flags it. An
+  // all-blank payload is never a real edit — clearing one field among filled
+  // ones still goes through, eighteen-of-eighteen blank does not.
+  const plan = planPassportWrite({
+    incoming: {
+      first_name, last_name, dob, sex, nationality, city_of_birth,
+      country_of_birth, passport_no, passport_expiry, issuing_authority,
+      issue_date, address_street, address_number, address_postal,
+      city_of_residence, country_of_residence, marital_status, children_ages,
+    },
+    stored: existing ?? null,
+    confirmedSupplied,
+  });
+  if (!plan.writeFields) {
+    // An autosave is a background nicety: swallowing a blank one is right, and
+    // telling the client "saved" is honest — her stored data is intact and the
+    // local copy it was about to release held nothing worth keeping.
+    if (isDraft) return NextResponse.json({ success: true, skipped: plan.skipped });
+    // An explicit Submit of a blank form cannot be an accident the candidate
+    // should not hear about. The dashboard's button is disabled until every
+    // filled field is ticked, so this is a backstop, not a path she can walk.
+    return NextResponse.json({ error: "empty_passport" }, { status: 409 });
+  }
 
   const IDENTITY_FIELDS = ["first_name","last_name","dob","sex","nationality","passport_no","passport_expiry"] as const;
   const identityChanged = existing?.passport_status === "approved"
@@ -205,6 +253,9 @@ export async function POST(req: NextRequest) {
   // "submitted". When a status exists we preserve it untouched.
   const upsertRow: Record<string, unknown> = { ...profilePayload };
   if (passportStatusToSave !== null) upsertRow.passport_status = passportStatusToSave;
+  // LAW #38 again, on the way out: when the body never carried the tick list,
+  // the column is left exactly as the human left it instead of being reset.
+  if (!plan.writeConfirmed) delete upsertRow.passport_confirmed_fields;
 
   const { error } = await db.from("candidate_profiles").upsert(
     upsertRow,
@@ -212,8 +263,13 @@ export async function POST(req: NextRequest) {
   );
 
   if (error) {
+    // The raw Postgres message used to be handed straight to the candidate,
+    // who sees it in an alert(): English-only database prose in front of a
+    // nurse reading the portal in French (LAW #19), naming columns and
+    // constraints she has no business seeing. The detail belongs in the
+    // Worker log; she gets a stable code the dashboard renders in her language.
     console.error("Profile upsert error:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "save_failed" }, { status: 500 });
   }
 
   // Notify ALL admins (supreme / sub-admin / assigned org-admin — the admin
