@@ -65,7 +65,14 @@ describe("a failed data load is never rendered as an empty queue", () => {
   it("a thrown fetch is reported too, not just logged", () => {
     const at = ADMIN.indexOf("async function loadAdminCore");
     expect(at, "loadAdminCore not found — was it renamed?").toBeGreaterThan(-1);
-    const body = ADMIN.slice(at, ADMIN.indexOf("\n  }\n", at));
+    // loadAdminCore ends at the first line that is exactly two spaces and a
+    // closing brace. Matched line-ending agnostically: this repository is
+    // checked out with core.autocrlf=true, so the literal LF form never
+    // matched, slice() fell back to the whole rest of the file, and this
+    // assertion was quietly reading some other function's catch block.
+    const endRel = ADMIN.slice(at).search(/\r?\n {2}\}\r?\n/);
+    expect(endRel, "the end of loadAdminCore was not found - was it reindented?").toBeGreaterThan(0);
+    const body = ADMIN.slice(at, at + endRel);
     expect(body).toContain("catch");
     const afterCatch = body.slice(body.lastIndexOf("catch"));
     expect(afterCatch, "the catch must set the error state, not only console.error")
@@ -240,7 +247,14 @@ describe("an upload notification opens the document", () => {
   it("the URL handler opens the doc on the id-only path", () => {
     const at = ADMIN.indexOf("function consumeAdminDeepLinkParams");
     expect(at, "consumeAdminDeepLinkParams not found").toBeGreaterThan(-1);
-    const body = ADMIN.slice(at, ADMIN.indexOf("\n  }\n", at));
+    // loadAdminCore ends at the first line that is exactly two spaces and a
+    // closing brace. Matched line-ending agnostically: this repository is
+    // checked out with core.autocrlf=true, so the literal LF form never
+    // matched, slice() fell back to the whole rest of the file, and this
+    // assertion was quietly reading some other function's catch block.
+    const endRel = ADMIN.slice(at).search(/\r?\n {2}\}\r?\n/);
+    expect(endRel, "the end of loadAdminCore was not found - was it reindented?").toBeGreaterThan(0);
+    const body = ADMIN.slice(at, at + endRel);
     const navUserAt = body.indexOf("if (navUserId && users[navUserId])");
     expect(navUserAt, "the nav_user_id branch moved").toBeGreaterThan(-1);
     const branch = body.slice(navUserAt, body.indexOf("const linkedUser", navUserAt));

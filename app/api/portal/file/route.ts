@@ -8,6 +8,7 @@ import { isPassportFileType } from "@/lib/passportFile";
 import { r2GetObject } from "@/lib/r2";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { safeRotatePdf } from "@/lib/pdfRotate";
+import { servedMime, isPdfBytes } from "@/lib/docBytes";
 
 const BUCKET = "sign-documents";
 
@@ -259,7 +260,11 @@ export async function GET(req: NextRequest) {
     // through to the next source and let the request end in an honest 404.
     if (!dlErr && blob && blob.size > 0) {
       const srcBuf = Buffer.from(await blob.arrayBuffer());
-      const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
+      // Rotation is baked in by re-saving through pdf-lib, which only works on
+      // a PDF. On a photo it was a no-op that still cost a parse attempt.
+      const outBuf = isPdfBytes(srcBuf)
+        ? await safeRotatePdf(srcBuf, effectiveRotation)
+        : srcBuf;
       // LAW #39 integrity audit on signed-storage-path passport serves.
       // (Signed paths are usually post-signature flows, not passport scans,
       // but we check anyway — costs ~1ms on a passport-sized PDF.)
@@ -268,7 +273,7 @@ export async function GET(req: NextRequest) {
         : outBuf;
       return new NextResponse(new Uint8Array(verified), {
         headers: {
-          "Content-Type": ctype(req, "application/pdf"),
+          "Content-Type": ctype(req, servedMime(verified, "application/pdf")),
           "Content-Disposition": disposition(req, "document"),
           "Cache-Control": "private, no-store, must-revalidate",
         },
@@ -281,11 +286,14 @@ export async function GET(req: NextRequest) {
   if (r2Key) {
     const obj = await r2GetObject(r2Key);
     if (obj && obj.body.length > 0) {
-      const mime = obj.contentType ?? "application/pdf";
-      const outBuf = mime === "application/pdf"
+      // The stored content type is a fallback, not the answer: it is whatever
+      // the browser claimed at upload, and old objects predate images entirely.
+      const mime = servedMime(obj.body, obj.contentType ?? "application/pdf");
+      const isPdf = isPdfBytes(obj.body);
+      const outBuf = isPdf
         ? await safeRotatePdf(obj.body, effectiveRotation)
         : obj.body;
-      const verified = isPassportFileType(fileType) && mime === "application/pdf"
+      const verified = isPassportFileType(fileType) && isPdf
         ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "r2")
         : outBuf;
       return new NextResponse(new Uint8Array(verified), {
@@ -317,7 +325,9 @@ export async function GET(req: NextRequest) {
       return new NextResponse("File not found", { status: 404 });
     }
     const srcBuf = Buffer.from(await blob.arrayBuffer());
-    const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
+    const outBuf = isPdfBytes(srcBuf)
+      ? await safeRotatePdf(srcBuf, effectiveRotation)
+      : srcBuf;
     // LAW #39: audit passport bytes here too. The storage backup SHOULD
     // match the upload hash (mirrored at upload time); a divergence would
     // mean even the backup got corrupted, which is the kind of edge we
@@ -327,7 +337,7 @@ export async function GET(req: NextRequest) {
       : outBuf;
     return new NextResponse(new Uint8Array(verified), {
       headers: {
-        "Content-Type": ctype(req, "application/pdf"),
+        "Content-Type": ctype(req, servedMime(verified, "application/pdf")),
         "Content-Disposition": disposition(req, "document"),
         "Cache-Control": "private, no-store, must-revalidate",
       },

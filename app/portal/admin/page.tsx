@@ -46,6 +46,7 @@ import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS, canonicalDocLabel, translateDocLabel } from "@/lib/fileKeys";
+import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
@@ -5689,6 +5690,14 @@ export default function AdminPage() {
                                           onClick={async e => {
                                             e.stopPropagation();
                                             if (isDualMergeDl) return;
+                                            // A WebP half can never become a merged page -- pdf-lib has no WebP
+                                            // embedder -- and the iOS branch below NAVIGATES to the merge URL, so a
+                                            // refusal there would land as a JSON page in a tab that closes itself.
+                                            // Say it first. The server still checks the bytes.
+                                            if (nameCannotMerge(origDocs[0]?.file_name) || nameCannotMerge(transDocs[0]?.file_name)) {
+                                              showError(t.adErrMergeFormat);
+                                              return;
+                                            }
                                             const mfn = mergedPdfName(origDocs[0]?.file_name, slot.label);
                                             // iOS: server-route navigation → native download prompt.
                                             if (isIOSDevice()) {
@@ -5714,7 +5723,15 @@ export default function AdminPage() {
                                                 `/api/portal/documents/merge-pdf?origDocId=${origDocs[0].id}&transDocId=${transDocs[0].id}`,
                                                 { headers: { Authorization: `Bearer ${accessToken}` } }
                                               );
-                                              if (!res.ok) throw new Error("Failed");
+                                              if (!res.ok) {
+                                                // merge-pdf names a format it cannot take (4xx + a code),
+                                                // so "try again" is the wrong instruction: the pair will
+                                                // never merge, and each half downloads fine on its own.
+                                                const code = await res.json().then((b: { error?: string }) => b?.error).catch(() => undefined);
+                                                showError(isMergeRefusalCode(code) ? t.adErrMergeFormat : t.adErrDownload);
+                                                setMergePdfDl(prev => { const n = new Set(prev); n.delete(slot.id); return n; });
+                                                return;
+                                              }
                                               const blob = await res.blob();
                                               const url = URL.createObjectURL(blob);
                                               const a = document.createElement("a");
@@ -7050,6 +7067,11 @@ export default function AdminPage() {
                                   onClick={async e => {
                                     e.stopPropagation();
                                     if (isMergeDl) return;
+                                    // See the dual-slot button above.
+                                    if (nameCannotMerge(origDoc?.file_name) || nameCannotMerge(transDoc?.file_name)) {
+                                      showError(t.adErrMergeFormat);
+                                      return;
+                                    }
                                     const mfn = mergedPdfName(origDoc?.file_name, item.label);
                                     if (isIOSDevice()) {
                                       // Was `if (!dlt) return;` — a dead tap.
@@ -7073,7 +7095,14 @@ export default function AdminPage() {
                                         `/api/portal/documents/merge-pdf?origDocId=${origDoc!.id}&transDocId=${transDoc!.id}`,
                                         { headers: { Authorization: `Bearer ${accessToken}` } }
                                       );
-                                      if (!res.ok) throw new Error("Failed");
+                                      if (!res.ok) {
+                                        // See the dual-slot button above: a refusal is a fact about
+                                        // the files, not a transient failure to retry.
+                                        const code = await res.json().then((b: { error?: string }) => b?.error).catch(() => undefined);
+                                        showError(isMergeRefusalCode(code) ? t.adErrMergeFormat : t.adErrDownload);
+                                        setMergePdfDl(prev => { const n = new Set(prev); n.delete(item.key); return n; });
+                                        return;
+                                      }
                                       const blob = await res.blob();
                                       const url = URL.createObjectURL(blob);
                                       const a = document.createElement("a");

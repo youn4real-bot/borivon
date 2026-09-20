@@ -100,8 +100,8 @@ export interface Translation {
   pWizardNext: string; pWizardSkip: string; pWizardDone: string; pWizardViewAll: string;
   pSideID: string; pSideNursing: string; pSideTrans: string; pSideOther: string;
   pWelcomeBack: string; pWelcomeBackSub: string;
-  pUploadSuccess: string; pErrPdfOnly: string; pErrAllTypes: string; pErrSize: string; pErrImageOnly: string;
-  pErrIdTypes: string;
+  pUploadSuccess: string; pErrAllTypes: string; pErrSize: string; pErrImageOnly: string;
+  pErrIdTypes: string; pErrDocTypes: string; pErrMergeFormat: string;
   pErrUpload: string; pErrNetwork: string; pSkipSaved: string; pDropHere: string;
   // One sentence per cause. "Netzwerkfehler" used to stand for an expired
   // session, a dead phone signal, a stalled upload and a 500 alike, so nobody
@@ -242,7 +242,7 @@ export interface Translation {
   adErrPipeline: string; adErrProfile: string; adErrPassportStatus: string; adErrDelete: string;
   // Added after the "I tap it and nothing happens" reports: each key below names
   // a click handler that used to fail behind nothing but a console.error.
-  adErrDownload: string; adErrRotate: string; adErrLinkOrg: string;
+  adErrDownload: string; adErrMergeFormat: string; adErrRotate: string; adErrLinkOrg: string;
   adErrBranding: string; adErrAttachSend: string; adErrAutosave: string;
   // ── Admin: invite + agencies + filters + needs panel ───────────────────────
   adInviteLink: string; adCopy: string; adReset: string;
@@ -402,8 +402,10 @@ export const translations: Record<Lang, Translation> = {
     pWizardNext: "Continuer →", pWizardSkip: "Je reviendrai plus tard", pWizardDone: "Voir mon dossier →", pWizardViewAll: "Voir tout le dossier",
     pSideID: "Essentiels", pSideNursing: "Documents", pSideTrans: "Traductions", pSideOther: "Autres",
     pWelcomeBack: "Bon retour,", pWelcomeBackSub: "Continuez là où vous en étiez.",
-    pUploadSuccess: "✓ {label} déposé avec succès.", pErrPdfOnly: "PDF uniquement pour ce type de document.", pErrAllTypes: "PDF, JPG, PNG ou DOCX uniquement.", pErrSize: "Fichier trop volumineux. Max {size} Mo.", pErrImageOnly: "Image uniquement (JPG, PNG) — pas de PDF pour le passeport.",
+    pUploadSuccess: "✓ {label} déposé avec succès.", pErrAllTypes: "PDF, JPG, PNG ou DOCX uniquement.", pErrSize: "Fichier trop volumineux. Max {size} Mo.", pErrImageOnly: "Image uniquement (JPG, PNG) — pas de PDF pour le passeport.",
     pErrIdTypes: "PDF ou photo (JPG, PNG) pour le passeport.",
+    pErrDocTypes: "PDF ou photo (JPG, PNG) pour ce document.",
+    pErrMergeFormat: "Ces deux fichiers ne peuvent pas être réunis en un seul. Téléchargez-les séparément.",
     pErrUpload: "Erreur lors de l'envoi.", pErrNetwork: "Erreur réseau. Réessayez.",
     pErrOffline: "Pas de connexion. Le document sera envoyé dès le retour du réseau.",
     pErrFileGone: "Le fichier n'est plus lisible. Sélectionnez-le à nouveau.",
@@ -549,6 +551,7 @@ export const translations: Record<Lang, Translation> = {
     adErrPassportStatus: "Échec de la mise à jour du statut du passeport — veuillez réessayer.",
     adErrDelete: "Échec de la suppression du candidat",
     adErrDownload: "Échec du téléchargement — veuillez réessayer.",
+    adErrMergeFormat: "Ces deux fichiers ne peuvent pas être réunis en un seul. Téléchargez-les séparément.",
     adErrRotate: "La rotation n'a pas pu être enregistrée — le document se rouvrira dans l'ancien sens.",
     adErrLinkOrg: "Impossible de rattacher la candidate à cette agence — veuillez réessayer.",
     adErrBranding: "Impossible d'enregistrer le branding du CV — veuillez réessayer.",
@@ -724,8 +727,10 @@ export const translations: Record<Lang, Translation> = {
     pWizardNext: "Continue →", pWizardSkip: "I'll come back later", pWizardDone: "View my file →", pWizardViewAll: "View full file",
     pSideID: "Essentials", pSideNursing: "Documents", pSideTrans: "Translations", pSideOther: "Others",
     pWelcomeBack: "Welcome back,", pWelcomeBackSub: "Continue where you left off.",
-    pUploadSuccess: "✓ {label} uploaded successfully.", pErrPdfOnly: "PDF only for this document type.", pErrAllTypes: "PDF, JPG, PNG or DOCX only.", pErrSize: "File too large. Max {size} MB.", pErrImageOnly: "Image only (JPG, PNG) — no PDF for passport.",
+    pUploadSuccess: "✓ {label} uploaded successfully.", pErrAllTypes: "PDF, JPG, PNG or DOCX only.", pErrSize: "File too large. Max {size} MB.", pErrImageOnly: "Image only (JPG, PNG) — no PDF for passport.",
     pErrIdTypes: "PDF or a photo (JPG, PNG) for the passport.",
+    pErrDocTypes: "PDF or a photo (JPG, PNG) for this document.",
+    pErrMergeFormat: "These two cannot be joined into one file. Download them separately.",
     pErrUpload: "Upload error. Please try again.", pErrNetwork: "Network error. Please try again.",
     pErrOffline: "No connection. The document will be sent as soon as you are back online.",
     pErrFileGone: "The file can no longer be read. Please pick it again.",
@@ -871,6 +876,7 @@ export const translations: Record<Lang, Translation> = {
     adErrPassportStatus: "Failed to update passport status — please try again.",
     adErrDelete: "Failed to delete candidate",
     adErrDownload: "Download failed — please try again.",
+    adErrMergeFormat: "These two cannot be joined into one file. Download them separately.",
     adErrRotate: "The rotation could not be saved — the document will reopen at the old angle.",
     adErrLinkOrg: "Could not link the candidate to this agency — please try again.",
     adErrBranding: "Could not save the CV branding setting — please try again.",
@@ -1046,8 +1052,10 @@ export const translations: Record<Lang, Translation> = {
     pWizardNext: "Weiter →", pWizardSkip: "Ich komme später wieder", pWizardDone: "Meine Akte ansehen →", pWizardViewAll: "Gesamte Akte ansehen",
     pSideID: "Essentielles", pSideNursing: "Unterlagen", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",
-    pUploadSuccess: "✓ {label} erfolgreich hochgeladen.", pErrPdfOnly: "Nur PDF für diesen Dokumenttyp.", pErrAllTypes: "Nur PDF, JPG, PNG oder DOCX.", pErrSize: "Datei zu groß. Max {size} MB.", pErrImageOnly: "Nur Bild (JPG, PNG) — kein PDF für Reisepass.",
+    pUploadSuccess: "✓ {label} erfolgreich hochgeladen.", pErrAllTypes: "Nur PDF, JPG, PNG oder DOCX.", pErrSize: "Datei zu groß. Max {size} MB.", pErrImageOnly: "Nur Bild (JPG, PNG) — kein PDF für Reisepass.",
     pErrIdTypes: "PDF oder Foto (JPG, PNG) für den Reisepass.",
+    pErrDocTypes: "PDF oder Foto (JPG, PNG) für dieses Dokument.",
+    pErrMergeFormat: "Diese beiden lassen sich nicht zu einer Datei zusammenführen. Bitte einzeln herunterladen.",
     pErrUpload: "Fehler beim Hochladen.", pErrNetwork: "Netzwerkfehler. Bitte erneut versuchen.",
     pErrOffline: "Keine Verbindung. Das Dokument wird gesendet, sobald Sie wieder online sind.",
     pErrFileGone: "Die Datei ist nicht mehr lesbar. Bitte erneut auswählen.",
@@ -1193,6 +1201,7 @@ export const translations: Record<Lang, Translation> = {
     adErrPassportStatus: "Pass-Status konnte nicht aktualisiert werden — bitte erneut versuchen.",
     adErrDelete: "Kandidat konnte nicht gelöscht werden",
     adErrDownload: "Herunterladen fehlgeschlagen — bitte erneut versuchen.",
+    adErrMergeFormat: "Diese beiden lassen sich nicht zu einer Datei zusammenführen. Bitte einzeln herunterladen.",
     adErrRotate: "Die Drehung konnte nicht gespeichert werden — das Dokument öffnet wieder im alten Winkel.",
     adErrLinkOrg: "Kandidatin konnte dieser Agentur nicht zugeordnet werden — bitte erneut versuchen.",
     adErrBranding: "CV-Branding konnte nicht gespeichert werden — bitte erneut versuchen.",

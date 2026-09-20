@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
 import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
+import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
 import { cachedRole } from "@/lib/myRole";
@@ -208,22 +209,23 @@ const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null 
 // accepted a photographed passport all along (app/api/portal/upload/route.ts,
 // ALLOWED_ID); only this line disagreed.
 //
-// WIDENED FOR THE PASSPORT ONLY, and deliberately not for the other boxes. A
-// qualification doc is half of an original/translated PAIR that admin and
-// candidate both merge into one file, and that merge is pdf-lib
-// (app/api/portal/documents/merge-pdf/route.ts: PDFDocument.load on both
-// sides). Hand it a JPEG and it throws into a bare 500 "Merge failed" — a new
-// silent failure, in the exact feature this branch is named after. The passport
-// has no translated counterpart and merge-pdf refuses it outright, so widening
-// it costs nothing. Widening the rest needs the merge taught to rasterise
-// first; until then they stay PDF and the picker stops offering a photo.
+// NOW EVERY BOX, not only the passport. The hold-up was that a qualification
+// doc is half of an original/translated PAIR which admin and candidate both
+// merge into one file, and that merge handed both halves straight to pdf-lib,
+// which cannot read a JPEG — so a photographed diploma became a bare 500
+// "Merge failed". app/api/portal/documents/merge-pdf/route.ts now goes through
+// lib/mergeDocs.ts, which turns a photo into a PAGE, and every other
+// PDF-assuming path has been swept (see tests/photoDocPaths.test.ts).
+//
+// WebP is here because the server takes it and a gallery can hand one over,
+// but pdf-lib has no WebP embedder: such a pair cannot be merged, and
+// downloadMerged() says so in words rather than letting it fail.
 //
 // HEIC is absent on purpose: neither this list nor the server stores it, and
 // iOS Safari hands <input type="file"> a JPEG anyway.
-const ALLOWED_PDF_ONLY = ["application/pdf"];
-const ALLOWED_ID = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const ALLOWED_DOC = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const ALLOWED_ALL = [
-  "application/pdf", "image/jpeg", "image/png", "image/webp",
+  ...ALLOWED_DOC,
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
@@ -509,8 +511,9 @@ export default function DashboardPage() {
   // new file arrived, but deleting the one it replaced did not, so BOTH sit in
   // the slot. It stays its own type because her action DID succeed — the slot
   // is wrong, and she is the only person in a position to notice.
-  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages"
-    | "errNetwork" | "errDownload" | "warnOldKept" | "errIdTypes" | UploadFailMsgType | "retrying";
+  type MsgType = "success" | "errDocTypes" | "errAllTypes" | "errSize" | "errUpload" | "errPages"
+    | "errNetwork" | "errDownload" | "errMergeFormat" | "warnOldKept" | "errIdTypes"
+    | UploadFailMsgType | "retrying";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
@@ -1805,16 +1808,18 @@ export default function DashboardPage() {
   // ── Auto-upload (no confirm step) ──────────────────────────────────────────
   async function handleFile(file: File, key: string, input?: HTMLInputElement | null) {
     const clearInput = () => { if (input) input.value = ""; };
-    const allowed = OTHER_KEYS.includes(key) ? ALLOWED_ALL
-      : ID_KEYS.includes(key) ? ALLOWED_ID
-      : ALLOWED_PDF_ONLY;
+    // Sonstiges additionally takes Word, because that is what "other" means
+    // here. Every other box takes the same PDF-or-photo list.
+    const allowed = OTHER_KEYS.includes(key) ? ALLOWED_ALL : ALLOWED_DOC;
     if (!allowed.includes(file.type)) {
       clearInput();
       setSlotMsgTimed({
         key, ok: false,
+        // The passport keeps its own wording: "for the passport" is the one
+        // box a candidate is told to start with, so naming it helps.
         type: OTHER_KEYS.includes(key) ? "errAllTypes"
           : ID_KEYS.includes(key) ? "errIdTypes"
-          : "errPdfOnly",
+          : "errDocTypes",
       });
       return;
     }
@@ -2296,7 +2301,8 @@ export default function DashboardPage() {
   function slotMsgText(m: SlotMsg, label: string): string {
     switch (m.type) {
       case "success":      return t.pUploadSuccess.replace("{label}", label);
-      case "errPdfOnly":   return t.pErrPdfOnly;
+      case "errDocTypes":  return t.pErrDocTypes;
+      case "errMergeFormat": return t.pErrMergeFormat;
       case "errIdTypes":   return t.pErrIdTypes;
       case "errAllTypes":  return t.pErrAllTypes;
       case "errSize":      return t.pErrSize.replace("{size}", String(MAX_MB));
@@ -2385,6 +2391,19 @@ export default function DashboardPage() {
     // (the shared `downloadingIds` set + same clear timing) so the rotating
     // animation behaves identically. Keyed by pairKey.
     if (downloadingIds.has(pairKey)) return;
+
+    // Say it before spinning, not after failing. pdf-lib has no WebP embedder,
+    // so a WebP half can never become a merged page -- and the iOS branch below
+    // NAVIGATES to the merge URL, so a refusal there would land as a JSON page
+    // in a tab that closes itself, i.e. the silent nothing all over again.
+    // The server still refuses on the bytes; this only makes the answer
+    // arrive on the phone she is holding.
+    const nameOf = (id: string) => docs.find(d => d.id === id)?.file_name ?? "";
+    if (nameCannotMerge(nameOf(origDocId)) || nameCannotMerge(nameOf(transDocId))) {
+      setSlotMsgTimed({ key: pairKey, ok: false, type: "errMergeFormat" });
+      return;
+    }
+
     const _isIOSm = isIOSDevice();
     const startSpin = () => setDownloadingIds(prev => new Set(prev).add(pairKey));
     if (_isIOSm) flushSync(startSpin); else startSpin();
@@ -2421,7 +2440,16 @@ export default function DashboardPage() {
         `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}`,
         { headers: { Authorization: `Bearer ${authToken}` } },
       );
-      if (!res.ok) throw new Error("merge failed");
+      if (!res.ok) {
+        // merge-pdf answers a format it cannot take with a CODE and a 4xx, not
+        // a 500. "Download failed - please try again" is the wrong advice for
+        // every one of them: the pair will never merge, while each half
+        // downloads perfectly well on its own.
+        const code = await res.json().then((b: { error?: string }) => b?.error).catch(() => undefined);
+        const refused = isMergeRefusalCode(code);
+        setSlotMsgTimed({ key: pairKey, ok: false, type: refused ? "errMergeFormat" : "errDownload" });
+        return;
+      }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
@@ -4044,9 +4072,7 @@ export default function DashboardPage() {
         accept={
           activeKey && OTHER_KEYS.includes(activeKey)
             ? ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
-            : activeKey && ID_KEYS.includes(activeKey)
-              ? ".pdf,.jpg,.jpeg,.png,.webp"
-              : ".pdf"
+            : ".pdf,.jpg,.jpeg,.png,.webp"
         }
         onChange={onFileChange} />
 
