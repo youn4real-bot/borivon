@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import XHRUpload from "@uppy/xhr-upload";
 import { UploadCloud, Loader2, RotateCcw, Camera } from "lucide-react";
+import { isHeicUpload, heicRefusalMessage, HEIC_CODE } from "@/lib/heic";
 
 export default function DocUploader({
   token,
@@ -28,6 +29,12 @@ export default function DocUploader({
   onDoneRef.current = onDone;
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<"idle" | "uploading" | "error">("idle");
+  // WHY the upload failed, not just THAT it did. An iPhone photo shared in
+  // through Files arrives as a raw .heic, and "Upload failed. Please try again
+  // with a PDF or photo" is a sentence that describes what she already gave
+  // us — she retries with the same file and fails again. HEIC gets its own
+  // answer (lib/heic.ts), which names the format and the two taps out of it.
+  const [errKind, setErrKind] = useState<"generic" | "heic">("generic");
   const [pct, setPct] = useState(0);
   const [drag, setDrag] = useState(false);
 
@@ -43,20 +50,37 @@ export default function DocUploader({
   useEffect(() => {
     const onProg = (p: number) => setPct(Math.max(2, Math.min(100, Math.round(p))));
     const onSucc = () => { setPhase("idle"); onDoneRef.current(); };
-    const onErr = () => setPhase("error");
+    const fail = (kind: "generic" | "heic" = "generic") => { setErrKind(kind); setPhase("error"); };
+    // The SERVER already answers a HEIC with its own code (app/api/portal/u/
+    // [token]/route.ts) — including one renamed .jpg, which no name or MIME
+    // check here can catch. That answer was being thrown away: Uppy's error
+    // handler ignored the response body and showed the generic line. Read it.
+    const onUploadErr = (_f: unknown, _e: unknown, response?: { body?: unknown }) => {
+      const code = (response?.body as { code?: string } | undefined)?.code;
+      fail(code === HEIC_CODE ? "heic" : "generic");
+    };
     uppy.on("progress", onProg);
     uppy.on("upload-success", onSucc);
-    uppy.on("upload-error", onErr);
-    uppy.on("error", onErr);
-    uppy.on("restriction-failed", onErr);
+    uppy.on("upload-error", onUploadErr);
+    uppy.on("error", () => fail());
+    uppy.on("restriction-failed", () => fail());
     return () => { uppy.destroy(); };
   }, [uppy]);
 
   const add = (file: File) => {
+    // Before Uppy, because its own allowedFileTypes would refuse this as a
+    // bare restriction-failure with nothing to say. This is the commonest way
+    // a nurse's photo arrives wrong: picked through Files (or shared in from
+    // another app) instead of Photos, so iOS never transcodes it to JPEG.
+    if (isHeicUpload(file.type, file.name)) {
+      setErrKind("heic");
+      setPhase("error");
+      return;
+    }
     setPhase("uploading");
     setPct(0);
     try { uppy.addFile({ name: file.name, type: file.type, data: file }); }
-    catch { setPhase("error"); }
+    catch { setErrKind("generic"); setPhase("error"); }
   };
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -81,10 +105,12 @@ export default function DocUploader({
   if (phase === "error") {
     return (
       <div style={{ border: "1px solid var(--danger-border, var(--border))", borderRadius: 14, background: "var(--danger-bg)", padding: "16px" }}>
-        <p style={{ fontSize: 13, color: "var(--danger)", marginBottom: 10 }}>
-          {L("Upload failed. Please try again with a PDF or photo (max 25 MB).",
-             "Échec de l'envoi. Réessayez avec un PDF ou une photo (max 25 Mo).",
-             "Upload fehlgeschlagen. Bitte erneut mit PDF oder Foto (max. 25 MB).")}
+        <p style={{ fontSize: 13, color: "var(--danger)", marginBottom: 10, lineHeight: 1.5 }}>
+          {errKind === "heic"
+            ? heicRefusalMessage(lang)
+            : L("Upload failed. Please try again with a PDF or photo (max 25 MB).",
+                "Échec de l'envoi. Réessayez avec un PDF ou une photo (max 25 Mo).",
+                "Upload fehlgeschlagen. Bitte erneut mit PDF oder Foto (max. 25 MB).")}
         </p>
         <button type="button" onClick={() => { setPhase("idle"); inputRef.current?.click(); }}
           style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 38, padding: "0 16px", borderRadius: 10, background: "var(--gold)", color: "#1a1205", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>

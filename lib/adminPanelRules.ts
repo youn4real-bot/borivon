@@ -9,6 +9,7 @@
  */
 
 import type { Lang } from "@/lib/translations";
+import { isHeicUpload, heicRefusalMessage } from "@/lib/heic";
 
 /**
  * Did the "which agencies can see this candidate" read leave the answer
@@ -42,7 +43,7 @@ export type SlotDropVerdict =
   | { ok: true }
   | { ok: false; reason: DropRefusal };
 
-export type DropRefusal = "no-file" | "not-pdf" | "not-a-document";
+export type DropRefusal = "no-file" | "not-pdf" | "not-a-document" | "heic";
 
 /** What a given drop target takes. It mirrors the `accept` on that target's own
  *  file picker: what you can pick is what you can drop, or the two disagree and
@@ -81,6 +82,12 @@ export function slotDropVerdict(
   if (!file) return { ok: false, reason: "no-file" };
   const type = (file.type ?? "").trim().toLowerCase();
   const name = (file.name ?? "").trim().toLowerCase();
+  // HEIC answers FIRST, and with its own reason. An iPhone photo dragged out
+  // of Files is a HEIC, and every sentence below ("PDF or a photo (JPG, PNG,
+  // WebP)") is a true statement that tells the holder of a perfectly good
+  // photo nothing she can act on. lib/heic.ts explains why we refuse rather
+  // than transcode; this only makes the refusal say something useful.
+  if (isHeicUpload(type, name)) return { ok: false, reason: "heic" };
   const isPdf = type === "application/pdf" || type === "application/x-pdf"
     // Unknown MIME + a .pdf name is a PDF as far as this target is concerned;
     // the upload route sniffs the first bytes and answers with its own message
@@ -111,6 +118,7 @@ export function slotDropRefusalMessage(reason: DropRefusal, lang: Lang): string 
       : lang === "fr" ? "Aucun fichier détecté — déposez-le à nouveau."
       : "No file came through — drop it again.";
   }
+  if (reason === "heic") return heicRefusalMessage(lang);
   if (reason === "not-a-document") {
     return lang === "de" ? "Nur PDF oder Foto (JPG, PNG, WebP) möglich."
       : lang === "fr" ? "Seuls un PDF ou une photo (JPG, PNG, WebP) sont acceptés."
