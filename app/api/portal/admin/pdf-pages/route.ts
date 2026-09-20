@@ -6,6 +6,7 @@ import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { r2GetObject, r2Put, candidateKey } from "@/lib/r2";
 import { UUID_RE } from "@/lib/uuid";
 import { isPassportFileType } from "@/lib/passportFile";
+import { detectDocKind, isImageKind } from "@/lib/docBytes";
 import { archivedCopyOf } from "@/lib/documentArchive";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { validatePageOrder, isUnchanged } from "@/lib/pdfPageOrder";
@@ -73,6 +74,20 @@ export async function POST(req: NextRequest) {
   const obj = await r2GetObject(doc.r2_key);
   if (!obj) return NextResponse.json({ error: "Stored file is unreadable" }, { status: 404 });
   const srcBytes = obj.body; // r2GetObject already resolves to a Buffer
+
+  // A candidate uploads from a phone, so this document may be a PHOTOGRAPH.
+  // pdf-lib cannot parse one, and the old catch below answered "Not a readable
+  // PDF" -- which says the file is damaged when it is perfectly fine and simply
+  // has no pages to re-arrange. The organiser button is hidden for an image
+  // document (components/AdminDocPreviewModal.tsx gates on the extension), so
+  // this is the answer for a direct call, not for a normal click.
+  const kind = detectDocKind(srcBytes);
+  if (isImageKind(kind)) {
+    return NextResponse.json(
+      { error: "photo_not_pdf", message: "This document is a photo, not a PDF -- it is a single picture, so there are no pages to re-arrange." },
+      { status: 400 },
+    );
+  }
 
   let src: PDFDocument;
   try {

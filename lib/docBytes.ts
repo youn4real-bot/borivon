@@ -85,3 +85,25 @@ export function pngPixelCount(buf: Uint8Array): number | null {
   if (!width || !height) return null;
   return width * height;
 }
+
+/**
+ * What to call bytes we are about to send to a browser.
+ *
+ * A JPEG served as "application/pdf" is a BLANK VIEWER, which reads as "the
+ * portal is broken" rather than "this file is a photo" -- and two of the three
+ * branches in app/api/portal/file/route.ts used to answer "application/pdf"
+ * unconditionally. So the bytes decide whenever they are recognisable.
+ *
+ * When they are not, the caller's own label wins: a DOCX in a Sonstiges box
+ * comes back "other" here, and the stored content type still knows more about
+ * it than a magic number that found nothing.
+ */
+export function servedMime(bytes: Uint8Array, fallback: string): string {
+  const kind = detectDocKind(bytes);
+  return kind === "other" ? fallback : mimeForKind(kind);
+}
+
+/** pdf-lib must never be handed bytes that are not a PDF. */
+export function isPdfBytes(bytes: Uint8Array): boolean {
+  return detectDocKind(bytes) === "pdf";
+}
