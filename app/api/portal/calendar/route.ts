@@ -132,8 +132,13 @@ export async function GET(req: NextRequest) {
     // Degrade gracefully (200, empty list) but STILL return canManage — so the
     // admin's "+ Add event" button never disappears just because the events
     // query hiccuped. A hard 500 here used to hide the admin controls entirely.
+    //
+    // `eventsOk: false` is what stops that kindness from becoming a lie: the
+    // empty list used to be indistinguishable from a genuinely quiet month, so
+    // a failed query rendered as the calm sentence "No events this month" and a
+    // candidate with an interview that week was told she had nothing on.
     console.error("[portal/calendar] list error:", error.message);
-    return NextResponse.json({ events: [], premium, canManage, feedToken: signFeedToken(auth.userId), googleSync }, { status: 200 });
+    return NextResponse.json({ events: [], eventsOk: false, premium, canManage, feedToken: signFeedToken(auth.userId), googleSync }, { status: 200 });
   }
 
   const events = ((data ?? []) as EventRow[])

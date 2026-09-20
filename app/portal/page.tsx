@@ -7,6 +7,7 @@ import { useLang } from "@/components/LangContext";
 import { isValidEmail } from "@/lib/utils";
 import { PhoneInput } from "@/components/PhoneInput";
 import { Suspense } from "react";
+import { authErrorMessage, errText, fetchWithTimeout, withTimeout } from "@/lib/authNet";
 
 type Mode = "login" | "register";
 
@@ -20,73 +21,6 @@ function EyeIcon({ open }: { open: boolean }) {
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>
     </svg>
   );
-}
-
-/**
- * Turn a Supabase auth message into something SHE can act on.
- *
- * Signup, login, OTP verify and reset all fell through to `err.message`
- * verbatim outside a two-or-three item allowlist. Everything else landed on
- * her screen in raw English — "For security purposes, you can only request
- * this after 47 seconds", "Email rate limit exceeded", "Password should be at
- * least 6 characters" — in front of a nurse reading French or Arabic, at the
- * one moment she cannot proceed without understanding it. LAW #19 says every
- * visible string exists in all three languages, and a passthrough of an English
- * server message is the same dead end as no message at all.
- *
- * Matched on the shapes Supabase actually returns. Anything genuinely unknown
- * gets a plain, honest fallback in her own language rather than English
- * internals — nothing is silently swallowed either way.
- */
-function authErrorMessage(raw: string, lang: "fr" | "en" | "de"): string {
-  const m = (raw || "").toLowerCase();
-  const pick = (fr: string, en: string, de: string) => (lang === "de" ? de : lang === "en" ? en : fr);
-
-  if (/failed to fetch|networkerror|network request failed|load failed/.test(m)) {
-    return pick("Erreur réseau. Vérifiez votre connexion et réessayez.",
-      "Network error. Check your connection and try again.",
-      "Netzwerkfehler. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.");
-  }
-  if (/already registered|already been registered|user already exists/.test(m)) {
-    return pick("Cette adresse e-mail a déjà un compte. Connectez-vous plutôt.",
-      "That email already has an account. Sign in instead.",
-      "Für diese E-Mail existiert bereits ein Konto. Melden Sie sich stattdessen an.");
-  }
-  if (/invalid login credentials|invalid credentials/.test(m)) {
-    return pick("E-mail ou mot de passe incorrect.",
-      "Wrong email or password.",
-      "E-Mail oder Passwort ist falsch.");
-  }
-  // "For security purposes, you can only request this after N seconds" + the
-  // email rate limit. Both are waits, not failures — say so.
-  if (/rate limit|after \d+ seconds|too many requests|security purposes/.test(m)) {
-    return pick("Trop de tentatives. Patientez une minute puis réessayez.",
-      "Too many attempts. Please wait a minute and try again.",
-      "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.");
-  }
-  if (/password.*(at least|should be|too short|weak)/.test(m)) {
-    return pick("Choisissez un mot de passe plus long (8 caractères minimum).",
-      "Choose a longer password (at least 8 characters).",
-      "Wählen Sie ein längeres Passwort (mindestens 8 Zeichen).");
-  }
-  if (/expired|invalid.*(token|otp|code)|otp.*invalid/.test(m)) {
-    return pick("Ce code est incorrect ou a expiré. Demandez-en un nouveau.",
-      "That code is wrong or has expired. Ask for a new one.",
-      "Dieser Code ist falsch oder abgelaufen. Fordern Sie einen neuen an.");
-  }
-  if (/email not confirmed|not confirmed/.test(m)) {
-    return pick("Confirmez d'abord votre e-mail avec le code envoyé.",
-      "Confirm your email first using the code we sent.",
-      "Bestätigen Sie zuerst Ihre E-Mail mit dem gesendeten Code.");
-  }
-  if (/invalid.*email|email.*invalid/.test(m)) {
-    return pick("Cette adresse e-mail n'est pas valide.",
-      "That email address isn't valid.",
-      "Diese E-Mail-Adresse ist ungültig.");
-  }
-  return pick("Une erreur s'est produite. Veuillez réessayer.",
-    "Something went wrong. Please try again.",
-    "Etwas ist schiefgelaufen. Bitte erneut versuchen.");
 }
 
 function PortalPageInner() {
@@ -151,7 +85,13 @@ function PortalPageInner() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Deadlines on all three. This gate renders a full-screen spinner and
+      // NOTHING else: a getSession() that never settles (a token refresh over
+      // a stalled connection) used to leave the first screen of the portal
+      // spinning with no form to fall back to and no way to retry but a
+      // reload. If we cannot find out within the deadline, we show the login
+      // form — being asked to sign in is recoverable, an endless spinner is not.
+      const { data: { session } } = await withTimeout(supabase.auth.getSession());
       if (cancelled) return;
       const token = session?.access_token;
       if (!token) { setCheckingSession(false); return; } // not logged in → show the form
@@ -159,20 +99,24 @@ function PortalPageInner() {
       let dest: string | null = null;
       if (code) {
         try {
-          const r = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          const r = await fetchWithTimeout(fetch, `/api/portal/invite/${encodeURIComponent(code)}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
           if (r.ok) { const j = await r.json().catch(() => ({})); if (j?.type === "member" || j?.type === "sub-admin") dest = "/portal/admin"; }
           try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
         } catch { /* ignore */ }
       }
       if (!dest) {
         try {
-          const r = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } });
+          const r = await fetchWithTimeout(fetch, "/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } });
           const { role } = await r.json().catch(() => ({}));
           dest = (role === "admin" || role === "sub_admin" || role === "org_member") ? "/portal/admin" : "/portal/dashboard";
         } catch { dest = "/portal/dashboard"; }
       }
       if (!cancelled) router.replace(nextDest || dest);
-    })();
+    })().catch(() => {
+      // Any throw above (a timed-out getSession, a corrupt persisted session)
+      // must still reveal the form rather than spin forever.
+      if (!cancelled) setCheckingSession(false);
+    });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -189,7 +133,7 @@ function PortalPageInner() {
     // dashboard with the invite never redeemed ("STILL CANDIDATE").
     let token = explicitToken;
     if (!token) {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await withTimeout(supabase.auth.getSession());
       token = session?.access_token;
     }
     if (!token) return false;
@@ -197,14 +141,14 @@ function PortalPageInner() {
     // Parity with the old link/callback flow: notify admins of the new
     // signup. Server route is idempotent (dedupes by email) + only reached
     // on the signup/auto-confirm/OTP path (never plain login), so no spam.
-    fetch("/api/portal/admin/signup-notify", {
+    fetchWithTimeout(fetch, "/api/portal/admin/signup-notify", {
       method: "POST",
       headers: { Authorization: `Bearer ${access_token}` },
     }).catch(() => { /* best-effort, mirrors old behavior */ });
     let inviteType: string | null = null;
     if (code) {
       try {
-        const r = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, {
+        const r = await fetchWithTimeout(fetch, `/api/portal/invite/${encodeURIComponent(code)}`, {
           method: "POST", headers: { Authorization: `Bearer ${access_token}` },
         });
         if (r.ok) inviteType = (await r.json()).type ?? null;
@@ -216,7 +160,7 @@ function PortalPageInner() {
     if (inviteType === "member" || inviteType === "sub-admin") dest = "/portal/admin";
     else {
       try {
-        const rr = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${access_token}` } });
+        const rr = await fetchWithTimeout(fetch, "/api/portal/me/role", { headers: { Authorization: `Bearer ${access_token}` } });
         const { role } = await rr.json().catch(() => ({}));
         if (role === "admin" || role === "sub_admin" || role === "org_member") dest = "/portal/admin";
       } catch { /* default candidate dashboard */ }
@@ -228,11 +172,21 @@ function PortalPageInner() {
   async function verifyCode() {
     if (otp.trim().length < 6 || otpBusy) return;
     setOtpBusy(true); setOtpErr("");
+    // Everything below runs inside try/finally so the Verify button can NEVER
+    // stay on "…" — the same stuck-button failure the Sign-up button had.
+    try { await runVerify(); }
+    catch (e) { setOtpErr(authErrorMessage(errText(e), lang)); }
+    finally { setOtpBusy(false); }
+  }
+
+  async function runVerify() {
     let mintedToken: string | undefined;
     try {
-      const { data: vData, error: err } = await supabase.auth.verifyOtp({
+      // Deadline: verifyOtp takes no AbortSignal, so without the race a
+      // stalled connection parks her on the code screen indefinitely.
+      const { data: vData, error: err } = await withTimeout(supabase.auth.verifyOtp({
         email: verifyEmail, token: otp.trim(), type: "signup",
-      });
+      }));
       if (err) {
         const m = err.message || "";
         setOtpErr(
@@ -242,11 +196,14 @@ function PortalPageInner() {
             ? (lang === "de" ? "Falscher Code." : lang === "fr" ? "Code incorrect." : "Incorrect code.")
             : authErrorMessage(m, lang),   // was raw English server text
         );
-        setOtpBusy(false); return;
+        return;
       }
       mintedToken = vData?.session?.access_token;
-    } catch {
-      setOtpErr(t.pErrNetwork); setOtpBusy(false); return;
+    } catch (e) {
+      // authErrorMessage, not a flat "network error": a request that ran out
+      // of time needs different advice ("too slow") from one that never left
+      // the phone ("no connection").
+      setOtpErr(authErrorMessage(errText(e), lang)); return;
     }
     // Route on the session verifyOtp just minted (avoids the getSession
     // race). If it's not ready, poll briefly — but NEVER fall back to a hard
@@ -262,7 +219,6 @@ function PortalPageInner() {
       : lang === "fr" ? "Vérifié, mais la session ne se charge pas. Veuillez vous reconnecter."
       : "Verified, but the session didn't load. Please sign in again.",
     );
-    setOtpBusy(false);
   }
 
   async function resendCode() {
@@ -275,21 +231,52 @@ function PortalPageInner() {
       // 30s cooldown and showed nothing at all. She taps Resend, is told
       // nothing, no second email arrives, and she is stuck on the code screen
       // with no way to understand why.
-      const { error } = await supabase.auth.resend({ type: "signup", email: verifyEmail });
+      const { error } = await withTimeout(supabase.auth.resend({ type: "signup", email: verifyEmail }));
       if (error) {
         setOtpErr(authErrorMessage(error.message, lang));
         return;
       }
       setResendIn(30);
-    } catch {
-      setOtpErr(t.pErrNetwork);
+    } catch (e) {
+      setOtpErr(authErrorMessage(errText(e), lang));
     }
   }
 
+  /**
+   * THE STUCK BUTTON.
+   *
+   * The submit flow used to run naked: `setLoading(true)` and then a chain of
+   * awaits, the first of which (`fetch("/api/portal/invite/…")`) was not inside
+   * any try/catch at all. On a weak Moroccan mobile connection that call either
+   * rejected — the rejection escaped the handler, nothing ever cleared
+   * `loading` — or, worse, never settled, because a stalled radio does not
+   * raise an error; it simply stops answering. Either way the Sign-up button
+   * became a grey "…" for the rest of the session, and the nurse who had just
+   * typed her name, phone and invite code was left with no idea whether she now
+   * had an account, no error, and nothing to tap.
+   *
+   * Two guarantees here, and both are needed:
+   *   1. `finally` — the button is released whatever happens, including a throw
+   *      from a line that has no local catch.
+   *   2. `catch` — the failure is SAID, in her language, instead of vanishing
+   *      into an unhandled rejection only a console would have shown.
+   * The deadline that turns "never settles" into a throw lives on each call
+   * (withTimeout / fetchWithTimeout); without it `finally` would never run.
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return; // a second tap while the first is in flight
     setError("");
+    try {
+      await submitFlow();
+    } catch (err) {
+      setError(authErrorMessage(errText(err), lang));
+    } finally {
+      setLoading(false);
+    }
+  }
 
+  async function submitFlow() {
     if (!isValidEmail(email)) { setError(t.pErrEmail); return; }
     if (password.length < 6)  { setError(t.pErrPassword); return; }
 
@@ -319,9 +306,10 @@ function PortalPageInner() {
         return;
       }
 
-      // Validate the code before creating the account
+      // Validate the code before creating the account. THIS is the line that
+      // used to hang the button: bare `fetch`, no deadline, no catch.
       setLoading(true);
-      const checkRes = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`);
+      const checkRes = await fetchWithTimeout(fetch, `/api/portal/invite/${encodeURIComponent(code)}`);
       if (checkRes.status === 410) {
         setError(lang === "de"
           ? "Dieser Einladungslink wurde bereits verwendet."
@@ -343,7 +331,7 @@ function PortalPageInner() {
       // re-sends a confirmation email when the address already exists, leaking
       // nothing to the caller — so we precheck via service role.
       try {
-        const exRes = await fetch("/api/portal/check-email", {
+        const exRes = await fetchWithTimeout(fetch, "/api/portal/check-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: email.trim().toLowerCase() }),
@@ -357,7 +345,7 @@ function PortalPageInner() {
 
       // Code is valid — sign up and bake the code into the confirmation email URL
       try {
-        const { error: err } = await supabase.auth.signUp({
+        const { error: err } = await withTimeout(supabase.auth.signUp({
           email: email.trim().toLowerCase(), password,
           options: {
             data: {
@@ -366,18 +354,20 @@ function PortalPageInner() {
             },
             emailRedirectTo: `${window.location.origin}/portal/auth/callback?invite=${encodeURIComponent(code)}`,
           },
-        });
+        }));
         if (err) {
           const m = err.message;
           const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
           setError(isNetwork ? t.pErrNetwork
             : m === "User already registered" ? t.pErrExists
             : authErrorMessage(m, lang));   // was the raw English server text
-          setLoading(false); return;
+          return;
         }
-      } catch {
-        setError(t.pErrNetwork);
-        setLoading(false); return;
+      } catch (err) {
+        // Includes the deadline expiring. She is told her connection is too
+        // slow, in her language, instead of watching a grey "…".
+        setError(authErrorMessage(errText(err), lang));
+        return;
       }
       // Freeze the verification target NOW — the email <input> stays editable
       // on the code screen; verify/resend must use what the code was sent to.
@@ -393,19 +383,19 @@ function PortalPageInner() {
       // through to the "check your email" screen; callback redeems later.)
       // Auto-confirm ON → session exists now → redeem + route immediately.
       try {
-        if (await redeemAndRoute(code)) { setLoading(false); return; }
+        if (await redeemAndRoute(code)) return;
       } catch { /* getSession blip — fall through to the code screen */ }
 
       // Email-confirm ON → no session yet → show the 6-digit code screen.
-      setCheckEmail(true); setLoading(false); return;
+      setCheckEmail(true); return;
     }
 
     // ── Login ─────────────────────────────────────────────────────────────────
     setLoading(true);
     try {
-      const { error: err } = await supabase.auth.signInWithPassword({
+      const { error: err } = await withTimeout(supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(), password,
-      });
+      }));
       if (err) {
         const m = err.message;
         const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
@@ -414,21 +404,25 @@ function PortalPageInner() {
           m === "Invalid login credentials"  ? t.pErrWrong :
           m === "Email not confirmed"        ? t.pErrNotConfirmed : authErrorMessage(m, lang)   // was raw English server text
         );
-        setLoading(false); return;
+        return;
       }
-    } catch {
-      setError(t.pErrNetwork);
-      setLoading(false); return;
+    } catch (err) {
+      setError(authErrorMessage(errText(err), lang));
+      return;
     }
 
     // Auto-redeem invite if present (URL param > localStorage)
     const redeemCode = inviteCode.trim() || codeFromUrl || codeFromStorage;
     let inviteType: string | null = null;
+    // Past this point she IS signed in. Every remaining step only decides
+    // WHERE to send her, so each one swallows its own failure and falls back
+    // to the candidate dashboard — throwing here would report "sign-in failed"
+    // for an account that is, in fact, now open.
     if (redeemCode) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        try {
-          const invRes = await fetch(`/api/portal/invite/${encodeURIComponent(redeemCode)}`, {
+      try {
+        const { data: { session } } = await withTimeout(supabase.auth.getSession());
+        if (session?.access_token) {
+          const invRes = await fetchWithTimeout(fetch, `/api/portal/invite/${encodeURIComponent(redeemCode)}`, {
             method: "POST",
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
@@ -436,18 +430,18 @@ function PortalPageInner() {
             const invJson = await invRes.json();
             inviteType = invJson.type ?? null;
           }
-        } catch { /* ignore */ }
-        try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
-      }
+          try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
     }
 
     // If no invite to redeem, check existing role
     let roleDest: string | null = null;
     if (!inviteType) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withTimeout(supabase.auth.getSession());
         if (session?.access_token) {
-          const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const roleRes = await fetchWithTimeout(fetch, "/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
           const { role } = await roleRes.json().catch(() => ({}));
           // org_member retired — org people resolve as sub_admin now; all map to admin.
           if (role === "admin" || role === "sub_admin" || role === "org_member") roleDest = "/portal/admin";
@@ -706,9 +700,12 @@ function PortalPageInner() {
                   }
                   setResetBusy(true);
                   try {
-                    const { error: rErr } = await supabase.auth.resetPasswordForEmail(addr, {
+                    // Same deadline as every other call on this page: without
+                    // it a stalled send leaves "Forgot your password?" reading
+                    // "…" with no email, no error and no way back.
+                    const { error: rErr } = await withTimeout(supabase.auth.resetPasswordForEmail(addr, {
                       redirectTo: `${window.location.origin}/portal/auth/callback?type=recovery`,
-                    });
+                    }));
                     // supabase-js resolves with an error instead of throwing, so
                     // this must be read or a rate-limited send looks successful.
                     if (rErr) {
@@ -723,8 +720,8 @@ function PortalPageInner() {
                       return;
                     }
                     setResetSent(true);
-                  } catch {
-                    setError(t.pErrNetwork);
+                  } catch (err) {
+                    setError(authErrorMessage(errText(err), lang));
                   } finally {
                     setResetBusy(false);
                   }

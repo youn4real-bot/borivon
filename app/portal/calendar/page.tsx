@@ -18,6 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cachedRole } from "@/lib/myRole";
+import { fetchCalendar, calendarEmptyKind } from "@/lib/calendarLoad";
+import { withTimeout } from "@/lib/authNet";
 import { useLang } from "@/components/LangContext";
 import { AddBookingModal } from "@/components/AddBookingModal";
 import { PageLoader } from "@/components/ui/states";
@@ -26,6 +28,7 @@ import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
   Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown, CalendarCheck, ExternalLink, Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -222,6 +225,12 @@ export default function CalendarPage() {
   ];
 
   const [loading, setLoading] = useState(true);
+  /** EMPTY vs BROKEN. A failed read used to render the same calm sentence a
+   *  quiet month shows ("No events this month"), and a dropped request left
+   *  her on the spinner with nothing to tap at all. This drives the difference
+   *  and the retry. */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [events, setEvents] = useState<Ev[]>([]);
   const [canManage, setCanManage] = useState(false);
   // Staff = supreme admin or a Borivon (non-agency) sub-admin. They get the
@@ -273,26 +282,59 @@ export default function CalendarPage() {
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
-    const { data: { session } } = await supabase.auth.getSession();
+    // Deadlines on both: neither getSession nor refreshSession takes an
+    // AbortSignal, and a token refresh over a stalled connection used to hang
+    // every caller of this helper — including the bootstrap, which then never
+    // reached setLoading(false) and left her on the spinner.
+    const { data: { session } } = await withTimeout(supabase.auth.getSession());
     let token = session?.access_token ?? "";
     const expMs = (session?.expires_at ?? 0) * 1000;
     if (!expMs || expMs - Date.now() < 60_000) {
-      try { const { data: r } = await supabase.auth.refreshSession(); if (r?.session?.access_token) token = r.session.access_token; } catch { /* keep token */ }
+      try { const { data: r } = await withTimeout(supabase.auth.refreshSession()); if (r?.session?.access_token) token = r.session.access_token; } catch { /* keep token */ }
     }
     return fetch(url, { ...init, headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` } });
   }, []);
 
+  /**
+   * Read the month. Never throws, and never turns a failure into an empty
+   * month — those were the two halves of the same bug (see lib/calendarLoad).
+   */
   const load = useCallback(async () => {
-    const res = await authedFetch("/api/portal/calendar");
-    if (res.status === 401) { router.replace("/portal"); return; }
-    const j = await res.json().catch(() => ({ events: [] }));
-    setEvents((j.events ?? []) as Ev[]);
+    let res;
+    try {
+      res = await fetchCalendar<Ev>(authedFetch);
+    } catch {
+      // authedFetch itself gave up (a timed-out session refresh).
+      setLoadFailed(true);
+      return;
+    }
+    if (!res.ok) {
+      if (res.status === 401) { router.replace("/portal"); return; }
+      // Leave whatever is on screen alone and let the empty state say the
+      // read failed. Permissions that DID arrive are still honoured, so the
+      // admin's "+" survives a failed events query.
+      if (res.perms) {
+        setCanManage((prev) => prev || res.perms!.canManage);
+        setIsStaff((prev) => prev || res.perms!.isStaff);
+      }
+      setLoadFailed(true);
+      return;
+    }
+    setLoadFailed(false);
+    setEvents(res.data.events);
     // Never let a server hiccup turn OFF the admin "+" — OR it with the cache-seeded value.
-    setCanManage((prev) => prev || !!j.canManage);
-    setIsStaff((prev) => prev || !!j.isStaff);
-    if (j.feedToken) setFeedToken(j.feedToken as string);
-    if (j.googleSync) setGoogleSync(j.googleSync);
+    setCanManage((prev) => prev || res.data.canManage);
+    setIsStaff((prev) => prev || res.data.isStaff);
+    if (res.data.feedToken) setFeedToken(res.data.feedToken);
+    if (res.data.googleSync) setGoogleSync(res.data.googleSync);
   }, [authedFetch, router]);
+
+  /** "Try again" from the failed empty state. */
+  const retryLoad = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try { await load(); } finally { setRetrying(false); }
+  }, [load, retrying]);
 
   // Taggable people (admins only). Powers the attendee tagger in the Add-event
   // modal + resolves tagged names in the detail view.
@@ -314,26 +356,41 @@ export default function CalendarPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Deadline + catch: this one is not on the render path, but a getSession
+      // that never settles leaves a floating promise for the life of the tab,
+      // and an unhandled rejection where a missing token is recoverable —
+      // onAuthStateChange below refreshes it on the next token roll anyway.
+      const { data: { session } } = await withTimeout(supabase.auth.getSession());
       if (!cancelled && session?.access_token) setApptToken(session.access_token);
-    })();
+    })().catch(() => { /* the auth listener below supplies the token instead */ });
     const { data } = supabase.auth.onAuthStateChange((_e, sess) => {
       if (sess?.access_token) setApptToken(sess.access_token);
     });
     return () => { cancelled = true; data.subscription.unsubscribe(); };
   }, []);
 
-  // Bootstrap
+  // Bootstrap.
+  // The spinner is released in a `finally`, whatever happens. It used to be
+  // released on the line AFTER `await load()`, so a single rejected request —
+  // or a session refresh that never answered — threw straight past it and left
+  // her looking at <PageLoader/> for as long as she was willing to wait.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) { router.replace("/portal"); return; }
-      // Show the admin "+ Add event" button INSTANTLY from the cached role —
-      // independent of the calendar fetch — so the supreme admin always gets it.
-      if (cachedRole(session.user.id) === "admin") setCanManage(true);
-      await load();
-      if (!cancelled) setLoading(false);
+      try {
+        const { data: { session } } = await withTimeout(supabase.auth.getSession());
+        if (!session?.user) { router.replace("/portal"); return; }
+        // Show the admin "+ Add event" button INSTANTLY from the cached role —
+        // independent of the calendar fetch — so the supreme admin always gets it.
+        if (cachedRole(session.user.id) === "admin") setCanManage(true);
+        await load();
+      } catch {
+        // Could not even establish who she is. Show the page with the failed
+        // empty state and a retry rather than an endless spinner.
+        if (!cancelled) setLoadFailed(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
     return () => { cancelled = true; };
   }, [load, router]);
@@ -704,6 +761,32 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      {/* ── "This month may be wrong" strip ──
+          The grid has no empty state of its own: a failed read simply drew 35
+          blank cells, which is exactly what a quiet month looks like. This
+          says the difference out loud, in both views, and offers the retry the
+          spinner never gave her. */}
+      {loadFailed && (
+        <div className="mb-3 px-3.5 py-2.5 flex items-start gap-2.5"
+          style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
+          <AlertTriangle size={14} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] leading-[1.45]" style={{ color: "var(--w2)" }}>
+              {T("We couldn’t load your calendar — this month may be incomplete.",
+                "Ihr Kalender konnte nicht geladen werden — dieser Monat ist möglicherweise unvollständig.",
+                "Impossible de charger votre calendrier — ce mois est peut-être incomplet.")}
+            </p>
+            <button onClick={() => void retryLoad()} disabled={retrying}
+              className="mt-1.5 text-[11.5px] font-semibold underline"
+              style={{ color: "var(--gold)", opacity: retrying ? 0.6 : 1 }}>
+              {retrying
+                ? T("Loading…", "Wird geladen…", "Chargement…")
+                : T("Try again", "Erneut versuchen", "Réessayer")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Month grid ────────────────────────────────────────────────────────── */}
       {view === "month" ? (
         <div className="bv-card overflow-hidden" style={{ padding: 0 }}>
@@ -785,6 +868,26 @@ export default function CalendarPage() {
         /* ── List view ──────────────────────────────────────────────────────── */
         <div className="flex flex-col gap-3">
           {monthEvents.length === 0 ? (
+            /* "Nothing on this month" and "we could not read your calendar"
+               are DIFFERENT sentences now. They used to be the same one, so a
+               500 on /api/portal/calendar calmly told a candidate with an
+               interview that week that she had nothing on. */
+            calendarEmptyKind({ loaded: !loading, failed: loadFailed, monthCount: 0 }) === "failed" ? (
+              <div className="bv-card text-center py-16">
+                <AlertTriangle size={26} strokeWidth={1.6} className="mx-auto mb-3" style={{ color: "var(--warning)" }} />
+                <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
+                  {T("We couldn’t load your calendar.",
+                    "Ihr Kalender konnte nicht geladen werden.",
+                    "Impossible de charger votre calendrier.")}
+                </p>
+                <button onClick={() => void retryLoad()} disabled={retrying}
+                  className="bv-btn bv-btn-ghost mt-3 inline-flex" style={{ opacity: retrying ? 0.6 : 1 }}>
+                  {retrying
+                    ? T("Loading…", "Wird geladen…", "Chargement…")
+                    : T("Try again", "Erneut versuchen", "Réessayer")}
+                </button>
+              </div>
+            ) : (
             <div className="bv-card text-center py-16">
               <CalendarDays size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
               <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
@@ -796,6 +899,7 @@ export default function CalendarPage() {
                 </button>
               )}
             </div>
+            )
           ) : monthEvents.map((e) => (
             <button key={e.id} onClick={() => setDetail(e)}
               className="bv-card bv-press flex items-stretch gap-0 overflow-hidden text-left p-0" style={{ borderRadius: "var(--r-xl)" }}>

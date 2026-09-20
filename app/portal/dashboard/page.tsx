@@ -12,6 +12,7 @@ import { getMyProfile, getMyDocuments } from "@/lib/meApi";
 import { savePassportDraft, writeLocalDraft, flushAndReleaseLocalDraft } from "@/lib/passportDraft";
 import { classifyProfileRead } from "@/lib/passportDraftGuard";
 import { fetchPhaseSlots, emptyStateKind } from "@/lib/dashboardLoad";
+import { fetchMyPipeline } from "@/lib/pipelineLoad";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -502,6 +503,23 @@ export default function DashboardPage() {
    */
   const [docsLoadFailed, setDocsLoadFailed]   = useState(false);
   const [slotsLoadFailed, setSlotsLoadFailed] = useState(false);
+  /**
+   * Third member of the same family, and the most dangerous one.
+   *
+   * /api/portal/pipeline/me answered `{ pipeline: null }` for a 401 — exactly
+   * what "you have no pipeline row yet" looks like — and the bootstrap never
+   * read the status. So an expired JWT made every stage look locked, and a
+   * candidate whose Visum or interview stage the founder had explicitly
+   * unlocked tapped it and got the "Upgrade to Premium" box. LAW #31/#32: that
+   * lock is the supreme admin's discretion alone; a dropped read must not
+   * re-lock, on her screen, a stage he opened.
+   *
+   * `pipelineKnown` is what every gate below asks before it takes anything
+   * away from her. It only ever turns true, because once we HAVE read the row
+   * a later failed refresh leaves the known value on screen.
+   */
+  const [pipelineKnown, setPipelineKnown]         = useState(false);
+  const [pipelineLoadFailed, setPipelineLoadFailed] = useState(false);
   const [reloadRetrying, setReloadRetrying]   = useState(false);
   const [loading, setLoading]     = useState(true);
   const [phase, setPhase]         = useState(0);
@@ -653,6 +671,11 @@ export default function DashboardPage() {
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   // Which journey stage triggered the upgrade modal (so auto-close only fires for that stage)
   const [upgradeTargetStage, setUpgradeTargetStage] = useState<string | null>(null);
+  /** WHY the modal is open. "locked" = we read her pipeline and this stage is
+   *  genuinely closed. "unknown" = the pipeline read failed, so we do not know
+   *  — and must not claim she needs an upgrade for a stage the supreme admin
+   *  may well have unlocked (LAW #31/#32). One modal, two honest sentences. */
+  const [upgradeReason, setUpgradeReason] = useState<"locked" | "unknown">("locked");
   // Payment success toast — shown when user returns from Stripe checkout
   const [paymentCelebration, setPaymentCelebration] = useState<{ plan: string } | null>(null);
   // Helper: does the user have the Premium plan?
@@ -1216,10 +1239,14 @@ export default function DashboardPage() {
   // admin has explicitly unlocked that specific stage — bounce back to docs if
   // neither condition is met. Race-safe; runs as an effect, not during render.
   useEffect(() => {
-    if (viewMode !== "docs" && profileLoaded && !hasPremium) {
+    // `pipelineKnown` guard: bouncing her out of a stage on an UNKNOWN is the
+    // bug. A 401 on /pipeline/me used to read as "nothing unlocked" and threw
+    // a candidate the admin had let into Visum straight back to the documents
+    // list (LAW #31/#32 — the lock is his discretion, not the network's).
+    if (viewMode !== "docs" && profileLoaded && pipelineKnown && !hasPremium) {
       if (!isAdminUnlocked(viewMode, pipeline)) setViewMode("docs");
     }
-  }, [viewMode, profileLoaded, hasPremium, pipeline]);
+  }, [viewMode, profileLoaded, pipelineKnown, hasPremium, pipeline]);
 
   // Auto-dismiss upgrade modal the moment admin unlocks the specific stage
   // the candidate was trying to access. Using upgradeTargetStage (not viewMode)
@@ -1229,8 +1256,12 @@ export default function DashboardPage() {
     if (upgradeOpen && upgradeTargetStage && isAdminUnlocked(upgradeTargetStage, pipeline)) {
       setUpgradeOpen(false);
       setUpgradeTargetStage(null);
+      return;
     }
-  }, [pipeline, upgradeOpen, upgradeTargetStage]);
+    // The retry inside the "we couldn't check" modal succeeded and the stage
+    // really is closed — stop offering a retry that has nothing left to find.
+    if (upgradeOpen && pipelineKnown) setUpgradeReason("locked");
+  }, [pipeline, pipelineKnown, upgradeOpen, upgradeTargetStage]);
 
 
   // Realtime: LIVE documents — the instant an admin/sub-admin approves,
@@ -1285,11 +1316,9 @@ export default function DashboardPage() {
       if (now - last < 5_000) return;
       last = now;
       loadDocs(userId, true);
-      fetch("/api/portal/pipeline/me", { headers: { Authorization: `Bearer ${authToken}` } })
-        .then(r => r.ok ? r.json() : null)
-        // Only a successful read replaces state; a failed one keeps what's on screen.
-        .then(j => { if (j && "pipeline" in j) setPipeline(j.pipeline ?? null); })
-        .catch(() => {});
+      // Only a successful read replaces state; a failed one keeps what's on
+      // screen and says so.
+      void loadPipeline(authToken);
     };
     const onFocus = () => refresh();
     const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
@@ -1778,13 +1807,12 @@ export default function DashboardPage() {
             if (!cancelled) setProfileLoaded(true);
           }
         })(),
-        // b) Pipeline (journey progress)
-        fetch(`/api/portal/pipeline/me`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-          .then(r => r.json())
-          .then(({ pipeline: p }) => { if (!cancelled) setPipeline(p ?? null); })
-          .catch(err => console.error("Pipeline fetch error:", err)),
+        // b) Pipeline (journey progress + which stages the admin unlocked)
+        //    Status-aware: a 401 / 429 / 500 / unparseable body is "I could
+        //    not find out", NOT "she has no pipeline". Folding those into
+        //    `pipeline = null` is what showed an unlocked candidate the
+        //    upgrade box.
+        loadPipeline(token),
         // c) Linked orgs — only used to render partner cards and gate the
         //    org-invite modal. No celebration / notification on match
         //    (per user 2026-05 — placement is silent).
@@ -1888,13 +1916,33 @@ export default function DashboardPage() {
     setDynamicSlotsLoaded(true); // set only on success — allows retry on failure
   }
 
-  /** "Try again" from the failed-load notice / empty state. Retries BOTH reads
-   *  because one notice covers both, and re-reading what already worked costs
-   *  one request and removes any doubt about which half was broken. */
+  /**
+   * Read the pipeline row, and NEVER blank it on a failure.
+   *
+   * On success `pipelineKnown` turns true and stays true: a later refresh that
+   * fails leaves the stages she can see exactly as they were, which is the
+   * whole point — the admin's unlock survives a bad minute of signal.
+   */
+  async function loadPipeline(token: string) {
+    const res = await fetchMyPipeline<Pipeline>(fetch, token);
+    if (!res.ok) {
+      // Leave `pipeline` alone. Setting it to null here is precisely the
+      // damage being fixed.
+      setPipelineLoadFailed(true);
+      return;
+    }
+    setPipelineLoadFailed(false);
+    setPipeline(res.pipeline);
+    setPipelineKnown(true);
+  }
+
+  /** "Try again" from the failed-load notice / empty state. Retries ALL THREE
+   *  reads because one notice covers them, and re-reading what already worked
+   *  costs one request and removes any doubt about which part was broken. */
   async function retryDashboardLoad() {
     if (!authToken || !userId || reloadRetrying) return;
     setReloadRetrying(true);
-    try { await Promise.allSettled([loadDynamicSlots(authToken), loadDocs(userId, true)]); }
+    try { await Promise.allSettled([loadDynamicSlots(authToken), loadDocs(userId, true), loadPipeline(authToken)]); }
     finally { setReloadRetrying(false); }
   }
 
@@ -1975,7 +2023,11 @@ export default function DashboardPage() {
       // feature). Auto-open the upgrade modal so the candidate sees why
       // they were redirected — unless admin has already unlocked this stage.
       // (Pipeline may still be loading; auto-close effect handles that race.)
-      if (!isAdminUnlocked(viewMode, pipeline)) { setUpgradeTargetStage(viewMode); setUpgradeOpen(true); }
+      if (!isAdminUnlocked(viewMode, pipeline)) {
+        setUpgradeTargetStage(viewMode);
+        setUpgradeReason(pipelineKnown ? "locked" : "unknown");
+        setUpgradeOpen(true);
+      }
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -2773,25 +2825,43 @@ export default function DashboardPage() {
                 <PhaseIcon kind="flight" size={24} style={{ color: "var(--gold)" }} />
               </span>
               <h3 className="text-[18px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
-                {lang === "de" ? "Diese Funktion ist gesperrt" : lang === "en" ? "This feature is locked" : "Cette fonction est verrouillée"}
+                {upgradeReason === "unknown"
+                  ? (lang === "de" ? "Konnte nicht geprüft werden" : lang === "en" ? "We couldn't check" : "Vérification impossible")
+                  : (lang === "de" ? "Diese Funktion ist gesperrt" : lang === "en" ? "This feature is locked" : "Cette fonction est verrouillée")}
               </h3>
             </div>
             {/* Payments are OFF for now — no self-serve checkout. Access is granted
                 by the Borivon team only (admin sets payment_tier); the candidate
-                can't pay or unlock it themselves. */}
+                can't pay or unlock it themselves.
+                The "unknown" wording exists because saying "locked" after a
+                failed pipeline read told a candidate whose stage the supreme
+                admin HAD unlocked that it was shut — the network overruling
+                his decision (LAW #31). */}
             <div className="px-6 pt-3 pb-2">
               <p className="text-[13px] leading-relaxed text-center" style={{ color: "var(--w2)" }}>
-                {lang === "de" ? "Diese Funktionen werden vom Borivon-Team freigeschaltet. Bitte kontaktieren Sie uns."
-                  : lang === "en" ? "These features are unlocked by the Borivon team. Please contact us."
-                  : "Ces fonctions sont débloquées par l'équipe Borivon. Veuillez nous contacter."}
+                {upgradeReason === "unknown"
+                  ? (lang === "de" ? "Wir konnten gerade nicht prüfen, welche Phasen für Sie freigeschaltet sind. Bitte erneut versuchen."
+                    : lang === "en" ? "We couldn't check which stages are open for you right now. Please try again."
+                    : "Nous n'avons pas pu vérifier quelles étapes vous sont ouvertes. Veuillez réessayer.")
+                  : (lang === "de" ? "Diese Funktionen werden vom Borivon-Team freigeschaltet. Bitte kontaktieren Sie uns."
+                    : lang === "en" ? "These features are unlocked by the Borivon team. Please contact us."
+                    : "Ces fonctions sont débloquées par l'équipe Borivon. Veuillez nous contacter.")}
               </p>
             </div>
             <div className="p-5 pt-4">
               <button
-                onClick={() => setUpgradeOpen(false)}
+                onClick={() => {
+                  if (upgradeReason === "unknown") { void retryDashboardLoad(); return; }
+                  setUpgradeOpen(false);
+                }}
+                disabled={upgradeReason === "unknown" && reloadRetrying}
                 className="bv-press w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight"
-                style={{ background: "var(--gold)", color: "#131312", cursor: "pointer" }}>
-                {lang === "de" ? "Verstanden" : lang === "en" ? "Got it" : "Compris"}
+                style={{ background: "var(--gold)", color: "#131312", cursor: "pointer", opacity: (upgradeReason === "unknown" && reloadRetrying) ? 0.6 : 1 }}>
+                {upgradeReason === "unknown"
+                  ? (reloadRetrying
+                    ? (lang === "de" ? "Wird geprüft…" : lang === "en" ? "Checking…" : "Vérification…")
+                    : (lang === "de" ? "Erneut versuchen" : lang === "en" ? "Try again" : "Réessayer"))
+                  : (lang === "de" ? "Verstanden" : lang === "en" ? "Got it" : "Compris")}
               </button>
             </div>
           </div>
@@ -3494,8 +3564,18 @@ export default function DashboardPage() {
                 <div key={js.key} className="flex flex-col items-center">
                   <button
                     onClick={() => {
-                      // Non-premium + stage not admin-unlocked → show upgrade modal
-                      if (!hasPremium && !adminOpen) { setUpgradeTargetStage(js.key); setUpgradeOpen(true); return; }
+                      // Non-premium + stage not admin-unlocked → show the
+                      // locked modal. But "not unlocked" and "I could not
+                      // check" are DIFFERENT things: when the pipeline read
+                      // failed, telling her the stage is locked would re-lock,
+                      // on screen, a stage the supreme admin opened (LAW
+                      // #31/#32). Say we could not check, and offer a retry.
+                      if (!hasPremium && !adminOpen) {
+                        setUpgradeTargetStage(js.key);
+                        setUpgradeReason(pipelineKnown ? "locked" : "unknown");
+                        setUpgradeOpen(true);
+                        return;
+                      }
                       if (unlocked || adminOpen) {
                         setPhase(docsPhaseIdx); setViewMode("docs"); setSlotMsg(null);
                         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3543,7 +3623,7 @@ export default function DashboardPage() {
             {/* ── Journey stage views ──
                 The plan-gate effect above bounces non-Premium users back to
                 docs; we render JourneyView only when they're allowed in. */}
-            {viewMode !== "docs" && (!profileLoaded || hasPremium || isAdminUnlocked(viewMode, pipeline)) && (
+            {viewMode !== "docs" && (!profileLoaded || !pipelineKnown || hasPremium || isAdminUnlocked(viewMode, pipeline)) && (
               <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onInterviewJoin={logInterviewClick} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
 
@@ -3630,16 +3710,25 @@ export default function DashboardPage() {
                   like. Below, the two dynamic phases get a fuller failed state
                   when they are also empty, so the strip stands down there to
                   avoid saying it twice. */}
-              {(docsLoadFailed || slotsLoadFailed)
+              {(docsLoadFailed || slotsLoadFailed || pipelineLoadFailed)
                 && !((phase === 2 || phase === 3) && slotsLoadFailed && currentPhase.items.length === 0) && (
                 <div className="mx-6 mt-3 px-3.5 py-2.5 flex items-start gap-2.5"
                   style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
                   <AlertTriangle size={14} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
                   <div className="min-w-0 flex-1">
+                    {/* Which sentence depends on WHAT failed. A failed
+                        pipeline read is not a documents problem: it is the
+                        stages the admin unlocked that we could not see, and
+                        saying "your documents" for it would send her looking
+                        in the wrong place. */}
                     <p className="text-[12px] leading-[1.45]" style={{ color: "var(--w2)" }}>
-                      {lang === "de" ? "Ihre Dokumente konnten nicht geladen werden — diese Liste ist möglicherweise unvollständig."
-                        : lang === "fr" ? "Impossible de charger vos documents — cette liste est peut-être incomplète."
-                        : "We couldn’t load your documents — this list may be incomplete."}
+                      {(docsLoadFailed || slotsLoadFailed)
+                        ? (lang === "de" ? "Ihre Dokumente konnten nicht geladen werden — diese Liste ist möglicherweise unvollständig."
+                          : lang === "fr" ? "Impossible de charger vos documents — cette liste est peut-être incomplète."
+                          : "We couldn’t load your documents — this list may be incomplete.")
+                        : (lang === "de" ? "Wir konnten nicht prüfen, welche Phasen für Sie freigeschaltet sind."
+                          : lang === "fr" ? "Nous n'avons pas pu vérifier quelles étapes vous sont ouvertes."
+                          : "We couldn’t check which stages are open for you.")}
                     </p>
                     <button onClick={() => void retryDashboardLoad()} disabled={reloadRetrying}
                       className="mt-1.5 text-[11.5px] font-semibold underline"
