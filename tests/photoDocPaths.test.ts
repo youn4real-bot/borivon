@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { servedMime, isPdfBytes, detectDocKind, isMergeRefusalCode, nameCannotMerge } from "../lib/docBytes";
 import { safeRotatePdf } from "../lib/pdfRotate";
+import { mergeDocumentsToPdf } from "../lib/mergeDocs";
+import { PDF_PAGE_LIMITS, pdfPageLimit } from "../lib/pdfPageLimits";
+import { MULTI_DOC_FILE_KEYS, shouldSupersedePrevious } from "../lib/slotSupersede";
 
 /**
  * EVERY PATH THAT USED TO ASSUME "THIS DOCUMENT IS A PDF".
@@ -82,6 +85,78 @@ describe("serving a document: the bytes name themselves", () => {
     const src = Buffer.from(jpeg());
     const out = await safeRotatePdf(src, 90);
     expect(Buffer.compare(out, src)).toBe(0);
+  });
+});
+
+/**
+ * WHY THERE IS NO PAGE CAP FOR PHOTOGRAPHS.
+ *
+ * lib/pdfPageLimits guards against a whole dossier landing in one box: a PDF is
+ * a container, so forty pages can arrive as a single document. The obvious
+ * reading is that photographs need the same guardrail and only have the 25 MB
+ * size ceiling. They do not, and these tests are the argument, kept executable
+ * so it stops being true loudly rather than silently.
+ *
+ * A picture is one page-equivalent by construction, and the number of live
+ * documents per box is ALREADY capped, tighter than any page limit:
+ *   • every box but Sonstiges holds exactly one live document — a new upload
+ *     retires the previous rows (lib/slotSupersede);
+ *   • Sonstiges holds five (LAW #9, enforced in the upload route).
+ * So the worst case is one page-equivalent in a box whose smallest PDF limit is
+ * five, and five in a box whose limit is ten. Adding a count for images would
+ * be a second rule that never fires — and a new way to refuse a nurse who has
+ * done nothing wrong.
+ */
+describe("a box of photographs is already bounded, below every PDF page cap", () => {
+  /** The Sonstiges ceiling, read from the rule rather than copied from it. */
+  const sonstigesLimit = Number(
+    UPLOAD_ROUTE.match(/\(otherTotalCount \?\? 0\) >= (\d+)/)?.[1],
+  );
+
+  it("LAW #9: the Sonstiges cap is still five live files", () => {
+    expect(sonstigesLimit, "the cap moved or was removed — re-check the bound below")
+      .toBe(5);
+  });
+
+  it("every other box keeps exactly one live document", () => {
+    expect([...MULTI_DOC_FILE_KEYS], "only Sonstiges holds documents as peers")
+      .toEqual(["other"]);
+    for (const key of Object.keys(PDF_PAGE_LIMITS)) {
+      expect(shouldSupersedePrevious(key), `${key} must retire its previous upload`)
+        .toBe(key === "other" ? false : true);
+    }
+    // A wizard-slot UUID resolves to itself and is a single-doc slot too.
+    expect(shouldSupersedePrevious("b1f4c0de-0000-4000-8000-000000000000")).toBe(true);
+  });
+
+  it("so the most page-equivalents a box of photos can hold stays under its PDF cap", () => {
+    for (const [key, limit] of Object.entries(PDF_PAGE_LIMITS)) {
+      // One picture = one page. Multiplied by the number of live documents the
+      // box allows at once.
+      const maxImagePages = MULTI_DOC_FILE_KEYS.has(key) ? sonstigesLimit : 1;
+      expect(
+        maxImagePages,
+        `${key}: photographs could reach ${maxImagePages} pages against a ${limit}-page cap — ` +
+        "the size ceiling would no longer be the only thing bounding them",
+      ).toBeLessThanOrEqual(limit);
+      expect(pdfPageLimit(key)).toBe(limit);
+    }
+  });
+
+  it("and a picture really is one page, however many of them there are", async () => {
+    // The claim the whole argument rests on, on real bytes rather than on
+    // reading lib/mergeDocs. Five photographs is the Sonstiges worst case.
+    const one = await mergeDocumentsToPdf([{ bytes: jpeg() }]);
+    expect(one.ok).toBe(true);
+    expect(one.ok && (await PDFDocument.load(one.bytes)).getPageCount()).toBe(1);
+
+    const five = await mergeDocumentsToPdf(Array.from({ length: 5 }, () => ({ bytes: jpeg() })));
+    expect(five.ok).toBe(true);
+    expect(five.ok && (await PDFDocument.load(five.bytes)).getPageCount()).toBe(5);
+
+    const png1 = await mergeDocumentsToPdf([{ bytes: png() }]);
+    expect(png1.ok).toBe(true);
+    expect(png1.ok && (await PDFDocument.load(png1.bytes)).getPageCount()).toBe(1);
   });
 });
 
