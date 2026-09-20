@@ -27,7 +27,7 @@
  *   one drawImage call — the on-screen canvas never goes white.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
@@ -154,7 +154,31 @@ export function PdfViewer({
    * name, a status) that survives a screenshot forwarded from a phone.
    */
   const [failure, setFailure] = useState<{ layer: DocFailureLayer; detail: string } | null>(null);
+  /**
+   * Pages that would not draw. NOT an error screen: the document opened, the
+   * other pages are readable and every tool still works, so this is a line
+   * rather than a wall — the same call the page organiser makes. But it is not
+   * silent either, because a blank page with no explanation is precisely what
+   * got reported as "the viewer shows a blank page".
+   */
+  const [undrawn, setUndrawn] = useState<{ pages: Set<number>; memory: boolean }>(
+    () => ({ pages: new Set(), memory: false }),
+  );
   const { lang } = useLang();
+
+  const noteUndrawn = useCallback((pageNum: number, err: unknown) => {
+    const e = err as { name?: unknown; message?: unknown } | null;
+    // On a phone this is nearly always the device refusing the bitmap, and
+    // that one has a real answer ("use a computer") instead of a shrug.
+    const memory = e?.name === "RangeError" || e?.name === "QuotaExceededError"
+      || /out of memory|allocation (size too large|failed)|not enough memory/i
+        .test(typeof e?.message === "string" ? e.message : "");
+    setUndrawn(prev => {
+      if (prev.pages.has(pageNum) && (prev.memory || !memory)) return prev;
+      const pages = new Set(prev.pages); pages.add(pageNum);
+      return { pages, memory: prev.memory || memory };
+    });
+  }, []);
 
   scaleRef.current = scale;
 
@@ -163,6 +187,7 @@ export function PdfViewer({
     let cancelled = false;
     setLoading(true);
     setFailure(null);
+    setUndrawn({ pages: new Set(), memory: false });
     setPdf(null);
     setPageSizes([]);
     setIntrinsicRotations([]);
@@ -546,11 +571,37 @@ export function PdfViewer({
                 scale={scale}
                 rotation={(rotation + (intrinsicRotations[i] ?? 0)) % 360}
                 overlay={pageOverlay}
+                onDrawFailed={noteUndrawn}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* A page that would not draw is not a broken window: the document is
+          open and everything still works. It must not be SILENT either — a
+          blank sheet with no explanation is what gets reported as a broken
+          viewer. One line, and memory gets the answer that helps. */}
+      {!loading && !failure && undrawn.pages.size > 0 && (
+        <div style={{
+          position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
+          zIndex: 10, maxWidth: "92%", padding: "5px 10px", borderRadius: 999,
+          background: "rgba(0,0,0,0.62)", color: "rgba(255,255,255,0.88)",
+          fontSize: 11, fontWeight: 600, textAlign: "center", pointerEvents: "none",
+        }}>
+          {undrawn.memory
+            ? (lang === "de"
+              ? "Diesem Gerät fehlte der Speicher für einige Seiten — an einem Computer versuchen."
+              : lang === "fr"
+                ? "Mémoire insuffisante pour certaines pages — essayez sur un ordinateur."
+                : "This device ran out of memory for some pages — try it on a computer.")
+            : (lang === "de"
+              ? `Seite ${[...undrawn.pages].sort((a, b) => a - b).join(", ")} konnte nicht gezeichnet werden.`
+              : lang === "fr"
+                ? `Impossible d'afficher la page ${[...undrawn.pages].sort((a, b) => a - b).join(", ")}.`
+                : `Page ${[...undrawn.pages].sort((a, b) => a - b).join(", ")} could not be drawn.`)}
+        </div>
+      )}
 
       {/* ── Toolbar ── */}
       {!loading && !failure && pdf && (
@@ -624,7 +675,7 @@ function ToolBtn({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PdfPage({
-  pdf, pageNum, naturalSize, scale, rotation, overlay,
+  pdf, pageNum, naturalSize, scale, rotation, overlay, onDrawFailed,
 }: {
   pdf: PdfDoc;
   pageNum: number;
@@ -632,6 +683,8 @@ function PdfPage({
   scale: number;
   rotation: number;
   overlay?: PageOverlayFn;
+  /** This page would not draw. The document is still usable — say so quietly. */
+  onDrawFailed?: (pageNum: number, err: unknown) => void;
 }) {
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const textLayerRef  = useRef<HTMLDivElement>(null);
@@ -792,8 +845,27 @@ function PdfPage({
         if (!c || !ctx || c.width !== canvW || c.height !== canvH) return;
         // Atomic copy — no intermediate white frame.
         ctx.drawImage(offscreen, 0, 0);
-      }).catch(() => {});
-    });
+      }).catch((e: unknown) => {
+        // Was an empty `.catch(() => {})`. A page that would not draw left the
+        // snapshot placeholder (or nothing) on screen and said NOTHING — which
+        // is the "blank page" in the report, and on a phone it is usually the
+        // device refusing the bitmap, not a broken document.
+        if (cancelled) return;
+        // pdf.js cancels the in-flight render on every zoom and rotate tick.
+        // That is bookkeeping, not a failure, and reporting it would put a
+        // warning on screen for an ordinary pinch.
+        if ((e as { name?: string } | null)?.name === "RenderingCancelledException") return;
+        console.error(`[pdf-viewer] page ${pageNum} would not draw:`, e);
+        onDrawFailed?.(pageNum, e);
+      });
+    })
+      // getPage() itself can reject — a damaged page dictionary, or the device
+      // refusing the allocation. Same rule: one page, not the whole document.
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        console.error(`[pdf-viewer] page ${pageNum} could not be read:`, e);
+        onDrawFailed?.(pageNum, e);
+      });
 
     return () => {
       cancelled = true;
