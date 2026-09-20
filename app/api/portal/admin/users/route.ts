@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   }
 
   const [{ data: profiles }, { data: subAdmins }, { data: orgMembers }] = await Promise.all([
-    db.from("candidate_profiles").select("user_id, first_name, last_name, profile_photo, manually_verified, payment_tier"),
+    db.from("candidate_profiles").select("user_id, first_name, last_name, profile_photo, manually_verified"),
     db.from("sub_admins").select("email, is_agency_admin"),
     db.from("organization_members").select("sub_admin_email"),
   ]);
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
       kind,
       createdAt: u.created_at,
       photo: (p as { profile_photo?: string | null } | undefined)?.profile_photo ?? null,
-      verified: isVerified(p as { manually_verified?: boolean | null; payment_tier?: string | null } | undefined),
+      verified: isVerified(p as { manually_verified?: boolean | null } | undefined),
     };
   });
 

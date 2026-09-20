@@ -21,7 +21,7 @@ describe("parseProfileCols", () => {
   });
   it("covers every column the old browser reads used", () => {
     for (const c of [
-      "passport_confirmed_fields", "passport_status", "manually_verified", "payment_tier",
+      "passport_confirmed_fields", "passport_status", "manually_verified",
       "profile_photo", "cv_draft", "phone", "children_ages",
     ]) expect(ME_PROFILE_COLUMNS.has(c)).toBe(true);
   });

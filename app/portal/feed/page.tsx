@@ -40,7 +40,7 @@ type Category = typeof CATEGORIES[number]["value"];
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Author = {
   name: string; photo: string | null;
-  verified: boolean; tier: string | null; isBorivonTeam: boolean;
+  verified: boolean; isBorivonTeam: boolean;
   isSuperAdmin: boolean; isOrgMember: boolean;
 };
 type Post = {

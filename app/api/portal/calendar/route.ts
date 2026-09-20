@@ -27,9 +27,10 @@ type MergedSource = "portal" | "booking" | "google";
  * Community calendar (the "Calendar" tab).
  *
  * GET    — any logged-in portal user. Returns every event newest-first.
- *          VIP-only events come back as { locked:true } for non-premium
- *          candidates with their join link + description withheld server-side,
- *          so the lock can't be bypassed by reading the network response.
+ *          VIP-only events come back as { locked:true } for candidates without
+ *          VIP access, with their join link + description withheld
+ *          server-side, so the lock can't be bypassed by reading the network
+ *          response.
  * POST   — supreme admin only (role==="admin"): create an event.
  * DELETE — supreme admin only: ?id=<uuid>.
  *
@@ -105,18 +106,20 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  // Supreme admin never has anything locked (they manage events). Everyone else
-  // is "premium" only via a paid tier or a manual verification flag.
+  // Supreme admin never has anything locked (they manage events). For everyone
+  // else VIP access follows the supreme admin's manual grant — the paid tier
+  // that used to be the other half of this test was removed on 2026-09-20, and
+  // no new VIP-only event can even be created (POST hard-codes vip_only:false),
+  // so this only still matters for legacy rows.
   const canManage = isAdminEmail(auth.email);
-  let premium = canManage;
-  if (!premium) {
+  let vipAccess = canManage;
+  if (!vipAccess) {
     const { data: prof } = await db
       .from("candidate_profiles")
-      .select("payment_tier, manually_verified")
+      .select("manually_verified")
       .eq("user_id", auth.userId)
       .maybeSingle();
-    const p = prof as { payment_tier?: string | null; manually_verified?: boolean } | null;
-    premium = !!p && (p.payment_tier === "premium" || !!p.manually_verified);
+    vipAccess = !!(prof as { manually_verified?: boolean } | null)?.manually_verified;
   }
 
   // Google "instant sync" connection status for this user (drives the Sync UI).
@@ -138,7 +141,7 @@ export async function GET(req: NextRequest) {
     // a failed query rendered as the calm sentence "No events this month" and a
     // candidate with an interview that week was told she had nothing on.
     console.error("[portal/calendar] list error:", error.message);
-    return NextResponse.json({ events: [], eventsOk: false, premium, canManage, feedToken: signFeedToken(auth.userId), googleSync }, { status: 200 });
+    return NextResponse.json({ events: [], eventsOk: false, canManage, feedToken: signFeedToken(auth.userId), googleSync }, { status: 200 });
   }
 
   const events = ((data ?? []) as EventRow[])
@@ -150,11 +153,12 @@ export async function GET(req: NextRequest) {
       return att.length === 0 || att.includes(auth.userId);
     })
     .map((e) => {
-      const locked = e.vip_only && !premium;
+      const locked = e.vip_only && !vipAccess;
       return {
         id: e.id,
         title: e.title,
-        // Withhold the payoff fields from non-premium viewers of a legacy VIP event.
+        // Withhold the payoff fields from a viewer without VIP access on a
+        // legacy VIP event.
         description: locked ? "" : e.description,
         starts_at: e.starts_at,
         ends_at: e.ends_at,
@@ -246,7 +250,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     events: merged,
-    premium,
     canManage,
     // Staff get the merged diary + the ability to add a booking from it.
     isStaff: staff.isStaff,

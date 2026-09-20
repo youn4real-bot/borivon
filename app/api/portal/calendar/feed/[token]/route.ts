@@ -61,15 +61,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     canManage = !!email && email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   } catch { /* lookup failed → treat as a normal subscriber */ }
 
-  // Premium gate mirrors the page: a non-premium subscriber still SEES a legacy
-  // VIP event's title/time but not its join link / description. Admin = premium.
+  // VIP gate mirrors the page: a subscriber without VIP access still SEES a
+  // legacy VIP event's title/time but not its join link / description. The
+  // admin always has it, and for everyone else it is his manual grant — the
+  // paid tier that used to be the other half of this test went with the paid
+  // plan on 2026-09-20.
   const { data: prof } = await db
     .from("candidate_profiles")
-    .select("payment_tier, manually_verified")
+    .select("manually_verified")
     .eq("user_id", userId)
     .maybeSingle();
-  const p = prof as { payment_tier?: string | null; manually_verified?: boolean } | null;
-  const premium = canManage || (!!p && (p.payment_tier === "premium" || !!p.manually_verified));
+  const vipAccess = canManage || !!(prof as { manually_verified?: boolean } | null)?.manually_verified;
 
   const { data } = await db
     .from("calendar_events")
@@ -99,7 +101,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     const start = new Date(e.starts_at);
     const end = e.ends_at ? new Date(e.ends_at) : new Date(start.getTime() + 60 * 60 * 1000);
     if (Number.isNaN(start.getTime())) continue;
-    const locked = e.vip_only && !premium;
+    const locked = e.vip_only && !vipAccess;
     const bodyParts: string[] = [];
     if (!locked && e.description) bodyParts.push(e.description);
     if (!locked && e.link_url) bodyParts.push(`Link: ${e.link_url}`);

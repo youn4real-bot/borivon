@@ -131,15 +131,14 @@ export async function GET(
 
     if (!verified) {
       // Verification is tied ONLY to an explicit admin grant
-      // (manually_verified) or a paid premium subscription — NOT passport
-      // / CV approval.
+      // (manually_verified) — NOT passport / CV approval, and not any
+      // payment: the paid plan was removed on 2026-09-20.
       const { data: prof } = await db
         .from("candidate_profiles")
-        .select("manually_verified, payment_tier")
+        .select("manually_verified")
         .eq("user_id", match.user_id)
         .maybeSingle();
-      const p = prof as { manually_verified?: boolean; payment_tier?: string | null } | null;
-      if (p && (p.manually_verified || p.payment_tier === "premium")) {
+      if ((prof as { manually_verified?: boolean } | null)?.manually_verified) {
         verified = true;
       }
     }
