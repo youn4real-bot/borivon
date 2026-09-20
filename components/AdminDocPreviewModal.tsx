@@ -12,6 +12,7 @@ import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload, triggerIosDownloadWithToken } from "@/lib/iosDownload";
+import { isMergeRefusalCode } from "@/lib/docBytes";
 import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
@@ -34,6 +35,8 @@ const dm = {
     failRotate: "The rotation could not be saved — it will reopen at the old angle.",
     failAttach: "Rejected, but the screenshot could not be sent.",
     failDownload: "Download failed — please try again.",
+    previewFailed: (status: number) => `This preview could not be loaded (${status}).`,
+    previewMergeRefused: "These two documents cannot be joined into one file — open them separately.",
   },
   fr: {
     passportData: "Données passeport",
@@ -51,6 +54,8 @@ const dm = {
     failRotate: "La rotation n'a pas pu être enregistrée — le document se rouvrira dans l'ancien sens.",
     failAttach: "Refusé, mais la capture d'écran n'a pas pu être envoyée.",
     failDownload: "Échec du téléchargement — veuillez réessayer.",
+    previewFailed: (status: number) => `Cet aperçu n'a pas pu être chargé (${status}).`,
+    previewMergeRefused: "Ces deux documents ne peuvent pas être réunis en un seul — ouvrez-les séparément.",
   },
   de: {
     passportData: "Passdaten",
@@ -68,6 +73,8 @@ const dm = {
     failRotate: "Die Drehung konnte nicht gespeichert werden — das Dokument öffnet wieder im alten Winkel.",
     failAttach: "Abgelehnt, aber der Screenshot konnte nicht gesendet werden.",
     failDownload: "Herunterladen fehlgeschlagen — bitte erneut versuchen.",
+    previewFailed: (status: number) => `Diese Vorschau konnte nicht geladen werden (${status}).`,
+    previewMergeRefused: "Diese beiden Dokumente lassen sich nicht zu einer Datei zusammenführen — bitte einzeln öffnen.",
   },
 };
 
@@ -118,6 +125,9 @@ export function AdminDocPreviewModal({
   const [savedAs, setSavedAs]       = useState<"approved" | "rejected" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [blobUrl, setBlobUrl]       = useState<string | null>(null);
+  // A refused preview is not a missing one. Without this the modal either
+  // spins for ever or renders the error body as if it were the document.
+  const [previewError, setPreviewError] = useState<string | null>(null);
   // Track the auto-close timeout so we can clear it on unmount — prevents
   // setState-on-unmounted-component if the user navigates within 700ms.
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,6 +157,7 @@ export function AdminDocPreviewModal({
     // on iPhone and iPad. Preview and download were both dead there.
     if (isIOSDevice() && !overrideFetchUrl && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
     setRenderedName(null);
+    setPreviewError(null);
     // Stable doc id → server resolves the CURRENT drive_file_id (never the
     // archived old one after a replace). Same rule as fileBase below.
     const fetchUrl = overrideFetchUrl
@@ -160,7 +171,22 @@ export function AdminDocPreviewModal({
       cache: "no-store",
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     })
-      .then(r => {
+      .then(async r => {
+        // A non-200 body used to be turned into a blob and handed straight to
+        // the PDF viewer, which then reported that the document could not be
+        // opened -- i.e. "this file is corrupt", when what actually happened
+        // is that the server said no. A merged preview now refuses for a real
+        // reason (415: one half is a WebP photo, which pdf-lib has no embedder
+        // for), and that reason has to reach the person looking at it.
+        if (!r.ok) {
+          const code = overrideFetchUrl
+            ? await r.json().then((b: { error?: string }) => b?.error).catch(() => undefined)
+            : undefined;
+          if (mounted) {
+            setPreviewError(isMergeRefusalCode(code) ? dt.previewMergeRefused : dt.previewFailed(r.status));
+          }
+          return null;
+        }
         if (overrideFetchUrl) {
           const cd = r.headers.get("Content-Disposition") || "";
           const m = /filename="?([^"]+)"?/i.exec(cd);
@@ -169,7 +195,7 @@ export function AdminDocPreviewModal({
         return r.blob();
       })
       .then(blob => {
-        if (!mounted) return;
+        if (!mounted || !blob) return;
         url = URL.createObjectURL(blob);
         setBlobUrl(url);
       })
@@ -631,7 +657,11 @@ export function AdminDocPreviewModal({
                 )}
               </div>
             );
-          })() : (
+          })() : previewError ? (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659", color: "#fff", padding: "1rem", textAlign: "center" }}>
+              <p className="text-[13px] max-w-[420px]">{previewError}</p>
+            </div>
+          ) : (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
               <Spinner size="md" />
             </div>

@@ -186,3 +186,27 @@ describe("a pair that cannot be merged says so, and does not say 'try again'", (
       .not.toMatch(/merge-pdf\?origDocId[\s\S]{0,200}?throw new Error\("Failed"\)/);
   });
 });
+
+describe("a refused preview is not rendered as if it were the document", () => {
+  it("the modal checks the response before turning it into a blob", () => {
+    // It used to hand a 415 body straight to the PDF viewer, which then said
+    // the document could not be opened -- "this file is corrupt", when what
+    // really happened is that the server said no, and said why.
+    expect(PREVIEW_MODAL).toMatch(/\.then\(async r => \{[\s\S]{0,800}?if \(!r\.ok\)/);
+    expect(PREVIEW_MODAL).toContain("isMergeRefusalCode(code)");
+    expect(PREVIEW_MODAL, "and a null result must not be blobbed")
+      .toContain("if (!mounted || !blob) return;");
+  });
+
+  it("it shows the reason instead of spinning for ever", () => {
+    expect(PREVIEW_MODAL).toContain("previewError");
+    expect(PREVIEW_MODAL).toMatch(/\}\)\(\) : previewError \? \(/);
+  });
+
+  it("LAW #19: in French, English and German", () => {
+    for (const key of ["previewFailed", "previewMergeRefused"]) {
+      const hits = PREVIEW_MODAL.match(new RegExp(`${key}:`, "g")) ?? [];
+      expect(hits.length, `${key} needs an entry in all three languages`).toBe(3);
+    }
+  });
+});
