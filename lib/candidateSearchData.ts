@@ -49,12 +49,35 @@ const minMs = (a: number | null, b: number | null): number | null => {
 };
 
 /**
+ * The candidate universe, AND whether it is actually known.
+ *
+ * `ok: false` means the directory read did not complete, so `candidates` is a
+ * floor and not a fact: the true set is this or larger. It exists because
+ * "nobody matches your search" and "I could not find out who exists" used to
+ * be the same empty array, and the panel said the confident one out loud.
+ */
+export type CandidateSetOutcome =
+  | { ok: true; candidates: SearchableCandidate[] }
+  | { ok: false; reason: "directory_unavailable"; candidates: SearchableCandidate[] };
+
+/**
  * Build the scoped candidate universe. Returns [] for a locked-out caller
  * (scope.visibleIds === []) so the search simply finds nothing — never widens.
+ *
+ * Kept EXACTLY as it was, signature and behaviour, because /api/portal/admin/needs
+ * and the D1 parity test read it. Callers that must tell "none" from "unknown"
+ * use assembleSearchableCandidateSet below instead.
  */
 export async function assembleSearchableCandidates(scope: AssistantScope): Promise<SearchableCandidate[]> {
+  return (await assembleSearchableCandidateSet(scope)).candidates;
+}
+
+export async function assembleSearchableCandidateSet(scope: AssistantScope): Promise<CandidateSetOutcome> {
   const visible = scope.visibleIds;            // null = all, [] = none, array = these
-  if (Array.isArray(visible) && visible.length === 0) return [];
+  // A locked-out caller genuinely sees nobody. That is a KNOWN empty set, not a
+  // failed read, so it stays ok:true — the panel should say "no candidates",
+  // not offer a retry that can never change the answer.
+  if (Array.isArray(visible) && visible.length === 0) return { ok: true, candidates: [] };
   const allow = visible === null ? null : new Set(visible);
   const inScope = (uid: string) => allow === null || allow.has(uid);
 
@@ -76,10 +99,18 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
   // header invariant. Every other read below is likewise guarded.
   type AuthInfo = { email: string; name: string; createdAtMs: number | null; lastSignInMs: number | null };
   const auth = new Map<string, AuthInfo>();
+  // The walk is the ONLY source of who exists. When it does not finish, every
+  // count downstream is a floor rather than a fact — so record that instead of
+  // letting a short list pass for the whole roster.
+  let directoryUnavailable = false;
   try {
     for (let page = 1; page <= 20; page++) {
       const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
-      if (error || !data?.users?.length) break;
+      // An error on page 1 leaves NOBODY and used to be indistinguishable from
+      // an empty roster; an error on page 5 silently truncates the set and is
+      // worse, because the answer still looks plausible. Both are unknown.
+      if (error) { directoryUnavailable = true; break; }
+      if (!data?.users?.length) break;
       for (const u of data.users) {
         if (!u.id || !u.email) continue;
         if (isSoftDeletedAuthUser(u)) continue;              // a deleted person is gone
@@ -97,9 +128,20 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
     }
   } catch (e) {
     console.error("[candidate-search] auth walk failed:", e instanceof Error ? e.message : e);
-    // Keep whatever pages we already collected; if none, we return [] below.
+    // Keep whatever pages we already collected — but they are a floor, not the
+    // roster, so the caller must be told the difference.
+    directoryUnavailable = true;
   }
-  if (auth.size === 0) return [];
+  // NOT an early return on failure: a partial walk still assembles whatever it
+  // reached, exactly as before, because /api/portal/admin/needs reads this
+  // through the legacy wrapper and a half-list beats a blank one there. Only
+  // the ok flag is new — see the final return.
+  if (auth.size === 0) {
+    return directoryUnavailable
+      ? { ok: false, reason: "directory_unavailable", candidates: [] }
+      // A completed walk that found nobody is a real, trustworthy empty.
+      : { ok: true, candidates: [] };
+  }
   const ids = [...auth.keys()];
 
   // ── 2. candidate_profiles (schema-tolerant) ──
@@ -284,5 +326,10 @@ export async function assembleSearchableCandidates(scope: AssistantScope): Promi
       checklistPct: chk.pct,
     });
   }
-  return out;
+  // `out` is complete only if the directory walk was. When it was not, this is
+  // a floor — the real roster is this or larger — and saying so is the whole
+  // point of the outcome type.
+  return directoryUnavailable
+    ? { ok: false, reason: "directory_unavailable", candidates: out }
+    : { ok: true, candidates: out };
 }

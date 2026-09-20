@@ -13,7 +13,8 @@ import { PortalTopNav } from "@/components/PortalTopNav";
 const t = {
   en: {
     pageTitle: "Manage admins",
-    pageDesc: "Assign agents access to specific candidates",
+    pageDesc: "Give each agent a list of candidates to look after",
+    accessNote: "This list decides who looks after whom. It does NOT restrict access: a sub-admin in an organisation sees that organisation’s approved candidates, and a sub-admin in none sees every candidate — assigned or not.",
     addSection: "Add an admin",
     emailLabel: "Email *",
     nameLabel: "Name",
@@ -25,7 +26,7 @@ const t = {
     adding: "Adding…",
     addAdmin: "Add admin",
     noAdmins: "No admins added yet",
-    noAdminsSub: "Add your first agent above and assign them specific candidates.",
+    noAdminsSub: "Add your first agent above, then choose which candidates they look after.",
     candidates: (n: number) => `${n} candidate${n !== 1 ? "s" : ""}`,
     close: "Close",
     assign: "Assign",
@@ -40,7 +41,8 @@ const t = {
   },
   fr: {
     pageTitle: "Gérer les admins",
-    pageDesc: "Attribuer aux agents l'accès à des candidats spécifiques",
+    pageDesc: "Donner à chaque agent une liste de candidats à suivre",
+    accessNote: "Cette liste définit qui suit qui. Elle NE restreint PAS l’accès : un sous-admin rattaché à une organisation voit les candidats approuvés de celle-ci, et un sous-admin sans organisation voit tous les candidats — assignés ou non.",
     addSection: "Ajouter un admin",
     emailLabel: "E-mail *",
     nameLabel: "Nom",
@@ -52,7 +54,7 @@ const t = {
     adding: "Ajout…",
     addAdmin: "Ajouter l'admin",
     noAdmins: "Aucun admin ajouté",
-    noAdminsSub: "Ajoutez votre premier agent ci-dessus et assignez-lui des candidats.",
+    noAdminsSub: "Ajoutez votre premier agent ci-dessus, puis choisissez les candidats qu’il suit.",
     candidates: (n: number) => `${n} candidat${n !== 1 ? "s" : ""}`,
     close: "Fermer",
     assign: "Assigner",
@@ -67,7 +69,8 @@ const t = {
   },
   de: {
     pageTitle: "Admins verwalten",
-    pageDesc: "Agenten Zugang zu bestimmten Kandidaten geben",
+    pageDesc: "Jedem Agenten eine Liste von Kandidaten zur Betreuung geben",
+    accessNote: "Diese Liste legt fest, wer wen betreut. Sie beschränkt den Zugriff NICHT: Ein Sub-Admin in einer Organisation sieht deren freigegebene Kandidaten, ein Sub-Admin ohne Organisation sieht alle Kandidaten — zugewiesen oder nicht.",
     addSection: "Admin hinzufügen",
     emailLabel: "E-Mail *",
     nameLabel: "Name",
@@ -79,7 +82,7 @@ const t = {
     adding: "Hinzufügen…",
     addAdmin: "Admin hinzufügen",
     noAdmins: "Noch keine Admins hinzugefügt",
-    noAdminsSub: "Fügen Sie oben Ihren ersten Agenten hinzu und weisen Sie ihm Kandidaten zu.",
+    noAdminsSub: "Fügen Sie oben Ihren ersten Agenten hinzu und wählen Sie, welche Kandidaten er betreut.",
     candidates: (n: number) => `${n} Kandidat${n !== 1 ? "en" : ""}`,
     close: "Schließen",
     assign: "Zuweisen",
@@ -276,6 +279,38 @@ export default function ManageAdminsPage() {
             </p>
           </div>
         </div>
+
+        {/*
+          Bug 9. This page said "Assign agents access to specific candidates"
+          and the toggles below read Assign / Assigned — so the founder had
+          every reason to believe that un-assigning a candidate took her away
+          from an agent. It never did.
+
+          The evidence is lib/admin-auth.ts, which holds the ONLY two functions
+          that gate per-candidate access under LAW #25 — canActOnCandidate()
+          and getVisibleCandidateScope(). Neither reads sub_admin_assignments;
+          the word does not appear in that file. Scope is decided by exactly
+          three things: the is_agency_admin flag, organization_members, and the
+          approved rows in candidate_organizations. A sub-admin who belongs to
+          no organisation returns `true` for every candidate on the portal, no
+          matter what this page shows.
+
+          So the toggles are not dead — sub_admin_assignments is real data that
+          the assistant reads to answer "who is looking after her" and to hand a
+          caseload from one agent to another — they were simply labelled as a
+          permission. They are now labelled as what they are, and the sentence
+          below states the rule that actually decides access.
+
+          Making it REAL was the other option and was deliberately not taken: it
+          would mean adding a fourth scoping trigger to the security core of a
+          live portal, and the moment assignments started restricting, every
+          sub-admin with no assignment rows would lose all ~93 candidates at
+          once. That is a founder's decision, not a bug fix.
+        */}
+        <p className="text-[12px] mb-6 px-3 py-2"
+          style={{ color: "var(--w2)", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10 }}>
+          {T.accessNote}
+        </p>
 
         {/* Add new sub-admin — quieter section card */}
         <div className="p-5 mb-6"

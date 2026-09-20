@@ -505,6 +505,12 @@ export async function PATCH(req: NextRequest) {
   const db = getServiceSupabase();
 
   if (body.positions) {
+    // Counts REAL write failures only. A slot skipped below because it is out
+    // of this sub-admin's scope is a decision, not a failure; a refused or
+    // dropped UPDATE is a failure, and used to leave only a console.error
+    // behind while the reorder answered ok:true and the boxes sat in their new
+    // order on screen and their old order in the table.
+    let writeFailures = 0;
     for (const { id, position, category_id } of body.positions) {
       if (!UUID_RE.test(id)) continue;
       // Sub-admins may only reorder slots belonging to their own orgs.
@@ -525,10 +531,23 @@ export async function PATCH(req: NextRequest) {
       if (category_id !== undefined) patch.category_id = category_id;
       const { error: posErr } = await db.from("phase_slots").update(patch).eq("id", id);
       if (posErr && /category_id|column .* does not exist|schema cache/i.test(posErr.message ?? "")) {
-        await db.from("phase_slots").update({ position }).eq("id", id);
+        const { error: retryErr } = await db.from("phase_slots").update({ position }).eq("id", id);
+        if (retryErr) {
+          console.error("[phase-slots PATCH reorder retry]", id, retryErr);
+          writeFailures++;
+        }
       } else if (posErr) {
         console.error("[phase-slots PATCH reorder]", id, posErr);
+        writeFailures++;
       }
+    }
+    if (writeFailures > 0) {
+      // Partial or total: either way the order on screen is not the order in
+      // the database, so the client must be able to say so and reload.
+      return NextResponse.json(
+        { error: "Internal error", code: "WRITE_FAILED", failed: writeFailures },
+        { status: 500 },
+      );
     }
     return NextResponse.json({ ok: true });
   }
@@ -582,11 +601,33 @@ export async function PATCH(req: NextRequest) {
 
   if (Object.keys(updates).length > 0) {
     const { error: updErr } = await db.from("phase_slots").update(updates).eq("id", body.id);
-    if (updErr && /category_id|is_required|column .* does not exist|schema cache/i.test(updErr.message ?? "")) {
-      // Pre-migration fallback: drop the not-yet-migrated columns and retry the rest.
+    if (updErr) {
+      // A write that failed must never leave through the `{ ok: true }` at the
+      // bottom of this handler. It did: the admin opened a slot's settings,
+      // chose who signs, pressed save, and every signal agreed it worked — the
+      // popup closed, the tiles redrew — because the ONLY branch that looked at
+      // updErr was the pre-migration one, and anything else (an RLS refusal, a
+      // constraint, a dropped connection) fell straight through to ok:true. The
+      // row was unchanged, and nobody found out until a reload days later.
+      const preMigration =
+        /category_id|is_required|column .* does not exist|schema cache/i.test(updErr.message ?? "");
+      if (!preMigration) {
+        console.error("[phase-slots PATCH]", body.id, updErr);
+        return NextResponse.json({ error: "Internal error", code: "WRITE_FAILED" }, { status: 500 });
+      }
+      // Pre-migration fallback: drop the not-yet-migrated columns and retry the
+      // rest, so a missing migration costs a nicety (is_required / category_id)
+      // instead of the whole save. The retry's OWN error was unchecked too —
+      // the same lie one level down — so it is checked now.
       const { category_id: _o1, is_required: _o2, ...rest } = updates;
       void _o1; void _o2;
-      if (Object.keys(rest).length > 0) await db.from("phase_slots").update(rest).eq("id", body.id);
+      if (Object.keys(rest).length > 0) {
+        const { error: retryErr } = await db.from("phase_slots").update(rest).eq("id", body.id);
+        if (retryErr) {
+          console.error("[phase-slots PATCH retry]", body.id, retryErr);
+          return NextResponse.json({ error: "Internal error", code: "WRITE_FAILED" }, { status: 500 });
+        }
+      }
     }
   }
 

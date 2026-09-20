@@ -18,6 +18,20 @@ type FacetGroup = { key: string; label: string; options: FacetOption[] };
 type FacetResult = { ok: boolean; groups: FacetGroup[]; results: Hit[]; total: number; shown: number };
 type Selection = Record<string, string[]>;
 
+/**
+ * Why there is a separate "unknown" state and not just `data === null`.
+ *
+ * The panel had exactly two states: loading, and a FacetResult. So when the
+ * facets call failed, the catch below invented `{ ok: true, total: 0 }` and the
+ * modal rendered its ordinary success layout over it — the header read
+ * "0 candidates", every facet group vanished, and the founder was told, calmly
+ * and in the product's own voice, that not one of his 93 nurses fits. The panel
+ * had checked nothing. Unknown now has its own state and its own face.
+ */
+type FacetState =
+  | { kind: "ok"; data: FacetResult }
+  | { kind: "unknown"; message: string | null };
+
 export function AdminAdvancedFilters({
   accessToken,
   lang,
@@ -29,7 +43,9 @@ export function AdminAdvancedFilters({
 }) {
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState<Selection>({});
-  const [data, setData] = useState<FacetResult | null>(null);
+  const [state, setState] = useState<FacetState | null>(null);
+  const data = state?.kind === "ok" ? state.data : null;
+  const unknown = state?.kind === "unknown" ? state : null;
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const abortRef = useRef<AbortController | null>(null);
@@ -50,11 +66,21 @@ export function AdminAdvancedFilters({
         body: JSON.stringify({ selection: sel, lang }),
         signal: ac.signal,
       });
-      const j = (await r.json()) as FacetResult;
-      if (abortRef.current === ac) setData(j);
+      // The HTTP status was never looked at: a 503 body was parsed and rendered
+      // as though it were counts. Status AND the ok flag both have to agree
+      // before any number on this panel means anything.
+      const j = (await r.json().catch(() => null)) as (FacetResult & { error?: string }) | null;
+      if (abortRef.current !== ac) return;
+      if (!r.ok || !j || j.ok === false) {
+        setState({ kind: "unknown", message: j?.error ?? null });
+        return;
+      }
+      setState({ kind: "ok", data: j });
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") return;
-      if (abortRef.current === ac) setData({ ok: true, groups: [], results: [], total: 0, shown: 0 });
+      // Was `{ ok: true, total: 0 }` — a dropped connection on Moroccan mobile
+      // data presented as the finished, authoritative answer "0 candidates".
+      if (abortRef.current === ac) setState({ kind: "unknown", message: null });
     } finally {
       if (abortRef.current === ac) setLoading(false);
     }
@@ -129,9 +155,12 @@ export function AdminAdvancedFilters({
               <span className="text-[12.5px] font-semibold" style={{ color: "var(--gold)" }}>
                 {loading
                   ? "…"
-                  : data
-                    ? (data.total === 1 ? L("1 candidate", "1 candidat", "1 Kandidat") : L(`${data.total} candidates`, `${data.total} candidats`, `${data.total} Kandidaten`))
-                    : ""}
+                  : unknown
+                    // NOT "0 candidates". No count was taken, so no count is shown.
+                    ? <span style={{ color: "var(--w2)" }}>{L("count unknown", "total inconnu", "Anzahl unbekannt")}</span>
+                    : data
+                      ? (data.total === 1 ? L("1 candidate", "1 candidat", "1 Kandidat") : L(`${data.total} candidates`, `${data.total} candidats`, `${data.total} Kandidaten`))
+                      : ""}
               </span>
               {activeCount > 0 && (
                 <button type="button" onClick={clearAll} className="text-[11.5px] font-semibold px-2 py-0.5 rounded-md" style={{ color: "var(--w2)", border: "1px solid var(--border)" }}>
@@ -150,6 +179,30 @@ export function AdminAdvancedFilters({
                 {!data && loading && (
                   <div className="flex items-center gap-2 text-[12.5px] py-4" style={{ color: "var(--w3)" }}>
                     <Loader2 size={14} className="animate-spin" strokeWidth={2} /> {L("Loading filters…", "Chargement…", "Lädt…")}
+                  </div>
+                )}
+                {/* Unknown, not empty — and it must be ACTIONABLE. An admin who
+                    sees "no candidates" stops looking; an admin who sees this
+                    presses the button. Amber, not red: nothing is broken for
+                    the nurses, this one read did not come back. */}
+                {unknown && !loading && (
+                  <div className="py-4 px-3 text-[12.5px] flex flex-col items-start gap-2"
+                    style={{ color: "var(--w2)", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.35)", borderRadius: 12 }}>
+                    <span>
+                      {unknown.message ?? L(
+                        "Couldn't load the filters — this is not \"no matches\", it's \"not checked\".",
+                        "Impossible de charger les filtres — ce n'est pas « aucun résultat », c'est « non vérifié ».",
+                        "Filter konnten nicht geladen werden — das heißt nicht „keine Treffer“, sondern „nicht geprüft“.",
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void fetchFacets(selection)}
+                      className="font-semibold px-2.5 py-1 rounded-md"
+                      style={{ color: "var(--w)", border: "1px solid var(--border)", background: "var(--card)" }}
+                    >
+                      {L("Try again", "Réessayer", "Erneut versuchen")}
+                    </button>
                   </div>
                 )}
                 {data?.groups.map((g) => {
@@ -191,7 +244,14 @@ export function AdminAdvancedFilters({
 
               {/* Results */}
               <div className="sm:w-[54%] overflow-y-auto p-3">
-                {data && data.results.length === 0 && !loading ? (
+                {/* This pane must never show the SearchX "no candidates match"
+                    line while the set is unknown — that sentence is the bug.
+                    The retry lives once, in the left pane. */}
+                {unknown && !loading ? (
+                  <div className="flex items-center gap-2 py-6 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                    {L("Not checked — see the message on the left.", "Non vérifié — voir le message à gauche.", "Nicht geprüft — siehe Hinweis links.")}
+                  </div>
+                ) : data && data.results.length === 0 && !loading ? (
                   <div className="flex items-center gap-2 py-6 text-[12.5px]" style={{ color: "var(--w3)" }}>
                     <SearchX size={15} strokeWidth={1.8} />
                     {L("No candidates match these filters.", "Aucun candidat pour ces filtres.", "Keine Treffer für diese Filter.")}
