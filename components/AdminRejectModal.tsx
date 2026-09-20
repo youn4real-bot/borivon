@@ -27,11 +27,22 @@ export type RejectTarget = {
  * everywhere (admin page rows, PDF preview modal, anywhere else).
  */
 export function AdminRejectModal({
-  target, onCancel, onSubmit,
+  target, onCancel, onSubmit, error,
 }: {
   target: RejectTarget;
   onCancel: () => void;
   onSubmit: (feedback: string, screenshotDataUrl: string | null) => Promise<void>;
+  /**
+   * Why the last submit did not save, already in the reader's language.
+   *
+   * The caller keeps this popup mounted when its save fails — the typed reason
+   * is mandatory under LAW #20 and must not be lost — but the message it set
+   * rendered in the footer of the card BEHIND this one, under a full-screen
+   * backdrop. The admin saw the Reject button stop spinning and nothing else,
+   * so a rejection that never persisted looked exactly like one that did. The
+   * sentence belongs in the window the admin is actually looking at.
+   */
+  error?: string | null;
 }) {
   const { lang, t: gT } = useLang();
   const t = RM_T[(lang as "fr" | "en" | "de") in RM_T ? (lang as "fr" | "en" | "de") : "en"];
@@ -118,7 +129,13 @@ export function AdminRejectModal({
           </div>
         </div>
 
-        <div className="px-5 py-3 flex items-center justify-end gap-2 flex-shrink-0" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+        <div className="px-5 py-3 flex flex-col gap-2 flex-shrink-0" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+          {error && (
+            <p role="alert" className="text-[11.5px] font-medium leading-[1.4]" style={{ color: "var(--danger)" }}>
+              {error}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2">
           <button onClick={onCancel} disabled={submitting}
             className="px-3 py-1.5 rounded-lg text-[12px] font-medium disabled:opacity-40"
             style={{ background: "transparent", color: "var(--w2)" }}>
@@ -129,6 +146,7 @@ export function AdminRejectModal({
             style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
             {submitting ? "…" : <><XCircle size={12} strokeWidth={1.8} /> {t.reject}</>}
           </button>
+          </div>
         </div>
       </div>
     </div>,

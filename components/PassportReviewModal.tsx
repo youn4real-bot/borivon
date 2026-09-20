@@ -162,22 +162,34 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
             delete (editsRef.current as Record<string, unknown>)[k];
           }
         }
+        setErr(null); // the retry landed — stop warning about a save that is done
         setAutoSaved(true);
         setTimeout(() => setAutoSaved(false), 1600);
       } else {
         editsRef.current = { ...snap, ...editsRef.current };
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => { void flush({ ...editsRef.current }); }, 4000);
-        let msg = `HTTP ${res.status}`;
-        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
-        setErr(msg);
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) detail = String(j.error); } catch { /* ignore */ }
+        // LAW #37 says an admin override persists. When this PATCH is refused
+        // it has NOT persisted, and the edit footer said "Saves automatically"
+        // regardless — the one sentence guaranteed to be wrong at that moment.
+        // The retry above is real, so the wording is "not yet", not "failed".
+        // The server's English (or a bare "HTTP 502") goes to the console;
+        // the admin gets her own language (LAW #19).
+        console.error("[passport edit]", detail);
+        setErr(lang === "de"
+          ? "Noch nicht gespeichert — wird erneut versucht. Bitte dieses Fenster nicht schließen."
+          : lang === "fr"
+          ? "Pas encore enregistré — nouvelle tentative. Ne fermez pas cette fenêtre."
+          : "Not saved yet — retrying. Don't close this window.");
       }
     } catch {
       editsRef.current = { ...snap, ...editsRef.current };
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => { void flush({ ...editsRef.current }); }, 4000);
     }
-  }, [userId, accessToken, onProfileChange]);
+  }, [userId, accessToken, onProfileChange, lang]);
 
   // Debounced per-field autosave: 600ms after the last keystroke.
   useEffect(() => {
@@ -253,9 +265,24 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
         body: JSON.stringify({ userId, profile: profileUpdate }),
       });
       if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
-        setErr(msg);
+        // The window stays open and the typed reason stays in it — LAW #20
+        // makes that reason mandatory, and re-typing it is the one thing the
+        // admin must never be asked to do because a PATCH failed.
+        //
+        // The sentence is OURS, in the reader's language (LAW #19). What the
+        // server says is English, sometimes a bare "HTTP 502", and it used to
+        // be shown verbatim — the one place a French-reading sub-admin met a
+        // status line. The detail goes to the console for the founder.
+        let detail = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) detail = String(j.error); } catch { /* ignore */ }
+        console.error("[passport review]", status, detail);
+        setErr(
+          status === "rejected"
+            ? T("Not saved — the rejection was not recorded. Your text is kept; try again.",
+                "Nicht gespeichert — die Ablehnung wurde nicht übernommen. Ihr Text bleibt erhalten; bitte erneut versuchen.",
+                "Non enregistré — le refus n'a pas été pris en compte. Votre texte est conservé ; réessayez.")
+            : T("Not saved — try again.", "Nicht gespeichert — bitte erneut versuchen.", "Non enregistré — réessayez."),
+        );
         return;
       }
       setRejectOpen(false);
@@ -263,7 +290,9 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
       onReviewed(status, status === "rejected" ? (feedback || null) : null);
       setTimeout(onClose, 700);
     } catch {
-      setErr(T("Network error — try again", "Netzwerkfehler", "Erreur réseau"));
+      setErr(T("Network error — nothing was saved. Your text is kept; try again.",
+               "Netzwerkfehler — nichts wurde gespeichert. Ihr Text bleibt erhalten; bitte erneut versuchen.",
+               "Erreur réseau — rien n'a été enregistré. Votre texte est conservé ; réessayez."));
     } finally {
       setSubmitting(false);
     }
@@ -464,13 +493,18 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
 
         {/* Footer */}
         {editMode ? (
-          <div className="px-5 pb-4 pt-3 flex-shrink-0 flex items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
-            <div className="flex-1 inline-flex items-center gap-1.5 text-xs" style={{ color: autoSaved ? "var(--success)" : "var(--w3)" }}>
+          <div className="px-5 pb-4 pt-3 flex-shrink-0 flex flex-col gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+            {err && (
+              <p role="alert" className="text-[11px] font-medium leading-[1.4]" style={{ color: "var(--danger)" }}>{err}</p>
+            )}
+            <div className="flex items-center gap-2">
+            <div className="flex-1 inline-flex items-center gap-1.5 text-xs" style={{ color: err ? "var(--danger)" : autoSaved ? "var(--success)" : "var(--w3)" }}>
               {autoSaved ? <><CheckCircle2 size={12} strokeWidth={1.8} /> {T("Auto-saved", "Automatisch gespeichert", "Enregistré automatiquement")}</> : <><Save size={12} strokeWidth={1.8} /> {T("Saves automatically", "Wird automatisch gespeichert", "Enregistrement automatique")}</>}
             </div>
             <button onClick={exitEdit} className="py-2 px-4 rounded-xl text-xs font-semibold" style={{ background: "var(--gold)", color: "#131312" }}>
               {T("Done", "Fertig", "Terminé")}
             </button>
+            </div>
           </div>
         ) : (!isApproved && !savedAs) ? (
           <div className="px-5 pb-4 pt-3 flex-shrink-0 flex flex-col gap-2" style={{ borderTop: "1px solid var(--border)" }}>
@@ -481,7 +515,7 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
                 className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5" style={{ background: "var(--success-bg)", color: "var(--success)" }}>
                 {submitting ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> {T("Approve", "Genehmigen", "Approuver")}</>}
               </button>
-              <button onClick={() => setRejectOpen(true)} disabled={submitting || pst === "rejected"}
+              <button onClick={() => { setErr(null); setRejectOpen(true); }} disabled={submitting || pst === "rejected"}
                 className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                 {submitting ? "…" : <><XCircle size={13} strokeWidth={1.8} /> {T("Reject", "Ablehnen", "Refuser")}</>}
               </button>
@@ -493,8 +527,9 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
       {rejectOpen && (
         <AdminRejectModal
           target={{ label: T("Passport data", "Reisepassdaten", "Données du passeport"), initialFeedback: prof.passport_feedback ?? "" }}
-          onCancel={() => setRejectOpen(false)}
+          onCancel={() => { setErr(null); setRejectOpen(false); }}
           onSubmit={(text: string) => review("rejected", text)}
+          error={err}
         />
       )}
     </div>,
