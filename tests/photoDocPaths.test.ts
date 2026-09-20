@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { servedMime, isPdfBytes, detectDocKind } from "../lib/docBytes";
+import { servedMime, isPdfBytes, detectDocKind, isMergeRefusalCode, nameCannotMerge } from "../lib/docBytes";
 import { safeRotatePdf } from "../lib/pdfRotate";
 
 /**
@@ -20,6 +20,7 @@ const PAGES_ROUTE = readFileSync("app/api/portal/admin/pdf-pages/route.ts", "utf
 const UPLOAD_ROUTE = readFileSync("app/api/portal/upload/route.ts", "utf8");
 const PREVIEW_MODAL = readFileSync("components/AdminDocPreviewModal.tsx", "utf8");
 const DASHBOARD = readFileSync("app/portal/dashboard/page.tsx", "utf8");
+const ADMIN = readFileSync("app/portal/admin/page.tsx", "utf8");
 
 const jpeg = () => new Uint8Array(readFileSync("public/demande-example.jpg"));
 const png = () => new Uint8Array(readFileSync("public/email-logo.png"));
@@ -143,5 +144,45 @@ describe("previewing a photographed document", () => {
   it("and an unknown extension still says so rather than showing nothing", () => {
     // The silent-nothing case: a blank pane with no explanation.
     expect(PREVIEW_MODAL).toContain("previewUnavailable");
+  });
+});
+
+describe("a pair that cannot be merged says so, and does not say 'try again'", () => {
+  it("the refusal codes are shared, not copied into each client", () => {
+    // Three string literals duplicated across two client files is how a
+    // refusal quietly turns back into "Download failed - please try again".
+    expect(isMergeRefusalCode("unsupported_format")).toBe(true);
+    expect(isMergeRefusalCode("image_too_large")).toBe(true);
+    expect(isMergeRefusalCode("unreadable")).toBe(true);
+    expect(isMergeRefusalCode("too_large"), "the pair-size cap IS worth retrying elsewhere").toBe(false);
+    expect(isMergeRefusalCode(undefined)).toBe(false);
+    expect(isMergeRefusalCode(500)).toBe(false);
+  });
+
+  it("a WebP half is named from its file name, before any request goes out", () => {
+    // The iOS download NAVIGATES to the merge URL, so a server refusal would
+    // land as a JSON page in a tab that closes itself -- the silent nothing
+    // again, on the phone where it matters most.
+    expect(nameCannotMerge("aya_diploma_original.webp")).toBe(true);
+    expect(nameCannotMerge("aya_diploma_original.WEBP")).toBe(true);
+    expect(nameCannotMerge("aya_diploma_original.jpg")).toBe(false);
+    expect(nameCannotMerge("aya_diploma_original.pdf")).toBe(false);
+    expect(nameCannotMerge(null), "a missing name is not a refusal").toBe(false);
+    expect(nameCannotMerge("webp_kurs_zeugnis.pdf"), "the word alone is not the extension").toBe(false);
+  });
+
+  it("both merge buttons check the name before spinning", () => {
+    expect(DASHBOARD).toContain("nameCannotMerge(nameOf(origDocId))");
+    const adminChecks = ADMIN.match(/nameCannotMerge\(/g) ?? [];
+    expect(adminChecks.length, "the dual-slot and the single-slot button").toBe(4);
+  });
+
+  it("and both read the server's code instead of retrying", () => {
+    expect(DASHBOARD).toContain("isMergeRefusalCode(code)");
+    expect(DASHBOARD).toContain('type: refused ? "errMergeFormat" : "errDownload"');
+    const adminReads = ADMIN.match(/isMergeRefusalCode\(code\) \? t\.adErrMergeFormat : t\.adErrDownload/g) ?? [];
+    expect(adminReads.length).toBe(2);
+    expect(ADMIN, "the old blanket throw must be gone from both merge buttons")
+      .not.toMatch(/merge-pdf\?origDocId[\s\S]{0,200}?throw new Error\("Failed"\)/);
   });
 });

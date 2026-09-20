@@ -33,7 +33,7 @@
  */
 
 import { PDFDocument, degrees, type PDFPage } from "pdf-lib";
-import { detectDocKind, pngPixelCount, type DocKind } from "@/lib/docBytes";
+import { detectDocKind, pngPixelCount, type DocKind, type MergeRefusalCode } from "@/lib/docBytes";
 
 /** A4 at 72 dpi, portrait. */
 export const A4_WIDTH_PT = 595.28;
@@ -55,7 +55,10 @@ export type MergeSource = {
   rotation?: number;
 };
 
-export type MergeRefusalCode = "unsupported_format" | "image_too_large" | "unreadable";
+// The codes themselves live in lib/docBytes.ts, which has no dependencies, so
+// the dashboard and the admin panel can recognise a refusal without dragging
+// pdf-lib into the client bundle to do it.
+export type { MergeRefusalCode };
 
 export type MergeResult =
   | { ok: true; bytes: Uint8Array }

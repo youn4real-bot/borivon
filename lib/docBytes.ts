@@ -107,3 +107,36 @@ export function servedMime(bytes: Uint8Array, fallback: string): string {
 export function isPdfBytes(bytes: Uint8Array): boolean {
   return detectDocKind(bytes) === "pdf";
 }
+
+/**
+ * The reasons a pair of documents cannot be joined into one PDF.
+ *
+ * Declared HERE, in the module with no dependencies, rather than beside the
+ * merging in lib/mergeDocs.ts -- that one imports pdf-lib, and the candidate
+ * dashboard and the admin panel both need to recognise these codes in a fetch
+ * response. Sharing the list is the point: three string literals copied into
+ * two client files is how a refusal silently turns back into "Download failed,
+ * please try again", which is the wrong advice for every one of them.
+ */
+export const MERGE_REFUSAL_CODES = ["unsupported_format", "image_too_large", "unreadable"] as const;
+
+export type MergeRefusalCode = (typeof MERGE_REFUSAL_CODES)[number];
+
+/** True when a merge response body carries one of those reasons. */
+export function isMergeRefusalCode(code: unknown): code is MergeRefusalCode {
+  return typeof code === "string" && (MERGE_REFUSAL_CODES as readonly string[]).includes(code);
+}
+
+/**
+ * Can this half never be merged, judging by its file name alone?
+ *
+ * pdf-lib has no WebP embedder, so a WebP half is refused by the server on its
+ * bytes. But the iOS download path NAVIGATES to the merge URL rather than
+ * fetching it, so a refusal there lands as a JSON page in a tab that closes
+ * itself -- the silent nothing again, on the phone where it matters most.
+ * Saying it from the file name gets the answer in front of her on every device.
+ * The server check stays: a name is a hint, bytes are the truth.
+ */
+export function nameCannotMerge(fileName: string | null | undefined): boolean {
+  return /\.webp$/i.test(fileName ?? "");
+}
