@@ -4674,11 +4674,15 @@ export default function AdminPage() {
                   Danger tone, never the plain "not shared" grey, so it can
                   never be mistaken for one more agency that simply says no. */}
               {shareLoadFailed && (
+                /* role="alert" lives on the wrapper, not on the button: putting
+                   it on the button itself would replace the button role, and a
+                   screen-reader user would hear the warning without ever being
+                   told the thing is clickable. */
+                <span role="alert" className="inline-flex flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => { void retryPartnerShares(); }}
                   disabled={shareLoadRetrying}
-                  role="alert"
                   title={lang === "de" ? "Die Liste der Agenturen konnte nicht geladen werden — klicken zum erneuten Prüfen"
                     : lang === "fr" ? "La liste des agences n'a pas pu être chargée — cliquez pour revérifier"
                     : "Could not load which agencies can see her — click to check again"}
@@ -4692,6 +4696,7 @@ export default function AdminPage() {
                     : lang === "fr" ? "Partages inconnus — revérifier"
                     : "Sharing unknown — check again"}
                 </button>
+                </span>
               )}
             </div>
 

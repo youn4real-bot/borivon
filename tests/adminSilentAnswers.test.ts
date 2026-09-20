@@ -109,7 +109,13 @@ describe("a failed partner-share read is unknown, not 'no agency can see her'", 
     expect(block, "grey would read as one more agency that simply says no")
       .toContain('color: "var(--danger)"');
     expect(block, "it must offer the retry, not just complain").toContain("retryPartnerShares()");
-    expect(block, "a screen reader must hear it too").toContain('role="alert"');
+    // role="alert" on the WRAPPER, not on the button: putting it on the button
+    // replaces the button role, so a screen-reader user hears the warning and is
+    // never told the thing is clickable.
+    expect(block, "a screen reader must hear it too").toContain('<span role="alert"');
+    const alertAt = block.indexOf('role="alert"');
+    const btnAt = block.indexOf("<button");
+    expect(alertAt, "the alert role must not sit on the button itself").toBeLessThan(btnAt);
     // It sits inside the same flex row as the Send-to buttons, so it occupies
     // the space the founder actually looks at for this answer.
     const buttonsAt = ADMIN.indexOf("{partnerOrgs.map((org) => {");
