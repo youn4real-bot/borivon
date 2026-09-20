@@ -13,22 +13,49 @@ import {
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { archivedCopyOf } from "@/lib/documentArchive";
+import { detectDocKind, mimeForKind } from "@/lib/docBytes";
+import { isHeicUpload, HEIC_CODE, HEIC_MESSAGE } from "@/lib/heic";
+import {
+  PASSPORT_REPLACE_MAX_BYTES,
+  isPassportReplaceKind,
+  passportReplaceFileName,
+  PASSPORT_REPLACE_REFUSAL_TEXT,
+  type PassportReplaceRefusal,
+} from "@/lib/passportReplace";
 
-const MAX_BYTES = 10 * 1024 * 1024;
+/**
+ * A refusal the admin can act on, in all three portal languages (LAW #19).
+ *
+ * The `code` is what the panel translates; `error` is the English fallback for
+ * everything that shows the raw body — a curl while debugging, a log line, an
+ * older client. Before this, three of these sentences existed in German only
+ * and one in French only, on a screen a French-speaking sub-admin reads.
+ */
+function refuse(code: PassportReplaceRefusal, status: number) {
+  return NextResponse.json({ error: PASSPORT_REPLACE_REFUSAL_TEXT[code].en, code }, { status });
+}
 
 /**
  * POST /api/portal/admin/replace-passport-pdf
  *
- * Supreme-admin-ONLY. Replaces ONLY the passport SCAN PDF on the candidate's
- * existing passport `documents` row — a clearer re-scan — WITHOUT:
+ * Supreme-admin-ONLY. Replaces ONLY the passport SCAN on the candidate's
+ * existing passport `documents` row — a clearer re-scan, or a photograph of
+ * the page — WITHOUT:
  *   • running any OCR / passport scanning,
  *   • touching `candidate_profiles` (no field changes, passport_status kept),
  *   • changing the doc's review status / feedback (green stays green),
  *   • firing any admin/candidate notification.
  *
  * Use case: passport DATA is already correct/approved but the uploaded scan
- * is unreadable, so the admin just swaps in a clean PDF. The old Drive file
+ * is unreadable, so the admin just swaps in a clean copy. The old Drive file
  * is ARCHIVED (LAW #33), never deleted.
+ *
+ * ACCEPTS A PHOTOGRAPH, exactly like /api/portal/upload's passport box. It did
+ * not, and that was only half-visible: a candidate could photograph her
+ * passport from her phone, and then the one role that exists to fix a bad
+ * document could not swap it for a better one. The bytes are stored verbatim —
+ * no decode, no re-encode, no pdf-lib anywhere in this file (LAW #39), which is
+ * why widening the format costs nothing here.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
@@ -50,13 +77,19 @@ export async function POST(req: NextRequest) {
   // Blob whose `instanceof File` is unreliable. Treat anything with
   // arrayBuffer() as the file (same approach as /api/portal/upload).
   if (!fileRaw || typeof fileRaw === "string" || typeof (fileRaw as Blob).arrayBuffer !== "function") {
-    return NextResponse.json({ error: "Datei erforderlich." }, { status: 400 });
+    return refuse("file_missing", 400);
   }
   const file = fileRaw as Blob & { name?: string };
-  const fname = (file.name ?? "").toLowerCase();
-  const isPdf = file.type === "application/pdf" || fname.endsWith(".pdf");
-  if (!isPdf) return NextResponse.json({ error: "Nur PDF." }, { status: 400 });
-  if (file.size > MAX_BYTES) return NextResponse.json({ error: "Max. 10 MB." }, { status: 400 });
+  // HEIC gets its own answer and it comes first, for the same reason
+  // /api/portal/upload gives it one: an iPhone picked through Files hands over
+  // raw HEIC, and "not a PDF or a photo" is a false sentence about a photo. The
+  // code lets the panel show the two-tap way out (re-pick from Photos) in her
+  // language. lib/heic.ts explains why we refuse rather than transcode.
+  if (isHeicUpload(file.type, file.name)) {
+    return NextResponse.json({ error: HEIC_MESSAGE, code: HEIC_CODE }, { status: 415 });
+  }
+  // Size BEFORE buffering: the ceiling is what keeps a 25 MB read bounded.
+  if (file.size > PASSPORT_REPLACE_MAX_BYTES) return refuse("too_large", 413);
 
   const db = getServiceSupabase();
 
@@ -85,12 +118,27 @@ export async function POST(req: NextRequest) {
   // always contain "pass" and that brittle check silently 400'd the replace.
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  // Magic-bytes check — a non-PDF renamed ".pdf" would be swapped onto the
-  // passport row and (since passports always render via the native PDF
-  // frame) permanently break the preview while the real scan is archived.
-  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
-    return NextResponse.json({ error: "Keine gültige PDF-Datei." }, { status: 400 });
+  // HEIC again, on the BYTES. The check above reads the declared type and the
+  // file name, and a pick out of the Files app can supply neither — it arrives
+  // as application/octet-stream named "image". Without this the same photo
+  // falls through to the generic "neither a PDF nor a photo" below, which does
+  // not tell anyone to re-pick it from Photos.
+  if (isHeicUpload(null, null, buffer.subarray(0, 64))) {
+    return NextResponse.json({ error: HEIC_MESSAGE, code: HEIC_CODE }, { status: 415 });
   }
+  // The BYTES decide, not `file.type` and not the extension. Both are
+  // browser-supplied and routinely wrong or absent; these twelve bytes are the
+  // only thing that cannot be. Anything unrecognised is refused outright: it
+  // would be swapped onto the passport row and break the preview permanently
+  // while the real scan sat archived behind it.
+  const kind = detectDocKind(buffer);
+  if (!isPassportReplaceKind(kind)) return refuse("format", 415);
+  // The row is renamed to match what actually arrived. AdminDocPreviewModal
+  // picks its renderer from this extension and expectedBodyFor() refuses a
+  // body that disagrees with it, so a JPEG left on a ".pdf" name would open as
+  // an error on a document the admin had just been told was replaced.
+  const newName = passportReplaceFileName(d.file_name, kind);
+  const newMime = mimeForKind(kind);
 
   // ── Drive: new file in the candidate folder, archive the old one ──────────
   let newDriveId: string | null = null;
@@ -109,13 +157,16 @@ export async function POST(req: NextRequest) {
 
     const candidateFolderId = await getOrCreateFolder(drive, folderName, rootId);
 
-    // Keep the existing structured filename so the naming convention holds.
-    const name = d.file_name || "reisepass.pdf";
+    // Keep the existing structured filename so the naming convention holds —
+    // with the extension of the bytes that actually arrived.
     const stream = new PassThrough();
     stream.end(buffer);
     const created = await drive.files.create({
-      requestBody: { name, parents: [candidateFolderId] },
-      media:       { mimeType: "application/pdf", body: stream },
+      requestBody: { name: newName, parents: [candidateFolderId] },
+      // The real type, not "application/pdf". Drive believes what it is told:
+      // a JPEG declared as a PDF is a file the agency cannot open and a
+      // thumbnail that never renders, in the folder we share with them.
+      media:       { mimeType: newMime, body: stream },
       fields:      "id",
       supportsAllDrives: true,
     });
@@ -150,8 +201,12 @@ export async function POST(req: NextRequest) {
   let r2Key: string | null = null;
   if (r2Configured()) {
     try {
-      const key = candidateKey(userId, `${Date.now()}_${d.file_name || "reisepass.pdf"}`);
-      await r2Put(key, buffer, "application/pdf");
+      const key = candidateKey(userId, `${Date.now()}_${newName}`);
+      // The stored content type is what lib/driveMirror hands the agency's copy
+      // (`obj.contentType || "application/pdf"`), so a photo written as a PDF
+      // would arrive there unopenable. The file proxy sniffs the bytes and
+      // would have survived it; the mirror does not.
+      await r2Put(key, buffer, newMime);
       r2Key = key;
     } catch { r2Key = null; }
   }
@@ -177,10 +232,7 @@ export async function POST(req: NextRequest) {
     const { error: archErr } = await db.from("documents").insert(archived);
     if (archErr) {
       console.error("[replace-passport-pdf] could not archive the old scan — aborting:", archErr);
-      return NextResponse.json(
-        { error: "Der alte Scan konnte nicht archiviert werden — nichts wurde geändert. Bitte erneut versuchen." },
-        { status: 500 },
-      );
+      return refuse("archive_failed", 500);
     }
   }
 
@@ -191,8 +243,14 @@ export async function POST(req: NextRequest) {
   // file_sha256 still matches its mirrored copy, so leaving the old hash here
   // meant a replaced passport was never re-copied — the agency kept seeing the
   // OLD scan forever. Same reason `rotation` resets: the row now describes new bytes.
+  //
+  // `file_name` moves with the bytes. A replace may change the FORMAT now (a
+  // photograph swapped in for a scan, or the other way round), and the row's
+  // name is what the preview picks its renderer from — leaving ".pdf" on a
+  // JPEG produces a passport that will not open, after a replace the panel
+  // reported as successful. The stem is untouched, so LAW #35 naming holds.
   const newSha = createHash("sha256").update(buffer).digest("hex");
-  const baseUpd = { drive_file_id: newDriveId, r2_key: r2Key, rotation: 0, uploaded_at: new Date().toISOString() };
+  const baseUpd = { drive_file_id: newDriveId, r2_key: r2Key, rotation: 0, file_name: newName, uploaded_at: new Date().toISOString() };
   let { error: updErr } = await db.from("documents").update({ ...baseUpd, file_sha256: newSha }).eq("id", docId);
   if (updErr && /file_sha256|column .* does not exist|schema cache/i.test((updErr as { message?: string })?.message ?? "")) {
     // Schema-tolerant (older deployments without the sha column): the swap
@@ -201,7 +259,7 @@ export async function POST(req: NextRequest) {
   }
   if (updErr) {
     console.error("[replace-passport-pdf] DB update failed:", updErr);
-    return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
+    return refuse("save_failed", 500);
   }
 
   // Refresh the Storage cache backup (LAW #39 fallback, keyed by driveFileId) —
@@ -212,7 +270,10 @@ export async function POST(req: NextRequest) {
       await db.storage.from("sign-documents").upload(
         `doc-cache/${newDriveId}`,
         buffer,
-        { contentType: "application/pdf", upsert: true },
+        // The recovery copy the LAW #39 audit falls back to. It must be stored
+        // as what it is, or the one path that exists to rescue a corrupted
+        // passport hands back a photo labelled as a PDF.
+        { contentType: newMime, upsert: true },
       );
     } catch (cacheErr) {
       console.warn("[replace-passport-pdf] Storage cache backup failed (non-fatal):", cacheErr);
@@ -221,9 +282,9 @@ export async function POST(req: NextRequest) {
 
   // AUTO-MIRROR: the passport is a pre-match dossier doc and its BYTES just changed
   // (sha recomputed above), so the agency's Drive copy must refresh. Copying raw
-  // bytes is LAW #39-safe — the mirror never load+saves passport PDFs, it streams
-  // them verbatim.
+  // bytes is LAW #39-safe — the mirror never load+saves passport scans, it streams
+  // them verbatim, whatever format they are in.
   scheduleCandidateMirror(userId);
 
-  return NextResponse.json({ success: true, driveFileId: newDriveId });
+  return NextResponse.json({ success: true, driveFileId: newDriveId, fileName: newName });
 }

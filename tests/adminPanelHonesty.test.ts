@@ -222,14 +222,24 @@ describe("the admin picker offers a photo where a photo is safe", () => {
       .toBeLessThan(body.indexOf("input.click()"));
   });
 
-  it("the passport REPLACE picker stays PDF-only, because its route refuses anything else", () => {
+  it("the passport REPLACE picker offers a photo, because its route now takes one", () => {
+    // This pair used to be PDF-only on both sides, and that was defensible
+    // while the route answered "Nur PDF." — a picker that opens the camera in
+    // front of a server that rejects the picture is a new silent failure, not
+    // a fix. It stopped being defensible the day the candidate box started
+    // accepting a photograph: a nurse could photograph her passport, and then
+    // the one role that exists to fix a bad document could not swap it.
+    //
+    // So the two move TOGETHER, and this test is what makes that true — it
+    // fails if either side is widened alone.
     const at = ADMIN.indexOf("function triggerPassportPdfReplace");
+    expect(at, "triggerPassportPdfReplace not found").toBeGreaterThan(-1);
     const body = ADMIN.slice(at, ADMIN.indexOf("\n  }", at));
-    expect(body).toContain("openAdminDocPicker(ACCEPT_PDF_ONLY)");
-    // A picker that opens the camera and a server that then rejects the photo
-    // is a new silent failure, not a fix.
-    expect(PASSPORT_PDF, "replace-passport-pdf must still be the PDF-only route this assumes")
-      .toMatch(/if \(!isPdf\) return/);
+    expect(body).toContain("openAdminDocPicker(ACCEPT_PDF_OR_PHOTO)");
+    expect(PASSPORT_PDF, "the PDF-only refusal must be gone from the route")
+      .not.toMatch(/if \(!isPdf\) return/);
+    expect(PASSPORT_PDF, "and the route must judge the bytes, not the declared type")
+      .toContain("isPassportReplaceKind(kind)");
   });
 
   it("the pdf-lib pickers stay PDF-only", () => {

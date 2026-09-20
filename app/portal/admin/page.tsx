@@ -24,6 +24,7 @@ import {
 } from "@/components/PortalIcons";
 import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, Copy as DupIcon } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
+import { passportReplaceRefusalText } from "@/lib/passportReplace";
 import { b2StageLabel, normalizeB2Stage, effectiveB2Stage, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { AdminSmartSearch } from "@/components/AdminSmartSearch";
@@ -410,6 +411,19 @@ const MISSING_DOC_LABELS: Record<string, { fr: string; en: string; de: string }>
 function missingDocLabel(key: string, lang: string): string {
   const e = MISSING_DOC_LABELS[key];
   return e ? (lang === "fr" ? e.fr : lang === "de" ? e.de : e.en) : key;
+}
+
+/**
+ * "Replacing the passport scan failed" — LAW #19.
+ *
+ * It read "PDF ersetzen fehlgeschlagen" in German for everyone, and it no
+ * longer even says the right thing: the replace takes a photograph now, so the
+ * word PDF is wrong as well as untranslated.
+ */
+function replaceFailedPrefix(lang: string): string {
+  return lang === "fr" ? "Le remplacement du scan a échoué"
+    : lang === "de" ? "Scan ersetzen fehlgeschlagen"
+    : "Replacing the scan failed";
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -2686,7 +2700,9 @@ export default function AdminPage() {
   //   • the slot-template picker (adminFileInputRef → adminUploadFile) — that
   //     PDF is parsed by detectAcroFormFields() and stamped by pdf-lib.
   //   • the sign-modal manual PDF picker (sigManualFileRef) — same reason.
-  //   • passport "PDF ersetzen" — see triggerPassportPdfReplace.
+  // The passport REPLACE used to be on that list. It is not any more: its route
+  // now takes the same formats as the first upload, so see
+  // triggerPassportPdfReplace.
   // Anything photographed that has no box of its own belongs in Sonstiges,
   // which now offers the camera.
   //
@@ -2731,17 +2747,19 @@ export default function AdminPage() {
     adminDocUploadRef.current = { key, label };
     openAdminDocPicker(acceptForAdminDocKey(key));
   }
-  // Passport PDF-only replace (supreme admin). Same hidden input, but the
-  // onChange routes to replacePassportPdf — never the OCR upload path.
+  // Passport replace (supreme admin). Same hidden input, but the onChange
+  // routes to replacePassportPdf — never the OCR upload path.
   function triggerPassportPdfReplace(docId: string) {
     if (!selectedUser) return;
     adminDocUploadRef.current = { key: "id", label: "Reisepass", passportPdf: { docId } };
-    // PDF only, unlike the FIRST passport upload above. This tap goes to
-    // /api/portal/admin/replace-passport-pdf, which refuses anything that is
-    // not a PDF ("Nur PDF.", 400) and stores the bytes as application/pdf.
-    // Offering "Take Photo" here would produce a picker that opens the camera
-    // and a server that rejects the result — a new silent failure, not a fix.
-    openAdminDocPicker(ACCEPT_PDF_ONLY);
+    // The SAME filter as the first passport upload. This was PDF-only because
+    // the route was: it answered "Nur PDF." to a photograph. So once a nurse
+    // could photograph her passport from her phone, the only role that can fix
+    // a bad document could not swap it — the picker never offered the camera
+    // and the server would have refused the picture anyway. Both sides moved
+    // together; offering a photo here while the route still refused one would
+    // be the same silent failure with the blame moved.
+    openAdminDocPicker(ACCEPT_PDF_OR_PHOTO);
   }
   async function replacePassportPdf(file: File, docId: string) {
     if (!selectedUser || !accessToken) return;
@@ -2774,14 +2792,22 @@ export default function AdminPage() {
           if (fd) setPreviewDoc(prev => (prev?.id === docId ? fd : prev));
         }
       } else if (!res.ok) {
+        // LAW #19. The route answers with a machine `code` and an English
+        // fallback sentence; the wording the admin reads is chosen here, in her
+        // language. Before this the refusals reached her in German only
+        // ("Nur PDF.", "Max. 10 MB.") inside a German-only wrapper — on a panel
+        // a French-speaking sub-admin uses.
         let msg = `HTTP ${res.status}`;
-        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        try {
+          const j = await res.json();
+          msg = passportReplaceRefusalText(j?.code, lang) ?? (j?.error || msg);
+        } catch { /* ignore */ }
         console.error("[replacePassportPdf] failed:", msg);
-        alert(`PDF ersetzen fehlgeschlagen: ${msg}`);
+        alert(`${replaceFailedPrefix(lang)}: ${msg}`);
       }
     } catch (e) {
       console.error("[replacePassportPdf] error:", e);
-      alert("PDF ersetzen fehlgeschlagen (Netzwerkfehler).");
+      alert(`${replaceFailedPrefix(lang)} (${lang === "fr" ? "erreur réseau" : lang === "de" ? "Netzwerkfehler" : "network error"}).`);
     } finally {
       setAdminDocBusy(prev => { const n = new Set(prev); n.delete("id"); return n; });
     }
@@ -7396,15 +7422,20 @@ export default function AdminPage() {
                                                 behaviour as the Qualifications
                                                 Swap. */}
                                             {item.key === "id" ? (
-                                              /* Passport is special: PDF-ONLY
-                                                 replace (no OCR, no data/status
-                                                 change). Supreme admin only. */
+                                              /* Passport is special: a plain
+                                                 scan swap (no OCR, no
+                                                 data/status change). Supreme
+                                                 admin only. It takes a PDF or a
+                                                 photo, so the label must not
+                                                 promise "PDF" — the passport it
+                                                 is replacing may well be a
+                                                 photograph already. */
                                               isSuperAdmin && (
                                                 <button
                                                   onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); triggerPassportPdfReplace(doc.id); }}
                                                   className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                   style={{ color: "var(--gold)" }}>
-                                                  <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer le PDF" : lang === "de" ? "PDF ersetzen" : "Replace PDF"}
+                                                  <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer le scan" : lang === "de" ? "Scan ersetzen" : "Replace scan"}
                                                 </button>
                                               )
                                             ) : (
