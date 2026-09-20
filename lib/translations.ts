@@ -178,6 +178,13 @@ export interface Translation {
   // ── Admin portal ────────────────────────────────────────────────────────────
   aTitle: string; aSubPending: string; aSubAllDone: string;
   aNothingTitle: string; aNothing: string;
+  // Shown INSTEAD of aNothingTitle when the panel's main data request failed.
+  // An empty list after a failed load is not an empty queue, and the green
+  // tick said it was (2026-09-20). {reason} carries the HTTP status or
+  // "Network error" so a 500 is not reported the same as a dead phone signal.
+  aLoadFailedTitle: string; aLoadFailedSub: string; aLoadRetry: string; aLoadRetrying: string;
+  // The bell pointed at a document the panel could not open.
+  aDocOpenFailed: string;
   aPending: string; aDone: string;
   aAllReviewedTitle: string; aAllReviewed: string;
   aNoPendingSection: string; aGoPending: string;
@@ -482,6 +489,10 @@ export const translations: Record<Lang, Translation> = {
     pDataConsentRequired: "Le consentement au traitement des données est obligatoire pour créer un compte.",
     aTitle: "Documents à examiner", aSubPending: "{n} document{s} en attente", aSubAllDone: "Tout est à jour — rien en attente.",
     aNothingTitle: "Rien à examiner", aNothing: "Tous les documents ont été traités.",
+    aLoadFailedTitle: "Chargement impossible",
+    aLoadFailedSub: "La liste des candidats n'a pas pu être chargée ({reason}). Elle n'est pas vide — elle est inconnue.",
+    aLoadRetry: "Réessayer", aLoadRetrying: "Chargement…",
+    aDocOpenFailed: "Impossible d'ouvrir ce document. Ouvrez-le depuis la fiche du candidat.",
     aPending: "en attente", aDone: "Terminé",
     aAllReviewedTitle: "Tous les documents examinés", aAllReviewed: "Rien à traiter pour ce candidat.",
     aNoPendingSection: "Aucun document en attente dans cette section.", aGoPending: "Aller aux documents en attente →",
@@ -799,6 +810,10 @@ export const translations: Record<Lang, Translation> = {
     pDataConsentRequired: "Data processing consent is required to create an account.",
     aTitle: "Documents to review", aSubPending: "{n} document{s} waiting", aSubAllDone: "All caught up — nothing pending.",
     aNothingTitle: "Nothing to review", aNothing: "All documents have been processed.",
+    aLoadFailedTitle: "Couldn't load",
+    aLoadFailedSub: "The candidate list failed to load ({reason}). It is not empty — it is unknown.",
+    aLoadRetry: "Try again", aLoadRetrying: "Loading…",
+    aDocOpenFailed: "Couldn't open that document. Open it from the candidate's file instead.",
     aPending: "pending", aDone: "Done",
     aAllReviewedTitle: "All documents reviewed", aAllReviewed: "Nothing left to action for this candidate.",
     aNoPendingSection: "No pending documents in this section.", aGoPending: "Go to pending →",
@@ -1116,6 +1131,10 @@ export const translations: Record<Lang, Translation> = {
     pDataConsentRequired: "Die Einwilligung in die Datenverarbeitung ist für die Konto­erstellung erforderlich.",
     aTitle: "Dokumente zur Prüfung", aSubPending: "{n} Dokument{s} ausstehend", aSubAllDone: "Alles erledigt — nichts ausstehend.",
     aNothingTitle: "Nichts zu prüfen", aNothing: "Alle Dokumente wurden bearbeitet.",
+    aLoadFailedTitle: "Laden fehlgeschlagen",
+    aLoadFailedSub: "Die Kandidatenliste konnte nicht geladen werden ({reason}). Sie ist nicht leer — sie ist unbekannt.",
+    aLoadRetry: "Erneut versuchen", aLoadRetrying: "Wird geladen…",
+    aDocOpenFailed: "Dieses Dokument konnte nicht geöffnet werden. Bitte über die Kandidatenakte öffnen.",
     aPending: "ausstehend", aDone: "Erledigt",
     aAllReviewedTitle: "Alle Dokumente geprüft", aAllReviewed: "Nichts mehr zu tun für diesen Kandidaten.",
     aNoPendingSection: "Keine ausstehenden Dokumente in diesem Bereich.", aGoPending: "Zu ausstehenden Dokumenten →",

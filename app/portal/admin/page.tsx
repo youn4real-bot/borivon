@@ -634,6 +634,14 @@ export default function AdminPage() {
   // Possible duplicate accounts (lib/duplicateAccounts) → a small amber mark by the name.
   const [dupByUser, setDupByUser] = useState<Record<string, { otherId: string; reasons: ("passport" | "phone" | "name")[] }[]>>({});
   const [loading, setLoading]       = useState(true);
+  // The main admin payload (docs + users + profiles + journeys + batches) either
+  // arrived or it did not. Before this existed, a failed /api/portal/admin left
+  // every one of those states at its empty default and the panel rendered the
+  // green "Nothing to review — all documents have been processed" tick: the
+  // founder was told his queue was CLEAR when it was in fact UNKNOWN, and the
+  // only trace was a console.error he never sees on a phone. null = it loaded.
+  const [adminLoadError, setAdminLoadError] = useState<string | null>(null);
+  const [adminReloading, setAdminReloading] = useState(false);
   const [feedbacks, setFeedbacks]     = useState<Record<string, string>>({});
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
   const [saving, setSaving]           = useState<Record<string, boolean>>({});
@@ -1554,6 +1562,156 @@ export default function AdminPage() {
     return () => subscription.unsubscribe();
   }, []);
 
+  /**
+   * Load the panel's MAIN payload — docs, docHistory, users, profiles,
+   * candidateOrgs, journeys, duplicates, batches.
+   *
+   * Extracted from the bootstrap so the retry button in the failed-load state
+   * runs the EXACT same code path as the first load; a retry that re-implements
+   * the fetch is a retry that drifts.
+   *
+   * Returns "ok", "auth" (401/403 → bounce), or a human-readable reason.
+   * It sets `adminLoadError` itself so EVERY caller reports the same way: the
+   * old version swallowed a 500 into console.error, left `users` at {} and let
+   * the list render its green "Nothing to review" tick over an unknown queue.
+   *
+   * `consumeDeepLink` is true only on the first load — a retry must not
+   * re-trigger a notification jump the admin already dealt with.
+   */
+  async function loadAdminCore(
+    token: string,
+    { consumeDeepLink, isCancelled }: { consumeDeepLink: boolean; isCancelled?: () => boolean },
+  ): Promise<{ status: "ok" | "auth" | "error"; users?: Record<string, UserInfo> }> {
+    const dead = () => isCancelled?.() ?? false;
+    try {
+      const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 401 || res.status === 403) return { status: "auth" };
+      // A non-OK body is an error page, not the payload. Reading it as JSON
+      // used to throw into the catch below and look identical to a dead
+      // network — so the admin got the same silence for "the server is
+      // erroring" as for "your phone lost signal". Say the status.
+      if (!res.ok) {
+        console.error("[admin] main data fetch failed:", res.status);
+        if (!dead()) setAdminLoadError(`HTTP ${res.status}`);
+        return { status: "error" };
+      }
+      const json = await res.json();
+      if (dead()) return { status: "ok" };
+      setDocs(json.docs ?? []);
+      setDocHistory(json.docHistory ?? []);
+      setUsers(json.users ?? {});
+      setProfiles(json.profiles ?? {});
+      setCandidateOrgs(json.candidateOrgs ?? {});
+      setJourneyByUser(json.journeyByUser ?? {});
+      setDupByUser(json.dupByUser ?? {});
+      setBatches(json.batches ?? []);
+      setBatchByUid(json.batchByUid ?? {});
+      setAdminLoadError(null);
+      // Default view = "All" (no batch pre-selected). The founder opens the
+      // portal to the full list; batches are picked deliberately from the pills.
+      const fb: Record<string, string> = {};
+      for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
+      setFeedbacks(fb);
+
+      if (consumeDeepLink) consumeAdminDeepLinkParams(json);
+      return { status: "ok", users: (json.users ?? {}) as Record<string, UserInfo> };
+    } catch (err) {
+      console.error("Admin data fetch error:", err);
+      if (!dead()) {
+        setAdminLoadError(
+          lang === "de" ? "Netzwerkfehler"
+            : lang === "fr" ? "Erreur réseau"
+            : "Network error",
+        );
+      }
+      return { status: "error" };
+    }
+  }
+
+  /** The ?nav_email / ?nav_doc_id / ?nav_user_id / ?c deep links, applied once
+   *  the payload is in hand. Split out of the fetch so a retry can skip it. */
+  function consumeAdminDeepLinkParams(json: {
+    users?: Record<string, { email?: string }>;
+    docs?: unknown[];
+    docHistory?: unknown[];
+  }) {
+    const params    = new URLSearchParams(window.location.search);
+    const navEmail  = params.get("nav_email");
+    const navDoc    = params.get("nav_doc");
+    const navDocId  = params.get("nav_doc_id");
+    const navUserId = params.get("nav_user_id");
+    const users     = json.users ?? {};
+
+    type AnyDoc = { id: string; user_id: string; file_type: string };
+    const allDocs = [...((json.docs ?? []) as AnyDoc[]), ...((json.docHistory ?? []) as AnyDoc[])];
+
+    /** Open the doc the notification pointed at, in the right phase tab. */
+    const openNavDoc = (docId: string) => {
+      const doc = allDocs.find(d => d.id === docId);
+      if (!doc) return false;
+      setActivePhase(getPhaseIdx(doc.file_type));
+      setTimeout(() => setPreviewDoc(doc as Doc), 50);
+      return true;
+    };
+
+    // Deep-link straight to a candidate by id (from the Pipeline board, and
+    // from a bell notification whose row carries no email — see below).
+    if (navUserId && users[navUserId]) {
+      setSelectedUser(navUserId);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      // A bell upload notification sends nav_user_id AND nav_doc_id. Without
+      // this the id-only path selected the candidate and stopped, so clicking
+      // the notification "did nothing": the document never opened. The
+      // nav_email path below does the same thing for rows that have an email.
+      if (navDocId) openNavDoc(navDocId);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // SHAREABLE candidate link: /portal/admin?c=<userId>.
+    //
+    // Deliberately NOT stripped from the URL the way nav_user_id above is.
+    // That one is a one-shot handoff from the Pipeline board, so removing
+    // it stops a refresh re-triggering the jump. This one is the opposite:
+    // the whole point is that the address bar keeps pointing at THIS
+    // candidate, so it can be bookmarked, sent to a colleague, or reopened
+    // tomorrow — instead of scrolling a list to find her again.
+    //
+    // Gated on the candidate existing in the payload, which is already
+    // LAW #25-scoped: getVisibleCandidateIds decides what lands in
+    // json.users, so an org-admin pasting a link to a candidate outside
+    // their org simply opens nothing rather than leaking that she exists.
+    const linkedUser = params.get("c");
+    if (linkedUser && users[linkedUser]) {
+      setSelectedUser(linkedUser);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    if (navEmail) {
+      const uid = Object.keys(users).find(
+        (id: string) => ((users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
+      );
+      if (uid) {
+        setSelectedUser(uid);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        if (navDoc) setActivePhase(getPhaseIdx(navDoc));
+        if (navDocId) openNavDoc(navDocId);
+      }
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }
+
+  /** Retry button in the failed-load state. */
+  async function retryAdminLoad() {
+    if (adminReloading) return;
+    const token = accessToken || (await supabase.auth.getSession()).data.session?.access_token || "";
+    if (!token) { router.replace("/portal"); return; }
+    setAdminReloading(true);
+    try {
+      const r = await loadAdminCore(token, { consumeDeepLink: false });
+      if (r.status === "auth") router.replace("/portal/dashboard");
+    } finally {
+      setAdminReloading(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1661,81 +1819,8 @@ export default function AdminPage() {
           .then(j => { if (!cancelled && j?.categories) setSlotCategories(prev => ({ ...prev, visum: j.categories })); })
           .catch(() => {}),
         // e) Main admin data (docs, users, profiles, candidateOrgs)
-        (async () => {
-          try {
-            const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
-            if (res.status === 401 || res.status === 403) { authFailed = true; return; }
-            const json = await res.json();
-            if (cancelled) return;
-            setDocs(json.docs ?? []);
-            setDocHistory(json.docHistory ?? []);
-            setUsers(json.users ?? {});
-            setProfiles(json.profiles ?? {});
-            setCandidateOrgs(json.candidateOrgs ?? {});
-            setJourneyByUser(json.journeyByUser ?? {});
-            setDupByUser(json.dupByUser ?? {});
-            setBatches(json.batches ?? []);
-            setBatchByUid(json.batchByUid ?? {});
-            // Default view = "All" (no batch pre-selected). The founder opens the
-            // portal to the full list; batches are picked deliberately from the pills.
-            const fb: Record<string, string> = {};
-            for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
-            setFeedbacks(fb);
-
-            // Deep-link from notification — same logic as before
-            const params    = new URLSearchParams(window.location.search);
-            const navEmail  = params.get("nav_email");
-            const navDoc    = params.get("nav_doc");
-            const navDocId  = params.get("nav_doc_id");
-            const navUserId = params.get("nav_user_id");
-            // Deep-link straight to a candidate by id (from the Pipeline board).
-            if (navUserId && (json.users ?? {})[navUserId]) {
-              setSelectedUser(navUserId);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-              window.history.replaceState({}, "", window.location.pathname);
-            }
-            // SHAREABLE candidate link: /portal/admin?c=<userId>.
-            //
-            // Deliberately NOT stripped from the URL the way nav_user_id above is.
-            // That one is a one-shot handoff from the Pipeline board, so removing
-            // it stops a refresh re-triggering the jump. This one is the opposite:
-            // the whole point is that the address bar keeps pointing at THIS
-            // candidate, so it can be bookmarked, sent to a colleague, or reopened
-            // tomorrow — instead of scrolling a list to find her again.
-            //
-            // Gated on the candidate existing in the payload, which is already
-            // LAW #25-scoped: getVisibleCandidateIds decides what lands in
-            // json.users, so an org-admin pasting a link to a candidate outside
-            // their org simply opens nothing rather than leaking that she exists.
-            const linkedUser = params.get("c");
-            if (linkedUser && (json.users ?? {})[linkedUser]) {
-              setSelectedUser(linkedUser);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }
-            if (navEmail) {
-              const uid = Object.keys(json.users ?? {}).find(
-                (id: string) => ((json.users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
-              );
-              if (uid) {
-                setSelectedUser(uid);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-                if (navDoc) setActivePhase(getPhaseIdx(navDoc));
-                if (navDocId) {
-                  type AnyDoc = { id: string; user_id: string; file_type: string };
-                  const all = [...((json.docs ?? []) as AnyDoc[]), ...((json.docHistory ?? []) as AnyDoc[])];
-                  const doc = all.find(d => d.id === navDocId);
-                  if (doc) {
-                    setActivePhase(getPhaseIdx(doc.file_type));
-                    setTimeout(() => setPreviewDoc(doc as Doc), 50);
-                  }
-                }
-              }
-              window.history.replaceState({}, "", window.location.pathname);
-            }
-          } catch (err) {
-            console.error("Admin data fetch error:", err);
-          }
-        })(),
+        loadAdminCore(token, { consumeDeepLink: true, isCancelled: () => cancelled })
+          .then(r => { if (r.status === "auth") authFailed = true; }),
       ]);
 
       if (cancelled) return;
@@ -1760,31 +1845,80 @@ export default function AdminPage() {
   // effect above. Picks the user, jumps to the right phase, and opens the
   // doc preview using the SAME state as a normal row click.
   useEffect(() => {
-    function onDeepLink(e: Event) {
-      const ce = e as CustomEvent<{ email?: string; docId?: string | null; userId?: string; fileType?: string }>;
+    async function onDeepLink(e: Event) {
+      const ce = e as CustomEvent<{
+        email?: string; docId?: string | null; userId?: string; fileType?: string;
+        /** The whole row the bell already resolved server-side. */
+        doc?: Partial<Doc> & { id?: string; user_id?: string } | null;
+        /** The bell asked the server and got nothing back. */
+        lookupFailed?: boolean;
+      }>;
       const detail = ce.detail || {};
-      // Resolve user id — prefer explicit userId, else lookup by email
-      let uid = detail.userId;
-      if (!uid && detail.email) {
-        uid = Object.keys(users).find(
-          id => ((users[id]?.email as string) ?? "").toLowerCase() === (detail.email ?? "").toLowerCase()
-        );
+      const T = tRef.current;
+      // The bell resolved the document SERVER-side before dispatching (the
+      // panel's own `docs` is deduplicated and, for an upload that landed
+      // after this page loaded, simply does not contain the new row yet).
+      // Carrying the row in the event is what makes the click land on a file:
+      // matching by id against stale local state was the whole bug — the
+      // candidate opened and the document never did.
+      const eventDoc = detail.doc && detail.doc.id && detail.doc.user_id ? detail.doc : null;
+
+      // Resolve user id — prefer explicit userId, then the resolved row, then email.
+      const byEmail = (pool: Record<string, UserInfo>, email: string) =>
+        Object.keys(pool).find(id => (pool[id]?.email ?? "").toLowerCase() === email.toLowerCase());
+      let uid = detail.userId || eventDoc?.user_id;
+      if (!uid && detail.email) uid = byEmail(users, detail.email);
+      // A signup notification names someone who by definition was NOT in the
+      // payload this page loaded, so the email lookup missed and the click did
+      // nothing at all. Reload once and look again before giving up.
+      if (!uid && detail.email && accessToken) {
+        const r = await loadAdminCore(accessToken, { consumeDeepLink: false });
+        if (r.users) uid = byEmail(r.users, detail.email);
       }
-      if (!uid) return;
+      if (!uid) {
+        // Nothing to open and nothing to select: say so rather than eat the
+        // click. A notification that does nothing when tapped reads as a dead
+        // portal, which is how this reached us.
+        showError(T.aDocOpenFailed);
+        return;
+      }
+      // Our payload predates this candidate (she registered, or was assigned,
+      // after the page loaded) — reload it so the dossier shows her real name
+      // and documents instead of a bare uuid.
+      if (!users[uid] && accessToken) void loadAdminCore(accessToken, { consumeDeepLink: false });
       setSelectedUser(uid);
       window.scrollTo({ top: 0, behavior: "smooth" });
-      if (!detail.docId) return;
-      const all = [...docs, ...docHistory];
-      const doc = all.find(d => d.id === detail.docId);
-      if (doc) {
-        setActivePhase(getPhaseIdx(doc.file_type));
-        // Small delay so the candidate panel mounts first
-        setTimeout(() => setPreviewDoc(doc), 80);
+
+      const docId = detail.docId || eventDoc?.id || null;
+      if (!docId) {
+        if (detail.lookupFailed) showError(T.aDocOpenFailed);
+        return;
       }
+      const local = [...docs, ...docHistory].find(d => d.id === docId);
+      // Local row WINS when we have it — it carries the freshest status /
+      // feedback. The server row is the fallback that makes a just-uploaded
+      // document openable at all.
+      const doc: Doc | null = local ?? (eventDoc
+        ? {
+            id: eventDoc.id!, user_id: eventDoc.user_id!,
+            file_name: eventDoc.file_name ?? "",
+            file_type: eventDoc.file_type ?? detail.fileType ?? "",
+            uploaded_at: eventDoc.uploaded_at ?? new Date().toISOString(),
+            status: eventDoc.status ?? "pending",
+            feedback: eventDoc.feedback ?? null,
+            drive_file_id: eventDoc.drive_file_id ?? null,
+            r2_key: eventDoc.r2_key ?? null,
+            uploaded_by_admin: eventDoc.uploaded_by_admin ?? false,
+          }
+        : null);
+      if (!doc) { showError(T.aDocOpenFailed); return; }
+      setActivePhase(getPhaseIdx(doc.file_type));
+      // Small delay so the candidate panel mounts first
+      setTimeout(() => setPreviewDoc(doc), 80);
     }
     window.addEventListener("bv-admin-deep-link", onDeepLink);
     return () => window.removeEventListener("bv-admin-deep-link", onDeepLink);
-  }, [users, docs, docHistory]);
+  }, [users, docs, docHistory, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset dirty + passport + pipeline stage when switching candidates
   useEffect(() => {
@@ -2507,6 +2641,63 @@ export default function AdminPage() {
     }
   }
 
+  // ── What the admin's file picker offers, per box (bug D) ─────────────────
+  //
+  // The admin panel asked every box for `.pdf,application/pdf`, so on the
+  // founder's iPhone the picker showed "Browse" and nothing else: no Take
+  // Photo, no Photo Library. He is the person most likely to be holding a
+  // paper document and a phone at the same time, and he had no way to file it
+  // — the exact bug just fixed on the candidate side (commit 528c41c).
+  //
+  // The server has accepted image/jpeg, image/png and image/webp for every
+  // key all along (app/api/portal/upload/route.ts ALLOWED_TYPES; ALLOWED_ID
+  // for the passport), and this page's own DRAG-AND-DROP handler has always
+  // passed `f.type.startsWith("image/")` straight to adminDocUpload. Only the
+  // picker disagreed.
+  //
+  // WIDENED: the passport ("id") and the multi "Sonstiges" box ("other").
+  // LEFT PDF-ONLY, deliberately:
+  //   • every qualification box (diploma, transcript, workcert, … and their
+  //     _de counterparts) — each is half of an original/translated pair that
+  //     both sides merge through pdf-lib
+  //     (app/api/portal/documents/merge-pdf/route.ts: PDFDocument.load on
+  //     BOTH rows). pdf-lib cannot read a JPEG, so a photo there turns the
+  //     merge into a bare 500 "Merge failed" — a fresh silent failure.
+  //   • the Bearbeitung / Visum permanent boxes (ezb, videx, arbeitsvertrag,
+  //     vorabzustimmung, …) — these are official German forms that arrive as
+  //     PDFs by email, never as a phone photo, and they feed the AcroForm /
+  //     signature paths, which are pdf-lib too.
+  //   • the slot-template picker (adminFileInputRef → adminUploadFile) — that
+  //     PDF is parsed by detectAcroFormFields() and stamped by pdf-lib.
+  //   • the sign-modal manual PDF picker (sigManualFileRef) — same reason.
+  //   • passport "PDF ersetzen" — see triggerPassportPdfReplace.
+  // Anything photographed that has no box of its own belongs in Sonstiges,
+  // which now offers the camera.
+  //
+  // HEIC is absent on purpose: neither this list nor the server stores it,
+  // and iOS hands <input type="file"> a JPEG for a camera-roll photo anyway.
+  const ACCEPT_PDF_ONLY = ".pdf,application/pdf";
+  const ACCEPT_PDF_OR_PHOTO = ".pdf,.jpg,.jpeg,.png,.webp";
+  // Sonstiges is the catch-all box; the server's ALLOWED_TYPES adds Word here.
+  const ACCEPT_ANY_DOC = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
+  const ADMIN_PHOTO_KEYS = ["id"];
+  const ADMIN_MULTI_KEYS = ["other", "other_trans"];
+  function acceptForAdminDocKey(key: string): string {
+    if (ADMIN_MULTI_KEYS.includes(key)) return ACCEPT_ANY_DOC;
+    if (ADMIN_PHOTO_KEYS.includes(key)) return ACCEPT_PDF_OR_PHOTO;
+    return ACCEPT_PDF_ONLY;
+  }
+  /** Set `accept` on the shared hidden input and open it. Written to the DOM
+   *  node rather than to React state because the click happens in the SAME
+   *  tick: a state change would not have reached the attribute yet, and the
+   *  picker would open with the previous box's filter. */
+  function openAdminDocPicker(accept: string) {
+    const input = adminDocFileInputRef.current;
+    if (!input) return;
+    input.accept = accept;
+    input.click();
+  }
+
   function openAdminUploadPicker(slotId: string) {
     if (!selectedUser) return;
     adminUploadTargetRef.current = slotId;
@@ -2522,14 +2713,19 @@ export default function AdminPage() {
   function triggerAdminDocUpload(key: string, label: string) {
     if (!selectedUser) return;
     adminDocUploadRef.current = { key, label };
-    adminDocFileInputRef.current?.click();
+    openAdminDocPicker(acceptForAdminDocKey(key));
   }
   // Passport PDF-only replace (supreme admin). Same hidden input, but the
   // onChange routes to replacePassportPdf — never the OCR upload path.
   function triggerPassportPdfReplace(docId: string) {
     if (!selectedUser) return;
     adminDocUploadRef.current = { key: "id", label: "Reisepass", passportPdf: { docId } };
-    adminDocFileInputRef.current?.click();
+    // PDF only, unlike the FIRST passport upload above. This tap goes to
+    // /api/portal/admin/replace-passport-pdf, which refuses anything that is
+    // not a PDF ("Nur PDF.", 400) and stores the bytes as application/pdf.
+    // Offering "Take Photo" here would produce a picker that opens the camera
+    // and a server that rejects the result — a new silent failure, not a fix.
+    openAdminDocPicker(ACCEPT_PDF_ONLY);
   }
   async function replacePassportPdf(file: File, docId: string) {
     if (!selectedUser || !accessToken) return;
@@ -7335,10 +7531,13 @@ export default function AdminPage() {
           e.target.value = "";
         }}
       />
+      {/* `accept` is set imperatively by openAdminDocPicker just before the
+          click, per box — see acceptForAdminDocKey. PDF-only is the safe
+          default for the one tick before the first pick. */}
       <input
         ref={adminDocFileInputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept={ACCEPT_PDF_ONLY}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
@@ -8300,6 +8499,26 @@ export default function AdminPage() {
             }
 
             if (visibleIds.length === 0) {
+              // FIRST, before every "nothing here" wording below. When
+              // /api/portal/admin fails, `users` stays {} and so does every
+              // derived list, which made EACH of these branches lie in its own
+              // way: with a search box filled it said "no candidate found", on
+              // the stuck filter "nothing is stuck", and with nothing typed it
+              // showed a GREEN TICK reading "Nothing to review — all documents
+              // have been processed" over a queue nobody had seen. An empty
+              // list after a failed load is unknown, not clear.
+              if (adminLoadError) {
+                return <EmptyState Icon={AlertTriangle} tone="danger"
+                  title={t.aLoadFailedTitle}
+                  sub={t.aLoadFailedSub.replace("{reason}", adminLoadError)}
+                  action={
+                    <button type="button" onClick={retryAdminLoad} disabled={adminReloading}
+                      className="px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-50"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      {adminReloading ? t.aLoadRetrying : t.aLoadRetry}
+                    </button>
+                  } />;
+              }
               if (q || activeFilterCount > 0) {
                 return <EmptyState Icon={Search} title={t.adNoCandFound}
                   sub={q ? t.adNoMatchFor.replace("{q}", searchQuery)
@@ -9074,10 +9293,13 @@ export default function AdminPage() {
           e.target.value = "";
         }}
       />
+      {/* `accept` is set imperatively by openAdminDocPicker just before the
+          click, per box — see acceptForAdminDocKey. PDF-only is the safe
+          default for the one tick before the first pick. */}
       <input
         ref={adminDocFileInputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept={ACCEPT_PDF_ONLY}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
