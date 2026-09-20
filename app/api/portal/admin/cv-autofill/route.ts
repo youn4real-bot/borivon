@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
-import { vertexModel, GEMINI_SAFETY } from "@/lib/vertexModel";
+import { vertexModel, GEMINI_SAFETY, assistantEnabled } from "@/lib/vertexModel";
 import { generateText } from "ai";
 import {
   applyAutofill,
@@ -157,5 +157,11 @@ export async function POST(req: NextRequest) {
   const generated = await generateDuties(draftObj, indexes, specialty, years);
   const { draft: merged, filled } = applyAutofill(draftObj, { phone, specialty }, generated);
 
-  return NextResponse.json({ draft: merged, filled });
+  // The button is NOT dead while the AI billing switch is off: applyAutofill still fills the
+  // phone and still writes the standard German nursing duties from NURSING_DUTY_DEFAULTS, all
+  // deterministically. Only the Gemini-drafted prose for non-standard jobs is gone. So we
+  // report the AI state instead of hiding the feature, and the client says so plainly — an
+  // admin who clicks and gets fewer bullets than last month deserves the reason, not a
+  // silent downgrade he has to guess at.
+  return NextResponse.json({ draft: merged, filled, ai: assistantEnabled() });
 }

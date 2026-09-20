@@ -3633,7 +3633,7 @@ function CVBuilderInner() {
         setAutofillMsg(lang === "de" ? "Auto-Ausfüllen fehlgeschlagen." : lang === "fr" ? "Échec du remplissage automatique." : "Auto-fill failed.");
         return;
       }
-      const data = (await r.json()) as { draft?: CVData; filled?: number };
+      const data = (await r.json()) as { draft?: CVData; filled?: number; ai?: boolean };
       if (data.draft) {
         const d = data.draft;
         // Merge ONLY the fields autofill produces (phone + per-job duty bullets),
@@ -3656,13 +3656,21 @@ function CVBuilderInner() {
           return next;
         });
         const n = data.filled ?? 0;
-        setAutofillMsg(
-          n > 0
-            ? (lang === "de" ? `${n} Feld(er) ausgefüllt — bitte prüfen und anpassen.`
-              : lang === "fr" ? `${n} champ(s) rempli(s) — à vérifier et ajuster.`
-              : `Filled ${n} field(s) — please review and adjust.`)
-            : (lang === "de" ? "Nichts zu ergänzen." : lang === "fr" ? "Rien à ajouter." : "Nothing to add."),
-        );
+        const base = n > 0
+          ? (lang === "de" ? `${n} Feld(er) ausgefüllt — bitte prüfen und anpassen.`
+            : lang === "fr" ? `${n} champ(s) rempli(s) — à vérifier et ajuster.`
+            : `Filled ${n} field(s) — please review and adjust.`)
+          : (lang === "de" ? "Nichts zu ergänzen." : lang === "fr" ? "Rien à ajouter." : "Nothing to add.");
+        // The AI billing switch (ASSISTANT_ENABLED) is off → the standard nursing duties and
+        // the phone still filled in, but Gemini no longer drafts bullets for unusual jobs.
+        // Say it, so fewer bullets than last month reads as a setting and not as a bug. The
+        // server reports the state; `ai !== false` keeps an older response shape harmless.
+        const aiNote = data.ai === false
+          ? (lang === "de" ? " KI-Vorschläge sind aus."
+            : lang === "fr" ? " Les suggestions IA sont désactivées."
+            : " AI suggestions are off.")
+          : "";
+        setAutofillMsg(base + aiNote);
       }
     } catch {
       setAutofillMsg(lang === "de" ? "Auto-Ausfüllen fehlgeschlagen." : lang === "fr" ? "Échec du remplissage automatique." : "Auto-fill failed.");
