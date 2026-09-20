@@ -49,7 +49,7 @@ import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS, canonicalDocLabel, translateDocLabel } from "@/lib/fileKeys";
 import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
-import { shareReadIsUnknown } from "@/lib/adminPanelRules";
+import { shareReadIsUnknown, slotDropVerdict, slotDropRefusalMessage } from "@/lib/adminPanelRules";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
@@ -2917,6 +2917,37 @@ export default function AdminPage() {
     }
   }
 
+  /** Every drop onto a Bearbeitung / Visum slot row goes through here, so the
+   *  two row shapes (single slot, and the dual original/translated header)
+   *  cannot drift apart again — and so a refusal is impossible to forget.
+   *
+   *  Both handlers used to be `if (file && file.type === "application/pdf")`
+   *  with no else, which is not a filter, it is a dead zone: the row lit up on
+   *  drag-over, went dark on drop, and nothing else ever happened. */
+  function handleSlotDrop(file: File | undefined | null, slotId: string) {
+    const verdict = slotDropVerdict(file);
+    if (!verdict.ok) {
+      showError(slotDropRefusalMessage(verdict.reason, lang));
+      return;
+    }
+    void adminUploadFile(file as File, slotId);
+  }
+
+  /** Same sweep, the permanent Bearbeitung / Visum boxes (ezb, videx, …). Its
+   *  condition ended in `adminDocUpload(...)` with no else either, so a .docx
+   *  or a .heic dropped there also vanished without a word. This target takes a
+   *  photo as well as a PDF — adminDocUpload posts to /api/portal/upload, whose
+   *  ALLOWED_TYPES has carried image/jpeg, image/png and image/webp all along. */
+  function handleDocBoxDrop(file: File | undefined | null, key: string, label: string) {
+    if (!selectedUser) return;   // no dossier open — there is nothing to file it against
+    const verdict = slotDropVerdict(file, "pdf-or-photo");
+    if (!verdict.ok) {
+      showError(slotDropRefusalMessage(verdict.reason, lang));
+      return;
+    }
+    void adminDocUpload(file as File, key, label);
+  }
+
   async function adminUploadFile(file: File, slotId: string) {
     if (!selectedUser || !accessToken) return;
     const uploadFailedMsg = lang === "de" ? "Hochladen fehlgeschlagen — das Dokument wurde nicht gespeichert."
@@ -5645,8 +5676,11 @@ export default function AdminPage() {
                                           if (!Array.from(e.dataTransfer.types).includes("Files")) return;
                                           e.preventDefault();
                                           setDragOverKey(null);
-                                          const file = e.dataTransfer.files?.[0];
-                                          if (file && file.type === "application/pdf") adminUploadFile(file, slot.id);
+                                          // There was no else. Drop a JPEG on a slot and NOTHING
+                                          // happened — no spinner, no upload, no refusal — which is
+                                          // exactly what a drag the page never noticed looks like,
+                                          // so the same photo got dropped again and again.
+                                          handleSlotDrop(e.dataTransfer.files?.[0], slot.id);
                                         }}
                                         className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                                         style={{ minHeight: 60, ...(dragOverKey === slot.id ? { background: "var(--gdim)" } : revokeMenu?.id === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
@@ -5789,8 +5823,9 @@ export default function AdminPage() {
                                       onDrop={e => {
                                         if (!Array.from(e.dataTransfer.types).includes("Files")) return;
                                         e.preventDefault();
-                                        const file = e.dataTransfer.files?.[0];
-                                        if (file && file.type === "application/pdf") adminUploadFile(file, slot.id);
+                                        // Same silent no-op as the single-slot row above, on the
+                                        // header that covers an original/translated pair.
+                                        handleSlotDrop(e.dataTransfer.files?.[0], slot.id);
                                       }}>
                                       <div className="flex-1 min-w-0">
                                         <p className="text-[11.5px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
@@ -6436,7 +6471,7 @@ export default function AdminPage() {
                                   onClick={vClickable ? () => { setPreviewRenderUrl(null); setPreviewDoc(vdoc!); } : undefined}
                                   onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); setDragOverKey(vb.key); } }}
                                   onDragLeave={() => setDragOverKey(null)}
-                                  onDrop={(e) => { if (!Array.from(e.dataTransfer.types).includes("Files")) return; e.preventDefault(); setDragOverKey(null); const f = e.dataTransfer.files?.[0]; if (f && selectedUser && (f.type === "application/pdf" || f.type.startsWith("image/"))) adminDocUpload(f, vb.key, vb.label); }}
+                                  onDrop={(e) => { if (!Array.from(e.dataTransfer.types).includes("Files")) return; e.preventDefault(); setDragOverKey(null); handleDocBoxDrop(e.dataTransfer.files?.[0], vb.key, vb.label); }}
                                   className={`px-3 py-3 flex items-center gap-3 transition-colors${vClickable ? " bv-row-hover cursor-pointer" : ""}`}
                                   style={{ minHeight: 56, ...(dragOverKey === vb.key ? { background: "var(--gdim)" } : null) }}>
                                   <div className="flex-1 min-w-0">

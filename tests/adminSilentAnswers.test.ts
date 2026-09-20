@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { shareReadIsUnknown } from "../lib/adminPanelRules";
+import { shareReadIsUnknown, slotDropVerdict, slotDropRefusalMessage } from "../lib/adminPanelRules";
 
 /**
  * THE ADMIN PANEL MUST NOT ANSWER A QUESTION IT DID NOT MANAGE TO ASK.
@@ -193,5 +193,97 @@ describe("a structure edit is only 'done' once the server says so", () => {
     expect(block, "German wording missing").toContain("nicht gespeichert");
     expect(block, "French wording missing").toContain("n'a pas été enregistrée");
     expect(block, "English wording missing").toContain("was not saved");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 3 — a drop either uploads or says why it cannot; never nothing
+// ───────────────────────────────────────────────────────────────────────────
+describe("a file dropped on a slot row never disappears in silence", () => {
+  const pdf = { type: "application/pdf", name: "ezb.pdf" };
+  const jpeg = { type: "image/jpeg", name: "passport.jpg" };
+  const docx = { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", name: "cv.docx" };
+
+  it("a PDF uploads", () => {
+    expect(slotDropVerdict(pdf)).toEqual({ ok: true });
+  });
+
+  it("a PDF whose MIME the browser did not supply still uploads", () => {
+    // Dragged out of a mail client or a file manager, a real PDF routinely
+    // arrives as "" or application/octet-stream. Refusing it on an absent MIME
+    // would refuse exactly the file the row wants; the upload route sniffs the
+    // first bytes and answers for itself if it turns out not to be one.
+    expect(slotDropVerdict({ type: "", name: "Zusatzblatt A.PDF" })).toEqual({ ok: true });
+    expect(slotDropVerdict({ type: "application/octet-stream", name: "form.pdf" })).toEqual({ ok: true });
+  });
+
+  it("a JPEG on a slot row is REFUSED, not ignored", () => {
+    // The refusal is the whole fix: the old handler had no else, so the row lit
+    // up on drag-over, went dark on drop, and nothing else ever happened.
+    expect(slotDropVerdict(jpeg)).toEqual({ ok: false, reason: "not-pdf" });
+  });
+
+  it("a nothing-at-all drop is refused too", () => {
+    expect(slotDropVerdict(undefined)).toEqual({ ok: false, reason: "no-file" });
+    expect(slotDropVerdict(null)).toEqual({ ok: false, reason: "no-file" });
+  });
+
+  it("an octet-stream that is NOT named .pdf is refused on a PDF-only row", () => {
+    expect(slotDropVerdict({ type: "application/octet-stream", name: "scan.tiff" }))
+      .toEqual({ ok: false, reason: "not-pdf" });
+  });
+
+  it("the permanent document boxes take a photo as well as a PDF", () => {
+    // adminDocUpload posts to /api/portal/upload, whose ALLOWED_TYPES has
+    // carried image/jpeg, image/png and image/webp all along.
+    for (const t of ["image/jpeg", "image/png", "image/webp"]) {
+      expect(slotDropVerdict({ type: t, name: `x.${t.slice(6)}` }, "pdf-or-photo")).toEqual({ ok: true });
+    }
+    expect(slotDropVerdict(pdf, "pdf-or-photo")).toEqual({ ok: true });
+  });
+
+  it("and still refuse — out loud — what the server would not store", () => {
+    expect(slotDropVerdict(docx, "pdf-or-photo")).toEqual({ ok: false, reason: "not-a-document" });
+    expect(slotDropVerdict({ type: "image/heic", name: "IMG_0421.HEIC" }, "pdf-or-photo"))
+      .toEqual({ ok: false, reason: "not-a-document" });
+  });
+
+  it("LAW #19: every refusal has its own wording in all three languages", () => {
+    for (const reason of ["no-file", "not-pdf", "not-a-document"] as const) {
+      const said = (["fr", "en", "de"] as const).map(l => slotDropRefusalMessage(reason, l));
+      for (const msg of said) expect(msg.trim().length, `${reason} is blank`).toBeGreaterThan(0);
+      expect(new Set(said).size, `${reason} is not actually translated`).toBe(3);
+    }
+  });
+
+  it("the PDF-only refusal points at the box that DOES take a photo", () => {
+    // Saying "no" without saying where it goes sends the founder round the
+    // dossier looking for a box that will take it.
+    for (const lang of ["fr", "en", "de"] as const) {
+      expect(slotDropRefusalMessage("not-pdf", lang)).toContain("Sonstiges");
+    }
+  });
+
+  it("both slot-row drop handlers go through the shared helper", () => {
+    const drops = [...ADMIN.matchAll(/handleSlotDrop\(e\.dataTransfer\.files\?\.\[0\], slot\.id\)/g)];
+    expect(drops.length, "both the single row and the dual header must route through it").toBe(2);
+    // The dead-zone shape must be gone from every drop handler in the file.
+    expect(ADMIN, "an inline type check with no else is the bug itself")
+      .not.toMatch(/if \(file && file\.type === "application\/pdf"\) adminUploadFile\(/);
+  });
+
+  it("the helpers refuse out loud rather than returning", () => {
+    for (const decl of ["function handleSlotDrop(", "function handleDocBoxDrop("]) {
+      const body = fnBody(ADMIN, decl);
+      expect(body, `${decl} must consult the shared rule`).toContain("slotDropVerdict(");
+      expect(body, `${decl} must say why it refused`)
+        .toContain("showError(slotDropRefusalMessage(verdict.reason, lang))");
+    }
+  });
+
+  it("the permanent box drop no longer ends in a bare condition", () => {
+    expect(ADMIN, "the old inline handler dropped a .docx without a word")
+      .not.toMatch(/f\.type\.startsWith\("image\/"\)\)\) adminDocUpload\(/);
+    expect(ADMIN).toContain("handleDocBoxDrop(e.dataTransfer.files?.[0], vb.key, vb.label)");
   });
 });
