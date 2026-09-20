@@ -145,6 +145,21 @@ export function currentPdfEngine(): PdfEngineDiagnostic | null {
 /**
  * Load pdf.js ready to open a document: always the legacy build, with the
  * parser wherever `planPdfWorker` says this browser can actually run it.
+ *
+ * THIS CAN REJECT, AND EVERY CALLER MUST HANDLE IT. The two `import()` calls
+ * below are network fetches of lazily-emitted chunks: on the mobile data these
+ * candidates are on, one of them drops often enough to matter. PdfViewer used
+ * to write `loadPdfjs().then(…)` with no `.catch`, so the rejection landed
+ * nowhere, `setLoading(false)` was never reached, and the modal sat on its
+ * spinner until the window was closed — one of the two "endless spinner"
+ * reports, and invisible in every log because nothing threw anywhere a handler
+ * could see it.
+ *
+ * A rejection here is the ENGINE layer, never the document's fault: pass it to
+ * `classifyPdfOpenFailure` (lib/pdfOpenFailure) with stage "engine", or to
+ * `classifyOpenError` (lib/documentFetch) where that is what the caller uses.
+ * Either keeps a missing `Promise.withResolvers` or a dead chunk apart from a
+ * corrupt PDF.
  */
 export async function loadPdfjs() {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
