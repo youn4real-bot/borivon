@@ -29,7 +29,6 @@ export type RoleInfo = {
   isAgencyAdmin?: boolean;
   academyVisible?: boolean;
   orgName?: string | null;
-  paymentTier?: string | null;
   /** Private-test allowlist for the live classroom (candidates only). */
   classroomTester?: boolean;
   /** Standing test pair (supreme admin + Soufiane) — sees experimental/in-test

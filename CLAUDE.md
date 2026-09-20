@@ -49,7 +49,6 @@ nicety is fine, losing a lead is not.
 - **Supabase** for auth (Bearer JWT in every API call), Postgres tables (`documents`, `candidate_profiles`, `phase_slots`, `notifications`, `admin_notifications`, `organizations`, `organization_members`, `sub_admins`, `sign_requests`, etc.), and Storage buckets.
 - **Google Drive API** (`googleapis`) for the candidate document store. Drive folder per candidate, `archive/` subfolder per LAW #33.
 - **pdf-lib** (server-side) + **pdfjs-dist** (client-side viewer). **@react-pdf/renderer** for CV generation.
-- **Stripe** for the premium subscription (price resolution by lookup_key, not hardcoded IDs).
 - **Resend** for transactional email.
 - **OSS UI primitives:** `focus-trap-react` (Modal), `@dnd-kit/*` (sortable lists), `signature_pad` (handwriting capture surface), `date-fns` (relative-time helper).
 

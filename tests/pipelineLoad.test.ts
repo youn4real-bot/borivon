@@ -6,7 +6,7 @@ import { fetchMyPipeline } from "../lib/pipelineLoad";
  * A DROPPED READ MUST NOT RE-LOCK A STAGE THE ADMIN UNLOCKED.
  *
  * A candidate whose Visum or interview stage the founder had explicitly opened
- * tapped it and got the "Upgrade to Premium" box. /api/portal/pipeline/me
+ * tapped it and was told it was shut. /api/portal/pipeline/me
  * answered a 401 with `{ pipeline: null }` — byte-for-byte what a candidate
  * with no pipeline row gets — and the dashboard bootstrap never looked at the
  * status. An hour-old JWT was therefore enough to make every stage look shut.
@@ -134,11 +134,11 @@ describe("the dashboard side — it refuses to downgrade her view on an unknown"
     expect(DASH).toMatch(/if \(!res\.ok\) \{[\s\S]{0,400}?setPipelineLoadFailed\(true\);[\s\S]{0,80}?return;/);
   });
 
-  it("the plan gate will not bounce her out of a stage while the pipeline is unknown", () => {
-    expect(DASH).toMatch(/viewMode !== "docs" && profileLoaded && pipelineKnown && !hasPremium/);
+  it("the stage gate will not bounce her out of a stage while the pipeline is unknown", () => {
+    expect(DASH).toMatch(/viewMode !== "docs" && pipelineKnown/);
   });
 
-  it("tapping a stage on an unknown says so instead of claiming she must upgrade", () => {
+  it("tapping a stage on an unknown says so instead of calling it locked", () => {
     expect(DASH).toMatch(/setUpgradeReason\(pipelineKnown \? "locked" : "unknown"\)/);
     // And the modal really has a second sentence for it (LAW #19: all three).
     expect(DASH).toMatch(/upgradeReason === "unknown"/);
@@ -148,6 +148,14 @@ describe("the dashboard side — it refuses to downgrade her view on an unknown"
   });
 
   it("the journey view is not hidden from her while we do not know", () => {
-    expect(DASH).toMatch(/!profileLoaded \|\| !pipelineKnown \|\| hasPremium \|\| isAdminUnlocked\(viewMode, pipeline\)/);
+    expect(DASH).toMatch(/!pipelineKnown \|\| isAdminUnlocked\(viewMode, pipeline\)/);
+  });
+
+  // The paid plan was removed on 2026-09-20. The gate now rests on the admin's
+  // unlock ALONE (LAW #31/#32) — if a purchasable bypass ever comes back into
+  // this file, this is what notices.
+  it("no purchasable bypass survives in the stage gate", () => {
+    expect(DASH).not.toMatch(/hasPremium/);
+    expect(DASH).not.toMatch(/payment_tier/);
   });
 });

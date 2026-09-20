@@ -20,7 +20,6 @@ move to Germany. Three audiences, one app:
 | Supabase | Postgres database, Auth, Storage |
 | `googleapis` | Candidate document store (one Drive folder per candidate) |
 | `pdf-lib`, `pdfjs-dist`, `@react-pdf/renderer` | PDF generation + viewing |
-| Stripe | Premium subscription (price by lookup_key) |
 | Resend | Transactional email |
 | Vercel | Hosting + builds (`npx vercel --prod`) |
 

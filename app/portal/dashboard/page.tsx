@@ -51,7 +51,6 @@ import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
 import { VerifiedCelebration } from "@/components/VerifiedCelebration";
-import { PaymentCelebration } from "@/components/PaymentCelebration";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PendingSignatures } from "@/components/PendingSignatures";
 import { InterviewPicker } from "@/components/InterviewPicker";
@@ -152,9 +151,10 @@ function isJourneyUnlocked(stage: Exclude<ViewMode,"docs">, p: Pipeline | null):
   }
 }
 
-/** Whether admin has explicitly unlocked this stage for the candidate.
- *  True → candidate bypasses Premium gate for this stage only.
- *  Never changes payment_tier — purely a temporary access grant. */
+/** Whether the supreme admin has explicitly unlocked this stage for the
+ *  candidate. Since the paid plan was removed (2026-09-20) this is the ONLY
+ *  way into a journey stage — LAW #31/#32: the lock is his discretion alone,
+ *  and nothing the candidate can buy or click opens it. */
 function isAdminUnlocked(stage: string, p: Pipeline | null): boolean {
   if (!p) return false;
   switch (stage) {
@@ -510,9 +510,9 @@ export default function DashboardPage() {
    * what "you have no pipeline row yet" looks like — and the bootstrap never
    * read the status. So an expired JWT made every stage look locked, and a
    * candidate whose Visum or interview stage the founder had explicitly
-   * unlocked tapped it and got the "Upgrade to Premium" box. LAW #31/#32: that
-   * lock is the supreme admin's discretion alone; a dropped read must not
-   * re-lock, on her screen, a stage he opened.
+   * unlocked tapped it and was told it was shut. LAW #31/#32: that lock is the
+   * supreme admin's discretion alone; a dropped read must not re-lock, on her
+   * screen, a stage he opened.
    *
    * `pipelineKnown` is what every gate below asks before it takes anything
    * away from her. It only ever turns true, because once we HAVE read the row
@@ -659,27 +659,21 @@ export default function DashboardPage() {
   // admin-initiated placements appear without a page reload.
   const [linkedOrgs, setLinkedOrgs] = useState<{ id: string; name: string; status: string }[]>([]);
 
-  // Payment tier — gates journey/pipeline access
-  const [paymentTier, setPaymentTier] = useState<string | null>(null);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   // Verification flag — backend (admin/route.ts maybeGrantVerified or
   // /verify-user) flips this to true when the candidate is fully approved.
   // Source of truth for the gold tick + public profile slug everywhere.
   const [manuallyVerified, setManuallyVerified] = useState(false);
-  // Upgrade modal — shown when candidate tries a Premium-tier feature
+  // Locked-stage modal — shown when a candidate taps a stage the admin has
+  // not opened. There is no upgrade to offer: the paid plan was removed on
+  // 2026-09-20, so this only ever explains, it never sells.
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
-  // Which journey stage triggered the upgrade modal (so auto-close only fires for that stage)
+  // Which journey stage triggered the modal (so auto-close only fires for that stage)
   const [upgradeTargetStage, setUpgradeTargetStage] = useState<string | null>(null);
   /** WHY the modal is open. "locked" = we read her pipeline and this stage is
    *  genuinely closed. "unknown" = the pipeline read failed, so we do not know
-   *  — and must not claim she needs an upgrade for a stage the supreme admin
-   *  may well have unlocked (LAW #31/#32). One modal, two honest sentences. */
+   *  — and must not call a stage shut that the supreme admin may well have
+   *  unlocked (LAW #31/#32). One modal, two honest sentences. */
   const [upgradeReason, setUpgradeReason] = useState<"locked" | "unknown">("locked");
-  // Payment success toast — shown when user returns from Stripe checkout
-  const [paymentCelebration, setPaymentCelebration] = useState<{ plan: string } | null>(null);
-  // Helper: does the user have the Premium plan?
-  const hasPremium = paymentTier === "premium";
 
   // Sign requests — documents sent for digital signature
   type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; review_status: string | null; review_feedback: string | null; };
@@ -1235,18 +1229,18 @@ export default function DashboardPage() {
     };
   }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Plan-gate fallback: non-Premium users can't reach journey views unless the
-  // admin has explicitly unlocked that specific stage — bounce back to docs if
-  // neither condition is met. Race-safe; runs as an effect, not during render.
+  // Stage gate: a journey view is reachable only where the admin has opened
+  // that specific stage — bounce back to docs otherwise. Race-safe; runs as an
+  // effect, not during render.
   useEffect(() => {
     // `pipelineKnown` guard: bouncing her out of a stage on an UNKNOWN is the
     // bug. A 401 on /pipeline/me used to read as "nothing unlocked" and threw
     // a candidate the admin had let into Visum straight back to the documents
     // list (LAW #31/#32 — the lock is his discretion, not the network's).
-    if (viewMode !== "docs" && profileLoaded && pipelineKnown && !hasPremium) {
+    if (viewMode !== "docs" && pipelineKnown) {
       if (!isAdminUnlocked(viewMode, pipeline)) setViewMode("docs");
     }
-  }, [viewMode, profileLoaded, pipelineKnown, hasPremium, pipeline]);
+  }, [viewMode, pipelineKnown, pipeline]);
 
   // Auto-dismiss upgrade modal the moment admin unlocks the specific stage
   // the candidate was trying to access. Using upgradeTargetStage (not viewMode)
@@ -1363,15 +1357,11 @@ export default function DashboardPage() {
           // These live ABOVE the local-edit guard below on purpose: the guard
           // exists to stop an in-flight echo reverting a checkbox the candidate
           // just toggled, and it must not also swallow an admin flipping her to
-          // verified or a payment landing. That ordering is the whole reason the
-          // first attempt at this merge was reverted.
+          // verified. That ordering is the whole reason the first attempt at
+          // this merge was reverted.
           const meta = row as {
-            manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null;
+            manually_verified?: boolean; profile_photo?: string | null;
           };
-          if (meta.payment_tier !== undefined) {
-            setPaymentTier(meta.payment_tier ?? null);
-            window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: meta.payment_tier ?? null } }));
-          }
           if (meta.profile_photo !== undefined) {
             window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
           }
@@ -1778,10 +1768,10 @@ export default function DashboardPage() {
       await Promise.allSettled([
         loadDocs(user.id),
         loadDynamicSlots(token),
-        // a) Profile (passport / payment tier / verified flag)
+        // a) Profile (passport status / verified flag)
         (async () => {
           try {
-            const read = await getMyProfile("passport_status, manually_verified, payment_tier", { userId: user.id });
+            const read = await getMyProfile("passport_status, manually_verified", { userId: user.id });
             if (cancelled) return;
             // SHAPE A. The error was destructured away, so a failed read set
             // passportStatus to null — the exact same value as "she has never
@@ -1793,7 +1783,6 @@ export default function DashboardPage() {
             if (!readOk) { setPassportLoadFailed(prev => prev ?? "status"); return; }
             const data = read.data;
             setPassportStatus(data?.passport_status ?? null);
-            setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
             setManuallyVerified(!!data?.manually_verified);
             if (data?.manually_verified) {
               window.dispatchEvent(new CustomEvent("bv-verified-changed"));
@@ -1803,9 +1792,7 @@ export default function DashboardPage() {
                 }
               } catch { /* private mode */ }
             }
-          } catch { /* ignore */ } finally {
-            if (!cancelled) setProfileLoaded(true);
-          }
+          } catch { /* ignore */ }
         })(),
         // b) Pipeline (journey progress + which stages the admin unlocked)
         //    Status-aware: a 401 / 429 / 500 / unparseable body is "I could
@@ -2006,30 +1993,6 @@ export default function DashboardPage() {
 
     // Post-upload refresh: only update docs, never touch mode/phase
     if (keepPhase) return fetchedOut;
-
-    // Stripe return — handle regardless of whether the user has docs yet
-    const searchParams = new URLSearchParams(window.location.search);
-    const paymentParam = searchParams.get("payment");
-    const planParam    = searchParams.get("plan");
-    const upsellParam  = searchParams.get("upsell");
-    if (paymentParam === "success" && planParam) {
-      setPaymentTier(planParam);
-      setPaymentCelebration({ plan: planParam });
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (paymentParam === "cancelled") {
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (upsellParam === "premium") {
-      // Coming back from the CV builder gate (or any other Premium-locked
-      // feature). Auto-open the upgrade modal so the candidate sees why
-      // they were redirected — unless admin has already unlocked this stage.
-      // (Pipeline may still be loading; auto-close effect handles that race.)
-      if (!isAdminUnlocked(viewMode, pipeline)) {
-        setUpgradeTargetStage(viewMode);
-        setUpgradeReason(pipelineKnown ? "locked" : "unknown");
-        setUpgradeOpen(true);
-      }
-      window.history.replaceState({}, "", window.location.pathname);
-    }
 
     if (fetched.length > 0) {
       setIsReturn(true);
@@ -2566,31 +2529,6 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleUpgradeToPremium(plan: "premium_onetime" | "premium_monthly" = "premium_onetime") {
-    if (upgradeLoading) return; // double-click guard
-    setUpgradeLoading(true);
-    try {
-      const res = await fetch("/api/portal/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ plan }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (json.url) {
-        window.location.href = json.url;
-      } else {
-        // Stripe not configured — show contact info
-        alert(lang === "de" ? "Bitte kontaktieren Sie uns, um auf den Premium-Plan zu upgraden." : lang === "en" ? "Please contact us to upgrade to the Premium plan." : "Veuillez nous contacter pour passer au plan Premium.");
-        setUpgradeOpen(false);
-      }
-    } catch {
-      alert(lang === "de" ? "Upgrade momentan nicht verfügbar. Bitte kontaktieren Sie uns." : "Upgrade not available right now. Please contact us.");
-      setUpgradeOpen(false);
-    } finally {
-      setUpgradeLoading(false);
-    }
-  }
-
   /**
    * The sentence for a slot message — ONE function, used by both the slot row
    * and the paired sub-row. They each had their own ternary chain, and the
@@ -2675,8 +2613,9 @@ export default function DashboardPage() {
   // approved (admin/route.ts → maybeGrantVerified) or when the supreme admin
   // grants it directly via /verify-user. Local doc-state fallback covers the
   // brief window between approval and the realtime push landing.
-  // Gold tick = explicit admin grant OR paid premium. NOT passport/CV approval.
-  const isVerified  = manuallyVerified || hasPremium;
+  // Gold tick = explicit admin grant. NOT passport/CV approval, and since the
+  // paid plan was removed (2026-09-20) there is no purchasable route to it.
+  const isVerified  = manuallyVerified;
   const profileSlug = isVerified && userId
     ? buildProfileSlug(firstName, lastName, userId)
     : "";
@@ -2807,14 +2746,13 @@ export default function DashboardPage() {
         }}
       />
     )}
-    {/* Premium upgrade modal — shown when a free user tries a gated feature */}
+    {/* Locked-stage modal — shown when a candidate taps a stage the admin has
+        not opened. It explains; it never offers anything to buy. */}
     {upgradeOpen && (
       <>
-        {/* Backdrop — locked while a Stripe checkout is being created so a
-            stray click can't cancel the redirect mid-request. */}
         <div className="fixed inset-0 z-[1200]"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: upgradeLoading ? "wait" : "pointer" }}
-          onClick={() => { if (!upgradeLoading) { setUpgradeOpen(false); setUpgradeTargetStage(null); } }} />
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: "pointer" }}
+          onClick={() => { setUpgradeOpen(false); setUpgradeTargetStage(null); }} />
         <div className="fixed inset-0 z-[1201] flex items-end sm:items-center justify-center p-4 pointer-events-none">
           <div className="w-full max-w-[380px] max-h-[90dvh] overflow-y-auto flex flex-col pointer-events-auto"
             style={{ background: "var(--card)", borderRadius: "24px", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", animation: "bvFadeRise 0.26s var(--ease-out)" }}>
@@ -2830,9 +2768,9 @@ export default function DashboardPage() {
                   : (lang === "de" ? "Diese Funktion ist gesperrt" : lang === "en" ? "This feature is locked" : "Cette fonction est verrouillée")}
               </h3>
             </div>
-            {/* Payments are OFF for now — no self-serve checkout. Access is granted
-                by the Borivon team only (admin sets payment_tier); the candidate
-                can't pay or unlock it themselves.
+            {/* There is nothing to sell here. Stages are opened by the supreme
+                admin alone (LAW #31/#32) — the candidate cannot pay or click
+                her way in, so this modal only ever explains.
                 The "unknown" wording exists because saying "locked" after a
                 failed pipeline read told a candidate whose stage the supreme
                 admin HAD unlocked that it was shut — the network overruling
@@ -3556,21 +3494,20 @@ export default function DashboardPage() {
               const docsPhaseIdx = js.key === "recognition" ? 2 : 3;
               const isActive = viewMode === "docs" && phase === docsPhaseIdx;
               const stageLabel = t[`pJourney${js.key.charAt(0).toUpperCase() + js.key.slice(1)}` as keyof typeof t] as string;
-              // Inert = Premium but stage not yet opened by admin
-              const isInert = hasPremium && !unlocked && !adminOpen;
-              // Accessible = Premium user OR admin explicitly unlocked this stage
-              const accessible = hasPremium || adminOpen;
+              // Accessible = the admin explicitly unlocked this stage. That is
+              // the only key there is (LAW #31/#32).
+              const accessible = adminOpen;
               return (
                 <div key={js.key} className="flex flex-col items-center">
                   <button
                     onClick={() => {
-                      // Non-premium + stage not admin-unlocked → show the
-                      // locked modal. But "not unlocked" and "I could not
-                      // check" are DIFFERENT things: when the pipeline read
-                      // failed, telling her the stage is locked would re-lock,
-                      // on screen, a stage the supreme admin opened (LAW
-                      // #31/#32). Say we could not check, and offer a retry.
-                      if (!hasPremium && !adminOpen) {
+                      // Stage not admin-unlocked → show the locked modal. But
+                      // "not unlocked" and "I could not check" are DIFFERENT
+                      // things: when the pipeline read failed, telling her the
+                      // stage is locked would re-lock, on screen, a stage the
+                      // supreme admin opened (LAW #31/#32). Say we could not
+                      // check, and offer a retry.
+                      if (!adminOpen) {
                         setUpgradeTargetStage(js.key);
                         setUpgradeReason(pipelineKnown ? "locked" : "unknown");
                         setUpgradeOpen(true);
@@ -3581,11 +3518,10 @@ export default function DashboardPage() {
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }
                     }}
-                    disabled={isInert}
                     title={accessible ? stageLabel : t.pJourneyLocked}
                     aria-label={accessible ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
                     className="w-full flex flex-col items-center gap-1 py-1 bv-lift-hover cursor-pointer"
-                    style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: (unlocked || adminOpen) ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
+                    style={{ cursor: "pointer", opacity: (unlocked || adminOpen) ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
                       className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
@@ -3621,9 +3557,11 @@ export default function DashboardPage() {
           <div className="flex-1 min-w-0">
 
             {/* ── Journey stage views ──
-                The plan-gate effect above bounces non-Premium users back to
-                docs; we render JourneyView only when they're allowed in. */}
-            {viewMode !== "docs" && (!profileLoaded || !pipelineKnown || hasPremium || isAdminUnlocked(viewMode, pipeline)) && (
+                The stage gate above bounces her back to docs when the admin has
+                not opened this stage; we render JourneyView only when she is
+                allowed in — or while we still do not know (LAW #31/#32: a
+                failed read must not shut a door he opened). */}
+            {viewMode !== "docs" && (!pipelineKnown || isAdminUnlocked(viewMode, pipeline)) && (
               <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onInterviewJoin={logInterviewClick} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
 
@@ -6114,15 +6052,6 @@ export default function DashboardPage() {
     {/* Org-match celebration removed — candidate placement is now silent
         (no notification, no modal). User explicit request 2026-05. */}
 
-    {/* ── Payment celebration — full-screen, shown once after Stripe redirect ── */}
-    {paymentCelebration && userId && (
-      <PaymentCelebration
-        userId={userId}
-        plan={paymentCelebration.plan}
-        lang={lang}
-        onDismiss={() => setPaymentCelebration(null)}
-      />
-    )}
     </>
   );
 }

@@ -105,18 +105,15 @@ function checkEmail(): Probe {
 }
 
 /*
- * NO PAYMENTS PROBE, deliberately.
+ * NO PAYMENTS PROBE, and no payments.
  *
- * The first live run of this watchdog reported payments:false — STRIPE_SECRET_KEY
- * is genuinely not set on the Worker. That is not a fault: Stripe is not in use.
- * Alerting on it would have messaged the founder every morning at 05:00 about a
- * thing he does not want, and a watchdog that cries wolf daily is one you learn to
- * ignore — which would quietly destroy its value for Google, R2 and email, the
- * three that actually matter.
- *
- * The Stripe integration itself is untouched and still in the codebase; only the
- * health check stops asserting it should be configured. Add a probe back here if
- * subscriptions are ever switched on.
+ * The paid plan was removed on 2026-09-20 — code, routes and dependency. There is
+ * nothing left to probe, so there is nothing here. Before that the probe had
+ * already been dropped for a second reason worth keeping in mind if payments ever
+ * come back: it reported payments:false every morning at 05:00 because the key was
+ * never set, and a watchdog that cries wolf daily is one you learn to ignore —
+ * which would have quietly destroyed its value for Google, R2 and email, the three
+ * that actually matter.
  */
 
 /** Run every probe concurrently. Never throws. */
