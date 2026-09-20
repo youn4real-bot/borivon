@@ -27,7 +27,9 @@
  *     base64-ing the source in 192 KB chunks. No full base64 JS string and no
  *     JSON.stringify copy ever exist. Re-measured, same 25 MB file:
  *     rss 105.6, i.e. +59.7 instead of +125.6 -- the multiplier over the file
- *     size drops from 4.9x to 2.4x.
+ *     size drops from 4.9x to 2.4x. Re-measured a second time against THIS
+ *     module rather than a copy of it, under vitest, same 25 MB input:
+ *     +125.0 MB for the old expression, +60.9 MB for this one.
  *
  *  2. `OCR_MAX_BYTES` caps what we are willing to READ. It is deliberately NOT
  *     an upload cap: a 25 MB passport scan must still be STORED (R2 and the
@@ -146,15 +148,31 @@ export function appendOcrText(accumulated: string, next: string, max: number = O
  * literals, never user input.
  */
 export function base64JsonBody(prefix: string, bytes: Uint8Array, suffix: string): Buffer {
-  const CHUNK = 3 * 64 * 1024; // 192 KB in, 256 KB out, 3-aligned
   const src = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const b64Len = Math.ceil(src.length / 3) * 4;
-  const out = Buffer.allocUnsafe(Buffer.byteLength(prefix, "utf8") + b64Len + Buffer.byteLength(suffix, "utf8"));
-  let pos = out.write(prefix, 0, "utf8");
-  for (let off = 0; off < src.length; off += CHUNK) {
-    const end = Math.min(off + CHUNK, src.length);
-    pos += out.write(src.toString("base64", off, end), pos, "latin1");
+  try {
+    const CHUNK = 3 * 64 * 1024; // 192 KB in, 256 KB out, 3-aligned
+    const b64Len = Math.ceil(src.length / 3) * 4;
+    const out = Buffer.allocUnsafe(Buffer.byteLength(prefix, "utf8") + b64Len + Buffer.byteLength(suffix, "utf8"));
+    let pos = out.write(prefix, 0, "utf8");
+    for (let off = 0; off < src.length; off += CHUNK) {
+      const end = Math.min(off + CHUNK, src.length);
+      pos += out.write(src.toString("base64", off, end), pos, "latin1");
+    }
+    pos += out.write(suffix, pos, "utf8");
+    // `subarray`, not the whole buffer: allocUnsafe does not zero-fill, so any
+    // byte past `pos` is whatever was in that memory. Nothing uninitialised
+    // reaches the wire.
+    return out.subarray(0, pos);
+  } catch {
+    // FALL BACK RATHER THAN FAIL. This is the only place in the codebase that
+    // uses Buffer.allocUnsafe and Buffer.prototype.write(..., "latin1"), and it
+    // runs on workerd's nodejs_compat Buffer rather than Node's own. If either
+    // is missing or behaves differently there, a passport upload must NOT die
+    // on a memory optimisation: the old, heavier concatenation still produces a
+    // correct body, and the OCR_MAX_BYTES cap keeps even that inside the
+    // isolate. Loud, because a silent fallback here quietly restores the 4.9x
+    // memory profile this function exists to remove.
+    console.warn("[ocrBudget] chunked base64 body unavailable — falling back to string concat");
+    return Buffer.from(prefix + src.toString("base64") + suffix, "utf8");
   }
-  pos += out.write(suffix, pos, "utf8");
-  return out.subarray(0, pos);
 }
