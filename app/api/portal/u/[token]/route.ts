@@ -24,6 +24,7 @@ import { candidateKey, r2Put, r2Configured } from "@/lib/r2";
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
 import { FILE_KEY_LABELS, resolveFileKey } from "@/lib/fileKeys";
 import { pdfPageLimit } from "@/lib/pdfPageLimits";
+import { isHeicUpload, HEIC_CODE, HEIC_MESSAGE } from "@/lib/heic";
 import { PDFDocument } from "pdf-lib";
 
 export const runtime = "nodejs";
@@ -125,6 +126,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
   const isWebp = b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
   const sniffedOk = isPdf || isJpg || isPng || isWebp;
+  // HEIC answers FIRST, and with its own sentence. This page is the one a nurse
+  // opens from a WhatsApp link on her phone, so it is the likeliest place for an
+  // iPhone photo picked out of Files to land — and "Only PDF or photo
+  // (JPG/PNG/WebP) files are allowed" is exactly the message that reads as
+  // nonsense when she is holding a photo. Mirrors /api/portal/upload; see
+  // lib/heic.ts for why we refuse rather than transcode.
+  if (isHeicUpload(file.type, file.name, buf.subarray(0, 64)))
+    return NextResponse.json({ error: HEIC_MESSAGE, code: HEIC_CODE }, { status: 415 });
   if (!ALLOWED.has(file.type) || !sniffedOk)
     return NextResponse.json({ error: "Only PDF or photo (JPG/PNG/WebP) files are allowed." }, { status: 415 });
 

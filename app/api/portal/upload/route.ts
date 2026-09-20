@@ -14,6 +14,11 @@ import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detec
 import { shouldSupersedePrevious, idsToRetire } from "@/lib/slotSupersede";
 import { LABEL_TO_FILE_KEY, labelForUpload, resolveFileKey } from "@/lib/fileKeys";
 import { formatUploadDiag } from "@/lib/uploadFailure";
+import { isHeicUpload, HEIC_CODE, HEIC_MESSAGE } from "@/lib/heic";
+import {
+  planOcr, base64JsonBody, pickEmbeddedJpegs, appendOcrText,
+  OCR_MAX_BYTES, estimateOcrPeakBytes,
+} from "@/lib/ocrBudget";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -588,17 +593,29 @@ async function analyzePassportAzure(buffer: Buffer): Promise<{
   const key      = process.env.AZURE_DOC_INTEL_KEY ?? "";
   if (!endpoint || !key) return null; // not configured → caller falls back to Google
 
-  const b64 = buffer.toString("base64");
-
   // 1 — Submit analysis job (async API)
-  const submitRes = await fetch(
-    `${endpoint}/documentintelligence/documentModels/prebuilt-idDocument:analyze?api-version=2024-11-30`,
-    {
-      method: "POST",
-      headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ base64Source: b64 }),
-    }
-  );
+  //
+  // The body is built straight into bytes by base64JsonBody instead of
+  // JSON.stringify({ base64Source: buffer.toString("base64") }). The old line
+  // held THREE copies of the scan at once — the base64 string, the stringified
+  // JSON and the wire encoding — which measured +125.6 MB of RSS over baseline
+  // for a 25 MB passport, on a 128 MB Worker isolate. See lib/ocrBudget.ts for
+  // the full table; the builder brings the same file to +59.7 MB.
+  //
+  // `submitBody` is scoped so it is unreachable the moment fetch returns and the
+  // Google Vision fallback below cannot run while Azure's copy is still pinned.
+  let submitRes: Response;
+  {
+    const submitBody = base64JsonBody('{"base64Source":"', buffer, '"}');
+    submitRes = await fetch(
+      `${endpoint}/documentintelligence/documentModels/prebuilt-idDocument:analyze?api-version=2024-11-30`,
+      {
+        method: "POST",
+        headers: { "Ocp-Apim-Subscription-Key": key, "Content-Type": "application/json" },
+        body: submitBody as unknown as BodyInit,
+      }
+    );
+  }
   if (!submitRes.ok) {
     const txt = await submitRes.text();
     throw new Error(`Azure submit ${submitRes.status}: ${txt.slice(0, 300)}`);
@@ -670,19 +687,22 @@ async function analyzePassportAzure(buffer: Buffer): Promise<{
 
 async function runOCR(buffer: Buffer, mimeType: string): Promise<string> {
   const accessToken = await getVisionToken();
-  const b64 = buffer.toString("base64");
 
+  // Same memory reason as analyzePassportAzure: the Vision request body is
+  // assembled into bytes once (lib/ocrBudget.ts) rather than via a full base64
+  // JS string plus a JSON.stringify copy. This function is called up to FOUR
+  // times per passport — the whole file, then the largest embedded JPEGs — so
+  // every copy it avoids is avoided that many times over.
   if (mimeType === "application/pdf") {
     const res = await fetch("https://vision.googleapis.com/v1/files:annotate", {
       method: "POST",
       headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        requests: [{
-          inputConfig: { content: b64, mimeType: "application/pdf" },
-          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
-          pages: [1, 2, 3], // scan first 3 pages — covers multi-page PDFs
-        }],
-      }),
+      body: base64JsonBody(
+        '{"requests":[{"inputConfig":{"mimeType":"application/pdf","content":"',
+        buffer,
+        // pages: scan the first 3 — covers multi-page PDFs.
+        '"},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}],"pages":[1,2,3]}]}',
+      ) as unknown as BodyInit,
     });
     const json = await res.json();
     if (process.env.NODE_ENV !== "production") console.log("[Vision PDF] status:", res.status);
@@ -700,12 +720,11 @@ async function runOCR(buffer: Buffer, mimeType: string): Promise<string> {
     const res = await fetch("https://vision.googleapis.com/v1/images:annotate", {
       method: "POST",
       headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        requests: [{
-          image: { content: b64 },
-          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
-        }],
-      }),
+      body: base64JsonBody(
+        '{"requests":[{"image":{"content":"',
+        buffer,
+        '"},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}]}]}',
+      ) as unknown as BodyInit,
     });
     const json = await res.json();
     if (process.env.NODE_ENV !== "production") console.log("[Vision image] status:", res.status);
@@ -900,6 +919,26 @@ export async function POST(req: NextRequest) {
 
   if (!file) return NextResponse.json({ error: "Fichier requis." }, { status: 400 });
 
+  // ── HEIC gets its OWN answer, and it comes FIRST ────────────────────────────
+  // An iPhone stores photos as HEIC. Picked from Photos, iOS Safari transcodes
+  // to JPEG on the way in and everything works; picked from the Files app or
+  // shared in from another app, the raw .heic arrives and the two allow-lists
+  // below answered "Type non autorise" / "PDF only". That sentence is false for
+  // the commonest phone on earth and tells her nothing to do next -- she has a
+  // good photo of her passport and the portal calls the format wrong without
+  // naming a right one.
+  //
+  // We refuse rather than transcode, and lib/heic.ts explains why in full: the
+  // only practical decoder here is libheif as multi-MB WASM, on a bundle whose
+  // size already costs every route a 2-5s cold start, decoding to ~48 MB of raw
+  // RGBA for a 12 MP photo inside the same 128 MB isolate that lib/ocrBudget.ts
+  // exists to defend. The `code` lets the client show the two-tap instruction in
+  // her language (LAW #19); `error` is the fallback for anything that shows the
+  // raw string.
+  if (isHeicUpload(file.type, file.name)) {
+    return NextResponse.json({ error: HEIC_MESSAGE, code: HEIC_CODE }, { status: 415 });
+  }
+
   // Passport accepts PDF or images (mobile users photograph their passport)
   const ALLOWED_ID = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
   if (fileKey === "id" && !ALLOWED_ID.includes(file.type)) {
@@ -918,6 +957,16 @@ export async function POST(req: NextRequest) {
   // Sniff the first few bytes — a browser-supplied MIME like "application/pdf"
   // is trivial to spoof, so we verify the actual content matches before
   // shipping the file off to Drive / OCR. Reject obvious mismatches.
+  // Second HEIC pass, on the BYTES. The check above reads the declared type and
+  // the filename, and both can be absent: a pick out of Files can arrive as
+  // `application/octet-stream` named "image", and `file.type` is
+  // browser-supplied anyway. Without this the same photo falls through to the
+  // generic "le contenu ne correspond pas a son type" below -- another sentence
+  // that does not tell her to re-pick from Photos.
+  if (isHeicUpload(null, null, buffer.subarray(0, 64))) {
+    return NextResponse.json({ error: HEIC_MESSAGE, code: HEIC_CODE }, { status: 415 });
+  }
+
   const sniffedType = sniffMime(buffer);
   if (sniffedType && file.type !== sniffedType) {
     // Allow image/jpg ↔ image/jpeg and other trivial aliases.
@@ -1229,7 +1278,34 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Passport OCR ─────────────────────────────────────────────────────────────
+  //
+  // EVERYTHING THAT STORES THE FILE HAS ALREADY HAPPENED. R2 holds the bytes,
+  // the documents row exists, the admin notification is out. From here on we are
+  // only trying to PREFILL her form, so anything that goes wrong below must end
+  // as `success: true` with no passport data — never as a failed upload.
+  //
+  // That distinction is what makes the cap below safe. A 25 MB scan costs about
+  // +60 MB of RSS to OCR even after the body builder (lib/ocrBudget.ts has the
+  // measurements: it was +125.6 MB before, on a 128 MB isolate, which is the OOM
+  // the hunters proved). We do not shrink the UPLOAD to fix that — a big scan is
+  // still a valid passport and it still gets stored. We shrink what we are
+  // willing to READ, and she types the eighteen fields herself, which is two
+  // minutes. Losing the file would cost her the document.
   if (fileKey === "id") {
+    const ocrPlan = planOcr(buffer.length);
+    if (!ocrPlan.run) {
+      console.warn(
+        `[upload] skipping passport OCR for ${userId}: ${ocrPlan.reason} ` +
+        `(${buffer.length} bytes, cap ${OCR_MAX_BYTES}; OCR would have cost ~${estimateOcrPeakBytes(buffer.length)} bytes of isolate). ` +
+        `The file IS stored — only the prefill is skipped.`,
+      );
+      // `ocrSkipped` lets the dashboard say "we could not read this one, please
+      // fill it in" instead of showing an empty form with no explanation.
+      return NextResponse.json({
+        success: true, passportData: null, hadData: hadPassportData,
+        ocrSkipped: ocrPlan.reason, ocrMaxBytes: OCR_MAX_BYTES,
+      });
+    }
     try {
       let passportData: Record<string, string> | null = null;
       /** Set when the uploaded document turns out not to be a passport at all. */
@@ -1258,7 +1334,11 @@ export async function POST(req: NextRequest) {
         // Still run VIZ on Azure's raw OCR text for fields Azure doesn't extract
         // (address, issuing authority, city of residence).
         const vizData = parseVIZ(azure.rawText);
-        ocrTextSeen = azure.rawText;
+        // Bounded: the accumulator only feeds detectDocumentType's keyword
+        // scan, so a truncated tail costs nothing, while concatenating the full
+        // text of up to four OCR passes is an unbounded string on the same
+        // 128 MB budget this whole block is being brought back inside.
+        ocrTextSeen = appendOcrText("", azure.rawText);
         if (process.env.NODE_ENV !== "production") console.log("[Azure VIZ]", JSON.stringify(vizData));
 
         passportData = {
@@ -1296,7 +1376,7 @@ export async function POST(req: NextRequest) {
 
         // Phase 1: standard PDF path
         const ocrText1 = await runOCR(buffer, file.type);
-        ocrTextSeen += "\n" + ocrText1;
+        ocrTextSeen = appendOcrText(ocrTextSeen, "\n" + ocrText1);
         if (process.env.NODE_ENV !== "production") console.log("[Vision phase1] text (first 800):", ocrText1.slice(0, 800));
 
         let mrzData = parseMRZ(ocrText1);
@@ -1307,11 +1387,18 @@ export async function POST(req: NextRequest) {
           if (process.env.NODE_ENV !== "production") {
             console.log("[Vision phase2] MRZ not found — trying embedded JPEGs...");
           }
-          const jpegs = [...extractJpegsFromPdf(buffer)].sort((a, b) => b.length - a.length);
-          if (process.env.NODE_ENV !== "production") console.log(`[Vision phase2] ${jpegs.length} JPEG(s) found`);
+          // Bounded on BOTH axes (lib/ocrBudget.ts). This used to OCR every
+          // embedded image over 20 KB: a ten-page scan meant ten sequential
+          // base64 round trips, each allocating its own multiple of the image
+          // and only released when the GC caught up — inside a 128 MB isolate
+          // that was already holding the whole file. The MRZ is on the data
+          // page, which is virtually always the largest image, so the three
+          // biggest (each under the per-image cap) is all the reach we need.
+          const jpegs = pickEmbeddedJpegs(extractJpegsFromPdf(buffer));
+          if (process.env.NODE_ENV !== "production") console.log(`[Vision phase2] ${jpegs.length} JPEG(s) selected`);
           for (const jpeg of jpegs) {
             const ocrText2 = await runOCR(jpeg, "image/jpeg");
-            ocrTextSeen += "\n" + ocrText2;
+            ocrTextSeen = appendOcrText(ocrTextSeen, "\n" + ocrText2);
             const mrzData2 = parseMRZ(ocrText2);
             if (mrzData2) {
               mrzData = mrzData2;
