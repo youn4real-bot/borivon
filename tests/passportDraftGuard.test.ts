@@ -1,0 +1,321 @@
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import {
+  classifyProfileRead,
+  hasAnyPassportValue,
+  planPassportWrite,
+  PASSPORT_DRAFT_FIELDS,
+} from "../lib/passportDraftGuard";
+
+/**
+ * BUG 1 — A BLANK FORM OVERWROTE 62 PASSPORTS.
+ *
+ * A nurse taps her passport box. The dashboard reads her profile, the read
+ * fails, and `const { data } = await getMyProfile(...)` throws the error away —
+ * so `data` is null, which reads exactly like "she has no row yet". The form
+ * opens with eighteen empty inputs. 800 ms later the draft autosave POSTs that
+ * emptiness, the route upserts it verbatim, and her name, passport number,
+ * issue and expiry dates are nulled and every LAW #38 confirmation tick is
+ * cleared — while `passport_status` stays "approved", because a draft
+ * deliberately preserves the review status. Nothing anywhere flags it.
+ *
+ * Three independent things had to be true for that to happen, so three
+ * independent guards are pinned here:
+ *   1. the read's error was discarded        → classifyProfileRead
+ *   2. an all-blank payload was written      → planPassportWrite + the route
+ *   3. absent ticks were coerced to []       → planPassportWrite + the route
+ * plus the client-side seed gate, asserted against the dashboard source
+ * because it is a ref read inside a React effect in a 5,900-line client
+ * component that this Node-environment suite cannot mount.
+ */
+
+// ── The pure rules ──────────────────────────────────────────────────────────
+
+describe("classifyProfileRead: a failed read is not an empty one", () => {
+  it("an error is 'failed', whatever data says", () => {
+    expect(classifyProfileRead({ data: null, error: "network" })).toBe("failed");
+    expect(classifyProfileRead({ data: { first_name: "X" }, error: "boom" })).toBe("failed");
+  });
+
+  it("no result object at all is 'failed', not 'absent'", () => {
+    expect(classifyProfileRead(null)).toBe("failed");
+    expect(classifyProfileRead(undefined)).toBe("failed");
+  });
+
+  it("a clean read with no row is 'absent' — a brand-new candidate", () => {
+    expect(classifyProfileRead({ data: null, error: null })).toBe("absent");
+    expect(classifyProfileRead({ data: undefined, error: null })).toBe("absent");
+  });
+
+  it("a clean read with a row is 'loaded'", () => {
+    expect(classifyProfileRead({ data: { first_name: "SALMA" }, error: null })).toBe("loaded");
+    // An existing row whose columns happen to be empty is still 'loaded' —
+    // that is a real answer about the database, not a failure.
+    expect(classifyProfileRead({ data: {}, error: null })).toBe("loaded");
+  });
+});
+
+describe("hasAnyPassportValue", () => {
+  it("whitespace is not a value — otherwise a space defeats the guard", () => {
+    expect(hasAnyPassportValue({ first_name: "   ", last_name: "" })).toBe(false);
+    expect(hasAnyPassportValue({ first_name: "S" })).toBe(true);
+  });
+  it("null, undefined and an empty bag hold nothing", () => {
+    expect(hasAnyPassportValue(null)).toBe(false);
+    expect(hasAnyPassportValue(undefined)).toBe(false);
+    expect(hasAnyPassportValue({})).toBe(false);
+  });
+  it("covers every column the form owns", () => {
+    for (const k of PASSPORT_DRAFT_FIELDS) {
+      expect(hasAnyPassportValue({ [k]: "x" })).toBe(true);
+    }
+  });
+});
+
+describe("planPassportWrite", () => {
+  const STORED = { first_name: "SALMA", passport_no: "AB1234567", dob: "1994-03-02" };
+  const BLANK = Object.fromEntries(PASSPORT_DRAFT_FIELDS.map((k) => [k, null]));
+
+  it("an all-blank payload may not overwrite a row that holds data", () => {
+    const p = planPassportWrite({ incoming: BLANK, stored: STORED, confirmedSupplied: true });
+    expect(p.writeFields).toBe(false);
+    expect(p.writeConfirmed).toBe(false);
+    expect(p.skipped).toBe("blank_over_stored");
+  });
+
+  it("clearing ONE field among filled ones is a real edit and goes through", () => {
+    const p = planPassportWrite({
+      incoming: { ...BLANK, first_name: "SALMA", passport_no: null },
+      stored: STORED,
+      confirmedSupplied: true,
+    });
+    expect(p.writeFields).toBe(true);
+    expect(p.skipped).toBeNull();
+  });
+
+  it("a blank payload over a blank row is fine — nothing to lose", () => {
+    expect(planPassportWrite({ incoming: BLANK, stored: null, confirmedSupplied: true }).writeFields).toBe(true);
+    expect(planPassportWrite({ incoming: BLANK, stored: {}, confirmedSupplied: true }).writeFields).toBe(true);
+  });
+
+  it("LAW #38: ticks are only rewritten when the body actually carried the list", () => {
+    expect(planPassportWrite({ incoming: STORED, stored: STORED, confirmedSupplied: false }).writeConfirmed).toBe(false);
+    expect(planPassportWrite({ incoming: STORED, stored: STORED, confirmedSupplied: true }).writeConfirmed).toBe(true);
+  });
+});
+
+// ── The route, driven for real ──────────────────────────────────────────────
+
+const CAND = "22222222-2222-4222-8222-222222222222";
+
+/** What the profile read answers, and what the upsert received. */
+let storedRow: Record<string, unknown> | null = null;
+let readError: { message: string } | null = null;
+let upserts: Record<string, unknown>[] = [];
+let upsertError: { message: string } | null = null;
+
+function table(name: string) {
+  const chain: Record<string, unknown> = {
+    select: () => chain, eq: () => chain, ilike: () => chain, is: () => chain,
+    order: () => chain, limit: () => chain,
+    maybeSingle: async () => (readError ? { data: null, error: readError } : { data: storedRow, error: null }),
+    upsert: async (row: Record<string, unknown>) => {
+      if (name === "candidate_profiles") upserts.push(row);
+      return { error: upsertError };
+    },
+    insert: async () => ({ error: null }),
+  };
+  (chain as { then?: unknown }).then = (res: (v: unknown) => unknown) => res({ data: [], error: null });
+  return chain;
+}
+
+const fakeDb = {
+  from: (n: string) => table(n),
+  auth: {
+    getUser: async () => ({ data: { user: { id: CAND, email: "n@x.test", user_metadata: {} } }, error: null }),
+  },
+};
+
+vi.mock("@/lib/supabase", () => ({
+  getServiceSupabase: () => fakeDb,
+  getAnonVerifyClient: () => fakeDb,
+}));
+vi.mock("@/lib/rateLimit", () => ({ enforceRateLimit: () => ({ ok: true }) }));
+vi.mock("@/lib/passport-pdf", () => ({ uploadPassportPdfToDrive: async () => undefined }));
+vi.mock("@/lib/keepAlive", () => ({ keepAlive: () => undefined }));
+
+let POST: (r: never) => Promise<Response>;
+beforeAll(async () => {
+  ({ POST } = await import("@/app/api/portal/passport/route"));
+});
+beforeEach(() => {
+  storedRow = null; readError = null; upserts = []; upsertError = null;
+});
+
+async function post(body: Record<string, unknown>) {
+  const req = {
+    headers: { get: (k: string) => (k.toLowerCase() === "authorization" ? "Bearer stub-jwt" : null) },
+    json: async () => body,
+    url: "https://www.borivon.com/api/portal/passport",
+  };
+  const res = await POST(req as never);
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+/** The row as it stands for an APPROVED passport — the 62-profile shape. */
+const APPROVED = {
+  first_name: "SALMA", last_name: "BENALI", dob: "1994-03-02", sex: "F",
+  nationality: "marokkanisch", passport_no: "AB1234567", passport_expiry: "2031-05-09",
+  issuing_authority: "Rabat", issue_date: "2021-05-10",
+  city_of_birth: "Fes", country_of_birth: "Marokko",
+  address_street: null, address_number: null, address_postal: null,
+  city_of_residence: null, country_of_residence: null,
+  marital_status: null, children_ages: null,
+  passport_status: "approved",
+};
+
+/** Exactly what the dashboard sent when the form opened blank. */
+const BLANK_DRAFT = {
+  __draft: true, confirmed_fields: [],
+  ...Object.fromEntries(PASSPORT_DRAFT_FIELDS.map((k) => [k, ""])),
+};
+
+describe("POST /api/portal/passport", () => {
+  it("THE WIPE: a blank draft never reaches an approved passport", async () => {
+    storedRow = { ...APPROVED };
+    const r = await post(BLANK_DRAFT);
+    expect(r.status).toBe(200);
+    expect(r.body.skipped).toBe("blank_over_stored");
+    // Nothing was written at all — not the fields, not the ticks.
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("a real edit still saves, and still clears one field on purpose", async () => {
+    storedRow = { ...APPROVED };
+    const r = await post({
+      ...BLANK_DRAFT,
+      first_name: "SALMA", last_name: "BENALI", passport_no: "",
+      confirmed_fields: ["first_name"],
+    });
+    expect(r.status).toBe(200);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].first_name).toBe("SALMA");
+    expect(upserts[0].passport_no).toBeNull();
+    expect(upserts[0].passport_confirmed_fields).toEqual(["first_name"]);
+  });
+
+  it("LAW #38: a body with no confirmed_fields leaves the ticks alone", async () => {
+    storedRow = { ...APPROVED };
+    const r = await post({ __draft: true, first_name: "SALMA", last_name: "BENALI" });
+    expect(r.status).toBe(200);
+    expect(upserts).toHaveLength(1);
+    // Absent must mean "not talking about the ticks", never "clear them".
+    expect("passport_confirmed_fields" in upserts[0]).toBe(false);
+  });
+
+  it("LAW #38: a malformed confirmed_fields leaves the ticks alone too", async () => {
+    storedRow = { ...APPROVED };
+    await post({ __draft: true, first_name: "SALMA", confirmed_fields: "first_name" });
+    expect(upserts).toHaveLength(1);
+    expect("passport_confirmed_fields" in upserts[0]).toBe(false);
+  });
+
+  it("SHAPE A: a failed profile read refuses the write instead of guessing", async () => {
+    storedRow = { ...APPROVED };
+    readError = { message: "connection terminated" };
+    const r = await post({ __draft: true, first_name: "SALMA" });
+    expect(r.status).toBe(503);
+    expect(r.body.error).toBe("read_failed");
+    // "I could not check" must never be spent as "there is nothing there".
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("a brand-new candidate's first draft still saves", async () => {
+    storedRow = null;
+    const r = await post({ __draft: true, first_name: "SALMA", confirmed_fields: [] });
+    expect(r.status).toBe(200);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].first_name).toBe("SALMA");
+    expect(upserts[0].passport_confirmed_fields).toEqual([]);
+  });
+
+  it("an explicit blank Submit is refused, not silently accepted", async () => {
+    storedRow = { ...APPROVED };
+    const r = await post({ ...BLANK_DRAFT, __draft: false });
+    expect(r.status).toBe(409);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("the candidate never sees raw Postgres prose (LAW #19)", async () => {
+    storedRow = { ...APPROVED };
+    upsertError = { message: 'null value in column "passport_no" violates not-null constraint' };
+    const r = await post({ __draft: true, first_name: "SALMA" });
+    expect(r.status).toBe(500);
+    expect(r.body.error).toBe("save_failed");
+    expect(String(r.body.error)).not.toMatch(/constraint|column/i);
+  });
+});
+
+// ── The client-side seed gate ───────────────────────────────────────────────
+
+/** Source with comments blanked, offsets preserved: every fix here is
+ *  commented with the broken line it replaces, so raw text would match the
+ *  explanation instead of the code. Same approach as adminPanelHonesty. */
+function code(path: string): string {
+  return readFileSync(path, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, " "))
+    .replace(/(^|[^:"'`\\])\/\/[^\r\n]*/g, (m, lead: string) => lead + " ".repeat(m.length - lead.length));
+}
+
+const DASH = code("app/portal/dashboard/page.tsx");
+const ROUTE = code("app/api/portal/passport/route.ts");
+
+describe("the dashboard cannot autosave a form it never loaded", () => {
+  it("the profile read is classified, not destructured into a blank form", () => {
+    expect(DASH).toContain("classifyProfileRead");
+    // The exact line that started the wipe must not come back.
+    expect(DASH).not.toMatch(/const\s*\{\s*data\s*\}\s*=\s*await\s+getMyProfile\(\s*\r?\n?\s*"first_name/);
+  });
+
+  it("the autosave effect is gated on a form that was actually seeded", () => {
+    expect(DASH).toMatch(/if\s*\(!passportFormSeededRef\.current\)\s*return;/);
+    // The gate has to sit INSIDE the open-modal branch, above the localStorage
+    // write and the debounced POST — after them it would guard nothing.
+    const gate = DASH.indexOf("if (!passportFormSeededRef.current) return;");
+    const localWrite = DASH.indexOf("writeLocalDraft(localStorage");
+    const debounced = DASH.indexOf("passportDraftTimer.current = setTimeout");
+    expect(gate).toBeGreaterThan(0);
+    expect(gate).toBeLessThan(localWrite);
+    expect(gate).toBeLessThan(debounced);
+  });
+
+  it("every seed that sets the form also claims it, and closing releases it", () => {
+    // Three trusted seeds: a successful read, a fresh OCR extraction, the
+    // local draft restored at bootstrap. Plus the reset when the form closes.
+    const claims = DASH.match(/passportFormSeededRef\.current\s*=\s*true/g) ?? [];
+    expect(claims.length).toBe(3);
+    expect(DASH).toMatch(/passportFormSeededRef\.current\s*=\s*false/);
+  });
+
+  it("a failed load says so in all three languages (LAW #19)", () => {
+    expect(DASH).toContain("passportLoadFailed");
+    expect(DASH).toContain("Ihre Passdaten konnten nicht geladen werden");
+    expect(DASH).toContain("n’ont pas pu être chargées");
+    expect(DASH).toContain("could not be loaded");
+  });
+});
+
+describe("the route's own guards are wired, not merely available", () => {
+  it("the existing-row read's error is checked before anything is written", () => {
+    const check = ROUTE.indexOf("if (readErr)");
+    const plan = ROUTE.indexOf("planPassportWrite({");
+    const upsert = ROUTE.indexOf('from("candidate_profiles").upsert');
+    expect(check).toBeGreaterThan(0);
+    expect(check).toBeLessThan(plan);
+    expect(plan).toBeLessThan(upsert);
+  });
+  it("confirmed_fields presence is a decision, not a coercion", () => {
+    expect(ROUTE).toMatch(/const\s+confirmedSupplied\s*=\s*Array\.isArray\(body\.confirmed_fields\)/);
+    expect(ROUTE).toMatch(/if\s*\(!plan\.writeConfirmed\)\s*delete\s+upsertRow\.passport_confirmed_fields;/);
+  });
+});
