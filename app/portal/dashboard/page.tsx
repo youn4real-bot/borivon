@@ -9,6 +9,7 @@ import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib
 import { isMergeRefusalCode, nameCannotMerge } from "@/lib/docBytes";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
+import { savePassportDraft, writeLocalDraft, flushAndReleaseLocalDraft } from "@/lib/passportDraft";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -866,7 +867,36 @@ export default function DashboardPage() {
 
   // Autosave indicator for passport modal
   const [passportSavedAt, setPassportSavedAt]   = useState<Date | null>(null);
-  const [passportSaveError, setPassportSaveError] = useState(false);
+  /**
+   * HOW the passport draft last failed to persist — a value, not a boolean,
+   * because the two faults need different words:
+   *   "server" — the DB draft-save was refused or unreachable. Her entries are
+   *              still on this device, so the honest message is "not saved yet".
+   *   "local"  — the browser refused localStorage (Safari private mode throws
+   *              QuotaExceededError on the first setItem). The DB copy is then
+   *              the ONLY copy, so she must not close the form on a bad line.
+   * This used to be a boolean that nothing rendered: set in four places, read
+   * in none. A save could fail on every keystroke and the form looked fine.
+   */
+  type PassportSaveFault = "server" | "local";
+  const [passportSaveError, setPassportSaveError] = useState<PassportSaveFault | null>(null);
+  /**
+   * Closing the form could not reach the server, so her draft lives ONLY in
+   * this browser. Kept in its own state because it has to outlive the modal —
+   * the failure happens at the exact moment she stops looking at the form, and
+   * a message inside a closed modal is no message at all.
+   */
+  const [passportDraftUnsent, setPassportDraftUnsent] = useState(false);
+  const [passportDraftRetrying, setPassportDraftRetrying] = useState(false);
+  /** On main this wraps every passport write in passportLive.trackSave, so a
+   *  live poll cannot patch the modal from a read that predates the save. That
+   *  live poll is part of the paused D1 work and does not exist on this line,
+   *  so the write goes straight out. The indirection stays so the two lines
+   *  remain one edit apart, and so every caller below is already routed. */
+  const passportFetch = useCallback<typeof fetch>(
+    (input, init) => fetch(input, init),
+    [],
+  );
 
   // Immediate (non-debounced) DB draft-save. Fired the instant passport data
   // first appears — OCR extraction AND bootstrap localStorage restore — so
@@ -874,14 +904,50 @@ export default function DashboardPage() {
   // (phone) without depending on the debounced editor save.
   const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] = []) => {
     if (!token) return;
-    fetch("/api/portal/passport", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ...data, confirmed_fields: confirmed, __draft: true }),
-    })
-      .then(r => { if (r.ok) { setPassportSavedAt(new Date()); setPassportSaveError(false); } else setPassportSaveError(true); })
-      .catch(() => setPassportSaveError(true));
-  }, []);
+    void savePassportDraft({ fetchImpl: passportFetch, token, data, confirmed })
+      .then(res => {
+        if (res.saved) { setPassportSavedAt(new Date()); setPassportSaveError(null); setPassportDraftUnsent(false); }
+        else setPassportSaveError("server");
+      });
+  }, [passportFetch]);
+
+  /**
+   * "Try again" on the unsent-draft banner. Reads the draft back out of the
+   * device — the local copy is the source of truth here precisely because the
+   * server has not got it — and releases the local keys only once the POST is
+   * confirmed, exactly like closing the modal does.
+   */
+  const retryPassportDraft = useCallback(async () => {
+    if (!userId || passportDraftRetrying) return;
+    const key = `bv-passport-pending-${userId}`;
+    const confKey = `bv-passport-confirmed-${userId}`;
+    let data: Record<string, unknown> | null = null;
+    let confirmed: string[] = [];
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) data = JSON.parse(raw) as Record<string, unknown>;
+      const rawConf = localStorage.getItem(confKey);
+      if (rawConf) confirmed = (JSON.parse(rawConf) as unknown[]).filter((x): x is string => typeof x === "string");
+    } catch { /* corrupt or blocked — handled by the null check below */ }
+    // Nothing left on the device: there is no draft to re-send, so the banner
+    // would only be nagging about work that is already gone or already saved.
+    if (!data) { setPassportDraftUnsent(false); return; }
+    setPassportDraftRetrying(true);
+    try {
+      const res = await flushAndReleaseLocalDraft({
+        fetchImpl: passportFetch,
+        token: authToken,
+        data,
+        confirmed,
+        storage: localStorage,
+        keys: { data: key, confirmed: confKey },
+      });
+      setPassportDraftUnsent(res.keptLocal);
+      if (!res.keptLocal) { setPassportSaveError(null); setPassportSavedAt(new Date()); }
+    } finally {
+      setPassportDraftRetrying(false);
+    }
+  }, [userId, authToken, passportFetch, passportDraftRetrying]);
 
   // Persist passport data PERMANENTLY: localStorage (instant offline cache)
   // + a debounced DB draft-save so the extracted/edited data survives across
@@ -902,27 +968,27 @@ export default function DashboardPage() {
       const confArr = Array.from(confirmedFields);
       // Remember it for the close-flush above.
       lastPassportSnapshotRef.current = { data: passportModal as Record<string, unknown>, confirmed: confArr };
-      try {
-        localStorage.setItem(key, JSON.stringify(passportModal));
-        localStorage.setItem(confKey, JSON.stringify(confArr));
-        setPassportSaveError(false);
-      } catch { setPassportSaveError(true); }
+      const wroteLocal = writeLocalDraft(localStorage, { data: key, confirmed: confKey }, passportModal, confArr);
+      // A refused localStorage is its OWN fault, not "the save failed": it means
+      // the server copy is the only copy from here on, which she must be told.
+      setPassportSaveError(wroteLocal ? null : "local");
       // 2) Debounced server draft-save (cross-device permanence) — fields
       //    AND the confirmation checkboxes (toggling a box changes
       //    confirmedFields, which re-runs this effect).
       if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
       const snapshot = passportModal;
       passportDraftTimer.current = setTimeout(() => {
-        fetch("/api/portal/passport", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-          body: JSON.stringify({ ...snapshot, confirmed_fields: confArr, __draft: true }),
-        })
-          .then(r => {
-            if (r.ok) { setPassportSavedAt(new Date()); setPassportSaveError(false); }
-            else setPassportSaveError(true);
-          })
-          .catch(() => setPassportSaveError(true));
+        void savePassportDraft({
+          fetchImpl: passportFetch,
+          token: authToken,
+          data: snapshot as Record<string, unknown>,
+          confirmed: confArr,
+        }).then(res => {
+          if (res.saved) { setPassportSavedAt(new Date()); setPassportSaveError(null); setPassportDraftUnsent(false); }
+          // Don't paper over a refused localStorage with a server verdict —
+          // "local" is the worse of the two and stays until it succeeds.
+          else setPassportSaveError(prev => (prev === "local" ? prev : "server"));
+        });
       }, 800);
     } else {
       // CLOSING FLUSHES — it must never cancel.
@@ -935,23 +1001,49 @@ export default function DashboardPage() {
       // and the local cache was wiped in the same breath. On the longest form in
       // the product, on a phone, where a mistap closes it.
       //
-      // Sending the last snapshot immediately means the local cache can still be
-      // cleared safely: the server now holds her draft, so reopening restores it
-      // from there. keepalive lets the request outlive the unmount.
+      // Sending the last snapshot immediately means the local cache CAN be
+      // cleared — but only once the server has said it has the draft. keepalive
+      // lets the request outlive the unmount.
+      //
+      // THE SECOND HALF OF THE SAME BUG: the two removeItem calls used to run
+      // here unconditionally, in the same tick as a fire-and-forget POST whose
+      // response nobody read. One failed save — offline in a lift, a 502 from
+      // the Worker, an expired JWT — and BOTH stores were empty. Eighteen
+      // fields typed on a phone, gone, and the modal just closed. Now the
+      // release waits for `saved`, and a failure keeps her copy AND says so.
       const snap = lastPassportSnapshotRef.current;
       if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
       if (snap && authToken) {
-        fetch("/api/portal/passport", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({ ...snap.data, confirmed_fields: snap.confirmed, __draft: true }),
-          keepalive: true,
-        }).catch(() => { /* best-effort: the local cache below is the fallback */ });
+        // Sent ONCE. This branch re-runs whenever a dep changes while the modal
+        // is closed — the ~55 min token refresh, or a confirmation tick from her
+        // other device arriving through the live poll — and re-sending the
+        // remembered snapshot then POSTed an OLD draft over the newer one,
+        // un-ticking a box the other device had just ticked (LAW #38).
+        lastPassportSnapshotRef.current = null;
+        void flushAndReleaseLocalDraft({
+          fetchImpl: passportFetch,
+          token: authToken,
+          data: snap.data,
+          confirmed: snap.confirmed,
+          storage: localStorage,
+          keys: { data: key, confirmed: confKey },
+        }).then(res => {
+          setPassportDraftUnsent(res.keptLocal);
+          if (!res.keptLocal) setPassportSaveError(null);
+        });
+      } else if (snap) {
+        // A snapshot exists but there is no token to send it with. Keep both
+        // keys — signing back in and reopening is what recovers her work.
+        setPassportDraftUnsent(true);
       }
-      localStorage.removeItem(key);
-      localStorage.removeItem(confKey);
-      setPassportSavedAt(null); // closing the modal clears the indicator
-      setPassportSaveError(false);
+      // NOTE: there is deliberately no "else remove the keys" here. This branch
+      // re-runs on every dep change while the modal is closed — the ~55 min
+      // token refresh alone guarantees one — and by then `snap` has been nulled
+      // by the flush above. An unconditional removeItem would therefore wipe
+      // the very draft the failed flush just preserved, an hour later, out of
+      // nowhere. Leftover keys are harmless: the bootstrap restore reads them
+      // back into the form and re-sends them, and a confirmed save clears them.
+      setPassportSavedAt(null); // closing the modal clears the "saved at" stamp
     }
     return () => { if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current); };
   }, [passportModal, confirmedFields, userId, authToken]);
@@ -3042,6 +3134,37 @@ export default function DashboardPage() {
             Also consumes the ?interview=<id> bell deep-link. */}
         <InterviewPicker authToken={authToken} />
 
+        {/* ── Passport draft not on the server ──
+            Her entries are still in THIS browser, and this banner is the only
+            thing that tells her so. Before it existed, a failed save on close
+            deleted the local copy and said nothing at all — the form simply
+            closed and eighteen fields were gone. It stays put until a retry
+            lands, because reopening the form is what re-sends the draft. */}
+        {passportDraftUnsent && (
+          <div className="mb-5 px-4 py-3 flex items-start gap-3"
+            style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
+            <AlertTriangle size={15} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] leading-[1.45]" style={{ color: "var(--w2)" }}>
+                {lang === "de"
+                  ? "Ihre Passdaten konnten nicht gespeichert werden. Sie sind noch auf diesem Gerät gespeichert — schließen Sie diese Seite nicht und versuchen Sie es erneut."
+                  : lang === "fr"
+                  ? "Vos données de passeport n’ont pas pu être enregistrées. Elles sont encore sur cet appareil — ne fermez pas cette page et réessayez."
+                  : "Your passport entries could not be saved. They are still on this device — don’t close this page, and try again."}
+              </p>
+              <button
+                onClick={() => void retryPassportDraft()}
+                disabled={passportDraftRetrying}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", opacity: passportDraftRetrying ? 0.6 : 1 }}>
+                {passportDraftRetrying
+                  ? (lang === "de" ? "Wird gesendet…" : lang === "fr" ? "Envoi…" : "Sending…")
+                  : (lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again")}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Permanent "profile is verified" banner removed per request.
             Verification still works (badge on the public profile, celebration
             animation on first verify) — only this dashboard panel is gone. */}
@@ -4459,6 +4582,31 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+            {/* ── Autosave fault line ──
+                Shown ONLY when a save is failing, so a working form stays as
+                quiet as before. `passportSaveError` used to be a boolean that
+                nothing rendered: every save could fail and the form looked
+                perfectly healthy right up to the moment closing it threw the
+                work away. "local" is the graver one — the device refused to
+                cache, so the server copy is the only copy. */}
+            {passportSaveError && (
+              <div className="px-5 pb-3 flex items-start gap-2 flex-shrink-0">
+                <AlertTriangle size={13} strokeWidth={2.2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 2 }} />
+                <p className="text-[11.5px] leading-[1.4]" style={{ color: "var(--warning)" }}>
+                  {passportSaveError === "local"
+                    ? (lang === "de"
+                        ? "Dieses Gerät kann Ihre Eingaben nicht zwischenspeichern. Lassen Sie das Formular offen, bis „gespeichert“ erscheint."
+                        : lang === "fr"
+                        ? "Cet appareil ne peut pas mettre vos saisies en cache. Laissez le formulaire ouvert jusqu’à l’enregistrement."
+                        : "This device can’t cache your entries. Keep the form open until it saves.")
+                    : (lang === "de"
+                        ? "Noch nicht gespeichert — Ihre Eingaben bleiben auf diesem Gerät. Wir versuchen es weiter."
+                        : lang === "fr"
+                        ? "Pas encore enregistré — vos saisies restent sur cet appareil. Nous réessayons."
+                        : "Not saved yet — your entries stay on this device. We keep retrying.")}
+                </p>
+              </div>
+            )}
             {/* Fields — 2-column grid, scrollable */}
             <div className="px-5 py-4 overflow-y-auto flex-1 bv-pp-fields">
               {(() => {
