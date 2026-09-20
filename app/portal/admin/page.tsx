@@ -900,6 +900,10 @@ export default function AdminPage() {
   // Scope currently being fetched per phase — dedupes concurrent loads so the
   // loaded marker is only set on a successful, still-relevant response.
   const slotFetchRef = useRef<Record<string, string>>({});
+  /** Phases whose slot-category read has already been reported as failed, so a
+   *  burst of scope switches during one outage cannot turn a single truth into
+   *  a wall of identical toasts. Cleared for a phase the moment it loads. */
+  const catLoadWarnedRef = useRef<Set<string>>(new Set());
   // ── Doc-set SCOPE for the Bearbeitung/Visum manager ─────────────────────────
   // Define a shared document set ONCE and every assigned candidate inherits it —
   // no more re-adding the same docs per person. Scope choices:
@@ -2631,8 +2635,18 @@ export default function AdminPage() {
         setAddSlotLabel("");
         setAddSlotInstructions("");
         setAddSlotCatId(null);
+        setAddSlotSaving(false);
+        return;
       }
-    } catch { /* network error */ }
+      // Same sweep, same shape: there was no else here either. On a 403 or a
+      // 500 the spinner simply stopped, the naming popup stayed open with the
+      // typed label still in it, and no box appeared in the list — which reads
+      // as "the Save button did not register", so it gets pressed again. The
+      // popup deliberately stays open: the label is still there to retry with.
+      reportStructureSaveFailed();
+    } catch {
+      reportStructureSaveFailed();
+    }
     setAddSlotSaving(false);
   }
 
@@ -3073,7 +3087,12 @@ export default function AdminPage() {
     if (!accessToken) return;
     setSlotConfigSaving(true);
     try {
-      await fetch("/api/portal/phase-slots", {
+      // The response was never read, and the popup closed and the local slot
+      // was rewritten regardless — so a refused config looked identical to a
+      // saved one. Unreachable today (the popup only opens when
+      // SIGN_FILL_ENABLED is on, and it is off), which is exactly why it is
+      // worth closing now: flipping that flag back on would ship the bug.
+      const r = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
@@ -3084,6 +3103,12 @@ export default function AdminPage() {
           is_required: cfg.is_required,
         }),
       });
+      if (!r.ok) {
+        // Popup stays open, choices intact, nothing written to local state.
+        // (The finally below clears the spinner.)
+        reportStructureSaveFailed();
+        return;
+      }
       // Update local state
       setPhaseSlots(prev => {
         const updated: typeof prev = {};
@@ -3113,6 +3138,10 @@ export default function AdminPage() {
       if ((needsAdminSig || needsCandidateSig) && slot) {
         await openPlacementWizard(cfg.slotId, { admin: needsAdminSig, candidate: needsCandidateSig });
       }
+    } catch {
+      // There was no catch at all: callers invoke this with `void`, so a thrown
+      // fetch left an unhandled rejection and a popup that had already closed.
+      reportStructureSaveFailed();
     } finally { setSlotConfigSaving(false); }
   }
 
@@ -3247,8 +3276,28 @@ export default function AdminPage() {
       if (res.ok) {
         const j = await res.json();
         setSlotCategories(prev => ({ ...prev, [phase]: (j.categories ?? []) as SlotCategory[] }));
+        catLoadWarnedRef.current.delete(phase);   // recovered — a later outage may warn again
+        return;
       }
-    } catch { /* migration pending / offline → stays flat */ }
+      reportCategoriesUnknown(phase);
+    } catch { reportCategoriesUnknown(phase); }
+  }
+
+  /** A non-OK slot-category read is NOT the pending-migration case: that path
+   *  deliberately answers 200 with `{ categories: [], migrated: false }` so the
+   *  list degrades to flat on a database that has not run the SQL yet. A 401 on
+   *  an expired JWT, a 429 from the 60/min read limit or a 500 is a different
+   *  thing entirely, and swallowing it draws every grouped box as a loose one:
+   *  the admin is shown a structure they did not build, and the next drag
+   *  renumbers the top-level order against that wrong picture. */
+  function reportCategoriesUnknown(phase: string) {
+    if (catLoadWarnedRef.current.has(phase)) return;
+    catLoadWarnedRef.current.add(phase);
+    showError(lang === "de"
+      ? "Die Gruppen dieser Dokumente konnten nicht geladen werden — die Liste erscheint möglicherweise ungruppiert."
+      : lang === "fr"
+        ? "Les groupes de ces documents n'ont pas pu être chargés — la liste peut sembler sans groupes."
+        : "Couldn't load the groups for these documents — the list may look ungrouped.");
   }
   // Persist category positions (top-level rank) in one PATCH.
   async function saveCategoryOrder(phase: string, cats: SlotCategory[]) {

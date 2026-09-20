@@ -287,3 +287,77 @@ describe("a file dropped on a slot row never disappears in silence", () => {
     expect(ADMIN).toContain("handleDocBoxDrop(e.dataTransfer.files?.[0], vb.key, vb.label)");
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// The sweep — the same three shapes everywhere else in the file
+// ───────────────────────────────────────────────────────────────────────────
+describe("the same three shapes are gone from the rest of the panel", () => {
+  it("adding a document box reports a refused create", () => {
+    // The spinner stopped, the naming popup stayed open with the typed label in
+    // it, and no box appeared — which reads as "Save did not register", so it
+    // gets pressed again.
+    const body = fnBody(ADMIN, "async function addPhaseSlot(");
+    expect(body, "the non-OK path must say something").toContain("reportStructureSaveFailed()");
+    expect(body, "a thrown fetch must too").toMatch(/catch\s*\{\s*\r?\n\s*reportStructureSaveFailed\(\);/);
+    expect(body, "an empty catch is the shape being removed").not.toMatch(/catch\s*\{\s*\}/);
+  });
+
+  it("adding a document box only clears the popup on success", () => {
+    const body = fnBody(ADMIN, "async function addPhaseSlot(");
+    const okAt = body.indexOf("if (res.ok) {");
+    const clearAt = body.indexOf("setAddSlotPhase(null)");
+    const catchAt = body.indexOf("} catch {");
+    expect(clearAt, "the popup is never cleared at all now?").toBeGreaterThan(okAt);
+    expect(clearAt, "clearing it outside the ok branch would discard the typed label")
+      .toBeLessThan(catchAt);
+  });
+
+  it("the slot config save reads its response before closing its popup", () => {
+    const body = fnBody(ADMIN, "async function saveSlotConfig(");
+    const fetchAt = body.indexOf("const r = await fetch(");
+    const guardAt = body.indexOf("if (!r.ok) {");
+    const closeAt = body.indexOf("setSlotConfigPopup(null)");
+    expect(fetchAt, "the response is not even captured").toBeGreaterThan(-1);
+    expect(guardAt, "the response is captured but never checked").toBeGreaterThan(fetchAt);
+    expect(closeAt, "the popup must not close ahead of the check").toBeGreaterThan(guardAt);
+    expect(body, "callers use `void`, so a throw needs a catch or it is unhandled")
+      .toContain("catch {");
+  });
+
+  it("a failed slot-category read says so instead of drawing every box loose", () => {
+    const body = fnBody(ADMIN, "async function loadSlotCategories(");
+    expect(body, "the non-OK path must report").toContain("reportCategoriesUnknown(phase)");
+    expect(body, "and the thrown one").toMatch(/catch\s*\{\s*reportCategoriesUnknown\(phase\);\s*\}/);
+    expect(body, "a recovered phase must be able to warn again later")
+      .toContain("catLoadWarnedRef.current.delete(phase)");
+  });
+
+  it("the category warning fires once per phase, not once per scope switch", () => {
+    const body = fnBody(ADMIN, "function reportCategoriesUnknown(");
+    expect(body, "without the guard one outage becomes a wall of identical toasts")
+      .toContain("if (catLoadWarnedRef.current.has(phase)) return;");
+    expect(body).toContain("catLoadWarnedRef.current.add(phase)");
+  });
+
+  it("LAW #19: the category warning exists in all three languages", () => {
+    const body = fnBody(ADMIN, "function reportCategoriesUnknown(");
+    expect(body).toContain("Die Gruppen dieser Dokumente");
+    expect(body).toContain("Les groupes de ces documents");
+    expect(body).toContain("Couldn't load the groups");
+  });
+
+  it("no slot-structure write is left with an empty catch", () => {
+    for (const decl of [
+      "async function addPhaseSlot(",
+      "async function saveSlotLabel(",
+      "async function saveSlotOrder(",
+      "async function saveCategoryOrder(",
+      "async function renameCategory(",
+      "async function deleteSlotCategory(",
+      "async function deletePhaseSlot(",
+    ]) {
+      const body = fnBody(ADMIN, decl);
+      expect(body, `${decl} still swallows a failure`).not.toMatch(/catch\s*\{\s*\}/);
+    }
+  });
+});
