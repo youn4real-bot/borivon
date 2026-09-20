@@ -179,7 +179,14 @@ describe("a structure edit is only 'done' once the server says so", () => {
     for (const decl of ["async function saveSlotOrder(", "async function saveCategoryOrder("]) {
       const body = fnBody(ADMIN, decl);
       expect(body, `${decl} must read the response`).toMatch(/const r = await fetch\(/);
-      expect(body, `${decl} must report a refusal`).toContain("if (!r.ok) reportStructureSaveFailed();");
+      // Two accepted shapes. `saveSlotOrder` now guards with
+      // slotWriteSucceeded(r), which checks the BODY as well as the status,
+      // because /api/portal/phase-slots used to answer 200 {ok:true} over an
+      // UPDATE that had failed — so `r.ok` was true and meant nothing.
+      // `saveCategoryOrder` talks to phase-slot-categories and still uses the
+      // plain status check.
+      expect(body, `${decl} must report a refusal`)
+        .toMatch(/if \(!\(await slotWriteSucceeded\(r\)\)\) reportStructureSaveFailed\(\);|if \(!r\.ok\) reportStructureSaveFailed\(\);/);
       expect(body, `${decl} must report a thrown fetch too`)
         .toContain("catch { reportStructureSaveFailed(); }");
     }
@@ -321,7 +328,11 @@ describe("the same three shapes are gone from the rest of the panel", () => {
   it("the slot config save reads its response before closing its popup", () => {
     const body = fnBody(ADMIN, "async function saveSlotConfig(");
     const fetchAt = body.indexOf("const r = await fetch(");
-    const guardAt = body.indexOf("if (!r.ok) {");
+    // The guard is no longer `if (!r.ok)`: the route answered HTTP 200
+    // { ok: true } over a failed UPDATE, so the status alone was not an answer
+    // and "who signs" could be saved, confirmed on screen, and never stored.
+    // slotWriteSucceeded(r) requires the status AND the body to agree.
+    const guardAt = body.indexOf("if (!(await slotWriteSucceeded(r))) {");
     const closeAt = body.indexOf("setSlotConfigPopup(null)");
     expect(fetchAt, "the response is not even captured").toBeGreaterThan(-1);
     expect(guardAt, "the response is captured but never checked").toBeGreaterThan(fetchAt);

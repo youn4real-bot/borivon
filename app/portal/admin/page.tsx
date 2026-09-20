@@ -3102,9 +3102,10 @@ export default function AdminPage() {
     try {
       // The response was never read, and the popup closed and the local slot
       // was rewritten regardless — so a refused config looked identical to a
-      // saved one. Unreachable today (the popup only opens when
-      // SIGN_FILL_ENABLED is on, and it is off), which is exactly why it is
-      // worth closing now: flipping that flag back on would ship the bug.
+      // saved one. Reading `r.ok` was then still not enough: the route answered
+      // 200 {ok:true} over a failed UPDATE, so "who signs" could be chosen,
+      // saved, confirmed on screen, and never stored. Both halves are checked
+      // now — see slotWriteSucceeded.
       const r = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -3116,7 +3117,7 @@ export default function AdminPage() {
           is_required: cfg.is_required,
         }),
       });
-      if (!r.ok) {
+      if (!(await slotWriteSucceeded(r))) {
         // Popup stays open, choices intact, nothing written to local state.
         // (The finally below clears the spinner.)
         reportStructureSaveFailed();
@@ -3254,6 +3255,28 @@ export default function AdminPage() {
    *  drags the boxes, they stay dragged, and days later they are back where
    *  they started. Reverting silently would be just as confusing mid-drag, so
    *  say it instead and let the next load show the truth. */
+  /**
+   * Did that slot write actually land?
+   *
+   * `r.ok` alone was not an answer. /api/portal/phase-slots used to return
+   * HTTP 200 `{ ok: true }` over an UPDATE that had failed, so every caller
+   * that dutifully checked the status was told "saved" about a row that had
+   * not changed. The route no longer lies (it 500s with code WRITE_FAILED),
+   * but a client that only reads the status is one careless server edit away
+   * from the same silence — so the contract is checked on BOTH sides: a
+   * success status AND `ok: true` in the body.
+   *
+   * A body that will not parse (an edge HTML error page, a truncated response
+   * on Moroccan mobile data) counts as NOT saved. Claiming a failure that
+   * actually succeeded costs one needless reload; claiming a success that
+   * failed is the bug this exists to end.
+   */
+  async function slotWriteSucceeded(r: Response): Promise<boolean> {
+    if (!r.ok) return false;
+    const body = await r.json().catch(() => null) as { ok?: boolean } | null;
+    return body?.ok === true;
+  }
+
   function reportStructureSaveFailed() {
     showError(lang === "de" ? "Änderung wurde nicht gespeichert — bitte Seite neu laden und erneut versuchen."
       : lang === "fr" ? "La modification n'a pas été enregistrée — rechargez la page et réessayez."
@@ -3272,7 +3295,9 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ positions: slots }),
       });
-      if (!r.ok) reportStructureSaveFailed();
+      // Status AND body: a reorder in which some rows never moved now answers
+      // 500 WRITE_FAILED instead of ok, and this call has to notice.
+      if (!(await slotWriteSucceeded(r))) reportStructureSaveFailed();
     } catch { reportStructureSaveFailed(); }
   }
 
@@ -6723,7 +6748,14 @@ export default function AdminPage() {
                             // OR admin + candidate (candidate completes remaining
                             // native fields in their dashboard fillForm).
                             const candidateFills = !!letCandidateComplete;
-                            await fetch("/api/portal/phase-slots", {
+                            // This write decides whether the candidate is asked
+                            // to complete the remaining fields. It used to catch
+                            // only a network throw and console.warn it — an HTTP
+                            // refusal was not looked at at all — and then the
+                            // local state below was rewritten either way, so the
+                            // panel showed "candidate fills" over a row that
+                            // still said otherwise.
+                            const cfgSaved = await fetch("/api/portal/phase-slots", {
                               method: "PATCH",
                               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
                               body: JSON.stringify({
@@ -6732,7 +6764,17 @@ export default function AdminPage() {
                                 admin_fills: true,  candidate_fills: candidateFills,
                                 pdf_has_native_fields: true,
                               }),
-                            }).catch(err => console.warn("[autoFill] phase-slots PATCH failed:", err));
+                            }).then(slotWriteSucceeded).catch(() => false);
+                            if (!cfgSaved) {
+                              // Say so and stop: do NOT paint the new config over
+                              // a row that kept the old one, and do NOT send her a
+                              // notification about a step the slot has not been
+                              // told to expect. The modal stays open with the
+                              // mappings intact so Submit can simply be pressed
+                              // again — the same choice the placement wizard makes.
+                              reportStructureSaveFailed();
+                              return;
+                            }
                             setPhaseSlots(prev => {
                               const updated: typeof prev = {};
                               for (const [ph, slots] of Object.entries(prev)) {
@@ -8055,14 +8097,24 @@ export default function AdminPage() {
             }
 
             // Save candidate sig zone on the slot for the candidate-side flow.
-            await fetch("/api/portal/phase-slots", {
+            // The response was not read at all. If this write is refused, the
+            // slot has no signature zone — so the candidate would be notified
+            // to sign and then handed a PDF with nowhere to sign on it, while
+            // the panel drew the zone the admin had just placed.
+            const zoneSaved = await fetch("/api/portal/phase-slots", {
               method: "PATCH",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
               body: JSON.stringify({
                 id: wz.slotId,
                 candidate_signature_zone: wz.candidateSigZone,
               }),
-            });
+            }).then(slotWriteSucceeded).catch(() => false);
+            if (!zoneSaved) {
+              // Wizard stays open with the zone still placed, so it can simply
+              // be submitted again — and no notification goes out.
+              reportStructureSaveFailed();
+              return;
+            }
 
             setPhaseSlots(prev => {
               const updated: typeof prev = {};
