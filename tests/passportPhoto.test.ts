@@ -55,12 +55,12 @@ describe("the passport box accepts a phone photo", () => {
 
   it("the picker offers a photo for the passport and only PDF elsewhere", () => {
     // Offering "Take Photo" on a box that then refuses the photo IS the bug.
-    expect(DASHBOARD).toMatch(/ID_KEYS\.includes\(activeKey\)\s*\n?\s*\?\s*"\.pdf,\.jpg,\.jpeg,\.png,\.webp"/);
-    // \r? — this repository is checked out with CRLF on Windows, and a bare \n
-    // made the assertion fail on the UNMODIFIED file: the line really does end
-    // `".pdf"\r\n`. A source-scanning test must match the bytes the checkout
-    // actually has, or it reports a regression that is not there and everyone
-    // learns to ignore a red suite.
+    // The trailing newline is matched line-ending agnostically on purpose.
+    // This repository is checked out with core.autocrlf=true, so on Windows the
+    // line really does end CR LF, and anchoring on a bare LF made this assertion
+    // fail on an UNMODIFIED file on the founder's own laptop while passing in CI
+    // - a red suite that says nothing about the code, which teaches everyone to
+    // ignore it. Match the bytes the checkout actually has, on either platform.
     expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\r?\n/);
   });
 

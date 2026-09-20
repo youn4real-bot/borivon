@@ -862,23 +862,42 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
         const { doc } = await res.json();
         if (doc?.id && doc?.user_id) {
           const email = n.user_email || "";
-          router.push(`/portal/admin?nav_email=${encodeURIComponent(email)}&nav_doc_id=${encodeURIComponent(doc.id)}`);
+          // nav_user_id goes in the URL too. Older notification rows carry an
+          // EMPTY user_email (the upload route used to write one), and the
+          // admin page's URL handler only ever acted when nav_email was
+          // present — so for those rows a refresh, or a cold navigation from
+          // another page, dropped the document on the floor. The id always
+          // exists: the server just resolved it.
+          router.push(
+            `/portal/admin?nav_email=${encodeURIComponent(email)}` +
+            `&nav_user_id=${encodeURIComponent(doc.user_id)}` +
+            `&nav_doc_id=${encodeURIComponent(doc.id)}`,
+          );
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent("bv-admin-deep-link", {
-              detail: { email, docId: doc.id, userId: doc.user_id, fileType: doc.file_type },
+              // The whole row travels with the event. The admin page matched
+              // doc.id against its own in-memory list, which does not contain
+              // an upload that happened AFTER the page loaded — i.e. exactly
+              // the notification the admin is clicking. That is why the
+              // candidate opened and the document did not.
+              detail: { email, docId: doc.id, userId: doc.user_id, fileType: doc.file_type, doc },
             }));
           }, 30);
           return;
         }
+      } else {
+        console.error("[notif click] doc lookup failed:", res.status);
       }
     } catch (e) {
       console.error("[notif click] doc lookup failed:", e);
     }
-    // Fallback: at least navigate to the candidate
+    // Fallback: at least navigate to the candidate — and tell the panel the
+    // lookup failed so it can SAY so. A tap that silently does nothing is how
+    // this was reported in the first place.
     router.push(`/portal/admin?nav_email=${encodeURIComponent(n.user_email || "")}`);
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent("bv-admin-deep-link", {
-        detail: { email: n.user_email, docId: null },
+        detail: { email: n.user_email, docId: null, lookupFailed: true },
       }));
     }, 30);
   }
