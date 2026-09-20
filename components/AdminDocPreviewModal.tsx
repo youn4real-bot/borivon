@@ -200,9 +200,12 @@ export function AdminDocPreviewModal({
     const ctrl = new AbortController();
 
     // fetchDocumentBlob (lib/documentFetch) checks the STATUS and then the
-    // BYTES before anything downstream treats them as a file. `expect` is
-    // derived from the name the viewer will switch on below, so the .pdf branch
-    // gets the strict "%PDF- or nothing" rule and a photo still passes.
+    // BYTES before anything downstream treats them as a file.
+    //
+    // `expect` is derived from doc.file_name — the EXACT value the renderer
+    // below switches on — so the guard and the renderer can never disagree
+    // about what this document is. The .pdf branch then gets the strict
+    // "%PDF- or nothing" rule, and a photo or a .docx still passes.
     fetchDocumentBlob(
       fetchUrl,
       {
@@ -210,7 +213,7 @@ export function AdminDocPreviewModal({
         cache: "no-store",
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
       },
-      expectedBodyFor(overrideFetchUrl ? "generated.pdf" : doc.file_name),
+      expectedBodyFor(doc.file_name),
       // A GENERATED preview is our own merge route, and it answers a
       // REFUSAL (these two halves cannot be joined - one is a WebP photo
       // pdf-lib has no embedder for) as a small JSON code. That is a
