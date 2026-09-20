@@ -992,6 +992,21 @@ export default function DashboardPage() {
   type PassportSaveFault = "server" | "local";
   const [passportSaveError, setPassportSaveError] = useState<PassportSaveFault | null>(null);
   /**
+   * The upload succeeded but nothing could be read off the scan, so the form
+   * below opened with every field blank. WHY it is blank is the whole point:
+   * an unexplained empty eighteen-field form reads as a broken upload, and a
+   * candidate who thinks the upload broke re-uploads instead of typing. The
+   * server says so explicitly (`ocrSkipped`), and this carries that answer
+   * into the form. Reset on every fresh passport upload so a later successful
+   * read does not keep showing yesterday's apology.
+   *
+   * "too_large"  — the scan is over the read cap (lib/ocrBudget.ts).
+   * "unreadable" — the reader ran and made nothing of it.
+   * Both end in the same instruction: type it in. LAW #38 means she confirms
+   * every field by hand anyway, so nothing is lost but the typing.
+   */
+  const [passportOcrSkipped, setPassportOcrSkipped] = useState<"too_large" | "unreadable" | null>(null);
+  /**
    * Closing the form could not reach the server, so her draft lives ONLY in
    * this browser. Kept in its own state because it has to outlive the modal —
    * the failure happens at the exact moment she stops looking at the form, and
@@ -2345,6 +2360,8 @@ export default function DashboardPage() {
               // existing (possibly admin-corrected / approved) values —
               // fresh OCR must NOT clobber them. Only the scan changed;
               // restore the saved data into the modal, boxes per LAW #38.
+              // Her fields are already filled, so there is nothing to explain.
+              setPassportOcrSkipped(null);
               reopenPassportData();
             } else {
               const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
@@ -2355,6 +2372,15 @@ export default function DashboardPage() {
               // replaces the old display-normalizer that discarded full words
               // (and German "W") down to "".
               const extracted = { ...raw, sex: canonSex(raw.sex) ?? "" };
+              // Tell her WHY the form is blank when it is. `ocrSkipped` is the
+              // server's own word for it; anything else we do not recognise is
+              // treated as unreadable, because the instruction is the same.
+              const skip = json.passportData
+                ? null
+                : json.ocrSkipped === "too_large" ? "too_large" as const
+                : json.ocrSkipped ? "unreadable" as const
+                : null;
+              setPassportOcrSkipped(skip);
               // A fresh OCR extraction on a candidate the server told us has no
               // stored data yet — a real seed, so this form may autosave.
               passportFormSeededRef.current = true;
@@ -4858,6 +4884,31 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+            {/* ── "We could not read it" line ──
+                The upload WORKED — the file is stored and the admin has been
+                notified. Only the prefill is missing, and until now nothing on
+                screen said so: she got a blank eighteen-field form and no
+                reason, which reads as a failed upload. LAW #19: all three
+                languages. LAW #38 is untouched — she ticks every box herself
+                either way, so typing the fields loses her nothing but time. */}
+            {passportOcrSkipped && (
+              <div className="px-5 pb-3 flex items-start gap-2 flex-shrink-0">
+                <Info size={13} strokeWidth={2.2} style={{ color: "var(--info)", flexShrink: 0, marginTop: 2 }} />
+                <p className="text-[11.5px] leading-[1.4]" style={{ color: "var(--w2)" }}>
+                  {passportOcrSkipped === "too_large"
+                    ? (lang === "de"
+                        ? "Ihr Reisepass ist hochgeladen. Die Datei ist zu groß, um sie automatisch zu lesen — bitte tragen Sie die Daten unten selbst ein."
+                        : lang === "fr"
+                        ? "Votre passeport est bien envoyé. Le fichier est trop volumineux pour une lecture automatique — merci de saisir les données ci-dessous vous-même."
+                        : "Your passport is uploaded. The file is too large to read automatically — please type the details in below yourself.")
+                    : (lang === "de"
+                        ? "Ihr Reisepass ist hochgeladen. Wir konnten ihn nicht automatisch lesen — bitte tragen Sie die Daten unten selbst ein."
+                        : lang === "fr"
+                        ? "Votre passeport est bien envoyé. Nous n'avons pas pu le lire automatiquement — merci de saisir les données ci-dessous vous-même."
+                        : "Your passport is uploaded. We couldn't read it automatically — please type the details in below yourself.")}
+                </p>
+              </div>
+            )}
             {/* ── Autosave fault line ──
                 Shown ONLY when a save is failing, so a working form stays as
                 quiet as before. `passportSaveError` used to be a boolean that

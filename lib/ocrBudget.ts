@@ -6,7 +6,8 @@
  * A Cloudflare Worker isolate gets 128 MB, total, for the OpenNext bundle plus
  * everything the request allocates. POST /api/portal/upload used to hand the
  * WHOLE uploaded file to Azure Document Intelligence and then, on fallback, to
- * Google Vision, each time as `buffer.toString("base64")` wrapped in
+ * Google Vision (that fallback was removed on 2026-09-20), each time as
+ * `buffer.toString("base64")` wrapped in
  * `JSON.stringify(...)`. Measured on node v22 with a 25 MB scan
  * (`process.memoryUsage().rss`, baseline 46.1 MB):
  *
@@ -39,7 +40,7 @@
  */
 
 /**
- * Largest file we will hand to Azure / Google Vision.
+ * Largest file we will hand to the passport reader.
  *
  * At the measured 2.4x multiplier a 10 MB scan peaks around +24 MB over
  * baseline, which fits beside the bundle and the Supabase writes with room to
@@ -51,27 +52,10 @@
 export const OCR_MAX_BYTES = 10 * 1024 * 1024;
 
 /**
- * Per-image cap for the embedded-JPEG retry phase (a scanned PDF wraps raw
- * JPEGs; we pull them out and OCR them when the MRZ was not found in the page
- * text). Each one costs its own 2.4x, so a single 6 MB page image is already
- * about 14 MB on top of the file itself.
- */
-export const OCR_JPEG_MAX_BYTES = 6 * 1024 * 1024;
-
-/**
- * How many embedded JPEGs the retry phase may OCR. It used to loop over EVERY
- * image above 20 KB: a 10-page scan meant ten sequential base64 round trips,
- * each allocating and only released when the GC got round to it. The MRZ lives
- * on the data page, which is virtually always the largest image, so the three
- * biggest is all the reach we need.
- */
-export const OCR_MAX_EMBEDDED_JPEGS = 3;
-
-/**
  * Ceiling on the accumulated raw OCR text. It is only used to answer "is this
  * actually a passport or a Carte Nationale?" (detectDocumentType), which reads
- * keywords, so a truncated tail costs nothing -- whereas concatenating the full
- * text of four OCR passes is an unbounded string on the same 128 MB budget.
+ * keywords, so a truncated tail costs nothing -- whereas the full raw text of
+ * a multi-page scan is an unbounded string on the same 128 MB budget.
  */
 export const OCR_TEXT_MAX_CHARS = 200_000;
 
@@ -99,23 +83,6 @@ export function planOcr(sizeBytes: number, limitBytes: number = OCR_MAX_BYTES): 
     return { run: false, reason: "too_large", sizeBytes, limitBytes };
   }
   return { run: true };
-}
-
-/**
- * Choose which embedded JPEGs the retry phase will read: biggest first (the
- * passport data page), dropping anything over the per-image cap, at most
- * OCR_MAX_EMBEDDED_JPEGS of them. Pure, so the choice is testable without a
- * real PDF.
- */
-export function pickEmbeddedJpegs<T extends { length: number }>(
-  jpegs: readonly T[],
-  maxEach: number = OCR_JPEG_MAX_BYTES,
-  maxCount: number = OCR_MAX_EMBEDDED_JPEGS,
-): T[] {
-  return [...jpegs]
-    .filter(j => j.length <= maxEach)
-    .sort((a, b) => b.length - a.length)
-    .slice(0, maxCount);
 }
 
 /** Append OCR text without letting the accumulator grow without bound. */

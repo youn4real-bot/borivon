@@ -17,7 +17,7 @@ import { formatUploadDiag } from "@/lib/uploadFailure";
 import { isHeicUpload, HEIC_CODE, HEIC_MESSAGE } from "@/lib/heic";
 import { shouldUseAdminNotifDocId, learnFromDocIdAttempt } from "@/lib/adminNotifDocId";
 import {
-  planOcr, base64JsonBody, pickEmbeddedJpegs, appendOcrText,
+  planOcr, base64JsonBody, appendOcrText,
   OCR_MAX_BYTES, estimateOcrPeakBytes,
 } from "@/lib/ocrBudget";
 
@@ -49,11 +49,10 @@ const ALLOWED_TYPES = [
 // nothing at all, so it read as "upload is broken".
 const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 
-// Passport OCR can hit Azure Computer Vision + Google Vision fallback +
-// embedded-JPEG retry path — 20-40s worst-case on a noisy phone scan. Pin
-// the lambda max to 60s so the request can't be silently killed by the
-// Vercel Pro default and an accidental plan change can't drop it back to
-// 10s without anyone noticing.
+// Passport OCR submits the scan to Azure and polls for the result — 20-40s
+// worst-case on a noisy phone scan. Pin the lambda max to 60s so the request
+// can't be silently killed by the Vercel Pro default and an accidental plan
+// change can't drop it back to 10s without anyone noticing.
 export const maxDuration = 60;
 
 /** Read the first bytes of a buffer and infer the actual MIME type
@@ -178,33 +177,6 @@ function slugifyGerman(s: string): string {
 
 /** Module-level UUID regex for detecting wizard slot fileKeys. */
 const UPLOAD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-async function getVisionToken(): Promise<string> {
-  let email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
-  let key = (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
-  // Fall back to the service-account key ALREADY on the worker
-  // (GOOGLE_VERTEX_CREDENTIALS / GOOGLE_WORKSPACE_CREDENTIALS) when the dedicated
-  // GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_PRIVATE_KEY pair isn't set — so passport
-  // OCR needs NO extra secret. The JSON-sourced key already has real newlines.
-  if (!email || !key) {
-    const { serviceAccountKey } = await import("@/lib/googleWorkspace");
-    const sa = serviceAccountKey();
-    if (sa) { email = sa.client_email; key = sa.private_key; }
-  }
-  // Mint the service-account token with WebCrypto rather than google-auth-library's
-  // JWT client: the latter signs through gtoken/jws, which reaches for
-  // node:http.validateHeaderName and throws on workerd, and pulling it in
-  // statically anchors google-auth-library (and transitively googleapis) into the
-  // worker bundle. This is 2-legged self-auth (no DWD subject) and crypto.subtle
-  // exists on both Node 18+ and Workers, so one path serves every runtime.
-  const { mintGoogleAccessToken } = await import("@/lib/googleAuthWebCrypto");
-  const token = await mintGoogleAccessToken({
-    key: { client_email: email, private_key: key },
-    scopes: ["https://www.googleapis.com/auth/cloud-vision"],
-  });
-  if (!token) throw new Error("Could not obtain Vision API access token");
-  return token;
-}
 
 // ── Country display name → ISO 3166-1 alpha-3 ────────────────────────────────
 const COUNTRY_TO_ISO: Record<string, string> = {
@@ -561,27 +533,6 @@ function normalizeDate(s: string): string {
 // MRZ reading (check digit, country anchors, TD3 field extraction) lives in
 // lib/mrz.ts so it can be unit-tested without this route's I/O stack.
 
-// ── Extract all JPEG images embedded inside a PDF buffer ─────────────────────
-// Scanned PDFs wrap raw JPEG bytes in a PDF shell. We find them by magic bytes.
-function extractJpegsFromPdf(pdfBuffer: Buffer): Buffer[] {
-  const SOI = Buffer.from([0xFF, 0xD8, 0xFF]); // JPEG Start Of Image
-  const EOI = Buffer.from([0xFF, 0xD9]);        // JPEG End Of Image
-  const jpegs: Buffer[] = [];
-  let searchFrom = 0;
-  while (searchFrom < pdfBuffer.length) {
-    const start = pdfBuffer.indexOf(SOI, searchFrom);
-    if (start === -1) break;
-    // Look for the next EOI after this start
-    const end = pdfBuffer.indexOf(EOI, start + 3);
-    if (end === -1) break;
-    const jpeg = pdfBuffer.subarray(start, end + 2);
-    if (jpeg.length > 20_000) { // skip tiny thumbnails / embedded icons
-      jpegs.push(jpeg);
-    }
-    searchFrom = end + 2;
-  }
-  return jpegs;
-}
 
 // ── Azure Document Intelligence — prebuilt passport model ────────────────────
 async function analyzePassportAzure(buffer: Buffer): Promise<{
@@ -603,8 +554,8 @@ async function analyzePassportAzure(buffer: Buffer): Promise<{
   // for a 25 MB passport, on a 128 MB Worker isolate. See lib/ocrBudget.ts for
   // the full table; the builder brings the same file to +59.7 MB.
   //
-  // `submitBody` is scoped so it is unreachable the moment fetch returns and the
-  // Google Vision fallback below cannot run while Azure's copy is still pinned.
+  // `submitBody` is scoped so it is unreachable the moment fetch returns —
+  // nothing downstream can run while Azure's copy of the scan is still pinned.
   let submitRes: Response;
   {
     const submitBody = base64JsonBody('{"base64Source":"', buffer, '"}');
@@ -684,54 +635,6 @@ async function analyzePassportAzure(buffer: Buffer): Promise<{
 
   return { first_name, last_name, dob, sex, nationality,
     passport_no, passport_expiry, issue_date, city_of_birth, country_of_birth, rawText };
-}
-
-async function runOCR(buffer: Buffer, mimeType: string): Promise<string> {
-  const accessToken = await getVisionToken();
-
-  // Same memory reason as analyzePassportAzure: the Vision request body is
-  // assembled into bytes once (lib/ocrBudget.ts) rather than via a full base64
-  // JS string plus a JSON.stringify copy. This function is called up to FOUR
-  // times per passport — the whole file, then the largest embedded JPEGs — so
-  // every copy it avoids is avoided that many times over.
-  if (mimeType === "application/pdf") {
-    const res = await fetch("https://vision.googleapis.com/v1/files:annotate", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: base64JsonBody(
-        '{"requests":[{"inputConfig":{"mimeType":"application/pdf","content":"',
-        buffer,
-        // pages: scan the first 3 — covers multi-page PDFs.
-        '"},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}],"pages":[1,2,3]}]}',
-      ) as unknown as BodyInit,
-    });
-    const json = await res.json();
-    if (process.env.NODE_ENV !== "production") console.log("[Vision PDF] status:", res.status);
-    if (json.error) throw new Error(`Vision API: ${json.error.message} (code ${json.error.code})`);
-    // Concatenate text from all returned pages
-    const pageResponses: {fullTextAnnotation?: {text: string}}[] = json.responses?.[0]?.responses ?? [];
-    const text = pageResponses.map((p) => p.fullTextAnnotation?.text ?? "").join("\n");
-    if (!text) {
-      const inner = json.responses?.[0]?.responses?.[0]?.error;
-      if (inner) throw new Error(`Vision inner error: ${inner.message}`);
-    }
-    return text;
-  } else {
-    // Image OCR — use DOCUMENT_TEXT_DETECTION for dense passport text / MRZ
-    const res = await fetch("https://vision.googleapis.com/v1/images:annotate", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: base64JsonBody(
-        '{"requests":[{"image":{"content":"',
-        buffer,
-        '"},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}]}]}',
-      ) as unknown as BodyInit,
-    });
-    const json = await res.json();
-    if (process.env.NODE_ENV !== "production") console.log("[Vision image] status:", res.status);
-    if (json.error) throw new Error(`Vision API: ${json.error.message}`);
-    return json.responses?.[0]?.fullTextAnnotation?.text ?? "";
-  }
 }
 
 export async function POST(req: NextRequest) {
@@ -1336,22 +1239,31 @@ export async function POST(req: NextRequest) {
       /** Set when the uploaded document turns out not to be a passport at all. */
       let docTypeWarning: "national_id" | null = null;
 
-      // ══ Strategy A: Azure Document Intelligence (primary) ══════════════════
+      // ══ THE READER: Azure Document Intelligence ═══════════════════════════
       // Passport-specific model — structured JSON out, no parsing needed.
       // Active when AZURE_DOC_INTEL_ENDPOINT + AZURE_DOC_INTEL_KEY are set.
-      // Wrap in its own try: a transient Azure 5xx / auth / timeout THROW used
-      // to bubble to the outer catch and short-circuit OCR with
-      // passportData:null — even though Vision was available. Now we treat a
-      // throw the same as "no data" and let Strategy B (Vision) run.
-      // Raw OCR text from whichever strategy ran, kept so the document-type check
-      // below can ask "is this actually a passport?" — see detectDocumentType.
+      //
+      // It is the ONLY reader. Behind it there used to be a Google Cloud Vision
+      // fallback that re-read the page text and any embedded JPEGs looking for
+      // an MRZ. Billing is disabled on that Google project, so every call it
+      // made came back refused: a second reader that could only ever fail, and
+      // that spent the candidate's seconds failing. Removed on 2026-09-20 with
+      // the rest of the metered Google spend, and NOT to be reintroduced
+      // without the founder asking for it — it is a per-call bill.
+      //
+      // Wrap the call in its own try so a transient Azure 5xx / auth / timeout
+      // THROW does not escape to the outer catch: what we owe her is the same
+      // either way — "we could not read it, please type it".
+      //
+      // Raw OCR text is kept so the document-type check below can ask "is this
+      // actually a passport?" — see detectDocumentType.
       let ocrTextSeen = "";
 
       let azure: Awaited<ReturnType<typeof analyzePassportAzure>> = null;
       try {
         azure = await analyzePassportAzure(buffer);
       } catch (azErr) {
-        console.warn("[Azure] threw — falling back to Vision:", azErr instanceof Error ? azErr.message : String(azErr));
+        console.warn("[Azure] threw — no prefill for this upload:", azErr instanceof Error ? azErr.message : String(azErr));
       }
 
       if (azure) {
@@ -1360,9 +1272,9 @@ export async function POST(req: NextRequest) {
         // (address, issuing authority, city of residence).
         const vizData = parseVIZ(azure.rawText);
         // Bounded: the accumulator only feeds detectDocumentType's keyword
-        // scan, so a truncated tail costs nothing, while concatenating the full
-        // text of up to four OCR passes is an unbounded string on the same
-        // 128 MB budget this whole block is being brought back inside.
+        // scan, so a truncated tail costs nothing, while the raw text of a
+        // multi-page scan is an unbounded string on the same 128 MB budget
+        // this whole block is being brought back inside.
         ocrTextSeen = appendOcrText("", azure.rawText);
         if (process.env.NODE_ENV !== "production") console.log("[Azure VIZ]", JSON.stringify(vizData));
 
@@ -1387,91 +1299,17 @@ export async function POST(req: NextRequest) {
           city_of_residence: vizData.city_of_residence,
         };
 
-        // If Azure found nothing meaningful, clear it so we fall to Strategy B
+        // Names and a document number are what the form is for. Without ANY of
+        // the three there is nothing worth prefilling, and half a row of noise
+        // is worse than an empty field she fills in herself.
         if (!passportData.first_name && !passportData.last_name && !passportData.passport_no) {
-          console.warn("[Azure] returned empty — falling back to Google Vision");
+          console.warn("[Azure] returned nothing usable — no prefill for this upload");
           passportData = null;
         }
       }
 
-      // ══ Strategy B: Google Vision + MRZ/VIZ parser (fallback) ═════════════
-      // Used when Azure is not configured or returned nothing.
-      if (!passportData) {
-        if (process.env.NODE_ENV !== "production") console.log("[OCR] Using Google Vision fallback");
-
-        // Phase 1: standard PDF path
-        const ocrText1 = await runOCR(buffer, file.type);
-        ocrTextSeen = appendOcrText(ocrTextSeen, "\n" + ocrText1);
-        if (process.env.NODE_ENV !== "production") console.log("[Vision phase1] text (first 800):", ocrText1.slice(0, 800));
-
-        let mrzData = parseMRZ(ocrText1);
-        let vizData = parseVIZ(ocrText1);
-
-        // Phase 2: raw JPEG extraction when MRZ not found
-        if (!mrzData && file.type === "application/pdf") {
-          if (process.env.NODE_ENV !== "production") {
-            console.log("[Vision phase2] MRZ not found — trying embedded JPEGs...");
-          }
-          // Bounded on BOTH axes (lib/ocrBudget.ts). This used to OCR every
-          // embedded image over 20 KB: a ten-page scan meant ten sequential
-          // base64 round trips, each allocating its own multiple of the image
-          // and only released when the GC caught up — inside a 128 MB isolate
-          // that was already holding the whole file. The MRZ is on the data
-          // page, which is virtually always the largest image, so the three
-          // biggest (each under the per-image cap) is all the reach we need.
-          const jpegs = pickEmbeddedJpegs(extractJpegsFromPdf(buffer));
-          if (process.env.NODE_ENV !== "production") console.log(`[Vision phase2] ${jpegs.length} JPEG(s) selected`);
-          for (const jpeg of jpegs) {
-            const ocrText2 = await runOCR(jpeg, "image/jpeg");
-            ocrTextSeen = appendOcrText(ocrTextSeen, "\n" + ocrText2);
-            const mrzData2 = parseMRZ(ocrText2);
-            if (mrzData2) {
-              mrzData = mrzData2;
-              vizData = parseVIZ(ocrText2);
-              if (process.env.NODE_ENV !== "production") console.log("[Vision phase2] MRZ found in embedded JPEG");
-              break;
-            }
-            if (ocrText2 && !vizData.issuing_authority) vizData = parseVIZ(ocrText2);
-          }
-        }
-
-        if (process.env.NODE_ENV !== "production") { console.log("MRZ:", JSON.stringify(mrzData)); console.log("VIZ:", JSON.stringify(vizData)); }
-
-        if (mrzData) {
-          passportData = {
-            ...mrzData,
-            // Normalize ISO codes from MRZ to German country names —
-            // see normalizeCountry above.
-            nationality:       normalizeCountry(mrzData.nationality)       || mrzData.nationality,
-            city_of_birth:     vizData.city_of_birth,
-            country_of_birth:  normalizeCountry(vizData.country_of_birth),
-            issuing_authority: vizData.issuing_authority,
-            issue_date:        vizData.issue_date,
-            address_street:    vizData.address_street,
-            address_number:    "",
-            address_postal:    "",
-            city_of_residence: vizData.city_of_residence,
-          };
-        } else if (vizData.issuing_authority || vizData.city_of_birth || vizData.issue_date) {
-          // MRZ not found but VIZ extracted something useful — return partial data so the
-          // user gets a pre-filled starting point rather than a blank modal
-          passportData = {
-            first_name:        "", last_name: "", dob: "", sex: "", nationality: "",
-            passport_no:       "", passport_expiry: "",
-            city_of_birth:     vizData.city_of_birth,
-            country_of_birth:  normalizeCountry(vizData.country_of_birth),
-            issuing_authority: vizData.issuing_authority,
-            issue_date:        vizData.issue_date,
-            address_street:    vizData.address_street,
-            address_number:    "",
-            address_postal:    "",
-            city_of_residence: vizData.city_of_residence,
-          };
-        }
-      }
-
-      // Last line of defence on the name fields, whichever branch produced them
-      // (MRZ, Azure VIZ, or a mix). A human name never contains a digit or `<`;
+      // Last line of defence on the name fields (Azure's own, or its MRZ
+      // cross-check). A human name never contains a digit or `<`;
       // those characters only exist in a machine-readable zone. If any survive
       // this far, drop the offending word rather than write it — a leaked MRZ row
       // is shown to admins, printed on the CV and mailed out as the candidate's
@@ -1610,11 +1448,31 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // SAY SO when there is nothing to prefill. Until now this answered
+      // `passportData: null` with no reason, and the dashboard opened an empty
+      // eighteen-field form with no explanation at all — which reads as a
+      // broken upload, not as "please type it in". The file IS stored either
+      // way; only the prefill is missing. `ocrSkipped` already carried that
+      // sentence for a scan too big to read (see planOcr above); "unreadable"
+      // is the same promise for a scan the reader could not make sense of.
+      // LAW #38 is unaffected: she confirms every field by hand regardless.
+      if (!passportData) {
+        console.warn(`[upload] no passport prefill for ${userId} — the reader returned nothing usable. The file IS stored.`);
+        return NextResponse.json({
+          success: true, passportData: null, hadData: hadPassportData,
+          ocrSkipped: "unreadable",
+        });
+      }
+
       return NextResponse.json({ success: true, passportData, hadData: hadPassportData });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Passport OCR error:", msg);
-      return NextResponse.json({ success: true, passportData: null, _ocrError: msg, hadData: hadPassportData });
+      // Same sentence for her, the real reason for the log.
+      return NextResponse.json({
+        success: true, passportData: null, _ocrError: msg, hadData: hadPassportData,
+        ocrSkipped: "unreadable",
+      });
     }
   }
 

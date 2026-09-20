@@ -4,8 +4,8 @@ import { OCR_MAX_BYTES } from "../lib/ocrBudget";
 import { HEIC_CODE } from "../lib/heic";
 
 /**
- * The two upload-route behaviours the hunters proved, driven through the REAL
- * handler rather than asserted about it.
+ * Upload-route behaviours proved through the REAL handler rather than asserted
+ * about it.
  *
  *  H. A 25 MB passport scan used to exhaust the 128 MB isolate during OCR
  *     (+125.6 MB over baseline for the Azure call alone — lib/ocrBudget.ts has
@@ -17,6 +17,14 @@ import { HEIC_CODE } from "../lib/heic";
  *     refused as "Type non autorise" — the wrong sentence for the commonest
  *     phone on earth. It must be refused with its own code so the client can
  *     tell her to re-pick from Photos.
+ *
+ *  J. When the reader comes back with nothing the answer must SAY so. The
+ *     Google Vision fallback was removed on 2026-09-20 (its Google project has
+ *     billing disabled, so every call it made was refused), which makes "no
+ *     prefill" an ordinary outcome rather than a rare one. A bare
+ *     `passportData: null` opened a blank eighteen-field form with no reason
+ *     on it, and a candidate who thinks the upload broke re-uploads instead of
+ *     typing. `ocrSkipped` is what the dashboard reads to tell her otherwise.
  */
 
 const ADMIN = "admin@borivon.test";
@@ -69,10 +77,9 @@ beforeAll(async () => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://stub.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "stub";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "stub";
-  // No OCR provider configured: Azure returns null immediately and the Google
-  // fallback needs a Vision token it cannot mint, so nothing reaches the
-  // network. What is under test here is whether the route DECIDES to OCR, and
-  // whether the upload survives either way.
+  // No OCR provider configured: Azure returns null immediately, so nothing
+  // reaches the network. What is under test here is whether the route DECIDES
+  // to OCR, and whether the upload survives either way.
   delete process.env.AZURE_DOC_INTEL_ENDPOINT;
   delete process.env.AZURE_DOC_INTEL_KEY;
   ({ POST } = await import("@/app/api/portal/upload/route"));
@@ -124,11 +131,13 @@ describe("H — a scan too big to OCR is still STORED", () => {
     expect(r.body.ocrMaxBytes).toBe(OCR_MAX_BYTES);
   });
 
-  it("a normal phone-sized passport is NOT skipped — the cap must not eat the feature", async () => {
+  it("a normal phone-sized passport is NOT skipped for SIZE — the cap must not eat the feature", async () => {
     const small = await pdfOf(2 * 1024 * 1024);
     const r = await post(new File([small as unknown as BlobPart], "reisepass.pdf", { type: "application/pdf" }), "id", "Reisepass");
     expect(r.status).toBe(200);
-    expect(r.body.ocrSkipped).toBeUndefined(); // it tried; no provider configured
+    // It tried. No provider is configured in this run, so it came back with
+    // nothing — but never because of the size cap.
+    expect(r.body.ocrSkipped).not.toBe("too_large");
     expect(stored).toHaveLength(1);
   });
 
@@ -138,6 +147,30 @@ describe("H — a scan too big to OCR is still STORED", () => {
     expect(r.status).toBe(200);
     expect(stored).toHaveLength(1);
     expect(stored[0].bytes).toBe(big.length);
+  });
+});
+
+describe("J — nothing read means nothing read, and it says so", () => {
+  it("answers ocrSkipped:'unreadable' instead of an unexplained empty form", async () => {
+    const small = await pdfOf(1024 * 512);
+    const r = await post(new File([small as unknown as BlobPart], "reisepass.pdf", { type: "application/pdf" }), "id", "Reisepass");
+
+    // The upload still succeeded and the file is still stored — that is the
+    // invariant the whole OCR block hangs off.
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(stored).toHaveLength(1);
+
+    // And the reason travels to the client, so it can say "please type it in".
+    expect(r.body.passportData).toBeNull();
+    expect(r.body.ocrSkipped).toBe("unreadable");
+  });
+
+  it("a non-passport upload gets no OCR verdict at all", async () => {
+    const small = await pdfOf(1024 * 512);
+    const r = await post(new File([small as unknown as BlobPart], "diplom.pdf", { type: "application/pdf" }), "diploma", "Diplom");
+    expect(r.status).toBe(200);
+    expect(r.body.ocrSkipped).toBeUndefined();
   });
 });
 
