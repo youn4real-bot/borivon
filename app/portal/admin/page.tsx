@@ -2746,26 +2746,39 @@ export default function AdminPage() {
   // passed `f.type.startsWith("image/")` straight to adminDocUpload. Only the
   // picker disagreed.
   //
-  // WIDENED: the passport ("id") and the multi "Sonstiges" box ("other").
-  // LEFT PDF-ONLY, deliberately:
-  //   • every qualification box (diploma, transcript, workcert, … and their
-  //     _de counterparts) — each is half of an original/translated pair that
-  //     both sides merge through pdf-lib
-  //     (app/api/portal/documents/merge-pdf/route.ts: PDFDocument.load on
-  //     BOTH rows). pdf-lib cannot read a JPEG, so a photo there turns the
-  //     merge into a bare 500 "Merge failed" — a fresh silent failure.
-  //   • the Bearbeitung / Visum permanent boxes (ezb, videx, arbeitsvertrag,
-  //     vorabzustimmung, …) — these are official German forms that arrive as
-  //     PDFs by email, never as a phone photo, and they feed the AcroForm /
-  //     signature paths, which are pdf-lib too.
+  // EVERY candidate document box now offers the camera. The boxes that were
+  // held back — Diplom, Notenübersicht, Berufserlaubnis and the rest of the
+  // qualification pairs, plus the Bearbeitung / Visum boxes (EzB, Videx,
+  // Arbeitsvertrag, Vorabzustimmung, …) — were held back by ONE argument: that
+  // each is half of a pair merged through pdf-lib, which could not embed a
+  // photograph, so a photo there would 500 the merge. That argument died.
+  //
+  // The merge is no longer two bare PDFDocument.load() calls. It is
+  // lib/mergeDocs.ts mergeDocumentsToPdf(), which EMBEDS a JPEG or a PNG as a
+  // full page (embedJpg / embedPng, centred on A4 in the picture's own
+  // orientation) and, for the formats it genuinely cannot take, returns a typed
+  // refusal that app/api/portal/documents/merge-pdf/route.ts turns into a 415
+  // naming the problem. A photographed diploma merges; it does not 500. So the
+  // comment above was justifying a restriction whose reason had been deleted —
+  // it is gone from this file so it cannot be quoted back as a reason again.
+  //
+  // STILL PDF-ONLY, and these are the real ones — the file is PARSED, not just
+  // stored, so a photograph would be a genuine failure with no useful message:
   //   • the slot-template picker (adminFileInputRef → adminUploadFile) — that
-  //     PDF is parsed by detectAcroFormFields() and stamped by pdf-lib.
+  //     PDF goes through detectAcroFormFields() and is stamped by pdf-lib.
   //   • the sign-modal manual PDF picker (sigManualFileRef) — same reason.
-  // The passport REPLACE used to be on that list. It is not any more: its route
-  // now takes the same formats as the first upload, so see
-  // triggerPassportPdfReplace.
-  // Anything photographed that has no box of its own belongs in Sonstiges,
-  // which now offers the camera.
+  // Both are separate <input> elements with their own literal accept; neither
+  // goes through this function, which is why widening it cannot reach them.
+  //
+  // The server has never been the constraint: ALLOWED_TYPES in
+  // app/api/portal/upload/route.ts takes pdf/jpeg/png/webp for EVERY key, and
+  // this page's own drag-and-drop handler has always passed an image straight
+  // to adminDocUpload. Only the picker disagreed, on all but two boxes.
+  //
+  // WebP stays in the list because the upload route stores it; a WebP half of a
+  // pair is the one case the merge still refuses, and it refuses it in words
+  // (unsupported_format → "download the two files separately"), not a 500. A
+  // phone camera writes JPEG, so this costs the founder nothing.
   //
   // HEIC is absent on purpose: neither this list nor the server stores it,
   // and iOS hands <input type="file"> a JPEG for a camera-roll photo anyway.
@@ -2773,12 +2786,12 @@ export default function AdminPage() {
   const ACCEPT_PDF_OR_PHOTO = ".pdf,.jpg,.jpeg,.png,.webp";
   // Sonstiges is the catch-all box; the server's ALLOWED_TYPES adds Word here.
   const ACCEPT_ANY_DOC = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx";
-  const ADMIN_PHOTO_KEYS = ["id"];
   const ADMIN_MULTI_KEYS = ["other", "other_trans"];
   function acceptForAdminDocKey(key: string): string {
     if (ADMIN_MULTI_KEYS.includes(key)) return ACCEPT_ANY_DOC;
-    if (ADMIN_PHOTO_KEYS.includes(key)) return ACCEPT_PDF_OR_PHOTO;
-    return ACCEPT_PDF_ONLY;
+    // No PDF-only branch left. Adding one back needs a box whose bytes this
+    // app PARSES — and such a box gets its own input, not this function.
+    return ACCEPT_PDF_OR_PHOTO;
   }
   /** Set `accept` on the shared hidden input and open it. Written to the DOM
    *  node rather than to React state because the click happens in the SAME
@@ -7788,7 +7801,7 @@ export default function AdminPage() {
       <input
         ref={adminFileInputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept={ACCEPT_PDF_ONLY}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
@@ -7798,12 +7811,17 @@ export default function AdminPage() {
         }}
       />
       {/* `accept` is set imperatively by openAdminDocPicker just before the
-          click, per box — see acceptForAdminDocKey. PDF-only is the safe
-          default for the one tick before the first pick. */}
+          click, per box — see acceptForAdminDocKey. The default below is only
+          ever visible for the one tick before the first pick, but it is
+          pdf-or-photo rather than PDF-only on purpose: if a future caller ever
+          clicks this input without going through openAdminDocPicker, the
+          failure should be "the picker offered one format too many, and the
+          server answered with a typed 415" — not the silent "no camera on an
+          iPhone" that this whole block exists to end. */}
       <input
         ref={adminDocFileInputRef}
         type="file"
-        accept={ACCEPT_PDF_ONLY}
+        accept={ACCEPT_PDF_OR_PHOTO}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
@@ -7818,7 +7836,7 @@ export default function AdminPage() {
       <input
         ref={sigManualFileRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept={ACCEPT_PDF_ONLY}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
@@ -9556,7 +9574,7 @@ export default function AdminPage() {
       <input
         ref={adminFileInputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept={ACCEPT_PDF_ONLY}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
@@ -9566,12 +9584,17 @@ export default function AdminPage() {
         }}
       />
       {/* `accept` is set imperatively by openAdminDocPicker just before the
-          click, per box — see acceptForAdminDocKey. PDF-only is the safe
-          default for the one tick before the first pick. */}
+          click, per box — see acceptForAdminDocKey. The default below is only
+          ever visible for the one tick before the first pick, but it is
+          pdf-or-photo rather than PDF-only on purpose: if a future caller ever
+          clicks this input without going through openAdminDocPicker, the
+          failure should be "the picker offered one format too many, and the
+          server answered with a typed 415" — not the silent "no camera on an
+          iPhone" that this whole block exists to end. */}
       <input
         ref={adminDocFileInputRef}
         type="file"
-        accept={ACCEPT_PDF_ONLY}
+        accept={ACCEPT_PDF_OR_PHOTO}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];
@@ -9588,7 +9611,7 @@ export default function AdminPage() {
       <input
         ref={sigManualFileRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept={ACCEPT_PDF_ONLY}
         style={{ display: "none" }}
         onChange={e => {
           const file = e.target.files?.[0];

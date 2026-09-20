@@ -189,23 +189,53 @@ describe("the admin picker offers a photo where a photo is safe", () => {
     }
   });
 
-  it("the passport and Sonstiges boxes offer a photo", () => {
-    expect(ADMIN).toMatch(/ADMIN_PHOTO_KEYS\s*=\s*\["id"\]/);
+  it("the Sonstiges box takes anything the server stores", () => {
     expect(list(ADMIN, "ADMIN_MULTI_KEYS")).toContain('"other"');
     expect(ADMIN).toMatch(/ACCEPT_PDF_OR_PHOTO\s*=\s*"\.pdf,\.jpg,\.jpeg,\.png,\.webp"/);
     // Sonstiges is the catch-all; the server allows Word documents there too.
     expect(ADMIN).toMatch(/ACCEPT_ANY_DOC\s*=\s*"\.pdf,\.jpg,\.jpeg,\.png,\.webp,\.doc,\.docx"/);
   });
 
-  it("every other box still asks for a PDF", () => {
+  it("EVERY candidate document box offers a photo, not just the passport", () => {
+    // Bug 4. Diplom, Notenübersicht, Berufserlaubnis, EzB, Videx and every
+    // other qualification / Visum box asked for `.pdf,application/pdf`, so on
+    // an iPhone the picker showed "Browse" and nothing else. There must be no
+    // PDF-only branch left in this decision at all: any key that is not the
+    // multi box gets the camera.
     const at = ADMIN.indexOf("function acceptForAdminDocKey");
     expect(at, "acceptForAdminDocKey not found").toBeGreaterThan(-1);
     const body = ADMIN.slice(at, ADMIN.indexOf("\n  }", at));
     expect(body).toContain("ADMIN_MULTI_KEYS.includes(key)");
-    expect(body).toContain("ADMIN_PHOTO_KEYS.includes(key)");
-    expect(body.trimEnd().endsWith("return ACCEPT_PDF_ONLY;"),
-      "the default must be PDF — a qualification doc is merged through pdf-lib, which cannot read a JPEG").toBe(true);
+    expect(body, "a PDF-only branch is back — an iPhone gets no camera on that box")
+      .not.toContain("ACCEPT_PDF_ONLY");
+    expect(body.trimEnd().endsWith("return ACCEPT_PDF_OR_PHOTO;"),
+      "the fallback for every non-multi box must be pdf-or-photo").toBe(true);
   });
+
+  it("the merge really does embed a photograph — the reason for PDF-only is dead", () => {
+    // This is the load-bearing fact behind the test above. PDF-only was
+    // justified by "pdf-lib cannot read a JPEG, so a photographed diploma 500s
+    // the merge". If that ever became true again, widening the picker would be
+    // a NEW silent failure, so the claim is pinned here rather than trusted.
+    const MERGE = code("lib/mergeDocs.ts");
+    expect(MERGE).toContain("embedJpg");
+    expect(MERGE).toContain("embedPng");
+    // …and what it cannot take comes back as a typed refusal, never a throw.
+    expect(MERGE).toContain('return { ok: false, code: "unsupported_format"');
+    const ROUTE = code("app/api/portal/documents/merge-pdf/route.ts");
+    expect(ROUTE, "the merge route must go through mergeDocumentsToPdf")
+      .toContain("mergeDocumentsToPdf");
+  });
+
+  it("the stale 'pdf-lib cannot read a JPEG' justification is gone from the panel", () => {
+    // Read RAW — `code()` blanks comments, and the comment is the thing on
+    // trial. It outlived the constraint it described and was still being
+    // quoted as the reason the founder's iPhone had no camera.
+    const raw = readFileSync("app/portal/admin/page.tsx", "utf8");
+    expect(raw, "the dead justification is back in the file")
+      .not.toMatch(/pdf-lib cannot read a JPEG/i);
+  });
+
 
   it("the upload trigger routes the key through that decision", () => {
     expect(ADMIN).toMatch(/openAdminDocPicker\(acceptForAdminDocKey\(key\)\)/);
@@ -249,7 +279,9 @@ describe("the admin picker offers a photo where a photo is safe", () => {
       const at = ADMIN.indexOf(`ref={${ref}}`);
       expect(at, `${ref} input not found`).toBeGreaterThan(-1);
       const el = ADMIN.slice(at, at + 200);
-      expect(el, `${ref} must not offer an image`).toContain('accept=".pdf,application/pdf"');
+      // Now the shared constant rather than a repeated literal, so the one
+      // place that still means "this file gets PARSED" is named as such.
+      expect(el, `${ref} must not offer an image`).toContain("accept={ACCEPT_PDF_ONLY}");
     }
   });
 });
