@@ -24,6 +24,34 @@
  * from X" requests before committing; flip back instantly if it regresses.
  *
  * Gemini-on-Vertex stays ONLY for voice transcription (lib/transcribeVoice.ts).
+ *
+ * ── THE BILLING OFF-SWITCH — ASSISTANT_ENABLED ─────────────────────────────────
+ * The founder killed the AI spend (2026-09-20: "i dont want any billings again its
+ * getting too expensive"). Vertex bills PER CALL, so what had to stop is the calls —
+ * not the code, which he may want back. assistantEnabled() is that one switch, and
+ * it is read HERE, at the factory, because every paid call in the app goes through
+ * vertexModel() (the one exception, lib/transcribeVoice.ts, builds its own Vertex
+ * client and so calls assistantEnabled() itself). Off ⇒ vertexModel() returns null,
+ * which every caller already treats as "no brain configured" and degrades from.
+ *
+ * DEFAULT: OFF. It must be the literal string "true" to spend money. Default-off is
+ * deliberate and costs nothing to get wrong, for two reasons:
+ *   1. Shipping this code STOPS the billing on its own. A default-on flag would keep
+ *      charging him until someone remembered to set a Worker var.
+ *   2. OpenNext COMPILES env vars into the Worker bundle (see the memory note
+ *      "OpenNext bakes env vars"): `wrangler secret delete` is a no-op, so "unset the
+ *      var to disable" is not a reliable off-switch on this stack. "Set a var to
+ *      ENABLE" is, because the absent var is the safe state.
+ *
+ * TO TURN THE BOT BACK ON: set ASSISTANT_ENABLED="true" (wrangler.jsonc "vars", where
+ * it already sits as "false"), then `npm run cf:build && npm run cf:deploy` — the
+ * REBUILD is required, because the value is baked in at build time. Nothing else was
+ * removed: the tools, prompts, crons and Telegram wiring are all still here.
+ *
+ * WHAT THIS DOES NOT TOUCH: GOOGLE_VERTEX_CREDENTIALS is ALSO the service-account key
+ * lib/googleWorkspace.ts uses for Drive / Gmail / Calendar (see its header). The agency
+ * Drive mirror the founder depends on reads that same secret, so the credentials stay
+ * exactly as they are — this switch stops CALLS, it never removes a key.
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
@@ -37,6 +65,21 @@ import { createVertex as createVertexEdge } from "@ai-sdk/google-vertex/edge";
 const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export type ModelTier = "flash" | "pro";
+
+/**
+ * THE off-switch for every paid model call in the app (see the header). True only when
+ * ASSISTANT_ENABLED is the literal string "true" — anything else, including unset, an
+ * empty string, "1" or "yes", means OFF. Strict equality on purpose: a typo must fail
+ * CLOSED (silent, free) rather than open (silent, billed), because a wrongly-ON bot is
+ * only noticed on the invoice, while a wrongly-OFF bot is noticed the first time he
+ * texts it and reads the reason.
+ *
+ * Read at CALL time, never cached in a module constant — a cached read would freeze
+ * whatever the value was when the isolate first loaded this module.
+ */
+export function assistantEnabled(): boolean {
+  return (process.env.ASSISTANT_ENABLED || "").trim() === "true";
+}
 
 /**
  * Gemini safety thresholds for EVERY Gemini call (main brain + voice transcription +
@@ -134,6 +177,11 @@ export function altBrainActive(): boolean {
  *  (3) Claude as the safe fallback. Override the brain with ASSISTANT_BRAIN: "claude" to
  *  revert to Claude, "gemini" (default) for Gemini Flash. Null only if NOTHING configured. */
 export function vertexModel(tier: ModelTier = "flash") {
+  // THE BILLING GATE. First line on purpose: it must sit AHEAD of every provider branch,
+  // or flipping ASSISTANT_PROVIDER / ASSISTANT_BRAIN would route around the switch and
+  // start billing again on a different vendor. Null reads to every caller as "no brain
+  // configured" — the path they already handle.
+  if (!assistantEnabled()) return null;
   const alt = altProvider();
   if (alt) return alt.client(alt.model);
   const brain = (process.env.ASSISTANT_BRAIN || "gemini").trim().toLowerCase();
@@ -152,6 +200,10 @@ export function vertexModel(tier: ModelTier = "flash") {
  *  Flash first, and silently retries a weak/empty/errored answer on Gemini 2.5 Pro — no
  *  human, no Claude Code. (Off when an alt provider is set, or brain forced to Claude.) */
 export function escalationActive(): boolean {
+  // Escalation is a SECOND paid call (Flash answer retried on Pro), so it dies with the
+  // switch. Without this the webhook would still advertise self-healing while vertexModel()
+  // hands back null.
+  if (!assistantEnabled()) return false;
   if (altProvider()) return false;
   const brain = (process.env.ASSISTANT_BRAIN || "gemini").trim().toLowerCase();
   if (brain === "claude") return false;

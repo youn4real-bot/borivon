@@ -11,13 +11,19 @@
 import { createVertex } from "@ai-sdk/google-vertex";
 import { createVertex as createVertexEdge } from "@ai-sdk/google-vertex/edge";
 import { generateText } from "ai";
-import { GEMINI_SAFETY } from "@/lib/vertexModel";
+import { GEMINI_SAFETY, assistantEnabled } from "@/lib/vertexModel";
 
 // On Cloudflare Workers the node google-auth path 500s (unenv lacks node:http.validateHeaderName);
 // the /edge variant auths via WebCrypto. Mirrors lib/vertexModel.
 const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<{ text: string; truncated: boolean } | null> {
+  // BILLING GATE (ASSISTANT_ENABLED — see lib/vertexModel's header). This is the ONE paid
+  // Gemini call that does not come from vertexModel(), because it builds its own Vertex
+  // client for audio — so the switch has to be repeated here or voice notes would keep
+  // billing after everything else went quiet. Null is the "couldn't transcribe" answer the
+  // caller already handles.
+  if (!assistantEnabled()) return null;
   const project = process.env.GOOGLE_VERTEX_PROJECT;
   const location = process.env.GOOGLE_VERTEX_LOCATION || "europe-west4";
   const credsRaw = process.env.GOOGLE_VERTEX_CREDENTIALS;
