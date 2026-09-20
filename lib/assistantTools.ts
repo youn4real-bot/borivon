@@ -3226,45 +3226,6 @@ export function buildAssistantTools(
       },
     }),
 
-    getSubscriptionSummary: tool({
-      description:
-        "Premium SUBSCRIPTION numbers (read-only, no money moves) — 'how many premium subscribers', 'what's our MRR', 'subscription revenue'. Reads active subscriptions from Stripe and returns the active count + summed monthly amount. Supreme-only. Returns stripe_not_configured if the key isn't set.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        if (scope.role !== "admin") return { error: "admin_only" };
-        if (!process.env.STRIPE_SECRET_KEY) return { error: "stripe_not_configured" };
-        try {
-          const { stripe } = await import("@/lib/stripe");
-          let active = 0;
-          let monthlyCents = 0;
-          const currencies = new Set<string>();
-          // Page through active subscriptions (low volume — cap a few pages defensively).
-          let startingAfter: string | undefined;
-          for (let page = 0; page < 10; page++) {
-            const res = await stripe.subscriptions.list({ status: "active", limit: 100, ...(startingAfter ? { starting_after: startingAfter } : {}) });
-            for (const sub of res.data) {
-              active++;
-              for (const item of sub.items.data) {
-                const price = item.price;
-                const qty = item.quantity ?? 1;
-                if (price?.unit_amount && price.recurring) {
-                  if (price.currency) currencies.add(price.currency.toUpperCase());
-                  const perMonth = price.recurring.interval === "year" ? price.unit_amount / 12 : price.recurring.interval === "week" ? price.unit_amount * 4.345 : price.recurring.interval === "day" ? price.unit_amount * 30 : price.unit_amount;
-                  monthlyCents += perMonth * qty / (price.recurring.interval_count || 1);
-                }
-              }
-            }
-            if (!res.has_more || !res.data.length) break;
-            startingAfter = res.data[res.data.length - 1].id;
-          }
-          return { activeSubscribers: active, estimatedMrr: Math.round(monthlyCents) / 100, currency: [...currencies][0] ?? "EUR" };
-        } catch (e) {
-          console.error("[getSubscriptionSummary]", e instanceof Error ? e.message : e);
-          return { error: "stripe_read_failed" };
-        }
-      },
-    }),
-
     getAssignedEmployer: tool({
       description:
         "Get which EMPLOYER a candidate is currently assigned to (by candidateUserId). Read-only. Returns the employer id + name, or null if none.",

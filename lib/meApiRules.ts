@@ -22,7 +22,7 @@ export const ME_PROFILE_COLUMNS: ReadonlySet<string> = new Set([
   "city_of_residence", "country_of_residence",
   "marital_status", "children_ages", "phone",
   "passport_confirmed_fields", "passport_status",
-  "manually_verified", "payment_tier", "profile_photo", "cv_draft",
+  "manually_verified", "profile_photo", "cv_draft",
 ]);
 
 /** "a, b,c" → ["a","b","c"] when every name is allowed; null otherwise. */

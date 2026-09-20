@@ -9,8 +9,8 @@ import type { NextConfig } from "next";
 //     inline bootstrap script. The proper long-term fix is per-request nonces,
 //     but that's a much larger refactor. The policy still blocks every
 //     EXTERNAL script source except the trusted CDNs explicitly listed.
-//   - frame-src locks third-party embeds to YouTube + Loom + Turnstile +
-//     Stripe only. Anything else attempting to iframe in is blocked.
+//   - frame-src locks third-party embeds to YouTube + Loom + Turnstile only.
+//     Anything else attempting to iframe in is blocked.
 //   - frame-ancestors 'self' is the modern replacement for X-Frame-Options
 //     (we still send X-Frame-Options for older browsers).
 //   - connect-src includes wss: for Supabase realtime + https: for Drive
@@ -20,27 +20,29 @@ import type { NextConfig } from "next";
 // vercel.json — keep them byte-identical. (Both files emit a CSP header on
 // Vercel; if they differ the browser enforces the intersection, which silently
 // broke embeds. Identical strings = predictable, tight policy.)
-//   - connect-src is pinned to Supabase (REST + realtime wss), Cloudflare
-//     Turnstile, and Stripe — NOT a blanket `https:` (which let injected JS
-//     exfiltrate anywhere). All other external calls (Vision, Turnstile verify)
-//     are server-side and not subject to browser connect-src.
+//   - connect-src is pinned to Supabase (REST + realtime wss) and Cloudflare
+//     Turnstile — NOT a blanket `https:` (which let injected JS exfiltrate
+//     anywhere). All other external calls (Turnstile verify, the passport OCR
+//     reader) are server-side and not subject to browser connect-src.
+//     Stripe was dropped on 2026-09-20 with the paid plan: a payment origin
+//     left in the policy is standing permission for a script we no longer run.
 //   - frame-src is the UNION of every embed actually used: Drive (iOS PDF),
-//     YouTube + Loom (feed videos), Cloudflare, Stripe.
+//     YouTube + Loom (feed videos), Cloudflare.
 //   - img-src drops `http:` (no mixed content).
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
   // wss/https *.borivon.com → the self-hosted LiveKit classroom server (signaling).
-  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.stripe.com wss://*.borivon.com https://*.borivon.com",
-  "frame-src 'self' blob: https://drive.google.com https://www.youtube.com https://www.loom.com https://challenges.cloudflare.com https://js.stripe.com https://checkout.stripe.com",
+  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com wss://*.borivon.com https://*.borivon.com",
+  "frame-src 'self' blob: https://drive.google.com https://www.youtube.com https://www.loom.com https://challenges.cloudflare.com",
   "media-src 'self' data: blob: https:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self' https://checkout.stripe.com",
+  "form-action 'self'",
   "frame-ancestors 'self'",
   "upgrade-insecure-requests",
 ].join("; ");

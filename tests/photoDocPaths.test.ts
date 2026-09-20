@@ -250,15 +250,30 @@ describe("the upload route was never the problem", () => {
     }
   });
 
-  it("OCR branches on the mime instead of assuming a PDF", () => {
-    // A photographed passport goes to Vision images:annotate, which is the
-    // better path for an MRZ than rasterising a PDF would be.
-    expect(UPLOAD_ROUTE).toMatch(/mimeType === "application\/pdf"/);
-    expect(UPLOAD_ROUTE).toContain("images:annotate");
+  it("a photographed passport is READ, not assumed to be a PDF", () => {
+    // This used to check that OCR branched on the mime, because Google Vision
+    // had a separate images:annotate endpoint. That fallback was removed on
+    // 2026-09-20 (billing disabled on its Google project, so every call came
+    // back refused). Azure's prebuilt-idDocument model takes the bytes as they
+    // are, so the honest assertion is that the reader gets the SAME buffer
+    // whatever the file is -- no mime gate standing between her photo and it.
+    const call = UPLOAD_ROUTE.indexOf("analyzePassportAzure(buffer)");
+    expect(call, "the reader must be handed the raw upload").toBeGreaterThan(-1);
+    const ocrBlock = UPLOAD_ROUTE.indexOf('if (fileKey === "id")');
+    expect(ocrBlock).toBeGreaterThan(-1);
+    expect(ocrBlock).toBeLessThan(call);
+    // Nothing between the two may refuse a photo for being a photo.
+    expect(UPLOAD_ROUTE.slice(ocrBlock, call)).not.toMatch(/application\/pdf/);
   });
 
-  it("the embedded-JPEG retry is skipped for a file that already is one", () => {
-    expect(UPLOAD_ROUTE).toMatch(/!mrzData && file\.type === "application\/pdf"/);
+  it("the Google Vision fallback stays gone -- it is a per-call bill", () => {
+    // It could only ever fail (billing disabled) and it cost her the seconds
+    // it took to do so. Reintroducing it is the founder's call, not a
+    // refactor's side effect.
+    expect(UPLOAD_ROUTE).not.toContain("images:annotate");
+    expect(UPLOAD_ROUTE).not.toContain("files:annotate");
+    expect(UPLOAD_ROUTE).not.toContain("cloud-vision");
+    expect(UPLOAD_ROUTE).not.toContain("pickEmbeddedJpegs");
   });
 });
 

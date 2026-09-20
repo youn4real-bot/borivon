@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  base64JsonBody, planOcr, pickEmbeddedJpegs, appendOcrText, estimateOcrPeakBytes,
-  OCR_MAX_BYTES, OCR_JPEG_MAX_BYTES, OCR_MAX_EMBEDDED_JPEGS, OCR_TEXT_MAX_CHARS,
+  base64JsonBody, planOcr, appendOcrText, estimateOcrPeakBytes,
+  OCR_MAX_BYTES, OCR_TEXT_MAX_CHARS,
 } from "../lib/ocrBudget";
 
 /**
@@ -55,27 +55,19 @@ describe("base64JsonBody — identical output, without the copies", () => {
     expect(Buffer.from(parsed.x, "base64").equals(Buffer.from([1, 2, 3, 4]))).toBe(true);
   });
 
-  it("builds the real Google Vision PDF body as valid JSON", () => {
-    const body = base64JsonBody(
-      '{"requests":[{"inputConfig":{"mimeType":"application/pdf","content":"',
-      Buffer.from("%PDF-1.4 fake"),
-      '"},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}],"pages":[1,2,3]}]}',
-    );
-    const j = JSON.parse(body.toString("utf8"));
-    expect(j.requests[0].inputConfig.mimeType).toBe("application/pdf");
-    expect(j.requests[0].features[0].type).toBe("DOCUMENT_TEXT_DETECTION");
-    expect(j.requests[0].pages).toEqual([1, 2, 3]);
-    expect(Buffer.from(j.requests[0].inputConfig.content, "base64").toString()).toBe("%PDF-1.4 fake");
-  });
-
-  it("builds the real Google Vision image body as valid JSON", () => {
+  // There used to be two more here, pinning the two Google Vision request
+  // bodies. That fallback was removed on 2026-09-20 -- billing is disabled on
+  // its Google project, so every call it made came back refused -- and a test
+  // that builds a body nothing sends proves nothing. What IS sent is the Azure
+  // submit body above, and this pins the real nesting it goes into.
+  it("builds the real Azure submit body as valid JSON", () => {
     const j = JSON.parse(base64JsonBody(
-      '{"requests":[{"image":{"content":"',
-      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
-      '"},"features":[{"type":"DOCUMENT_TEXT_DETECTION"}]}]}',
+      '{"base64Source":"',
+      Buffer.from("%PDF-1.4 fake"),
+      '"}',
     ).toString("utf8"));
-    expect(j.requests[0].features[0].type).toBe("DOCUMENT_TEXT_DETECTION");
-    expect(Buffer.from(j.requests[0].image.content, "base64")[0]).toBe(0xff);
+    expect(Object.keys(j)).toEqual(["base64Source"]);
+    expect(Buffer.from(j.base64Source, "base64").toString()).toBe("%PDF-1.4 fake");
   });
 });
 
@@ -106,32 +98,6 @@ describe("planOcr — the cap reads, it does not refuse the upload", () => {
     // At the cap it is a quarter of that.
     expect(estimateOcrPeakBytes(25 * 1024 * 1024)).toBeGreaterThanOrEqual(59 * 1024 * 1024);
     expect(estimateOcrPeakBytes(OCR_MAX_BYTES)).toBeLessThan(26 * 1024 * 1024);
-  });
-});
-
-describe("pickEmbeddedJpegs — bounded on count and on size", () => {
-  const j = (length: number) => ({ length });
-
-  it("takes the biggest first — the MRZ is on the largest page image", () => {
-    const picked = pickEmbeddedJpegs([j(100_000), j(900_000), j(400_000)]);
-    expect(picked.map(p => p.length)).toEqual([900_000, 400_000, 100_000]);
-  });
-
-  it("never reads more than OCR_MAX_EMBEDDED_JPEGS of them", () => {
-    const picked = pickEmbeddedJpegs([j(10), j(20), j(30), j(40), j(50), j(60)]);
-    expect(picked).toHaveLength(OCR_MAX_EMBEDDED_JPEGS);
-    expect(picked.map(p => p.length)).toEqual([60, 50, 40]);
-  });
-
-  it("drops an image too big to OCR instead of blowing the isolate on it", () => {
-    const picked = pickEmbeddedJpegs([j(OCR_JPEG_MAX_BYTES + 1), j(1_000)]);
-    expect(picked.map(p => p.length)).toEqual([1_000]);
-  });
-
-  it("does not mutate the caller's array", () => {
-    const src = [j(1), j(3), j(2)];
-    pickEmbeddedJpegs(src);
-    expect(src.map(s => s.length)).toEqual([1, 3, 2]);
   });
 });
 

@@ -371,6 +371,45 @@ describe("the dashboard cannot autosave a form it never loaded", () => {
   });
 });
 
+describe("a form that opens empty says WHY it is empty", () => {
+  /**
+   * The Google Cloud Vision fallback was removed on 2026-09-20 (billing is
+   * disabled on that Google project, so every call it made came back refused).
+   * "The reader found nothing" is therefore an ordinary outcome now, not a
+   * rare one, and it lands as the same blank eighteen-field form that BUG 1
+   * above was about. The difference has to be visible to her: a blank form
+   * with no explanation reads as a broken upload, and a candidate who thinks
+   * the upload broke re-uploads instead of typing.
+   *
+   * LAW #38 is untouched either way — she ticks every confirmation box by
+   * hand, so the only thing a missing prefill costs her is the typing.
+   */
+  it("the server's reason is read off the upload response, not guessed", () => {
+    expect(DASH).toContain("passportOcrSkipped");
+    expect(DASH).toMatch(/json\.ocrSkipped === "too_large"/);
+  });
+
+  it("a re-upload over existing data never shows the apology", () => {
+    // hadData means her fields are already filled in; there is nothing to
+    // explain, and saying "we could not read it" over good data is a lie.
+    const branch = DASH.indexOf("if (json.hadData)");
+    expect(branch).toBeGreaterThan(0);
+    // The window is generous because `code()` blanks comments in place, so
+    // the explanation above the call survives as whitespace.
+    expect(DASH.slice(branch, branch + 900)).toContain("setPassportOcrSkipped(null)");
+  });
+
+  it("it says so in all three languages (LAW #19)", () => {
+    expect(DASH).toContain("Wir konnten ihn nicht automatisch lesen");
+    expect(DASH).toContain("Nous n'avons pas pu le lire automatiquement");
+    expect(DASH).toContain("We couldn't read it automatically");
+    // And the over-the-cap case has its own sentence, in all three too.
+    expect(DASH).toContain("Die Datei ist zu groß, um sie automatisch zu lesen");
+    expect(DASH).toContain("Le fichier est trop volumineux pour une lecture automatique");
+    expect(DASH).toContain("The file is too large to read automatically");
+  });
+});
+
 describe("the route's own guards are wired, not merely available", () => {
   it("the existing-row read's error is checked before anything is written", () => {
     const check = ROUTE.indexOf("if (readErr)");

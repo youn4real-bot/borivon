@@ -58,9 +58,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const { data: profiles } = await db
     .from("candidate_profiles")
-    .select("user_id, profile_photo, manually_verified, payment_tier")
+    .select("user_id, profile_photo, manually_verified")
     .in("user_id", userIds);
-  for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean; payment_tier: string | null }[]) {
+  for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean }[]) {
     photoInfo[p.user_id] = { photo: p.profile_photo, verified: isVerified(p) };
   }
 
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("profile_photo, manually_verified, payment_tier")
+    .select("profile_photo, manually_verified")
     .eq("user_id", auth.userId)
     .maybeSingle();
 
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       authorId:       auth.userId,
       authorName,
       authorPhoto:    (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null,
-      authorVerified: isBorivonTeam || isVerified(profile as { manually_verified?: boolean | null; payment_tier?: string | null } | null),
+      authorVerified: isBorivonTeam || isVerified(profile as { manually_verified?: boolean | null } | null),
       isBorivonTeam,
       isSuperAdmin,
       isOrgMember:    false,

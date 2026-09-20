@@ -1110,13 +1110,12 @@ export default function CalendarPage() {
                 <div className="rounded-[14px] p-4 text-center" style={{ background: "color-mix(in srgb, var(--gold) 10%, transparent)", border: "1px solid var(--border-gold)" }}>
                   <Lock size={20} className="mx-auto mb-2" style={{ color: "var(--gold)" }} />
                   <p className="text-[13px] font-medium" style={{ color: "var(--w2)" }}>
-                    {T("This event is for premium members.", "Dieser Termin ist für Premium-Mitglieder.", "Cet événement est réservé aux membres premium.")}
+                    {T(
+                      "The Borivon team opens this event. Contact us if it concerns you.",
+                      "Diesen Termin schaltet das Borivon-Team frei. Melden Sie sich bei uns, wenn er Sie betrifft.",
+                      "Cet événement est ouvert par l'équipe Borivon. Contactez-nous s'il vous concerne.",
+                    )}
                   </p>
-                  <button onClick={() => { setDetail(null); router.push("/portal/dashboard"); }}
-                    className="bv-glow-gold bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-4 py-2 mt-3"
-                    style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
-                    <Crown size={14} /> {T("Unlock with VIP", "Mit VIP freischalten", "Débloquer avec VIP")}
-                  </button>
                 </div>
               ) : (
                 <>

@@ -114,7 +114,6 @@ type CandidateProfile = {
   children_ages: string | null;
   manually_verified: boolean | null;
   profile_photo: string | null;
-  payment_tier: string | null;
   placement_ready: boolean | null;
   // Structured facets used by the candidate Filter panel (may be absent on
   // not-yet-migrated rows → optional; the filter treats missing as "unknown").

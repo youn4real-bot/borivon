@@ -1,19 +1,18 @@
 /**
  * THE gold "verified" tick rule — single source of truth.
  *
- * A candidate shows the gold tick iff EITHER:
- *   1. a supreme admin granted it (candidate_profiles.manually_verified), OR
- *   2. they hold a paid premium tier (candidate_profiles.payment_tier === "premium").
+ * A candidate shows the gold tick iff a supreme admin granted it
+ * (candidate_profiles.manually_verified). Nothing else earns it: not passport
+ * approval, not CV approval, and — since the paid plan was removed on
+ * 2026-09-20 — nothing she can buy. The rule used to have a second arm for a
+ * paid premium tier; that arm is gone, and payment_tier is not read anywhere.
  *
- * This MUST be used everywhere a verified badge is computed. Several admin /
- * chat / feed / org views previously checked manually_verified ALONE, so a
- * paying premium candidate (e.g. someone who just checked out via Stripe) had
- * NO gold tick in those views even though /me/verified + the public profile
- * already showed it. Centralising the rule keeps the tick consistent for a
- * paying customer everywhere it appears.
+ * This MUST stay the only place the rule is written down. Several admin / chat
+ * / feed / org views once each had their own copy of it, which is how they
+ * drifted apart in the first place.
  */
 export function isVerified(
-  p: { manually_verified?: boolean | null; payment_tier?: string | null } | null | undefined,
+  p: { manually_verified?: boolean | null } | null | undefined,
 ): boolean {
-  return !!p && (!!p.manually_verified || p.payment_tier === "premium");
+  return !!p && !!p.manually_verified;
 }

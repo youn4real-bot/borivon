@@ -2182,8 +2182,6 @@ function CVBuilderInner() {
   const [lockedPopupOpen, setLockedPopupOpen] = useState(false);
   // null = no passport submitted | "pending" | "approved" | "rejected"
   const [passportStatus, setPassportStatus] = useState<null | "pending" | "approved" | "rejected">(null);
-  // Payment tier — null = free, "premium"
-  const [paymentTier, setPaymentTier] = useState<string | null>(null);
   // Manual verification override — supreme admin can grant the gold tick
   // independent of passport status, and that override should also unlock
   // the CV builder (otherwise the CTA the dashboard offers leads to a wall).
@@ -3013,7 +3011,7 @@ function CVBuilderInner() {
       //    and use whichever arrives first inside the merge logic below.
       const [profileResult, serverDraft] = await Promise.all([
         getMyProfile(
-          "first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier,manually_verified",
+          "first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,manually_verified",
           { userId: uid },
         ),
         fetch("/api/portal/me/cv-draft", {
@@ -3028,9 +3026,6 @@ function CVBuilderInner() {
       if (profile?.passport_status) {
         const s = profile.passport_status as string;
         if (s === "pending" || s === "approved" || s === "rejected") setPassportStatus(s);
-      }
-      if ((profile as { payment_tier?: string | null } | null)?.payment_tier) {
-        setPaymentTier((profile as { payment_tier?: string | null }).payment_tier ?? null);
       }
       if ((profile as { manually_verified?: boolean } | null)?.manually_verified) {
         setManuallyVerified(true);

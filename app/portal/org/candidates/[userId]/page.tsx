@@ -10,7 +10,7 @@ import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PageLoader } from "@/components/ui/states";
 import {
   ArrowLeft, CheckCircle2, Clock, FileText,
-  MessageCircle, Star, ShieldCheck, AlertCircle, Route,
+  MessageCircle, ShieldCheck, AlertCircle, Route,
 } from "lucide-react";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 
@@ -20,7 +20,6 @@ const T_MAP = {
     back:          "Our candidates",
     verifiedLabel: "Identity verified",
     pendingLabel:  "Verification in progress",
-    tierPremium:   "Premium",
     docsTitle:     "Documents",
     docsApproved:  "Approved",
     docsPending:   "Pending review",
@@ -39,7 +38,6 @@ const T_MAP = {
     back:          "Nos candidats",
     verifiedLabel: "Identité vérifiée",
     pendingLabel:  "Vérification en cours",
-    tierPremium:   "Premium",
     docsTitle:     "Documents",
     docsApproved:  "Approuvés",
     docsPending:   "En attente",
@@ -58,7 +56,6 @@ const T_MAP = {
     back:          "Unsere Kandidaten",
     verifiedLabel: "Identität verifiziert",
     pendingLabel:  "Verifizierung läuft",
-    tierPremium:   "Premium",
     docsTitle:     "Dokumente",
     docsApproved:  "Genehmigt",
     docsPending:   "Ausstehend",
@@ -82,7 +79,6 @@ type Dossier = {
   email: string;
   photo: string | null;
   verified: boolean;
-  tier: string | null;
   passportStatus: string | null;
   hasCvDraft: boolean;
   docCount: number;
@@ -90,24 +86,6 @@ type Dossier = {
   docsPending: number;
   linkStatus: string;
 };
-
-// ── Tier badge ────────────────────────────────────────────────────────────────
-function TierBadge({ tier, label }: { tier: string | null; label: string }) {
-  if (!tier || tier === "free") return null;
-  const isPremium = tier === "premium";
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full"
-      style={isPremium
-        ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
-        : { background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }
-      }
-    >
-      {isPremium && <Star size={8} strokeWidth={2.5} style={{ fill: "var(--gold)", stroke: "var(--gold)" }} />}
-      {label}
-    </span>
-  );
-}
 
 // ── Doc progress bar ──────────────────────────────────────────────────────────
 function DocBar({ ok, pending, total }: { ok: number; pending: number; total: number }) {
@@ -253,10 +231,6 @@ export default function OrgCandidateDossierPage({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 mb-4">
-              <TierBadge
-                tier={dossier.tier}
-                label={dossier.tier ? T.tierPremium : "—"}
-              />
               <span
                 className="inline-flex items-center gap-1 text-[11px] font-medium"
                 style={{ color: dossier.verified ? "var(--success)" : "var(--w3)" }}

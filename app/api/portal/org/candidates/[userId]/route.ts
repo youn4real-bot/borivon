@@ -76,14 +76,13 @@ export async function GET(
   // Get candidate profile data
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("manually_verified, profile_photo, payment_tier, passport_status, cv_draft")
+    .select("manually_verified, profile_photo, passport_status, cv_draft")
     .eq("user_id", candidateId)
     .maybeSingle();
 
   const p = profile as {
     manually_verified: boolean | null;
     profile_photo: string | null;
-    payment_tier: string | null;
     passport_status: string | null;
     cv_draft: unknown;
   } | null;
@@ -108,7 +107,6 @@ export async function GET(
     email,
     photo:          p?.profile_photo ?? null,
     verified:       !!p?.manually_verified,
-    tier:           p?.payment_tier ?? null,
     passportStatus: p?.passport_status ?? null,
     hasCvDraft:     !!p?.cv_draft,
     docCount,

@@ -46,16 +46,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ authenticated: true, verified: true, isAdmin: true });
   }
 
-  // Verification is tied ONLY to (1) an explicit supreme-admin grant
-  // (manually_verified) or (2) a paid premium subscription. Passport
-  // approval no longer confers the gold tick.
+  // Verification is tied ONLY to an explicit supreme-admin grant
+  // (manually_verified). Passport approval does not confer the gold tick, and
+  // neither does any payment — the paid plan was removed on 2026-09-20.
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("manually_verified, payment_tier")
+    .select("manually_verified")
     .eq("user_id", userId)
-    .maybeSingle() as { data: { manually_verified?: boolean | null; payment_tier?: string | null } | null };
+    .maybeSingle() as { data: { manually_verified?: boolean | null } | null };
 
-  const verified = !!profile?.manually_verified || profile?.payment_tier === "premium";
+  const verified = !!profile?.manually_verified;
 
   return NextResponse.json({
     authenticated: true,

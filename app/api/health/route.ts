@@ -68,7 +68,8 @@ export async function GET(req: Request) {
 
   // A failing DEEP probe must not flip the shallow uptime signal: an external
   // monitor pings /api/health (no deep flag) and should page on the app being
-  // down, not on Stripe being unconfigured. The deep body carries that detail.
+  // down, not on one dependency being unconfigured. The deep body carries that
+  // detail.
   const ok = envOk;
   return NextResponse.json(
     {

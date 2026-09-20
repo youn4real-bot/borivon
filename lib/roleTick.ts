@@ -5,7 +5,7 @@
  *   • Supreme admin + sub-admins → BLACK  (official Borivon account)
  *   • Org admins                 → ORG    (black tick, "official organization
  *                                          account" — never names the org)
- *   • Candidates                 → GOLD   only if manually granted OR premium
+ *   • Candidates                 → GOLD   only if manually granted
  *   • everyone else              → none
  *
  * NOTE: the old RED tick (org member) is RETIRED. Org admins now render the
@@ -14,9 +14,12 @@
  * tick is reserved for a future project — do not reintroduce it.
  *
  * Server routes resolve the role flags (sub_admins / organization_members /
- * payment_tier — all case-insensitive). UI just maps those flags → a colour
- * here so the rule never drifts between feed / profile / users panel as we
- * build on it. Keep ALL tick logic flowing through this file.
+ * manually_verified — all case-insensitive). UI just maps those flags → a
+ * colour here so the rule never drifts between feed / profile / users panel as
+ * we build on it. Keep ALL tick logic flowing through this file.
+ *
+ * The gold tick once had a second source — a paid premium tier. The paid plan
+ * was removed on 2026-09-20, so an admin grant is the only way to it.
  */
 
 export type TickColor = "black" | "org" | "gold" | "default";
@@ -26,7 +29,7 @@ export interface TickSignals {
   isBorivonTeam?: boolean;
   /** admin of a partner organization */
   isOrgAdmin?: boolean;
-  /** candidate verified (manual grant) OR on the premium plan */
+  /** candidate verified — the supreme admin's manual grant */
   candidateVerified?: boolean;
 }
 

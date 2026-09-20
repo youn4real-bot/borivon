@@ -56,7 +56,6 @@ type AdminConversation = {
   unread: number;
   verified?: boolean;
   photoUrl?: string | null;
-  paymentTier?: string | null;
   isOrgMember?: boolean;
 };
 

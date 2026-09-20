@@ -236,11 +236,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Fetch passport profiles (all fields).
-  // payment_tier was added in supabase/payments.sql — if not yet migrated it will
-  // simply be absent from the rows; the UI falls back to null gracefully.
   const profRes = await db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, phone, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier, placement_ready, b2_stage, b2_failed, nursing_specialty, years_experience, workplace_pref, cv_use_agency_branding, cv_use_borivon_branding, employer_id")
+    .select("user_id, first_name, last_name, phone, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, placement_ready, b2_stage, b2_failed, nursing_specialty, years_experience, workplace_pref, cv_use_agency_branding, cv_use_borivon_branding, employer_id")
     .in("user_id", userIds);
   // An explicit-column select is all-or-nothing: ONE un-migrated column 400s the
   // WHOLE query. Don't let that silently blank EVERY candidate's profile (no crash,
@@ -269,7 +267,6 @@ export async function GET(req: NextRequest) {
     children_ages: string | null;
     manually_verified: boolean | null;
     profile_photo: string | null;
-    payment_tier: string | null;
     placement_ready: boolean | null;
     b2_stage?: string | null;
     b2_failed?: boolean | null;

@@ -128,18 +128,17 @@ export async function GET(req: NextRequest) {
   const userMap: Record<string, { name: string; email: string }> = {};
   for (const uid of userIds) userMap[uid] = resolvedNames[uid] ?? { name: uid, email: uid };
 
-  // Fetch verified status + profile photo + payment tier for all candidates in one batch query
-  const profileMap: Record<string, { verified: boolean; photoUrl: string | null; paymentTier: string | null }> = {};
+  // Fetch verified status + profile photo for all candidates in one batch query
+  const profileMap: Record<string, { verified: boolean; photoUrl: string | null }> = {};
   if (userIds.length > 0) {
     const { data: profiles } = await db
       .from("candidate_profiles")
-      .select("user_id, manually_verified, profile_photo, payment_tier")
+      .select("user_id, manually_verified, profile_photo")
       .in("user_id", userIds);
     for (const p of (profiles ?? [])) {
       profileMap[p.user_id] = {
-        verified:    isVerified(p),
-        photoUrl:    (p as { profile_photo?: string | null }).profile_photo ?? null,
-        paymentTier: (p as { payment_tier?: string | null }).payment_tier ?? null,
+        verified: isVerified(p),
+        photoUrl: (p as { profile_photo?: string | null }).profile_photo ?? null,
       };
     }
   }
@@ -168,7 +167,6 @@ export async function GET(req: NextRequest) {
         ...userMap[t.threadUserId],
         verified:    !!profileMap[t.threadUserId]?.verified,
         photoUrl:    profileMap[t.threadUserId]?.photoUrl ?? null,
-        paymentTier: profileMap[t.threadUserId]?.paymentTier ?? null,
         isOrgMember: orgAdminEmails.has(email),
       };
     })

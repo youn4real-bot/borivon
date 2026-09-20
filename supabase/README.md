@@ -59,7 +59,9 @@ order. (Inside each group, order doesn't usually matter.)
 
 ### 6 — Misc
 - `matching.sql` — `org_requirements`, `suggested_matches`.
-- `payments.sql` — Stripe payment tier.
+- `payments.sql` — `payment_tier` column. The paid plan was removed on 2026-09-20;
+  the column is left in place (dropping it would rewrite live rows) but nothing reads
+  or writes it any more. Do not build on it.
 - `messages.sql` — admin ↔ candidate chat.
 - `feed.sql` + `feed_org.sql` — community feed.
 - `community_seen.sql` — read-receipt tracking.

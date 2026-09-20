@@ -1128,7 +1128,6 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(t, "searchMessages", { q: "flight" })).toEqual({ error: "admin_only" });
     expect(await run(t, "listOrgMembers", { orgId: "55555555-5555-5555-5555-555555555555" })).toEqual({ error: "admin_only" });
     expect(await run(t, "getCandidateAccess", { candidateUserId: "66666666-6666-6666-6666-666666666666" })).toEqual({ error: "admin_only" });
-    expect(await run(t, "getSubscriptionSummary", {})).toEqual({ error: "admin_only" });
   });
 
   it("wave-5 supreme-only tools reject a sub-admin", async () => {
@@ -1151,13 +1150,6 @@ describe("assistant tools allow the supreme admin", () => {
     const r = (await run(buildAssistantTools(SUPREME), "createLeadsBatch", { leads: [{ name: "A" }, { name: "B", phone: "+212600" }] })) as { ok?: boolean; added?: number };
     expect(r.ok).toBe(true);
     expect(r.added).toBe(2);
-  });
-
-  it("getSubscriptionSummary reports stripe_not_configured without a key", async () => {
-    const prev = process.env.STRIPE_SECRET_KEY;
-    delete process.env.STRIPE_SECRET_KEY;
-    expect(await run(buildAssistantTools(SUPREME), "getSubscriptionSummary", {})).toEqual({ error: "stripe_not_configured" });
-    if (prev !== undefined) process.env.STRIPE_SECRET_KEY = prev;
   });
 
   it("listOrgMembers returns members joined to sub_admins (supreme), excluding the supreme admin", async () => {

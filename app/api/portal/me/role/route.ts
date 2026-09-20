@@ -51,18 +51,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 5. Regular candidate — also return payment_tier so the navbar can hide
-  //    the upgrade modal entirely for users who already paid for Premium.
-  const { data: profile } = await db
-    .from("candidate_profiles")
-    .select("payment_tier")
-    .eq("user_id", user.userId)
-    .maybeSingle();
-  const paymentTier = (profile as { payment_tier?: string | null } | null)?.payment_tier ?? null;
-  // Private-test allowlist for the live classroom. SEPARATE query on purpose:
-  // classroom_tester is a newer column, so if its migration hasn't run yet a
-  // combined select would error and wipe out the (critical) payment-tier above.
-  // A failed select just leaves data null → classroomTester false. Safe.
+  // 5. Regular candidate. The payment tier used to be read here so the navbar
+  //    could hide the upgrade modal from anyone who had already paid; the paid
+  //    plan was removed on 2026-09-20, so there is no tier to read and no
+  //    upgrade to hide. The column stays in the database, untouched.
+  //
+  // Private-test allowlist for the live classroom. A failed select just leaves
+  // data null → classroomTester false. Safe.
   let classroomTester = isPermanentTester(user.userId);   // permanent pair: always on
   if (!classroomTester) {
     const { data: tp } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", user.userId).maybeSingle();
@@ -74,7 +69,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     role: "candidate",
     isSuperAdmin: false,
-    paymentTier,
     academyVisible: academyVisible || classroomTester,
     classroomTester,
     experimental: classroomTester,

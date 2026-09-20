@@ -32,17 +32,17 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
 
   const { data: profiles } = await db
     .from("candidate_profiles")
-    .select("user_id, profile_photo, manually_verified, payment_tier")
+    .select("user_id, profile_photo, manually_verified")
     .in("user_id", userIds);
-  const profileMap: Record<string, { photo: string | null; verified: boolean; tier: string | null }> = {};
-  for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean; payment_tier: string | null }[]) {
-    profileMap[p.user_id] = { photo: p.profile_photo, verified: isVerified(p), tier: p.payment_tier };
+  const profileMap: Record<string, { photo: string | null; verified: boolean }> = {};
+  for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean }[]) {
+    profileMap[p.user_id] = { photo: p.profile_photo, verified: isVerified(p) };
   }
 
   // Role-derived ticks (automatic, no manual verify):
   //   supreme admin + sub-admins → BLACK (official Borivon account)
   //   org admins                 → RED   (verified org member)
-  //   candidates                 → GOLD only if manually_verified OR premium
+  //   candidates                 → GOLD only if manually_verified
   // Casing varies in storage — compare LOWERCASED so a casing mismatch can't
   // hide the tick. EGRESS: scope both lookups to ONLY this page's author
   // emails (.in(...)) instead of full-table scans — the feed is polled ~90s
@@ -79,7 +79,7 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
   // locally above (`userEmail`) to compute the ticks.
   const result: Record<string, {
     name: string; photo: string | null;
-    verified: boolean; tier: string | null; isBorivonTeam: boolean;
+    verified: boolean; isBorivonTeam: boolean;
     isSuperAdmin: boolean; isOrgMember: boolean;
   }> = {};
   for (const uid of userIds) {
@@ -95,11 +95,9 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
       name:          auth?.name ?? "Unknown",
       photo:         prof?.photo ?? null,
       // Verified (shows a tick) automatically for Borivon team + org admins;
-      // candidates only via manual grant OR premium.
-      verified:      isBorivonTeam || isOrgMember
-                       || (prof?.verified ?? false)
-                       || (prof?.tier === "premium"),
-      tier:          prof?.tier ?? null,
+      // candidates only via the supreme admin's manual grant. The old third
+      // arm read a paid premium tier; the paid plan is gone (2026-09-20).
+      verified:      isBorivonTeam || isOrgMember || (prof?.verified ?? false),
       isBorivonTeam,
       isSuperAdmin,
       isOrgMember,
@@ -244,7 +242,7 @@ export async function GET(req: NextRequest) {
     pinned:           r.pinned ?? false,
     category:         r.category ?? "general",
     createdAt:        r.created_at,
-    author:           userMeta[r.user_id] ?? { name: "Unknown", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
+    author:           userMeta[r.user_id] ?? { name: "Unknown", photo: null, verified: false, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
     authorId:         r.user_id,
     isOwn:            r.user_id === auth.userId,
     likeCount:        likesByPost[r.id] ?? 0,
@@ -374,7 +372,7 @@ export async function POST(req: NextRequest) {
       pinned:           false,
       category:         safeCategory,
       createdAt:        p.created_at,
-      author:           userMeta[auth.userId] ?? { name: "Unknown", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
+      author:           userMeta[auth.userId] ?? { name: "Unknown", photo: null, verified: false, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
       authorId:         auth.userId,
       isOwn:            true,
       likeCount:        0,
