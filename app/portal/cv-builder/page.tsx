@@ -2219,6 +2219,10 @@ function CVBuilderInner() {
   // the channel becomes available — it needs the channel as a prop to
   // attach its own broadcast listener.
   const [collabChannel, setCollabChannel] = useState<RealtimeChannel | null>(null);
+  // Is the presence socket actually up? The poll backstop below decides whether
+  // to run by asking presence who else is in the document — so when presence
+  // itself is down, "nobody is here" is not an answer, it is silence.
+  const [collabLive, setCollabLive] = useState(false);
   const lastLocalEditAt    = useRef<number>(0);
   const lastBroadcastSig   = useRef<string>("");
   const applyingRemoteRef  = useRef<boolean>(false);
@@ -2710,6 +2714,9 @@ function CVBuilderInner() {
     });
 
     ch.subscribe(async (status) => {
+      // CHANNEL_ERROR / TIMED_OUT / CLOSED mean presence is telling us nothing,
+      // so the poll backstop must not read an empty peer list as "she is alone".
+      setCollabLive(status === "SUBSCRIBED");
       if (status === "SUBSCRIBED") {
         // Expose the channel to the floating-cursor portal — that component
         // only attaches its broadcast listeners once it sees a non-null
@@ -2755,6 +2762,7 @@ function CVBuilderInner() {
       supabase.removeChannel(ch);
       collabChannelRef.current = null;
       setCollabChannel(null);
+      setCollabLive(false);
       if (adminCh) {
         try { void adminCh.untrack(); } catch { /* ignore */ }
         supabase.removeChannel(adminCh);
@@ -2767,13 +2775,40 @@ function CVBuilderInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, adminCandidateId, selfPeer, authToken]);
 
-  // ── Live collab — 5 s poll backstop ─────────────────────────────────────
-  // Even when realtime broadcast works perfectly there are edge cases
-  // (CHANNEL_ERROR, paused tab, network blip) where a peer would miss an
-  // update. Poll the same cv-draft GET endpoint every 5 s and re-apply if
-  // the server's version differs from what we last saw — same merge rules
-  // as the broadcast handler (skip if the local user typed in the last
-  // 1.5 s, never overwrite local photo).
+  // Is a second editor in this document right now? refresh() marks our own
+  // presence entry isSelf, so whatever is left is somebody else.
+  //
+  // Deliberately a plain boolean and not the array: collabPeers takes a new
+  // identity on every presence sync, and the gold typing pulse fires those
+  // constantly. Using the array as an effect dependency would tear down and
+  // rebuild the timer below on every keystroke a peer makes — firing an
+  // immediate fetch each time, which would cost MORE requests than the poll
+  // it is meant to ration.
+  const hasRemotePeer = collabPeers.some(p => !p.isSelf);
+
+  // ── Live collab — poll backstop, only while it can earn its keep ──────────
+  // Realtime broadcast is how a peer's edit normally arrives. This poll is the
+  // backstop for when that fails (CHANNEL_ERROR, paused tab, network blip):
+  // re-read the same cv-draft GET endpoint and re-apply if the server's
+  // version differs from what we last saw — same merge rules as the
+  // broadcast handler (skip if the local user typed in the last 1.5 s, never
+  // overwrite local photo).
+  //
+  // It used to run every 5 s for as long as the page was in front, whether or
+  // not anyone else was in the document. A nurse who left her CV open alone
+  // paid 12 requests a minute, indefinitely, out of Moroccan mobile data and
+  // phone battery, to re-read a draft nobody but her was touching.
+  //
+  // So poll only when there is something to catch:
+  //   • another editor present — every 5 s, exactly as before;
+  //   • alone, presence healthy — not at all. Nobody else can be editing,
+  //     and the presence join event flips this straight back on;
+  //   • presence socket down — every 30 s. An empty peer list is then
+  //     silence, not an answer, so the backstop stays — that is the very
+  //     case it was written for — at a sixth of the cost.
+  //
+  // A single read still runs on open and on every return to the tab, so a
+  // phone that was suspended reconciles at once without a standing timer.
   useEffect(() => {
     if (!authToken || loading) return;
     if (typeof document === "undefined") return;
@@ -2811,19 +2846,22 @@ function CVBuilderInner() {
         });
       } catch { /* offline */ }
     };
-    // Fire once immediately so the first reveal is no-op aligned, then
-    // every 5 s afterwards.
+    // 0 means no standing timer at all — the alone-and-connected case.
+    const everyMs = hasRemotePeer ? 5000 : collabLive ? 0 : 30000;
+
+    // Fire once immediately so the first reveal is no-op aligned, and so the
+    // instant a peer joins we catch up without waiting out a whole interval.
     void tick();
-    const t = setInterval(tick, 5000);
+    const t = everyMs > 0 ? setInterval(tick, everyMs) : null;
     const onVis = () => { if (!document.hidden) void tick(); };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (t) clearInterval(t);
       document.removeEventListener("visibilitychange", onVis);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authToken, adminCandidateId, loading]);
+  }, [authToken, adminCandidateId, loading, hasRemotePeer, collabLive]);
 
   // Stale-pulse cleanup — drop the gold "typing" dot once the broadcast
   // is older than 1.5 s, even if no presence event fires in between.
