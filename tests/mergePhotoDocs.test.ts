@@ -420,3 +420,51 @@ describe("the upload page-count probe does not trip over a photo", () => {
     expect(probe, "LAW #39: the probe reads, it never re-saves").not.toContain(".save(");
   });
 });
+
+describe("the merged file opens in the renderer that actually shows it", () => {
+  // pdf-lib reloading its own output proves very little -- it wrote the file.
+  // The question is whether pdf.js, which is what the portal and every browser
+  // put on screen, finds a page with a picture drawn on it.
+  async function openWithPdfjs(bytes: Uint8Array) {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data: bytes, useSystemFonts: false }).promise;
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const vp = page.getViewport({ scale: 1 });
+      const ops = await page.getOperatorList();
+      const names = ops.fnArray.map((f: number) =>
+        Object.keys(pdfjs.OPS).find(k => (pdfjs.OPS as Record<string, number>)[k] === f));
+      pages.push({
+        width: vp.width,
+        height: vp.height,
+        drawsImage: names.some(n => !!n && /Image/i.test(n)),
+      });
+    }
+    return pages;
+  }
+
+  it("a photographed half really becomes a drawn page, not an empty one", async () => {
+    const res = await mergeDocumentsToPdf([
+      { bytes: await makePdf(1) },
+      { bytes: realJpeg() },
+    ]);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const pages = await openWithPdfjs(res.bytes);
+    expect(pages.length).toBe(2);
+    expect(pages[0].drawsImage, "the PDF half had nothing on it").toBe(false);
+    expect(pages[1].drawsImage, "the photo must be painted, not merely embedded").toBe(true);
+    expect(Math.round(pages[1].width)).toBe(Math.round(A4_WIDTH_PT));
+    expect(Math.round(pages[1].height)).toBe(Math.round(A4_HEIGHT_PT));
+  });
+
+  it("a landscape photo opens on a landscape page", async () => {
+    const res = await mergeDocumentsToPdf([{ bytes: makePng(600, 400) }]);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const pages = await openWithPdfjs(res.bytes);
+    expect(pages[0].drawsImage).toBe(true);
+    expect(pages[0].width).toBeGreaterThan(pages[0].height);
+  });
+});
