@@ -2,14 +2,19 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
-import { detectDocKind, isImageKind, mimeForKind, pngPixelCount } from "../lib/docBytes";
+import {
+  detectDocKind, isImageKind, mimeForKind, pngPixelCount,
+  isMergeRefusalCode, MERGE_REFUSAL_CODES,
+} from "../lib/docBytes";
 import {
   mergeDocumentsToPdf,
   imagePageSize,
   fitContain,
+  refusalStatus,
   A4_WIDTH_PT,
   A4_HEIGHT_PT,
   PNG_MEGAPIXEL_LIMIT,
+  MAX_COMBINED_BYTES,
 } from "../lib/mergeDocs";
 
 /**
@@ -395,7 +400,86 @@ describe("the merge route wires the helper, and still refuses a passport", () =>
     expect(MERGE_ROUTE).toMatch(/if \(!result\.ok\)/);
     expect(MERGE_ROUTE).toContain("error: result.code");
     expect(MERGE_ROUTE, "413 for too big, 415 for a format we cannot take")
-      .toContain('result.code === "image_too_large" ? 413 : 415');
+      .toContain("refusalStatus(result.code)");
+  });
+
+  it("has no refusal body of its own left to answer with an unknown code", () => {
+    // THE BUG: the combined-size ceiling used to be a separate early return in
+    // this route, with a hand-written `error: "too_large"` that was in no
+    // shared list — so isMergeRefusalCode() said false and the screen read
+    // "Download failed — please try again" for a pair that can never fit.
+    // Every refusal has to leave through the one `result.code` path.
+    const afterAuth = MERGE_ROUTE.slice(MERGE_ROUTE.indexOf("export async function GET"));
+    expect(afterAuth, "a second, private refusal vocabulary is how this broke")
+      .not.toMatch(/error:\s*"too_large"/);
+    expect(afterAuth).not.toContain("MAX_COMBINED =");
+  });
+});
+
+/**
+ * THE PAIR IS TOO BIG — AND SHE IS TOLD THAT, NOT "TRY AGAIN".
+ *
+ * The refusal itself was right: two large scans push the Worker isolate past
+ * its memory and an isolate that dies answers with nothing at all. What was
+ * wrong is what reached the screen. The route answered `error: "too_large"`,
+ * a code that was never added to MERGE_REFUSAL_CODES, so both clients fell
+ * through to "Download failed — please try again" — the one instruction that
+ * is guaranteed to fail again on the same two files.
+ */
+describe("a pair that is too big together", () => {
+  /** Real PDF bytes padded with a comment, so the size is honest, not faked. */
+  async function bigPdf(bytes: number): Promise<Uint8Array> {
+    const base = await makePdf(1);
+    const out = new Uint8Array(bytes);
+    out.set(base, 0);
+    // PDF comment marker + filler: still a parseable PDF, just a fat one.
+    out[base.length] = 0x25; // "%"
+    out.fill(0x41, base.length + 1);
+    return out;
+  }
+
+  it("is refused by the merge itself, with a code and the size", async () => {
+    const half = Math.ceil(MAX_COMBINED_BYTES / 2) + 1024;
+    const res = await mergeDocumentsToPdf([
+      { bytes: await bigPdf(half) },
+      { bytes: await bigPdf(half) },
+    ]);
+    expect(res.ok, "an isolate that runs out of memory has no status code").toBe(false);
+    if (res.ok) return;
+    expect(res.code).toBe("too_large");
+    expect(res.megabytes).toBeGreaterThan(16);
+  });
+
+  it("and the clients RECOGNISE that code, which is the whole bug", () => {
+    // Revert lib/docBytes.ts and this is false again — which is exactly what
+    // turned a true "these two will never fit" into "please try again".
+    expect(isMergeRefusalCode("too_large")).toBe(true);
+    expect(MERGE_REFUSAL_CODES).toContain("too_large");
+  });
+
+  it("carries a 413, like the other 'too big' answer", () => {
+    expect(refusalStatus("too_large")).toBe(413);
+    expect(refusalStatus("image_too_large")).toBe(413);
+    expect(refusalStatus("unsupported_format")).toBe(415);
+    expect(refusalStatus("unreadable")).toBe(415);
+  });
+
+  it("a pair that fits is not refused", async () => {
+    const res = await mergeDocumentsToPdf([
+      { bytes: await bigPdf(1024 * 1024) },
+      { bytes: await bigPdf(1024 * 1024) },
+    ]);
+    expect(res.ok).toBe(true);
+  });
+
+  it("every code the shared list names has a translated sentence behind it", () => {
+    // LAW #19: the clients switch on the CODE, so a code they cannot name is a
+    // code that reaches her in the wrong language and the wrong words.
+    const TRANSLATIONS = readFileSync("lib/translations.ts", "utf8");
+    for (const key of ["pErrMergeFormat", "adErrMergeFormat"]) {
+      expect((TRANSLATIONS.match(new RegExp(`${key}:`, "g")) ?? []).length,
+        `${key} must exist in FR, EN and DE (plus its type declaration)`).toBeGreaterThanOrEqual(4);
+    }
   });
 });
 

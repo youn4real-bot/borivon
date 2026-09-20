@@ -49,6 +49,21 @@ export const IMAGE_PAGE_MARGIN_PT = 18;
 /** See lib/docBytes.ts pngPixelCount for why this ceiling exists. */
 export const PNG_MEGAPIXEL_LIMIT = 8;
 
+/**
+ * Ceiling on the two halves TOGETHER.
+ *
+ * Each upload is capped at its own size, but nothing capped the pair, and a
+ * merge holds both parsed documents, the copied pages and the saved output at
+ * once -- several times the input in peak memory, inside a 128 MB isolate that
+ * dies with no status code at all.
+ *
+ * It lives HERE rather than in the route because the route's own copy of this
+ * rule answered with a hand-rolled body whose code was in no shared list, so
+ * the refusal reached the screen as "Download failed - please try again" (see
+ * MERGE_REFUSAL_CODES in lib/docBytes.ts). One refusal path, one vocabulary.
+ */
+export const MAX_COMBINED_BYTES = 16 * 1024 * 1024;
+
 export type MergeSource = {
   bytes: Uint8Array;
   /** Degrees clockwise, from documents.rotation. 0 when unset. */
@@ -62,7 +77,19 @@ export type { MergeRefusalCode };
 
 export type MergeResult =
   | { ok: true; bytes: Uint8Array }
-  | { ok: false; code: MergeRefusalCode; kind: DocKind; megapixels?: number };
+  | { ok: false; code: MergeRefusalCode; kind: DocKind; megapixels?: number; megabytes?: number };
+
+/**
+ * HTTP status for a refusal. 413 when the answer is "this is too big", 415 when
+ * it is "this is the wrong kind of file".
+ *
+ * Exported so the route cannot drift: it used to spell the mapping inline as a
+ * single ternary on one code, which is how "too_large" ended up answered by a
+ * separate hand-written branch that no client could recognise.
+ */
+export function refusalStatus(code: MergeRefusalCode): 413 | 415 {
+  return code === "image_too_large" || code === "too_large" ? 413 : 415;
+}
 
 /**
  * Page size for a picture: A4 in the picture's OWN orientation.
@@ -121,6 +148,19 @@ export async function mergeDocumentsToPdf(sources: MergeSource[]): Promise<Merge
   // Check every source BEFORE building anything. Refusing on source two after
   // embedding source one would have allocated the memory the PNG ceiling exists
   // to protect, and would make the refusal depend on the pair's order.
+  // The pair, not each half. Checked before any embedder runs, for the same
+  // reason as the PNG ceiling: an isolate that runs out of memory answers with
+  // nothing at all, and nothing is the failure this module exists to remove.
+  const combined = sources.reduce((n, s) => n + s.bytes.length, 0);
+  if (combined > MAX_COMBINED_BYTES) {
+    return {
+      ok: false,
+      code: "too_large",
+      kind: detectDocKind(sources[0]?.bytes ?? new Uint8Array(0)),
+      megabytes: combined / 1_048_576,
+    };
+  }
+
   for (const src of sources) {
     const kind = detectDocKind(src.bytes);
     if (kind === "webp" || kind === "other") {

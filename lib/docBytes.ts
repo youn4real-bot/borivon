@@ -117,8 +117,16 @@ export function isPdfBytes(bytes: Uint8Array): boolean {
  * response. Sharing the list is the point: three string literals copied into
  * two client files is how a refusal silently turns back into "Download failed,
  * please try again", which is the wrong advice for every one of them.
+ *
+ * "too_large" is the PAIR being too big together, and it belongs in this list
+ * for a reason that cost a real message: the merge route answered it with a
+ * hand-rolled `error: "too_large"` body that was never added here, so
+ * isMergeRefusalCode() said false, and both the dashboard and the admin panel
+ * fell through to "Download failed - please try again" — advice that can only
+ * fail again, for a pair that will never fit. Every refusal the route can
+ * return has to be nameable here or it reaches her as the wrong sentence.
  */
-export const MERGE_REFUSAL_CODES = ["unsupported_format", "image_too_large", "unreadable"] as const;
+export const MERGE_REFUSAL_CODES = ["unsupported_format", "image_too_large", "too_large", "unreadable"] as const;
 
 export type MergeRefusalCode = (typeof MERGE_REFUSAL_CODES)[number];
 

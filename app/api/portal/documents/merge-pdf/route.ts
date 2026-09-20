@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mergeDocumentsToPdf, type MergeRefusalCode } from "@/lib/mergeDocs";
+import { mergeDocumentsToPdf, refusalStatus, type MergeRefusalCode } from "@/lib/mergeDocs";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
@@ -94,8 +94,10 @@ async function isAuthorised(
  * log line, and any caller that only knows how to show `message`. It names the
  * way out, because "Merge failed" left the candidate with nowhere to go.
  */
-function refusalMessage(r: { code: MergeRefusalCode; megapixels?: number }): string {
+function refusalMessage(r: { code: MergeRefusalCode; megapixels?: number; megabytes?: number }): string {
   switch (r.code) {
+    case "too_large":
+      return `These two files come to ${r.megabytes ? r.megabytes.toFixed(1) : "more than 16"} MB together, which is too much to merge in one go. Download them separately.`;
     case "unsupported_format":
       return "One of these two files is in a format that cannot be merged. Download them separately, or re-upload that one as a PDF or a JPEG photo.";
     case "image_too_large":
@@ -171,21 +173,13 @@ export async function GET(req: NextRequest) {
       loadBytes(origMeta),
     ]);
 
-    // Refuse before pdf-lib gets involved. Each source is capped at 10 MB on
-    // upload, but nothing capped the PAIR — and merging holds both parsed
-    // documents, the copied pages and the saved output at once, several times
-    // the input in peak memory. Two large scans were enough to push a Workers
-    // isolate over its limit, which surfaces as an opaque failure rather than a
-    // message anyone can act on. Say so instead.
-    const MAX_COMBINED = 16 * 1024 * 1024;
-    const combined = transBytes.length + origBytes.length;
-    if (combined > MAX_COMBINED) {
-      return NextResponse.json({
-        error: "too_large",
-        message: `These two files come to ${(combined / 1048576).toFixed(1)} MB together, which is too much to merge in one go. Download them separately.`,
-      }, { status: 413 });
-    }
-
+    // The combined-size ceiling used to live HERE, as its own early return with
+    // its own JSON body — and that is exactly how its `too_large` code ended up
+    // outside MERGE_REFUSAL_CODES, so every client that hit it showed "Download
+    // failed — please try again" for a pair that can never fit. The rule now
+    // lives in lib/mergeDocs.ts (MAX_COMBINED_BYTES) and comes back through the
+    // one refusal path below, in the one vocabulary the clients translate.
+    //
     // Merge: translated pages first, then original pages. Either half can now
     // be a PHOTOGRAPH, so the merging itself lives in lib/mergeDocs.ts, which
     // turns a JPEG or PNG into a page rather than throwing into the catch
@@ -205,7 +199,7 @@ export async function GET(req: NextRequest) {
         error: result.code,
         kind: result.kind,
         message: refusalMessage(result),
-      }, { status: result.code === "image_too_large" ? 413 : 415 });
+      }, { status: refusalStatus(result.code) });
     }
     const mergedBytes = result.bytes;
 
