@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFDocument, degrees } from "pdf-lib";
+import { mergeDocumentsToPdf, type MergeRefusalCode } from "@/lib/mergeDocs";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
@@ -86,6 +86,25 @@ async function isAuthorised(
   return !!transCount;
 }
 
+/**
+ * English fallback text for a merge refusal.
+ *
+ * The dashboard and the admin panel translate the `error` CODE (LAW #19);
+ * this is for everything that reads the body raw -- a curl while debugging, a
+ * log line, and any caller that only knows how to show `message`. It names the
+ * way out, because "Merge failed" left the candidate with nowhere to go.
+ */
+function refusalMessage(r: { code: MergeRefusalCode; megapixels?: number }): string {
+  switch (r.code) {
+    case "unsupported_format":
+      return "One of these two files is in a format that cannot be merged. Download them separately, or re-upload that one as a PDF or a JPEG photo.";
+    case "image_too_large":
+      return `One of these two files is a ${r.megapixels ? r.megapixels.toFixed(0) : "very large"}-megapixel image, too big to merge. Download them separately, or re-upload it as a JPEG photo.`;
+    case "unreadable":
+      return "One of these two files could not be read. Download them separately, and re-upload the damaged one.";
+  }
+}
+
 export async function GET(req: NextRequest) {
   const origId    = req.nextUrl.searchParams.get("origId");
   const transId   = req.nextUrl.searchParams.get("transId");
@@ -167,31 +186,28 @@ export async function GET(req: NextRequest) {
       }, { status: 413 });
     }
 
-    // Merge: translated pages first, then original pages
-    const merged = await PDFDocument.create();
+    // Merge: translated pages first, then original pages. Either half can now
+    // be a PHOTOGRAPH, so the merging itself lives in lib/mergeDocs.ts, which
+    // turns a JPEG or PNG into a page rather than throwing into the catch
+    // below. That throw was the entire reason every upload box except the
+    // passport still had to say "PDF only".
+    const result = await mergeDocumentsToPdf([
+      { bytes: transBytes, rotation: transMeta.rotation },
+      { bytes: origBytes,  rotation: origMeta.rotation },
+    ]);
 
-    const transPdf = await PDFDocument.load(transBytes);
-    const origPdf  = await PDFDocument.load(origBytes);
-
-    const transPages = await merged.copyPages(transPdf, transPdf.getPageIndices());
-    transPages.forEach(p => {
-      if (transMeta.rotation) {
-        const cur = p.getRotation().angle;
-        p.setRotation(degrees((cur + transMeta.rotation) % 360));
-      }
-      merged.addPage(p);
-    });
-
-    const origPages = await merged.copyPages(origPdf, origPdf.getPageIndices());
-    origPages.forEach(p => {
-      if (origMeta.rotation) {
-        const cur = p.getRotation().angle;
-        p.setRotation(degrees((cur + origMeta.rotation) % 360));
-      }
-      merged.addPage(p);
-    });
-
-    const mergedBytes = await merged.save();
+    // A format that cannot be merged is a fact about the file, not a server
+    // fault. Return a code the dashboard and the admin panel turn into a
+    // translated sentence (LAW #19); the bare 500 this replaces said nothing,
+    // which is the failure mode this whole branch exists to remove.
+    if (!result.ok) {
+      return NextResponse.json({
+        error: result.code,
+        kind: result.kind,
+        message: refusalMessage(result),
+      }, { status: result.code === "image_too_large" ? 413 : 415 });
+    }
+    const mergedBytes = result.bytes;
 
     {
       const dl = req.nextUrl.searchParams.get("dl") === "1";

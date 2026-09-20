@@ -56,7 +56,7 @@ describe("the passport box accepts a phone photo", () => {
   it("the picker offers a photo for the passport and only PDF elsewhere", () => {
     // Offering "Take Photo" on a box that then refuses the photo IS the bug.
     expect(DASHBOARD).toMatch(/ID_KEYS\.includes\(activeKey\)\s*\n?\s*\?\s*"\.pdf,\.jpg,\.jpeg,\.png,\.webp"/);
-    expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\n/);
+    expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\r?\n/);
   });
 
   it("LAW #19: the refusal message exists in all three languages", () => {
@@ -82,10 +82,14 @@ describe("the widening stops at the passport", () => {
     ).not.toContain("image/");
   });
 
-  it("the reason is still true — merge-pdf really does parse both sides with pdf-lib", () => {
-    // If this ever stops being true, the restriction above can be revisited.
-    expect(MERGE_ROUTE).toContain("PDFDocument.load(transBytes)");
-    expect(MERGE_ROUTE).toContain("PDFDocument.load(origBytes)");
+  it("the reason has been REMOVED — merge-pdf now takes an image half", () => {
+    // The two bare loads are gone; lib/mergeDocs.ts turns a JPEG or PNG into
+    // a page, and returns a refusal code for what it cannot take. The gate
+    // above opens once the remaining PDF-assuming paths are swept; this pins
+    // the blocker as gone so it cannot quietly come back.
+    expect(MERGE_ROUTE).not.toContain("PDFDocument.load(transBytes)");
+    expect(MERGE_ROUTE).not.toContain("PDFDocument.load(origBytes)");
+    expect(MERGE_ROUTE).toContain("mergeDocumentsToPdf(");
   });
 
   it("LAW #39: a passport is never re-saved by pdf-lib, whatever its format", () => {
