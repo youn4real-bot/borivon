@@ -196,12 +196,10 @@ function applyRotation(page: PDFPage, rotation: number | undefined): void {
  * "this format cannot be merged" into an opaque 500.
  */
 export async function mergeDocumentsToPdf(sources: MergeSource[]): Promise<MergeResult> {
-  // Check every source BEFORE building anything. Refusing on source two after
-  // embedding source one would have allocated the memory the PNG ceiling exists
-  // to protect, and would make the refusal depend on the pair's order.
-  // The pair, not each half. Checked before any embedder runs, for the same
-  // reason as the PNG ceiling: an isolate that runs out of memory answers with
-  // nothing at all, and nothing is the failure this module exists to remove.
+  // The PAIR, not each half. Nothing capped the two together, and an isolate
+  // that runs out of memory answers with nothing at all -- which is the
+  // failure this module exists to remove. Checked first because it is the
+  // cheapest refusal there is: no parsing, no embedder, just two lengths.
   const combined = sources.reduce((n, s) => n + s.bytes.length, 0);
   if (combined > MAX_COMBINED_BYTES) {
     return {
@@ -212,6 +210,9 @@ export async function mergeDocumentsToPdf(sources: MergeSource[]): Promise<Merge
     };
   }
 
+  // Check every source BEFORE building anything. Refusing on source two after
+  // embedding source one would have allocated the memory the PNG ceiling exists
+  // to protect, and would make the refusal depend on the pair's order.
   for (const src of sources) {
     const kind = detectDocKind(src.bytes);
     if (kind === "webp" || kind === "other") {
