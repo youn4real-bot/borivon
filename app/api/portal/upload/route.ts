@@ -1268,12 +1268,29 @@ export async function POST(req: NextRequest) {
   // cv_visa / letter_visa are auto-generated twins uploaded in the same save as
   // their Essentials original — they must NOT fire their own admin notification.
   if (!requesterIsAdmin && fileKey !== "id" && fileKey !== "cv_visa" && fileKey !== "letter_visa") {
-    const { error: notifErr } = await db.from("admin_notifications").insert({
+    // doc_id is what makes the bell entry OPEN something. Until now the row
+    // carried only the candidate's email and a filename, so clicking an upload
+    // notification could land the admin on the candidate with no file open —
+    // the reviewer then hunts for the document by name in a list of boxes.
+    // insertedId is the documents row this very request just wrote, which is
+    // exactly the file the notification is about.
+    //
+    // Schema-tolerant: doc_id arrives with supabase/admin_notifications_doc_id.sql,
+    // and until that migration is run the insert is retried without it. An
+    // un-migrated column must never cost the founder the notification itself.
+    const notifBase = {
       type: "upload", user_name: fullName, user_email: userEmail,
       doc_type: notifDocType, doc_name: structuredName,
-    });
+    };
+    const { error: notifErr } = await db.from("admin_notifications").insert({ ...notifBase, doc_id: insertedId });
     if (notifErr) {
-      console.error("[upload] admin_notifications insert failed:", JSON.stringify(notifErr));
+      const nm = (notifErr as { message?: string }).message ?? "";
+      if (/doc_id|column .* does not exist|schema cache/i.test(nm)) {
+        const { error: retryErr } = await db.from("admin_notifications").insert(notifBase);
+        if (retryErr) console.error("[upload] admin_notifications insert failed (no doc_id retry):", JSON.stringify(retryErr));
+      } else {
+        console.error("[upload] admin_notifications insert failed:", JSON.stringify(notifErr));
+      }
     }
   }
 

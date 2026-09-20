@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
+import { requireAdminRole, getVisibleCandidateIds, getVisibleCandidateScope } from "@/lib/admin-auth";
+import { readFailureResponse } from "@/lib/readFailure";
 
 // GET — fetch latest admin notifications.
 // Full admins see everything. Sub-admins / org admins see only notifications
@@ -26,7 +27,16 @@ export async function GET(req: NextRequest) {
 
   if (auth.role !== "admin") {
     // LAW #25: null = regular sub-admin (sees all notifications), array = org admin scope.
-    const visibleIds = await getVisibleCandidateIds(auth.email);
+    // ok:false means the scope lookup itself failed. It still fails CLOSED
+    // (ids: []) -- visibility is unchanged -- but it must not then fall into the
+    // `empty` return below, because an empty bell with a 200 is the panel
+    // stating there is nothing to review when it does not know.
+    const scope = await getVisibleCandidateScope(auth.email);
+    if (!scope.ok) {
+      const f = readFailureResponse("admin notifications scope", { message: "visibility scope lookup failed" });
+      return NextResponse.json(f.body, { status: f.status });
+    }
+    const visibleIds = scope.ids;
     if (visibleIds !== null) {
       if (visibleIds.length === 0) return NextResponse.json(empty);
       // Resolve ONLY the visible candidate ids → emails (bounded by the org scope),
@@ -45,7 +55,24 @@ export async function GET(req: NextRequest) {
     // Regular sub-admin: no filter — they see all notifications.
   }
 
-  const COLS = "id, type, user_name, user_email, doc_type, doc_name, read, created_at";
+  // doc_id is what lets the bell OPEN the document instead of just landing the
+  // admin on the candidate. It arrives with supabase/admin_notifications_doc_id.sql;
+  // until that migration is run the select below falls back to the legacy column
+  // list, and the client simply gets no deep link (today's behaviour) rather
+  // than an empty bell. The founder runs SQL by hand -- an un-run migration must
+  // never cost him the notifications themselves.
+  const COLS_BASE = "id, type, user_name, user_email, doc_type, doc_name, read, created_at";
+  type NotifRow = {
+    id: string; type: string; user_name: string; user_email: string;
+    doc_type: string | null; doc_name: string | null; read: boolean; created_at: string;
+    /** absent until supabase/admin_notifications_doc_id.sql is run */
+    doc_id?: string | null;
+  };
+  let COLS = `${COLS_BASE}, doc_id`;
+  {
+    const probe = await db.from("admin_notifications").select("doc_id").limit(1);
+    if (probe.error) COLS = COLS_BASE;
+  }
   const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   let listQ = db.from("admin_notifications").select(COLS)
     .order("created_at", { ascending: false }).limit(40);
@@ -83,8 +110,12 @@ export async function GET(req: NextRequest) {
     console.error("[admin notifications GET] unread list failed:", unreadListRes.error);
   }
 
-  const rows = listRes.data ?? [];
-  const unreadRows = unreadListRes && !unreadListRes.error ? (unreadListRes.data ?? []) : null;
+  // Typed explicitly because COLS is chosen at runtime (doc_id present or not),
+  // which defeats supabase-js's literal-string column inference.
+  const rows = (listRes.data ?? []) as unknown as NotifRow[];
+  const unreadRows = unreadListRes && !unreadListRes.error
+    ? ((unreadListRes.data ?? []) as unknown as NotifRow[])
+    : null;
 
   // Enrich with profile photo + verified status by joining through auth.users.
   const emails = [...new Set([...rows, ...(unreadRows ?? [])].map(n => n.user_email).filter(Boolean))];
@@ -121,7 +152,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const enrich = (list: typeof rows) => list.map(n => ({
+  const enrich = (list: NotifRow[]) => list.map(n => ({
     ...n,
     user_photo:    photoMap[n.user_email]?.photo    ?? null,
     user_verified: photoMap[n.user_email]?.verified ?? false,
@@ -160,10 +191,15 @@ export async function PATCH(req: NextRequest) {
   } catch { /* no body — mark all unread as read */ }
 
   const db = getServiceSupabase();
-  if (ids && ids.length > 0) {
-    await db.from("admin_notifications").update({ read: true }).in("id", ids);
-  } else {
-    await db.from("admin_notifications").update({ read: true }).eq("read", false);
+  // The error used to be discarded and `success: true` returned regardless, so
+  // a failed write looked exactly like a successful one: the bell cleared, the
+  // next poll brought every notification back, and nothing said why.
+  const { error } = ids && ids.length > 0
+    ? await db.from("admin_notifications").update({ read: true }).in("id", ids)
+    : await db.from("admin_notifications").update({ read: true }).eq("read", false);
+  if (error) {
+    console.error("[admin notifications PATCH] mark-read failed:", error.code ?? "", error.message ?? "");
+    return NextResponse.json({ error: "Could not save. Please try again." }, { status: 503 });
   }
   return NextResponse.json({ success: true });
 }
