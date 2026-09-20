@@ -6,6 +6,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 import { enforceRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
@@ -20,12 +21,19 @@ export async function GET(req: NextRequest) {
   const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(authHeader.slice(7));
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data } = await getServiceSupabase()
+  // A FAILED READ IS NOT "no interviews". Swallowing it hides an invitation
+  // the employer is waiting on an answer to, and the candidate has no way to
+  // know there was ever anything to see.
+  const { data, error: readErr } = await getServiceSupabase()
     .from("interview_proposals")
     .select("id, round, proposed_slots, note, created_at")
     .eq("candidate_user_id", user.id)
     .eq("status", "proposed")
     .order("created_at", { ascending: false });
+  if (isReadFailure(readErr)) {
+    const f = readFailureResponse("me/interview-proposals", readErr);
+    return NextResponse.json(f.body, { status: f.status });
+  }
   type Row = { id: string; round: number; proposed_slots: string[]; note: string | null; created_at: string };
   return NextResponse.json({
     proposals: ((data ?? []) as Row[]).map((r) => ({ id: r.id, round: r.round, slots: r.proposed_slots ?? [], note: r.note ?? "" })),

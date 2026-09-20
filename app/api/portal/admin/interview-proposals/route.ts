@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,11 +36,17 @@ export async function GET(req: NextRequest) {
   if (!UUID_RE.test(candidate)) return NextResponse.json({ error: "Bad candidate id" }, { status: 400 });
   if (!(await canActOnCandidate(auth.role, auth.email, candidate))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { data } = await getServiceSupabase()
+  // A failed read here reads as "this candidate has no interview history",
+  // which is a fact the reviewer then acts on.
+  const { data, error: readErr } = await getServiceSupabase()
     .from("interview_proposals")
     .select("id, round, proposed_slots, picked_slot, status, note, created_at")
     .eq("candidate_user_id", candidate)
     .order("created_at", { ascending: false });
+  if (isReadFailure(readErr)) {
+    const f = readFailureResponse("admin/interview-proposals", readErr);
+    return NextResponse.json(f.body, { status: f.status });
+  }
   type Row = { id: string; round: number; proposed_slots: string[]; picked_slot: string | null; status: string; note: string | null; created_at: string };
   return NextResponse.json({
     proposals: ((data ?? []) as Row[]).map((r) => ({

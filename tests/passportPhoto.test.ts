@@ -56,7 +56,12 @@ describe("the passport box accepts a phone photo", () => {
   it("the picker offers a photo for the passport and only PDF elsewhere", () => {
     // Offering "Take Photo" on a box that then refuses the photo IS the bug.
     expect(DASHBOARD).toMatch(/ID_KEYS\.includes\(activeKey\)\s*\n?\s*\?\s*"\.pdf,\.jpg,\.jpeg,\.png,\.webp"/);
-    expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\n/);
+    // \r? — this repository is checked out with CRLF on Windows, and a bare \n
+    // made the assertion fail on the UNMODIFIED file: the line really does end
+    // `".pdf"\r\n`. A source-scanning test must match the bytes the checkout
+    // actually has, or it reports a regression that is not there and everyone
+    // learns to ignore a red suite.
+    expect(DASHBOARD, "every other box must ask for a PDF only").toMatch(/:\s*"\.pdf"\r?\n/);
   });
 
   it("LAW #19: the refusal message exists in all three languages", () => {

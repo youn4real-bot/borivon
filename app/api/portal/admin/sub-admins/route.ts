@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, ciEmail } from "@/lib/admin-auth";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -12,14 +13,26 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  const { data: subAdmins } = await db
+  // A FAILED READ IS NOT AN EMPTY TEAM. Swallowing either of these drew the
+  // manage page as "no sub-admins" / "nobody assigned to anyone" -- and the
+  // obvious next action on that screen is to re-invite people who are already
+  // there, or to re-assign candidates who are already assigned.
+  const { data: subAdmins, error: saErr } = await db
     .from("sub_admins")
     .select("id, email, name, label, created_at, agency_id, is_agency_admin")
     .order("created_at", { ascending: true });
+  if (isReadFailure(saErr)) {
+    const f = readFailureResponse("admin/sub-admins list", saErr);
+    return NextResponse.json(f.body, { status: f.status });
+  }
 
-  const { data: assignments } = await db
+  const { data: assignments, error: asErr } = await db
     .from("sub_admin_assignments")
     .select("sub_admin_email, candidate_user_id");
+  if (isReadFailure(asErr)) {
+    const f = readFailureResponse("admin/sub-admins assignments", asErr);
+    return NextResponse.json(f.body, { status: f.status });
+  }
 
   return NextResponse.json({ subAdmins: subAdmins ?? [], assignments: assignments ?? [] });
 }

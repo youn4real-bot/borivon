@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, getVisibleCandidateIds, getVisibleOrgIds, canActOnCandidate, canActOnBatch, resolveAuthNames, getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
 import { isFunnelStage } from "@/lib/batchBoard";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
@@ -65,7 +66,14 @@ export async function GET(req: NextRequest) {
   // be ready in time for the batch window.
   let profQ = db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date");
   if (visible !== null) profQ = profQ.in("user_id", visible.length ? visible : ["00000000-0000-0000-0000-000000000000"]);
-  const { data: profs } = await profQ;
+  // A FAILED READ IS NOT AN EMPTY ROSTER. Swallowing this drew a tracker board
+  // with no candidates on it and a 200 -- the founder reads that as "nobody is
+  // in the pipeline", which is a decision he then makes on a lie.
+  const { data: profs, error: profErr } = await profQ;
+  if (isReadFailure(profErr)) {
+    const f = readFailureResponse("tracker roster", profErr);
+    return NextResponse.json(f.body, { status: f.status });
+  }
   const profRows = (profs ?? []) as { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null }[];
   const allIds = profRows.map((p) => p.user_id);
   const staff = allIds.length ? await getStaffUserIdsAmong(allIds) : new Set<string>();
