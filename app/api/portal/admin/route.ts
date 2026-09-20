@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
-import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds, getVisibleOrgIds } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, getVisibleCandidateScope, getVisibleOrgIds } from "@/lib/admin-auth";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { UUID_RE } from "@/lib/uuid";
 // Doc-review + profile-patch mutation logic is shared with the AI assistant
@@ -64,10 +65,21 @@ export async function GET(req: NextRequest) {
     docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
   } else if (auth.isAgencyAdmin && auth.agencyId) {
     // Agency admin — all candidates in their agency
-    const { data: agencyCands } = await db
+    //
+    // The error half used to be destructured away. A failed read here made
+    // agencyIds empty, which fell straight into the `{ docs: [] }` early return
+    // below — HTTP 200, and the panel drew a green tick and "Nothing to review.
+    // All documents have been processed." That is the panel telling an org
+    // admin her queue is empty when it is in fact unknown, which is the whole
+    // of bug C on the server side (lib/readFailure.ts).
+    const { data: agencyCands, error: agencyErr } = await db
       .from("candidate_profiles")
       .select("user_id")
       .eq("agency_id", auth.agencyId);
+    if (isReadFailure(agencyErr)) {
+      const f = readFailureResponse("admin GET agency candidates", agencyErr);
+      return NextResponse.json(f.body, { status: f.status });
+    }
     const agencyIds = ((agencyCands ?? []) as { user_id: string }[]).map(r => r.user_id);
     if (agencyIds.length === 0) {
       return NextResponse.json({ docs: [], users: {}, role });
@@ -87,7 +99,17 @@ export async function GET(req: NextRequest) {
   } else {
     // Sub-admin — scope by visibility (LAW #25).
     // Regular sub-admins see all (null); org admins see only their org's candidates.
-    const visibleIds = await getVisibleCandidateIds(token);
+    // `ok:false` means the scope resolution itself failed. It still fails
+    // CLOSED (ids: []) — LAW #25 is untouched — but we must not then answer 200
+    // with an empty document list, because the panel renders that as a green
+    // tick and "Nothing to review. All documents have been processed." Saying
+    // the queue is empty when it is unknown is how real uploads sit unreviewed.
+    const scope = await getVisibleCandidateScope(token);
+    if (!scope.ok) {
+      const f = readFailureResponse("admin GET scope", { message: "visibility scope lookup failed" });
+      return NextResponse.json(f.body, { status: f.status });
+    }
+    const visibleIds = scope.ids;
     // Regular sub-admin (null = no scope) sees every candidate → also surface
     // those with no documents yet. Org admins keep their scoped list.
     surfaceAllUsers = visibleIds === null;

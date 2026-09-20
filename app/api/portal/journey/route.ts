@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 import {
   JOURNEY_PRESETS,
   allowedOwnersFor,
@@ -125,9 +126,14 @@ async function seedPresets(candidateId: string) {
     position: p.position,
     created_by: "system",
   }));
-  await getServiceSupabase()
+  // Logged, not thrown. A failed seed makes the journey list SHORT, not empty,
+  // and a short list is exactly what nobody notices — so the one thing it must
+  // not be is invisible. GET still returns whatever is really there, which is
+  // the honest answer; the seed is idempotent and the next load retries it.
+  const { error } = await getServiceSupabase()
     .from("candidate_journey_items")
     .upsert(rows, { onConflict: "candidate_user_id,preset_key", ignoreDuplicates: true });
+  if (error) console.error("[journey] preset seed failed for", candidateId, error.code ?? "", error.message ?? "");
 }
 
 // GET ?candidateId= → seed presets, return party-filtered items + permissions
@@ -245,12 +251,22 @@ export async function PATCH(req: NextRequest) {
 
   const db = getServiceSupabase();
   // Load the row (and confirm it belongs to this candidate).
-  const { data: rowData } = await db
+  //
+  // The error half used to be destructured away, so a transient read failure
+  // came back as `row = null` and this answered 404 "Not found" — which is a
+  // LIE about an item the caller is looking at. The checklist ticks green
+  // optimistically, the 404 arrives, the tick snaps back, and nothing on screen
+  // says why. Separate the two: gone is 404, broken is 503 (lib/readFailure.ts).
+  const { data: rowData, error: rowErr } = await db
     .from("candidate_journey_items")
     .select("id, owner, preset_key")
     .eq("id", id)
     .eq("candidate_user_id", candidateId)
     .maybeSingle();
+  if (isReadFailure(rowErr)) {
+    const f = readFailureResponse("journey PATCH row", rowErr);
+    return NextResponse.json(f.body, { status: f.status });
+  }
   const row = rowData as { id: string; owner: JourneyOwner; preset_key: string | null } | null;
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

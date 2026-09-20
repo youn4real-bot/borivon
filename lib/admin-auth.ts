@@ -186,8 +186,31 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
  * LAW #25:
  *   Regular sub-admin (isAgencyAdmin=false) → null (no filter — sees all)
  *   Org admin (isAgencyAdmin=true)          → only their org's approved candidates
+ *
+ * FAIL CLOSED on any lookup error: the scope becomes [] (nothing), never null
+ * (everything). Unchanged, and deliberately so — a transient blip must not
+ * widen an org admin to global visibility.
+ *
+ * But "[] because it failed" and "[] because she really has no candidates" are
+ * different facts, and a caller that cannot tell them apart renders a green
+ * tick and "Nothing to review" over an unknown queue. Use
+ * getVisibleCandidateScope() when you need to say which one it was; this
+ * wrapper keeps the old two-valued answer for every caller that does not.
  */
 export async function getVisibleCandidateIds(subAdminEmail: string): Promise<string[] | null> {
+  return (await getVisibleCandidateScope(subAdminEmail)).ids;
+}
+
+/**
+ * The same LAW #25 scope resolution, with the failure kept visible.
+ *
+ * `ok:false` always comes with `ids: []` — identical, fail-closed behaviour —
+ * so a caller that ignores `ok` is exactly as safe as before. A caller that
+ * reads it can answer 503 instead of pretending the queue is empty.
+ */
+export async function getVisibleCandidateScope(
+  subAdminEmail: string,
+): Promise<{ ok: boolean; ids: string[] | null }> {
   const db = getServiceSupabase();
 
   // Duplicate-tolerant (sub_admins.email has no UNIQUE constraint — see
@@ -202,7 +225,7 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
   // old fail-open `null` ("sees all") — a transient blip must never widen an
   // org admin to global visibility (and never let them mark-all global
   // notifications read).
-  if (subErr) return [];
+  if (subErr) return { ok: false, ids: [] };
   const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
   // Org membership is the SCOPING TRIGGER (see canActOnCandidate). Anyone in an
@@ -211,22 +234,26 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
     .from("organization_members")
     .select("org_id")
     .ilike("sub_admin_email", ciEmail(subAdminEmail));
-  if (orgErr) return []; // FAIL CLOSED
+  if (orgErr) return { ok: false, ids: [] }; // FAIL CLOSED
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
 
   // True Borivon HQ sub-admin (NOT agency-flagged AND not in any org) → all.
-  if (!isAgencyAdmin && myOrgs.length === 0) return null;
+  if (!isAgencyAdmin && myOrgs.length === 0) return { ok: true, ids: null };
 
-  if (myOrgs.length === 0) return [];
+  if (myOrgs.length === 0) return { ok: true, ids: [] };
 
-  const { data: linksData } = await db
+  // This error used to be destructured away entirely: a failed link read gave
+  // an org admin an empty scope, and the admin panel drew "Nothing to review"
+  // over a queue nobody had looked at. Still fail-closed, now also reported.
+  const { data: linksData, error: linkErr } = await db
     .from("candidate_organizations")
     .select("candidate_user_id")
     .eq("status", "approved")
     .in("org_id", myOrgs);
+  if (linkErr) return { ok: false, ids: [] };
   type LinkRow = { candidate_user_id: string };
-  return [...new Set(((linksData ?? []) as LinkRow[]).map(l => l.candidate_user_id))];
+  return { ok: true, ids: [...new Set(((linksData ?? []) as LinkRow[]).map(l => l.candidate_user_id))] };
 }
 
 /**

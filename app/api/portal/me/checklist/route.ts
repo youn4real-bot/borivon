@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
+import { isReadFailure, READ_FAILED } from "@/lib/readFailure";
 
 /**
  * Personal manual checklist for the LOGGED-IN user (a candidate's own private
@@ -75,15 +76,33 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ item: data as Item });
 }
 
-/** Confirm row `id` is the caller's personal item. */
-async function ownsItem(email: string, id: string): Promise<boolean> {
-  const { data } = await getServiceSupabase()
+/**
+ * Confirm row `id` is the caller's personal item.
+ *
+ * Three answers, not two. The error half used to be destructured away, so a
+ * transient read failure produced `data = null` and the caller answered 403
+ * Forbidden — telling her she does not own an item she is looking at, while the
+ * tick she just made snapped back with no explanation. "broken" now says so.
+ */
+async function ownsItem(email: string, id: string): Promise<"yes" | "no" | "unknown"> {
+  const { data, error } = await getServiceSupabase()
     .from("admin_checklist_items")
     .select("owner_email, scope")
     .eq("id", id)
     .maybeSingle();
+  if (isReadFailure(error)) {
+    console.error("[me/checklist] ownership read failed:", error?.code ?? "", error?.message ?? "");
+    return "unknown";
+  }
   const row = data as { owner_email: string | null; scope: string } | null;
-  return !!row && row.scope === "personal" && row.owner_email === email;
+  return row && row.scope === "personal" && row.owner_email === email ? "yes" : "no";
+}
+
+/** 503 when we could not establish ownership, 403 when the caller really has none. */
+function ownershipRefusal(verdict: "no" | "unknown") {
+  return verdict === "unknown"
+    ? NextResponse.json({ error: "Could not load right now. Please try again.", code: READ_FAILED }, { status: 503 })
+    : NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
 // PATCH { id, done?, text? } → toggle / rename own item
@@ -107,7 +126,8 @@ export async function PATCH(req: NextRequest) {
   }
   if (Object.keys(patch).length === 1) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
 
-  if (!(await ownsItem(auth.email, id))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const owns = await ownsItem(auth.email, id);
+  if (owns !== "yes") return ownershipRefusal(owns);
 
   const { data, error } = await getServiceSupabase()
     .from("admin_checklist_items")
@@ -131,7 +151,8 @@ export async function DELETE(req: NextRequest) {
   const id = typeof body?.id === "string" ? body.id : "";
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  if (!(await ownsItem(auth.email, id))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const owns = await ownsItem(auth.email, id);
+  if (owns !== "yes") return ownershipRefusal(owns);
 
   const { error } = await getServiceSupabase().from("admin_checklist_items").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

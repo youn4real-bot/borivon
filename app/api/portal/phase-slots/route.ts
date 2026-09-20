@@ -3,6 +3,28 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, canActOnOrg, getVisibleOrgIds } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
+import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
+
+/**
+ * A FAILED READ IS NOT AN EMPTY LIST.
+ *
+ * Every `phase_slots` select below used to be written `const { data } = await
+ * ...` — the error half destructured away — and then returned as
+ * `(data ?? [])`. One hiccup on that read and a nurse's dashboard answered
+ * HTTP 200 with zero slots, so every Bearbeitung and Visum box disappeared
+ * behind a calm "no documents yet". The client could not tell empty from
+ * broken, because on the wire they were the same response.
+ *
+ * Contract now (lib/readFailure.ts):
+ *   200 { slots: [] }                     — read fine, genuinely none.
+ *   503 { error, code: "READ_FAILED" }    — unknown, retry. Never a fake [].
+ * A pending migration is still NOT a failure (isReadFailure excludes it), so
+ * the founder's by-hand SQL workflow keeps degrading gracefully.
+ */
+function readFailed(where: string, err: unknown) {
+  const r = readFailureResponse(where, err as { code?: string; message?: string });
+  return NextResponse.json(r.body, { status: r.status });
+}
 
 const VALID_PHASES = ["bearbeitung", "visum"] as const;
 const VALID_TYPES  = ["simple", "dual"] as const;
@@ -170,12 +192,19 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       adminViewingCand = true;
-      const { data: prof } = await db
+      // Same reasoning as the candidate's own scope read below: single-user
+      // key, so an error is real, and swallowing it hands the reviewer a short
+      // list that looks like the candidate simply has fewer documents.
+      const { data: prof, error: profErr } = await db
         .from("candidate_profiles").select("employer_id").eq("user_id", candidateIdParam).maybeSingle();
+      if (isReadFailure(profErr)) return readFailed("phase-slots admin candidate scope", profErr);
       adminCandEmployer = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
-      const { data: link } = await db
+      const { data: link, error: linkErr } = await db
         .from("candidate_organizations").select("org_id")
         .eq("candidate_user_id", candidateIdParam).eq("status", "approved").maybeSingle();
+      // Not fatal — a candidate in two approved orgs makes maybeSingle answer
+      // PGRST116 by design; it has always meant "no single batch org".
+      if (linkErr) console.warn("[phase-slots] admin org lookup degraded:", linkErr.code ?? "", linkErr.message ?? "");
       adminCandOrg = (link as { org_id: string } | null)?.org_id ?? null;
     }
   }
@@ -195,8 +224,9 @@ export async function GET(req: NextRequest) {
   if (!candidateIdParam && employerIdParam && UUID_RE.test(employerIdParam)) {
     const adminAuth = await requireAdminRole(req);
     if (adminAuth.ok && (await canManageEmployer(adminAuth, employerIdParam))) {
-      const { data } = await db.from("phase_slots").select("*")
+      const { data, error } = await db.from("phase_slots").select("*")
         .eq("employer_id", employerIdParam).eq("phase", phase).order("position");
+      if (isReadFailure(error)) return readFailed("phase-slots employer", error);
       return NextResponse.json({ slots: (data ?? []) as PhaseSlot[] });
     }
     return NextResponse.json({ slots: [] });
@@ -216,8 +246,9 @@ export async function GET(req: NextRequest) {
       ok = !!link;
     }
     if (ok) {
-      const { data } = await db.from("phase_slots").select("*")
+      const { data, error } = await db.from("phase_slots").select("*")
         .eq("org_id", orgIdParam).eq("phase", phase).order("position");
+      if (isReadFailure(error)) return readFailed("phase-slots org", error);
       return NextResponse.json({ slots: (data ?? []) as PhaseSlot[] });
     }
     // not authorized for the param → fall through to the combined/global view.
@@ -234,12 +265,25 @@ export async function GET(req: NextRequest) {
     if (!adminAuth.ok) {
       // Candidate's own request. employer_id is read directly (no admin-placed
       // exclusion) so a placed candidate still gets their pathway's docs.
-      const { data: prof } = await db.from("candidate_profiles")
+      //
+      // This read decides her SCOPE, so swallowing its error does not produce
+      // an empty list — it produces a plausible SHORT one (globals only, her
+      // agency's batch documents gone) which is harder to notice than nothing
+      // at all. It is keyed on a single user_id, so `maybeSingle` cannot fail
+      // on multiple rows; any error here is a real one and must be said.
+      const { data: prof, error: profErr } = await db.from("candidate_profiles")
         .select("employer_id").eq("user_id", userId).maybeSingle();
+      if (isReadFailure(profErr)) return readFailed("phase-slots candidate scope", profErr);
       cEmployer = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
-      const { data: mem } = await db.from("candidate_organizations")
+      // Deliberately NOT fatal. A candidate who self-joined two orgs makes this
+      // `maybeSingle` answer PGRST116 by design, and that has always resolved
+      // to "no batch org" — turning it into a 503 would take her whole
+      // dashboard down over a duplicate membership row. Logged instead, so it
+      // stops being invisible.
+      const { data: mem, error: memErr } = await db.from("candidate_organizations")
         .select("org_id").eq("candidate_user_id", userId)
         .eq("status", "approved").neq("added_by", "admin").maybeSingle();
+      if (memErr) console.warn("[phase-slots] candidate org lookup degraded:", memErr.code ?? "", memErr.message ?? "");
       cOrg = (mem as { org_id: string } | null)?.org_id ?? null;
     } else if (adminAuth.role === "sub_admin") {
       // Org admin with no candidate/param → their own org's set (manager default).
@@ -256,7 +300,11 @@ export async function GET(req: NextRequest) {
   let batchOrg: string | null = cOrg;
   let cEmployerAgency: string | null = null;
   if (cEmployer) {
-    const { data: emp } = await db.from("employers").select("agency_id").eq("id", cEmployer).maybeSingle();
+    // Primary-key lookup, so `maybeSingle` cannot fail on multiple rows: an
+    // error here is real, and swallowing it silently drops the entire batch set
+    // (the agency's documents) from the answer.
+    const { data: emp, error: empErr } = await db.from("employers").select("agency_id").eq("id", cEmployer).maybeSingle();
+    if (isReadFailure(empErr)) return readFailed("phase-slots employer agency", empErr);
     cEmployerAgency = (emp as { agency_id: string | null } | null)?.agency_id ?? null;
     if (cEmployerAgency) batchOrg = cEmployerAgency;
   }
@@ -272,14 +320,19 @@ export async function GET(req: NextRequest) {
 
   let batchSlots: PhaseSlot[] = [];
   if (batchOrg && mayReadAgency(batchOrg)) {
-    const { data } = await db.from("phase_slots").select("*")
+    const { data, error } = await db.from("phase_slots").select("*")
       .eq("org_id", batchOrg).eq("phase", phase).order("position");
+    // A failed BATCH read is the worst version of this bug: the agency set is
+    // most of a placed candidate's Bearbeitung list, so swallowing it returned
+    // a plausible-looking short list rather than an obviously empty one.
+    if (isReadFailure(error)) return readFailed("phase-slots batch", error);
     batchSlots = (data ?? []) as PhaseSlot[];
   }
   let siteSlots: PhaseSlot[] = [];
   if (cEmployer && mayReadAgency(cEmployerAgency)) {
-    const { data } = await db.from("phase_slots").select("*")
+    const { data, error } = await db.from("phase_slots").select("*")
       .eq("employer_id", cEmployer).eq("phase", phase).order("position");
+    if (isReadFailure(error)) return readFailed("phase-slots site", error);
     siteSlots = (data ?? []) as PhaseSlot[];
   }
   // "Everyone" docs are ADDITIVE, never a fallback. A slot with no org and no
@@ -291,8 +344,9 @@ export async function GET(req: NextRequest) {
   // so `.is("org_id", null)` alone also matches every SITE's private slots and
   // would hand one employer's documents to unrelated candidates. (Filtering in JS
   // also stays schema-tolerant if employer_id isn't migrated.)
-  const { data: globalData } = await db.from("phase_slots").select("*")
+  const { data: globalData, error: globalErr } = await db.from("phase_slots").select("*")
     .is("org_id", null).eq("phase", phase).order("position");
+  if (isReadFailure(globalErr)) return readFailed("phase-slots global", globalErr);
   const globalSlots = ((globalData ?? []) as PhaseSlot[])
     .filter(s => !(s as { employer_id?: string | null }).employer_id);
 
