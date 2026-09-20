@@ -7,6 +7,7 @@ import { Check, Crown, Building2, User, Trash2, Plus, CalendarClock, AlertTriang
 import { journeyItemLabel, canToggle, type JourneyOwner } from "@/lib/candidateJourney";
 import { onJourneyChange, emitJourneyChange } from "@/lib/journeyBus";
 import { B2_STAGES, b2StageColor, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { journeyWrite, journeyLoad, journeyFailureText, journeyLoadFailedText } from "@/lib/journeyOps";
 
 type Item = {
   id: string;
@@ -79,12 +80,40 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   const [showDone, setShowDone] = useState(false); // collapse checked items
   const [b2Stage, setB2Stage] = useState<B2Stage>("studying");
   const [b2Failed, setB2Failed] = useState(false);
+  /**
+   * Why the last change did not stick. Every handler in here used to revert
+   * its optimistic update and render NOTHING: a tick went green and snapped
+   * back with no explanation, which reads as a misclick, so people tick it
+   * again. Adding a step failed even more quietly — the input kept its text and
+   * the button looked unpressed.
+   */
+  const [failMsg, setFailMsg] = useState<string | null>(null);
+  const failTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The checklist itself could not be READ. Different from "no steps yet". */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const say = useCallback((status: number | null) => {
+    setFailMsg(journeyFailureText(status, lang));
+    if (failTimer.current) clearTimeout(failTimer.current);
+    // Long enough to read on a phone, short enough not to become furniture.
+    failTimer.current = setTimeout(() => setFailMsg(null), 6000);
+  }, [lang]);
+  useEffect(() => () => { if (failTimer.current) clearTimeout(failTimer.current); }, []);
 
   const load = useCallback(async (tk: string) => {
-    const res = await fetch(`/api/portal/journey?candidateId=${candidateUserId}`, {
-      headers: { Authorization: `Bearer ${tk}` },
-    }).catch(() => null);
-    const j = res && res.ok ? await res.json().catch(() => ({})) : {};
+    const r = await journeyLoad<Record<string, unknown>>({ fetchImpl: fetch, token: tk, candidateId: candidateUserId });
+    if (!r.ok) {
+      // A failed read is NOT an empty checklist. Blanking the list here told
+      // the reader every step had been removed; keep what is on screen and say
+      // the read failed instead.
+      setLoadFailed(true);
+      setLoaded(true);
+      return;
+    }
+    setLoadFailed(false);
+    const j = r.data as {
+      items?: Item[]; party?: JourneyOwner | null; canAdd?: boolean; canDelete?: boolean;
+      allowedOwners?: JourneyOwner[]; b2Stage?: unknown; b2Failed?: unknown;
+    };
     setItems((j.items ?? []) as Item[]);
     setParty((j.party ?? null) as JourneyOwner | null);
     setCanAdd(!!j.canAdd);
@@ -101,12 +130,12 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   async function setB2(stage: B2Stage) {
     const prev = b2Stage;
     setB2Stage(stage);
-    const res = await fetch("/api/portal/journey/b2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ candidateId: candidateUserId, stage }),
-    }).catch(() => null);
-    if (!res || !res.ok) { setB2Stage(prev); return; }
+    const res = await journeyWrite({ fetchImpl: fetch, token, method: "POST", path: "/api/portal/journey/b2",
+      body: { candidateId: candidateUserId, stage } });
+    // Revert is right — the server is the truth. Reverting in SILENCE was the
+    // bug: the pill jumped back and looked like a misclick.
+    if (!res.ok) { setB2Stage(prev); say(res.status); return; }
+    setFailMsg(null);
     emitJourneyChange(candidateUserId);
   }
 
@@ -114,12 +143,10 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   async function setFailed(failed: boolean) {
     const prev = b2Failed;
     setB2Failed(failed);
-    const res = await fetch("/api/portal/journey/b2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ candidateId: candidateUserId, failed }),
-    }).catch(() => null);
-    if (!res || !res.ok) { setB2Failed(prev); return; }
+    const res = await journeyWrite({ fetchImpl: fetch, token, method: "POST", path: "/api/portal/journey/b2",
+      body: { candidateId: candidateUserId, failed } });
+    if (!res.ok) { setB2Failed(prev); say(res.status); return; }
+    setFailMsg(null);
     emitJourneyChange(candidateUserId);
   }
 
@@ -145,13 +172,18 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     if (!party || !canToggle(party, it.owner)) return;
     const next = !it.done;
     setItems(prev => prev.map(x => x.id === it.id ? { ...x, done: next } : x));
-    const res = await fetch("/api/portal/journey", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ candidateId: candidateUserId, id: it.id, done: next }),
-    }).catch(() => null);
-    if (!res || !res.ok) setItems(prev => prev.map(x => x.id === it.id ? { ...x, done: it.done } : x));
-    else { const j = await res.json().catch(() => ({})); if (j.item) setItems(prev => prev.map(x => x.id === it.id ? (j.item as Item) : x)); emitJourneyChange(candidateUserId); }
+    const res = await journeyWrite<Item>({ fetchImpl: fetch, token, method: "PATCH",
+      body: { candidateId: candidateUserId, id: it.id, done: next } });
+    if (!res.ok) {
+      // THE BUG: this revert used to happen with nothing rendered, so a tick
+      // went green and snapped back looking like a click that never landed.
+      setItems(prev => prev.map(x => x.id === it.id ? { ...x, done: it.done } : x));
+      say(res.status);
+      return;
+    }
+    setFailMsg(null);
+    if (res.item) setItems(prev => prev.map(x => x.id === it.id ? res.item as Item : x));
+    emitJourneyChange(candidateUserId);
   }
 
   async function addItem() {
@@ -159,13 +191,21 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     if (!text || adding || !canAdd) return;
     setAdding(true);
     try {
-      const res = await fetch("/api/portal/journey", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ candidateId: candidateUserId, text, owner: newOwner }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok && j.item) { setItems(prev => [...prev, j.item as Item]); setNewText(""); inputRef.current?.focus(); emitJourneyChange(candidateUserId); }
+      const res = await journeyWrite<Item>({ fetchImpl: fetch, token, method: "POST",
+        body: { candidateId: candidateUserId, text, owner: newOwner } });
+      if (!res.ok || !res.item) {
+        // THE BUG: the old `if (res.ok && j.item)` simply did not fire on
+        // failure. No row appeared, the typed text stayed in the input, and the
+        // button looked as if it had never been pressed. The text is KEPT on
+        // purpose — it is what she retries with — but now she is told why.
+        say(res.ok ? null : res.status);
+        return;
+      }
+      setFailMsg(null);
+      setItems(prev => [...prev, res.item as Item]);
+      setNewText("");
+      inputRef.current?.focus();
+      emitJourneyChange(candidateUserId);
     } finally { setAdding(false); }
   }
 
@@ -177,14 +217,12 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     if (!canManage) return;
     const prev = items;
     setItems(p => p.map(x => x.id === it.id ? { ...x, ...fields } : x));
-    const res = await fetch("/api/portal/journey", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ candidateId: candidateUserId, id: it.id, ...fields }),
-    }).catch(() => null);
-    if (!res || !res.ok) { setItems(prev); return; }
-    const j = await res.json().catch(() => ({}));
-    if (j.item) setItems(p => p.map(x => x.id === it.id ? (j.item as Item) : x));
+    const res = await journeyWrite<Item>({ fetchImpl: fetch, token, method: "PATCH",
+      body: { candidateId: candidateUserId, id: it.id, ...fields } });
+    // A deadline that silently un-set itself is how a blocked step goes unseen.
+    if (!res.ok) { setItems(prev); say(res.status); return; }
+    setFailMsg(null);
+    if (res.item) setItems(p => p.map(x => x.id === it.id ? res.item as Item : x));
     emitJourneyChange(candidateUserId);
   }
 
@@ -197,25 +235,22 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     setEditingId(null);
     if (!text || text === it.text || !canEditText(it)) return;
     setItems(prev => prev.map(x => x.id === it.id ? { ...x, text } : x));
-    const res = await fetch("/api/portal/journey", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ candidateId: candidateUserId, id: it.id, text }),
-    }).catch(() => null);
-    if (!res || !res.ok) setItems(prev => prev.map(x => x.id === it.id ? { ...x, text: it.text } : x));
-    else emitJourneyChange(candidateUserId);
+    const res = await journeyWrite<Item>({ fetchImpl: fetch, token, method: "PATCH",
+      body: { candidateId: candidateUserId, id: it.id, text } });
+    if (!res.ok) { setItems(prev => prev.map(x => x.id === it.id ? { ...x, text: it.text } : x)); say(res.status); return; }
+    setFailMsg(null);
+    emitJourneyChange(candidateUserId);
   }
 
   async function deleteItem(it: Item) {
     if (!canDelete || it.preset_key) return;
     setItems(prev => prev.filter(x => x.id !== it.id));
-    const res = await fetch("/api/portal/journey", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ candidateId: candidateUserId, id: it.id }),
-    }).catch(() => null);
-    if (!res || !res.ok) setItems(prev => [...prev, it].sort((a, b) => a.position - b.position));
-    else emitJourneyChange(candidateUserId);
+    const res = await journeyWrite({ fetchImpl: fetch, token, method: "DELETE",
+      body: { candidateId: candidateUserId, id: it.id } });
+    // A row that reappears without a word looks like the app undoing her.
+    if (!res.ok) { setItems(prev => [...prev, it].sort((a, b) => a.position - b.position)); say(res.status); return; }
+    setFailMsg(null);
+    emitJourneyChange(candidateUserId);
   }
 
   const total = items.length;
@@ -318,6 +353,33 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
 
   return (
     <div>
+      {/* ── Why the last change did not stick ──
+          Every handler above used to revert its optimistic update and render
+          nothing at all. This line is the whole difference between "the app
+          undid me for no reason" and "that step isn't mine to tick". */}
+      {failMsg && (
+        <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 7, marginBottom: 12,
+          padding: "8px 10px", borderRadius: 9,
+          background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
+          <AlertTriangle size={13} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 12, lineHeight: 1.4, color: "var(--w2)" }}>{failMsg}</span>
+        </div>
+      )}
+
+      {/* The checklist could not be READ — not the same as "no steps yet". */}
+      {loadFailed && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+          padding: "8px 10px", borderRadius: 9,
+          background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
+          <AlertTriangle size={13} style={{ color: "var(--warning)", flexShrink: 0 }} />
+          <span style={{ fontSize: 12, lineHeight: 1.4, color: "var(--w2)", flex: 1 }}>{journeyLoadFailedText(lang)}</span>
+          <button onClick={() => { if (token) void load(token); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--gold)", fontSize: 11.5, fontWeight: 700, padding: 0 }}>
+            {lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again"}
+          </button>
+        </div>
+      )}
+
       {/* progress */}
       {total > 0 && (
         <div style={{ marginBottom: 14 }}>
