@@ -131,6 +131,24 @@ const nextConfig: NextConfig = {
     if (isServer) {
       config.resolve.alias["isomorphic-dompurify"] = false;
       config.resolve.alias.jsdom = false;
+
+      // PERF (Cloudflare Workers) — keep postal-mime out of the server bundle.
+      //
+      // postal-mime is an email PARSER, 134,946 bytes of it (measured with
+      // esbuild against this node_modules: the whole `resend` import graph is
+      // 170,633 B and postal-mime is 79% of it). We never parse an email with
+      // Resend. The SDK imports it at the top of dist/index.mjs and uses it in
+      // exactly ONE place — Receiving.forwardPassthrough, the inbound-mail
+      // feature — and this app only ever calls resend.emails.send(). The bot's
+      // inbox is Gmail; nothing is received through Resend at all.
+      //
+      // So those bytes existed only to be parsed by workerd on every cold
+      // isolate. Aliasing to false is safe for the same reason as jsdom above:
+      // the module is never evaluated beyond its import, and the one call site
+      // is unreachable. tests/resendParserGuard.test.ts asserts BOTH halves of
+      // that against the installed package, so a Resend upgrade that starts
+      // parsing elsewhere fails the suite instead of failing an email.
+      config.resolve.alias["postal-mime"] = false;
     }
     return config;
   },
