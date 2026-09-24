@@ -13,7 +13,8 @@
  *  3. OPTIONAL — Telegram ping straight to the founder's own chat (reuses the bot
  *     token + the locked TELEGRAM_CHAT_ID — ZERO extra setup). So the founder is
  *     alerted in the chat he already lives in the instant something breaks, with
- *     no Slack signup. Throttled so a hot error can't spam the chat.
+ *     no Slack signup. Throttled so a hot error can't spam the chat. NOT on the
+ *     edge runtime — see the comment above that sink for what it cost there.
  *
  * There used to be a fourth sink, Sentry, and removing it is what this comment
  * is for. `import * as Sentry from "@sentry/nextjs"` here and in
@@ -30,7 +31,6 @@
  * the app, so every path swallows its own errors.
  */
 import { keepAlive } from "@/lib/keepAlive";
-import { telegramSilenced } from "@/lib/telegram";
 
 type ErrCtx = {
   route?: string;
@@ -110,6 +110,26 @@ export async function reportError(err: unknown, ctx: ErrCtx = {}): Promise<void>
 
   // Sink 3 — Telegram ping to the founder's own chat. Zero setup: reuses the bot
   // token + locked chat id. Throttled per-message so it can't spam.
+  //
+  // NOT ON THE EDGE RUNTIME, and that guard is load-bearing. lib/telegram reads
+  // the silence flag through @supabase/supabase-js, and a static import of it
+  // here dragged GoTrueClient + RealtimeClient into the EDGE compilation — which
+  // is .open-next/middleware/handler.mjs, 1,048,540 bytes, the one module
+  // .open-next/worker.js imports STATICALLY, so workerd parses it on every cold
+  // start before a single request is routed. The only edge code this app has is
+  // middleware.ts: 40 lines of host/path string matching, no I/O, nothing that
+  // can realistically throw. It was carrying a database client to report an
+  // error that cannot happen.
+  //
+  // Next inlines process.env.NEXT_RUNTIME per compilation, so in the edge build
+  // this folds to `if (false)` and webpack never even records the import()
+  // below as a dependency. In the Node build nothing changes — OpenNext inlines
+  // the dynamic import into the same script, so the bytes and the behaviour are
+  // exactly what they were.
+  //
+  // What an edge error loses: the Telegram ping. It still gets sink 1 (the
+  // structured console.error line, which lands in the Worker logs) and sink 2
+  // (the ERROR_WEBHOOK_URL POST). It is not lost, it is just not a chat message.
   const tgToken = process.env.TELEGRAM_BOT_TOKEN;
   const tgChat = process.env.TELEGRAM_CHAT_ID;
   // Honour the global Telegram silence even for the error alarm. The founder
@@ -117,15 +137,19 @@ export async function reportError(err: unknown, ctx: ErrCtx = {}): Promise<void>
   // alarm firing is exactly the half-measure that got me told twice. The other
   // sinks above (console, the ERROR_WEBHOOK_URL POST) still record everything, so
   // errors are NOT lost — they just stop arriving as Telegram messages.
-  if (tgToken && tgChat && shouldAlert(message) && !(await telegramSilenced())) {
+  if (process.env.NEXT_RUNTIME !== "edge" && tgToken && tgChat && shouldAlert(message)) {
     try {
-      keepAlive(() => fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: tgChat, text: summary.slice(0, 3500), disable_web_page_preview: true }),
-        signal: AbortSignal.timeout(2500),
-        cache: "no-store",
-      }));
+      const { telegramSilenced } = await import("@/lib/telegram");
+      // No early `return` — a sink added after this one must still run.
+      if (!(await telegramSilenced())) {
+        keepAlive(() => fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: tgChat, text: summary.slice(0, 3500), disable_web_page_preview: true }),
+          signal: AbortSignal.timeout(2500),
+          cache: "no-store",
+        }));
+      }
     } catch { /* swallow */ }
   }
 }
