@@ -55,14 +55,24 @@
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createVertex } from "@ai-sdk/google-vertex";
+// ONE Vertex entry point: the /edge build, on every runtime.
+//
+// This used to import BOTH builds and pick between them at runtime. The default
+// (node) build authenticates through google-auth-library, and importing it cost
+// 752,458 bytes of the Worker script — google-auth-library 245K, its
+// web-streams-polyfill 184K, node-fetch 55K, bignumber.js 50K, gaxios 37K and the
+// rest of that chain (measured with esbuild: node+edge = 1,607,680 B, edge alone =
+// 855,222 B). Every one of those bytes was parsed on every cold start to serve a
+// branch that CANNOT run: on workerd google-auth-library reaches
+// node:http.validateHeaderName, which unenv does not implement, so the node build
+// 500s the moment it is used — which is exactly why the runtime check existed.
+// Deferring the import would not have helped; OpenNext inlines dynamic imports into
+// the single Worker script, so the bytes stay (see commit 91ddf1c).
+//
+// The /edge build signs the service-account JWT with crypto.subtle and exchanges it
+// over fetch — verified to contain no `node:` import at all and to construct on Node
+// 25 — so it is not a Workers-only fallback, it is the path that works everywhere.
 import { createVertex as createVertexEdge } from "@ai-sdk/google-vertex/edge";
-
-// True on the Cloudflare Workers runtime (workerd sets this UA). On Workers the default
-// google-auth-library auth path calls node:http funcs unenv doesn't implement
-// (validateHeaderName) → the bot 500s mid-generation; the /edge Vertex variant auths via
-// WebCrypto instead. On Vercel (Node) this is false and we keep the proven node path.
-const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export type ModelTier = "flash" | "pro";
 
@@ -119,24 +129,20 @@ function makeVertexGemini() {
   let credentials: Record<string, unknown>;
   try { credentials = JSON.parse(credsRaw); } catch { return null; }
   const location = process.env.GOOGLE_VERTEX_LOCATION || "europe-west4";
-  if (ON_WORKERS) {
-    // Cloudflare Workers: the node google-auth-library path 500s (node:http.validateHeaderName
-    // is unimplemented by unenv). The /edge Vertex variant signs the service-account JWT with
-    // WebCrypto and exchanges it via fetch — no node:http, no google-auth-library.
-    const clientEmail = String(credentials.client_email || "");
-    const privateKey = String(credentials.private_key || "");
-    if (!clientEmail || !privateKey) return null;
-    return createVertexEdge({
-      project,
-      location,
-      googleCredentials: {
-        clientEmail,
-        privateKey,
-        privateKeyId: credentials.private_key_id ? String(credentials.private_key_id) : undefined,
-      },
-    });
-  }
-  return createVertex({ project, location, googleAuthOptions: { credentials } });
+  // The /edge client takes the service-account fields directly instead of handing
+  // the whole JSON to google-auth-library, so read them out of the same secret.
+  const clientEmail = String(credentials.client_email || "");
+  const privateKey = String(credentials.private_key || "");
+  if (!clientEmail || !privateKey) return null;
+  return createVertexEdge({
+    project,
+    location,
+    googleCredentials: {
+      clientEmail,
+      privateKey,
+      privateKeyId: credentials.private_key_id ? String(credentials.private_key_id) : undefined,
+    },
+  });
 }
 
 const claudeFlashId = () => process.env.ASSISTANT_CLAUDE_FLASH || "claude-sonnet-4-6";
