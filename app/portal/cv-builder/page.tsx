@@ -16,6 +16,7 @@
 import * as React from "react";
 import { useState, useRef, useEffect, ChangeEvent } from "react";
 import { PortalTopNav } from "@/components/PortalTopNav";
+import { PdfViewer } from "@/components/PdfViewer";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -64,11 +65,12 @@ import SessionExpiredNotice from "@/components/SessionExpiredNotice";
  * Both are behind `showPreview`, so there is nothing to flash: the overlay opens
  * on a tap and the chunk arrives while it animates in. The loading fallback is a
  * spinner with no status text (LAW #4 keeps status to colour and icon).
+ *
+ * `PdfViewer` is imported plainly now (see the import list above): the lazy
+ * boundary moved INTO components/PdfViewer.tsx, so every page that opens a PDF
+ * gets it instead of only this one. Wrapping it a second time here would add a
+ * chunk hop and buy nothing.
  */
-const PdfViewer = dynamic(
-  () => import("@/components/PdfViewer").then((m) => ({ default: m.PdfViewer })),
-  { ssr: false, loading: () => <div className="h-full flex items-center justify-center"><Spinner size="md" /></div> },
-);
 const IosPdfFrame = dynamic(
   () => import("@/components/IosPdfFrame").then((m) => ({ default: m.IosPdfFrame })),
   { ssr: false, loading: () => <div className="h-full flex items-center justify-center"><Spinner size="md" /></div> },

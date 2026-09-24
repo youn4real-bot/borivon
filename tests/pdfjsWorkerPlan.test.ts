@@ -23,7 +23,9 @@ import { DOC_FAILURE_TEXT } from "@/lib/documentFetch";
 const PKG = path.join(process.cwd(), "node_modules", "pdfjs-dist");
 const installed = fs.existsSync(PKG);
 const read = (p: string) => fs.readFileSync(path.join(PKG, p), "utf8");
-const ORG = fs.readFileSync(path.join(process.cwd(), "components", "PdfPageOrganizer.tsx"), "utf8");
+// The organiser itself — components/PdfPageOrganizer.tsx is now only the
+// next/dynamic door that keeps pdfjs-dist out of the Cloudflare Worker script.
+const ORG = fs.readFileSync(path.join(process.cwd(), "components", "PdfPageOrganizerImpl.tsx"), "utf8");
 
 describe("planPdfWorker", () => {
   it("uses a module worker on a current browser", () => {

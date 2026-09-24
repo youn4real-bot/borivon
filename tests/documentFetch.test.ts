@@ -308,10 +308,14 @@ describe("no viewer reads a body without checking what arrived", () => {
       .replace(/(^|[^:"'`\\])\/\/[^\r\n]*/g, (m, lead: string) => lead + " ".repeat(m.length - lead.length));
   }
 
+  // The *Impl files are the viewers. components/PdfViewer.tsx and
+  // components/PdfPageOrganizer.tsx are now one-line next/dynamic doors that
+  // keep pdfjs-dist out of the server build — they read no bytes themselves,
+  // so asserting against them would assert against nothing.
   const VIEWERS = [
     "components/AdminDocPreviewModal.tsx",
-    "components/PdfPageOrganizer.tsx",
-    "components/PdfViewer.tsx",
+    "components/PdfPageOrganizerImpl.tsx",
+    "components/PdfViewerImpl.tsx",
   ] as const;
 
   it("no `.blob()` / `.arrayBuffer()` is reached without an ok check", () => {
