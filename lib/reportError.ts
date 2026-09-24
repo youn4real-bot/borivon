@@ -1,5 +1,5 @@
 /**
- * Minimal, provider-agnostic server-error reporter. Two sinks, both safe:
+ * Minimal, provider-agnostic server-error reporter. Three sinks, all safe:
  *
  *  1. ALWAYS — one structured JSON line to stderr (console.error). Lands in the
  *     Vercel / Workers logs, is queryable, and `next.config` keeps console.error
@@ -10,18 +10,25 @@
  *     env var is absent, so this ships safely before any webhook exists and
  *     "turns on" the moment the URL is added — no code change.
  *
- *  3. OPTIONAL — Sentry (rich backend: grouping, full stack traces, a searchable
- *     dashboard, client-side errors). No-op unless SENTRY_DSN is set and init ran
- *     (see sentry.*.config.ts). Adds nothing to the bundle's behavior until then.
- *  4. OPTIONAL — Telegram ping straight to the founder's own chat (reuses the bot
+ *  3. OPTIONAL — Telegram ping straight to the founder's own chat (reuses the bot
  *     token + the locked TELEGRAM_CHAT_ID — ZERO extra setup). So the founder is
  *     alerted in the chat he already lives in the instant something breaks, with
- *     no Slack/Sentry signup. Throttled so a hot error can't spam the chat.
+ *     no Slack signup. Throttled so a hot error can't spam the chat.
+ *
+ * There used to be a fourth sink, Sentry, and removing it is what this comment
+ * is for. `import * as Sentry from "@sentry/nextjs"` here and in
+ * instrumentation.ts compiled 2,065,127 bytes of @sentry/node + OpenTelemetry
+ * into the server build (.next/server/instrumentation.js 1,177,809 B +
+ * chunks/9486.js 887,318 B), which every cold Cloudflare isolate had to parse
+ * AND evaluate — OpenTelemetry patches globals at import time — in order to do
+ * nothing at all, because no SENTRY_DSN is configured anywhere, so
+ * captureException was already a no-op. The three sinks below are the ones that
+ * actually reach a human. Re-adding Sentry means re-adding those bytes: it is a
+ * decision, not a tidy-up.
  *
  * Never throws, never blocks the response. Reporting must not be able to break
  * the app, so every path swallows its own errors.
  */
-import * as Sentry from "@sentry/nextjs";
 import { keepAlive } from "@/lib/keepAlive";
 import { telegramSilenced } from "@/lib/telegram";
 
@@ -80,13 +87,6 @@ export async function reportError(err: unknown, ctx: ErrCtx = {}): Promise<void>
     /* logging must never throw */
   }
 
-  // Sink 3 — Sentry (rich backend). No-op unless SENTRY_DSN was set + init ran.
-  try {
-    Sentry.captureException(err instanceof Error ? err : new Error(message), { extra: { ...ctx } });
-  } catch {
-    /* reporting must never throw */
-  }
-
   const where = `${ctx.method ?? ""} ${ctx.route ?? ""}`.trim();
   const summary = `🔴 Borivon error\n${message}${where ? `\n${where}` : ""}${ctx.tool ? `\ntool: ${ctx.tool}` : ""}`;
 
@@ -108,14 +108,14 @@ export async function reportError(err: unknown, ctx: ErrCtx = {}): Promise<void>
     } catch { /* swallow */ }
   }
 
-  // Sink 4 — Telegram ping to the founder's own chat. Zero setup: reuses the bot
+  // Sink 3 — Telegram ping to the founder's own chat. Zero setup: reuses the bot
   // token + locked chat id. Throttled per-message so it can't spam.
   const tgToken = process.env.TELEGRAM_BOT_TOKEN;
   const tgChat = process.env.TELEGRAM_CHAT_ID;
   // Honour the global Telegram silence even for the error alarm. The founder
   // asked for ALL Telegram to stop; silencing the chase pings but leaving the
   // alarm firing is exactly the half-measure that got me told twice. The other
-  // sinks above (console, Sentry-style webhook) still record everything, so
+  // sinks above (console, the ERROR_WEBHOOK_URL POST) still record everything, so
   // errors are NOT lost — they just stop arriving as Telegram messages.
   if (tgToken && tgChat && shouldAlert(message) && !(await telegramSilenced())) {
     try {
