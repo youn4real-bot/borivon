@@ -14,11 +14,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * .open-next/worker.js imports STATICALLY, i.e. parsed on every cold start
  * before a single request is routed.
  *
- * What this file can and cannot prove: it cannot prove webpack folds
- * process.env.NEXT_RUNTIME (only a build shows that). It proves the RUNTIME
- * contract the fold depends on — that the edge path never touches lib/telegram,
- * that the other two sinks still fire there, and that off the edge the silence
- * switch and the throttle behave exactly as they did before.
+ * The fold itself is measured, with the webpack Next ships: bundling exactly
+ * this shape (a NEXT_RUNTIME guard around a dynamic import of
+ * @supabase/supabase-js) emits 1,535 bytes and no second chunk when
+ * NEXT_RUNTIME is defined as "edge", against 812,199 bytes in two chunks when
+ * it is "nodejs" — an 807,232-byte supabase chunk that the edge build never
+ * even records as a dependency. Next's own output agrees that it defines the
+ * value per compilation: `process.env.NEXT_RUNTIME` appears zero times in
+ * .next/server/edge-instrumentation.js and zero times in
+ * .next/server/instrumentation.js, though the source it was built from
+ * branched on it.
+ *
+ * What THIS file adds is the runtime contract the fold depends on: that the
+ * edge path never touches lib/telegram, that the other two sinks still fire
+ * there, and that off the edge the silence switch and the throttle behave
+ * exactly as they did before.
  */
 
 const telegram = { telegramSilenced: vi.fn(async () => false) };

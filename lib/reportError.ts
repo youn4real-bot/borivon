@@ -123,9 +123,13 @@ export async function reportError(err: unknown, ctx: ErrCtx = {}): Promise<void>
   //
   // Next inlines process.env.NEXT_RUNTIME per compilation, so in the edge build
   // this folds to `if (false)` and webpack never even records the import()
-  // below as a dependency. In the Node build nothing changes — OpenNext inlines
-  // the dynamic import into the same script, so the bytes and the behaviour are
-  // exactly what they were.
+  // below as a dependency. Measured with the webpack Next ships: this exact
+  // shape emits 1,535 bytes and no second chunk with NEXT_RUNTIME defined as
+  // "edge", against 812,199 bytes in two chunks with "nodejs" — the difference
+  // being an 807,232-byte @supabase/supabase-js chunk. In the Node build
+  // nothing changes: OpenNext inlines the dynamic import into the same script,
+  // so the bytes and the behaviour are exactly what they were, which is also
+  // why a dynamic import is NOT a bundle fix anywhere else in this repo.
   //
   // What an edge error loses: the Telegram ping. It still gets sink 1 (the
   // structured console.error line, which lands in the Worker logs) and sink 2
