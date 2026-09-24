@@ -143,16 +143,29 @@ export function sheetsClient(): sheets_v4.Sheets | null {
   return null;
 }
 
-/** Live check: can we actually impersonate + reach Gmail + Calendar? Returns the
- *  connected email + counts, or a clear error (e.g. delegation not granted yet). */
-export async function testWorkspace(): Promise<{ ok: boolean; connectedAs?: string; gmail?: boolean; calendar?: boolean; error?: string }> {
+/** Live check: can we actually impersonate + reach Gmail, Calendar and Drive?
+ *  Returns the connected email + per-API flags, or a clear error (e.g. delegation
+ *  not granted yet). */
+export async function testWorkspace(): Promise<{ ok: boolean; connectedAs?: string; gmail?: boolean; calendar?: boolean; drive?: boolean; error?: string }> {
   if (!workspaceConfigured()) return { ok: false, error: "not_configured" };
   try {
     const gmail = gmailClient()!;
     const profile = await gmail.users.getProfile({ userId: "me" });
-    let calendar = false;
-    try { await calendarClient()!.calendarList.list({ maxResults: 1 }); calendar = true; } catch { /* calendar scope/api maybe pending */ }
-    return { ok: true, connectedAs: profile.data.emailAddress ?? subjectEmail(), gmail: true, calendar };
+    // Calendar and Drive are probed independently of Gmail and of each other: the
+    // three APIs are enabled separately in the GCP project and delegated
+    // separately in the Admin console, so "Gmail answers" is not evidence that
+    // Drive does. Drive especially — it is how agencies receive candidate
+    // dossiers, and when its client was broken by the Cloudflare migration every
+    // caller caught the error and logged, so syncs reported success while copying
+    // nothing for five months. Nothing in the app would have said otherwise.
+    //
+    // about.get is the cheapest proof that costs nothing and touches no file: it
+    // returns the account the token is acting as, which is exactly the question.
+    const [calendar, drive] = await Promise.all([
+      calendarClient()!.calendarList.list({ maxResults: 1 }).then(() => true, () => false),
+      driveClient()!.about.get({ fields: "user(emailAddress)" }).then(() => true, () => false),
+    ]);
+    return { ok: true, connectedAs: profile.data.emailAddress ?? subjectEmail(), gmail: true, calendar, drive };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

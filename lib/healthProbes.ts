@@ -22,7 +22,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 
 export type Probe = {
   /** Stable subsystem name. Public — appears in the /api/health body. */
-  name: "google" | "r2" | "database" | "email";
+  name: "google" | "drive" | "r2" | "database" | "email";
   ok: boolean;
   /** Human-readable cause. PRIVATE — never returned to an unauthenticated caller. */
   detail?: string;
@@ -57,16 +57,42 @@ async function guard(name: Probe["name"], fn: () => Promise<Probe>): Promise<Pro
  * everything and returns [], so a completely dead calendar client still renders a
  * perfectly normal-looking slot list. This probe is the only thing that tells them apart.
  */
-async function checkGoogle(): Promise<Probe> {
+/**
+ * ONE live Workspace check, reported as TWO probes.
+ *
+ * `google` keeps meaning exactly what it meant before — the domain-wide
+ * delegation works and Gmail answers. `drive` is separate because the two fail
+ * separately: the Drive API is enabled in the GCP project on its own and
+ * delegated on its own, so a healthy Gmail says nothing about whether an agency
+ * can receive a dossier. Folding Drive into `google` would also hide it, since a
+ * green `google` is the line anyone reads first.
+ *
+ * This is the failure that already happened. After the Cloudflare migration the
+ * Drive client could not run at all, every caller caught and logged, and the
+ * sync reported success while copying nothing — for five months, with the health
+ * probe reporting google:true the whole time. Now that is a row of its own.
+ *
+ * Split from a single testWorkspace() call rather than probed twice, because two
+ * calls would double the daily API traffic to learn nothing extra.
+ */
+async function checkWorkspace(): Promise<[Probe, Probe]> {
   const { testWorkspace } = await import("@/lib/googleWorkspace");
   const res = await testWorkspace();
-  if (res.ok) return { name: "google", ok: true, detail: res.calendar ? "gmail+calendar" : "gmail only" };
-  // "not_configured" is NOT a free pass. Google IS configured in production, so
-  // reaching this branch there means the credentials were lost or rotated away —
-  // which kills the Drive mirror, Gmail and Calendar just as dead as an auth error.
-  if (res.error === "not_configured")
-    return { name: "google", ok: false, detail: "credentials missing — Drive mirror, Gmail and Calendar are all dead" };
-  return { name: "google", ok: false, detail: res.error };
+  if (!res.ok) {
+    // "not_configured" is NOT a free pass. Google IS configured in production, so
+    // reaching this branch there means the credentials were lost or rotated away —
+    // which kills the Drive mirror, Gmail and Calendar just as dead as an auth error.
+    const detail = res.error === "not_configured"
+      ? "credentials missing — Drive mirror, Gmail and Calendar are all dead"
+      : res.error;
+    return [{ name: "google", ok: false, detail }, { name: "drive", ok: false, detail }];
+  }
+  return [
+    { name: "google", ok: true, detail: res.calendar ? "gmail+calendar" : "gmail only" },
+    res.drive
+      ? { name: "drive", ok: true }
+      : { name: "drive", ok: false, detail: "auth works but Drive does not answer — candidate dossiers are not reaching the agencies" },
+  ];
 }
 
 /**
@@ -118,12 +144,18 @@ function checkEmail(): Probe {
 
 /** Run every probe concurrently. Never throws. */
 export async function runHealthProbes(): Promise<Probe[]> {
-  const [google, r2, database] = await Promise.all([
-    guard("google", checkGoogle),
+  const [workspace, r2, database] = await Promise.all([
+    // A throw or a hang here must not lose the drive row: reporting one probe
+    // where two are expected reads as "drive was fine", which is the opposite of
+    // what a dead Workspace client means.
+    withTimeout("google", checkWorkspace()).catch((e): [Probe, Probe] => {
+      const detail = e instanceof Error ? e.message : String(e);
+      return [{ name: "google", ok: false, detail }, { name: "drive", ok: false, detail }];
+    }),
     guard("r2", checkR2),
     guard("database", checkDatabase),
   ]);
-  return [google, r2, database, checkEmail()];
+  return [...workspace, r2, database, checkEmail()];
 }
 
 /** Public shape: booleans only, no detail, no variable names. */
