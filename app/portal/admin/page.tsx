@@ -40,8 +40,7 @@ import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
-import { detectAcroFormFields, type DetectedField } from "@/lib/pdfAcroFormFill";
-import { AutoFillReviewModal } from "@/components/AutoFillReviewModal";
+import type { DetectedField } from "@/lib/pdfAcroFormFill";
 import { SIGN_FILL_ENABLED, applySignFillGate } from "@/lib/features";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -52,11 +51,35 @@ import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
 import { shareReadIsUnknown, slotDropVerdict, slotDropRefusalMessage } from "@/lib/adminPanelRules";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
-import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
 import { AdminSigSection } from "@/components/admin/AdminSigSection";
 // Tells the admin their session died instead of leaving every preview on a
 // spinner — this page's two abandoned tabs produced the 944 x 401 mint storm.
 import SessionExpiredNotice from "@/components/SessionExpiredNotice";
+import dynamic from "next/dynamic";
+
+/**
+ * THE pdf-lib STACK, LAZY — the same cut the candidate dashboard already made.
+ *
+ * MEASURED on the production build before this change: /portal/admin shipped
+ * static/chunks/3394-*.js, 421,901 B of nothing but pdf-lib (PDFDocument,
+ * AcroForm, WinAnsiEncoding — no app code), in its FIRST-LOAD list. Every
+ * admin and sub-admin downloaded it before the candidate list could paint, for
+ * a library that is only touched when a PDF is stamped or auto-filled — flows
+ * that are currently switched off outright (SIGN_FILL_ENABLED is false).
+ *
+ * pdf-lib had three static edges out of this page: this modal, which imports
+ * `fillAcroFormFields`, plus `detectAcroFormFields` and `stampSigOnPdf`, both
+ * moved into the handlers that call them. All three have to go or the chunk
+ * stays and the win is exactly zero. `DetectedField` stays as an `import type`
+ * above: types are erased and create no runtime edge.
+ *
+ * No loading fallback: the modal draws its own full-screen overlay through a
+ * portal, and a stand-in backdrop here would have no close handler.
+ */
+const AutoFillReviewModal = dynamic(
+  () => import("@/components/AutoFillReviewModal").then(m => ({ default: m.AutoFillReviewModal })),
+  { ssr: false, loading: () => null },
+);
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
@@ -3051,6 +3074,11 @@ export default function AdminPage() {
       let pdfBytesForReview: ArrayBuffer | null = null;
       try {
         pdfBytesForReview = await file.arrayBuffer();
+        // pdf-lib is imported HERE, not at module scope — see the
+        // AutoFillReviewModal note at the top of this file. This runs on an
+        // admin upload, which is already waiting on a file read, so the fetch
+        // hides inside a wait the admin is having anyway.
+        const { detectAcroFormFields } = await import("@/lib/pdfAcroFormFill");
         nativeFields = await detectAcroFormFields(pdfBytesForReview);
       } catch (e) {
         console.warn("[adminUploadFile] AcroForm detection failed (non-fatal):", e);
@@ -8076,8 +8104,11 @@ export default function AdminPage() {
             new Uint8Array(initBuf).set(rawBytes);
             let pdfBytes: Uint8Array = new Uint8Array(initBuf);
 
-            // Stamp admin's signature on top of the PDF.
+            // Stamp admin's signature on top of the PDF. pdf-lib is imported
+            // HERE, not at module scope — see the AutoFillReviewModal note at
+            // the top of this file.
             if (wz.adminSigZone && adminSavedSig) {
+              const { stampSigOnPdf } = await import("@/lib/stampSigOnPdf");
               pdfBytes = await stampSigOnPdf(pdfBytes, adminSavedSig, [wz.adminSigZone]);
             }
 
