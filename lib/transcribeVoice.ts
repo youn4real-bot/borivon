@@ -8,14 +8,16 @@
  * GOOGLE_VERTEX_* creds (already present for Gmail/Calendar). Returns null when Vertex
  * isn't configured or transcription fails, so the caller can ask the founder to type.
  */
-import { createVertex } from "@ai-sdk/google-vertex";
+// The /edge build ONLY — same reason as lib/vertexModel.ts, and this file was the
+// second importer keeping the node build alive: one static import of
+// "@ai-sdk/google-vertex" anywhere drags google-auth-library and its
+// web-streams-polyfill / node-fetch / gaxios chain into the Worker script, where
+// they are parsed on every cold start and can never run (workerd has no
+// node:http.validateHeaderName). The /edge build auths with crypto.subtle, which
+// Node 18+ and workerd both have.
 import { createVertex as createVertexEdge } from "@ai-sdk/google-vertex/edge";
 import { generateText } from "ai";
 import { GEMINI_SAFETY, assistantEnabled } from "@/lib/vertexModel";
-
-// On Cloudflare Workers the node google-auth path 500s (unenv lacks node:http.validateHeaderName);
-// the /edge variant auths via WebCrypto. Mirrors lib/vertexModel.
-const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<{ text: string; truncated: boolean } | null> {
   // BILLING GATE (ASSISTANT_ENABLED — see lib/vertexModel's header). This is the ONE paid
@@ -31,9 +33,7 @@ export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<
   let credentials: Record<string, unknown>;
   try { credentials = JSON.parse(credsRaw); } catch { return null; }
   try {
-    const vertex = ON_WORKERS
-      ? createVertexEdge({ project, location, googleCredentials: { clientEmail: String(credentials.client_email || ""), privateKey: String(credentials.private_key || ""), privateKeyId: credentials.private_key_id ? String(credentials.private_key_id) : undefined } })
-      : createVertex({ project, location, googleAuthOptions: { credentials } });
+    const vertex = createVertexEdge({ project, location, googleCredentials: { clientEmail: String(credentials.client_email || ""), privateKey: String(credentials.private_key || ""), privateKeyId: credentials.private_key_id ? String(credentials.private_key_id) : undefined } });
     const model = vertex(process.env.ASSISTANT_TRANSCRIBE_MODEL || "gemini-2.5-flash");
     const res = await generateText({
       model,
