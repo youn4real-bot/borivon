@@ -36,9 +36,13 @@
     "binding": "ASSETS",
     "directory": ".open-next/assets"
   },
-  // Native R2 bucket binding — lib/r2.ts uses env.R2 (via getCloudflareContext) on Workers
-  // instead of the @aws-sdk S3 client, so NO R2 access keys are needed on the worker. The
-  // bucket already holds the candidate files. Vercel keeps the S3 client (R2_* env vars).
+  // Native R2 bucket binding — lib/r2.ts reaches the bucket ONLY through env.R2
+  // (via getCloudflareContext), so no R2 access keys exist anywhere. The @aws-sdk
+  // S3 client that used to sit behind this as a "Vercel" fallback was deleted: it
+  // cost 946 KB of the Worker script and could not run without R2_ENDPOINT /
+  // R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY, none of which was ever set. If this
+  // binding is renamed or dropped, every document operation throws by name —
+  // there is no longer a second path to fall through to.
   "r2_buckets": [
     { "binding": "R2", "bucket_name": "borivon-files" }
   ],

@@ -1,5 +1,5 @@
 /**
- * lib/r2.ts — Cloudflare R2 object storage (S3-compatible).
+ * lib/r2.ts — Cloudflare R2 object storage, through the NATIVE Worker binding.
  *
  * Single source of truth for file storage, replacing the inline Google Drive
  * clients scattered across the upload / file / merge-pdf / sign-request /
@@ -11,29 +11,33 @@
  * same role drive_file_id played. Serving falls back to Drive while old files
  * are still being migrated (r2_key null → fetch from Drive).
  *
- * Server-only. Reads creds from R2_ENDPOINT / R2_ACCESS_KEY_ID /
- * R2_SECRET_ACCESS_KEY / R2_BUCKET.
+ * THE @aws-sdk S3 CLIENT IS GONE, and this is the note that explains it.
+ * Every function here used to try the native binding first and fall back to an
+ * S3 client for "Vercel". That fallback could not run in ANY environment that
+ * still exists:
+ *   • On Workers the binding branch is always taken first.
+ *   • Anywhere else the client needs R2_ENDPOINT / R2_ACCESS_KEY_ID /
+ *     R2_SECRET_ACCESS_KEY, and none of the three is set — not in .env.local,
+ *     not in wrangler.jsonc. `next dev` already threw "R2 not configured" on
+ *     the first call.
+ * Unreachable, but not free: @aws-sdk/client-s3 + @smithy/* + the presigner
+ * compiled 946 KB into the single Cloudflare Worker script (the SigV4 chain,
+ * fast-xml-parser, bowser), and workerd parses all of it on every cold isolate
+ * before it can answer the first request — a cost the nurses pay on every tap.
+ *
+ * WHAT THIS CHANGES IN PRACTICE: if the R2 binding were ever missing or renamed
+ * in wrangler.jsonc, these calls now throw a named error instead of silently
+ * trying an S3 client that would have failed anyway. Loud beats silent — this
+ * is the path lib/driveMirror.ts reads every candidate document through on its
+ * way into the agency Drive folder, and a mirror that half-works is worse than
+ * one that says what is wrong.
+ *
+ * Server-only. Needs the "R2" binding from wrangler.jsonc ("r2_buckets").
  */
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const ENDPOINT = process.env.R2_ENDPOINT;
-const ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
-const SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
-export const R2_BUCKET = process.env.R2_BUCKET ?? "borivon-files";
-
-// On Cloudflare Workers (workerd) we use the NATIVE R2 BINDING (env.R2) instead of the
-// S3 client — no S3 endpoint/keys needed, and the @aws-sdk SigV4 path is heavier. The
-// binding is declared in wrangler.jsonc ("r2_buckets": [{ binding:"R2", bucket_name:
-// "borivon-files" }]) and reached via OpenNext's getCloudflareContext().env.R2. On Vercel
-// (Node) this is false and we keep the proven S3 path byte-for-byte.
+// Cloudflare Workers (workerd) identify themselves this way. Kept as a runtime
+// check rather than a build flag because the same bundle also runs under
+// `next dev`, where there is no binding and every call must fail loudly.
 const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 // Minimal structural type for the workerd R2Bucket surface we use (avoids a hard dep on
@@ -47,8 +51,8 @@ type R2BindingLike = {
   list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{ objects: { key: string; size: number; uploaded?: Date }[]; truncated: boolean; cursor?: string }>;
 };
 
-/** The native R2 binding on Workers, else null (Vercel uses the S3 client). Lazy dynamic
- *  import keeps @opennextjs/cloudflare out of the Vercel/Node path entirely. */
+/** The native R2 binding on Workers, else null. The import is lazy so that
+ *  @opennextjs/cloudflare is never reached outside a Worker. */
 async function r2Bucket(): Promise<R2BindingLike | null> {
   if (!ON_WORKERS) return null;
   try {
@@ -60,30 +64,24 @@ async function r2Bucket(): Promise<R2BindingLike | null> {
   }
 }
 
-/** True when the S3 credentials are present (the Vercel/Node path). */
-function s3Configured(): boolean {
-  return !!(ENDPOINT && ACCESS_KEY_ID && SECRET_ACCESS_KEY);
-}
-
-/** True when R2 storage is reachable — via the native binding on Workers, or S3 creds on
- *  Vercel. Lets callers decide R2-vs-Drive. (On Workers we assume the wrangler binding is
- *  wired; the actual op throws clearly if it isn't.) */
-export function r2Configured(): boolean {
-  return ON_WORKERS || s3Configured();
-}
-
-let _client: S3Client | null = null;
-function client(): S3Client {
-  if (_client) return _client;
-  if (!s3Configured()) {
-    throw new Error("R2 not configured (missing R2_ENDPOINT / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)");
+/** The binding, or a message that names the one thing to check. Every operation
+ *  below goes through this, so a missing binding reads the same everywhere
+ *  instead of surfacing as six different TypeErrors. */
+async function requireBucket(): Promise<R2BindingLike> {
+  const b = await r2Bucket();
+  if (!b) {
+    throw new Error(
+      "R2 unavailable: no native R2 binding. On Cloudflare check the \"R2\" entry under r2_buckets in wrangler.jsonc; outside Workers (e.g. `next dev`) there is no R2 at all — use `npm run cf:preview`, which runs the Worker with a local binding.",
+    );
   }
-  _client = new S3Client({
-    region: "auto", // R2 ignores region; "auto" is the convention
-    endpoint: ENDPOINT,
-    credentials: { accessKeyId: ACCESS_KEY_ID!, secretAccessKey: SECRET_ACCESS_KEY! },
-  });
-  return _client;
+  return b;
+}
+
+/** True when R2 storage is reachable. On Workers we assume the wrangler binding
+ *  is wired — the actual operation throws clearly if it is not, and
+ *  /api/health?deep=1 proves it for real by listing a prefix. */
+export function r2Configured(): boolean {
+  return ON_WORKERS;
 }
 
 /** Object key for a candidate's file — mirrors the per-candidate folder
@@ -99,66 +97,31 @@ export async function r2Put(
   body: Buffer | Uint8Array,
   contentType?: string,
 ): Promise<void> {
-  const b = await r2Bucket();
-  if (b) {
-    const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
-    await b.put(key, bytes, contentType ? { httpMetadata: { contentType } } : undefined);
-    return;
-  }
-  await client().send(new PutObjectCommand({
-    Bucket: R2_BUCKET,
-    Key: key,
-    Body: body,
-    ...(contentType ? { ContentType: contentType } : {}),
-  }));
+  const b = await requireBucket();
+  const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
+  await b.put(key, bytes, contentType ? { httpMetadata: { contentType } } : undefined);
 }
 
 /** Download an object: bytes + its stored content-type. Null if not found. */
 export async function r2GetObject(
   key: string,
 ): Promise<{ body: Buffer; contentType: string | null } | null> {
-  const b = await r2Bucket();
-  if (b) {
-    const obj = await b.get(key);
-    if (!obj) return null;
-    return { body: Buffer.from(new Uint8Array(await obj.arrayBuffer())), contentType: obj.httpMetadata?.contentType ?? null };
-  }
-  try {
-    const res = await client().send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }));
-    if (!res.Body) return null;
-    const bytes = await res.Body.transformToByteArray();
-    return { body: Buffer.from(bytes), contentType: res.ContentType ?? null };
-  } catch (e: unknown) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
+  const b = await requireBucket();
+  const obj = await b.get(key);
+  if (!obj) return null;
+  return { body: Buffer.from(new Uint8Array(await obj.arrayBuffer())), contentType: obj.httpMetadata?.contentType ?? null };
 }
 
 /** Delete an object. Idempotent — no error if it's already gone. */
 export async function r2Delete(key: string): Promise<void> {
-  const b = await r2Bucket();
-  if (b) {
-    await b.delete(key); // R2 binding delete is idempotent (no error if absent)
-    return;
-  }
-  try {
-    await client().send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
-  } catch (e) {
-    if (!isNotFound(e)) throw e;
-  }
+  const b = await requireBucket();
+  await b.delete(key); // R2 binding delete is idempotent (no error if absent)
 }
 
 /** Does an object exist? */
 export async function r2Exists(key: string): Promise<boolean> {
-  const b = await r2Bucket();
-  if (b) return (await b.head(key)) !== null;
-  try {
-    await client().send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
-    return true;
-  } catch (e) {
-    if (isNotFound(e)) return false;
-    throw e;
-  }
+  const b = await requireBucket();
+  return (await b.head(key)) !== null;
 }
 
 /** List every object under a key prefix (paginated). Returns key + size +
@@ -166,83 +129,20 @@ export async function r2Exists(key: string): Promise<boolean> {
  *  feature (most-recent-first). */
 export async function r2List(prefix: string): Promise<{ key: string; size: number; lastModified?: Date }[]> {
   const out: { key: string; size: number; lastModified?: Date }[] = [];
-  const b = await r2Bucket();
-  if (b) {
-    let cursor: string | undefined;
-    do {
-      const res = await b.list({ prefix, cursor });
-      for (const o of res.objects) out.push({ key: o.key, size: o.size, lastModified: o.uploaded });
-      cursor = res.truncated ? res.cursor : undefined;
-    } while (cursor);
-    return out;
-  }
-  let token: string | undefined;
+  const b = await requireBucket();
+  let cursor: string | undefined;
   do {
-    const res = await client().send(new ListObjectsV2Command({
-      Bucket: R2_BUCKET, Prefix: prefix, ContinuationToken: token,
-    }));
-    for (const o of res.Contents ?? []) out.push({ key: o.Key ?? "", size: o.Size ?? 0, lastModified: o.LastModified });
-    token = res.IsTruncated ? res.NextContinuationToken : undefined;
-  } while (token);
+    const res = await b.list({ prefix, cursor });
+    for (const o of res.objects) out.push({ key: o.key, size: o.size, lastModified: o.uploaded });
+    cursor = res.truncated ? res.cursor : undefined;
+  } while (cursor);
   return out;
 }
 
 /** HEAD an object — returns its byte size, or null if it doesn't exist.
  *  Used by the verification audit to size-match each file against Drive. */
 export async function r2Head(key: string): Promise<{ size: number } | null> {
-  const b = await r2Bucket();
-  if (b) {
-    const h = await b.head(key);
-    return h ? { size: h.size } : null;
-  }
-  try {
-    const res = await client().send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
-    return { size: res.ContentLength ?? 0 };
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
-}
-
-/**
- * Temporary download URL ("gate pass") — the browser fetches the file
- * STRAIGHT from R2, so the bytes never pass through the app server (no
- * Vercel/Workers bandwidth, free R2 egress). `downloadName` forces a save-as.
- */
-export async function r2SignedGetUrl(
-  key: string,
-  opts: { expiresIn?: number; downloadName?: string; contentType?: string } = {},
-): Promise<string> {
-  const { expiresIn = 300, downloadName, contentType } = opts;
-  return getSignedUrl(client(), new GetObjectCommand({
-    Bucket: R2_BUCKET,
-    Key: key,
-    ...(contentType ? { ResponseContentType: contentType } : {}),
-    ...(downloadName
-      ? { ResponseContentDisposition: `attachment; filename="${downloadName.replace(/[\r\n"]/g, "")}"` }
-      : {}),
-  }), { expiresIn });
-}
-
-/** Temporary upload URL — the browser PUTs the file straight to R2. */
-export async function r2SignedPutUrl(
-  key: string,
-  contentType: string,
-  expiresIn = 300,
-): Promise<string> {
-  return getSignedUrl(client(), new PutObjectCommand({
-    Bucket: R2_BUCKET,
-    Key: key,
-    ContentType: contentType,
-  }), { expiresIn });
-}
-
-function isNotFound(e: unknown): boolean {
-  const x = e as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } };
-  return (
-    x?.name === "NoSuchKey" ||
-    x?.name === "NotFound" ||
-    x?.Code === "NoSuchKey" ||
-    x?.$metadata?.httpStatusCode === 404
-  );
+  const b = await requireBucket();
+  const h = await b.head(key);
+  return h ? { size: h.size } : null;
 }

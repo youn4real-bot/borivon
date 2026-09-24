@@ -25,6 +25,12 @@ import { tmpdir } from "node:os";
  *     is why app/email-logo already redirected to the pre-rendered PNG there.
  *     It was the only reference to @vercel/og in the whole server build.
  *
+ *   @aws-sdk/client-s3 (+ @smithy/*, + the presigner) — 946 KB of SigV4
+ *     signing, fast-xml-parser and bowser, kept as a "Vercel" fallback for a
+ *     bucket the Worker already reaches through the native env.R2 binding. It
+ *     needed R2_ENDPOINT / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY, none of
+ *     which is set anywhere, so it could not run even under `next dev`.
+ *
  * Deferring does NOT satisfy this rule and the guard rejects it too: OpenNext
  * inlines dynamic imports into the single Worker script, so the bytes stay and
  * only the ordering changes (commit 91ddf1c measured exactly that). `import
@@ -49,6 +55,14 @@ const BANNED: { pkg: string; why: string }[] = [
   {
     pkg: "next/og",
     why: "720,939 B of Satori + resvg WASM that cannot run on workerd (it 500s). Serve a pre-rendered PNG from public/ instead, the way app/email-logo does.",
+  },
+  {
+    pkg: "@aws-sdk/client-s3",
+    why: "946 KB of SigV4 chain + fast-xml-parser + bowser, for a bucket the Worker already reaches through the native env.R2 binding. lib/r2.ts is the only door to R2.",
+  },
+  {
+    pkg: "@aws-sdk/s3-request-presigner",
+    why: "the presigned-URL half of the same SigV4 chain. It had zero callers repo-wide when it was removed; if presigned URLs are ever wanted back, R2 signs them from the binding without an SDK.",
   },
 ];
 
@@ -132,6 +146,8 @@ describe("dead weight stays out of the Worker's import graph", () => {
       `const S = require("@sentry/nextjs");`,
       `void import("@sentry/nextjs").then((S) => S.init({}));`,
       `import { ImageResponse } from "next/og";`,
+      `import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";`,
+      `import { getSignedUrl } from "@aws-sdk/s3-request-presigner";`,
     ];
     for (const p of probes) {
       writeFileSync(tmp, `${p}\n`, "utf8");
