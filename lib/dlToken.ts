@@ -21,18 +21,14 @@
 
 import crypto from "crypto";
 import type { NextRequest } from "next/server";
+import { scopedTokenSecret, type ScopedTokenCheck } from "@/lib/scopedToken";
 
-// Server-only HMAC key. The service-role key is a long, high-entropy secret
-// that already never leaves the server — reuse it so no new env is required.
-// (DL_TOKEN_SECRET overrides if the operator prefers a dedicated key.)
-function secret(): string {
-  return (
-    process.env.DL_TOKEN_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    ""
-  );
-}
+export type { ScopedTokenCheck };
+
+// Server-only HMAC key (service-role key, or DL_TOKEN_SECRET). Read from
+// lib/scopedToken.ts, the Web Crypto twin the R2 storage tokens sign with, so
+// the two implementations of this format can never drift onto different keys.
+const secret = scopedTokenSecret;
 
 const DEFAULT_TTL_SEC = 180;
 export const DL_TOKEN_PARAM = "dlt";
@@ -44,40 +40,64 @@ function b64urlDecode(s: string): Buffer {
   return Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
-/** Mint a signed token for `userId`, valid for `ttlSec` seconds. */
-export function signDlToken(userId: string, ttlSec: number = DEFAULT_TTL_SEC): string {
+/**
+ * Sign an arbitrary claim set with the same key and format as the download
+ * token: base64url(JSON {...claims, e}) + "." + base64url(HMAC-SHA256).
+ *
+ * Other short-lived URL credentials (the R2 storage signed URLs in
+ * lib/storage/storageToken.ts) reuse this format instead of inventing a second
+ * scheme — through lib/scopedToken.ts, its byte-identical Web Crypto twin, since
+ * the storage path must not import Node's crypto. Each kind MUST carry claims
+ * the others lack — a download token has `u` and no `p`; a storage token has
+ * `p` and no `u` — so one kind can never be replayed as another, even though
+ * they share a key.
+ */
+export function signScopedToken(claims: Record<string, string>, ttlSec: number): string {
   const key = secret();
   if (!key) throw new Error("dlToken: no signing secret configured");
-  const exp = Math.floor(Date.now() / 1000) + Math.max(30, ttlSec);
-  const payload = b64url(Buffer.from(JSON.stringify({ u: userId, e: exp })));
+  const exp = Math.floor(Date.now() / 1000) + Math.max(1, Math.floor(ttlSec));
+  const payload = b64url(Buffer.from(JSON.stringify({ ...claims, e: exp })));
   const sig = b64url(crypto.createHmac("sha256", key).update(payload).digest());
   return `${payload}.${sig}`;
 }
 
-/** Verify a token. Returns { userId } or null (bad sig / expired / malformed). */
-export function verifyDlToken(token: string | null | undefined): { userId: string } | null {
+/** Verify signature + expiry of a token made by signScopedToken. The caller checks the claims. */
+export function verifyScopedToken(token: string | null | undefined): ScopedTokenCheck {
   const key = secret();
-  if (!token || !key) return null;
+  if (!token || !key) return { ok: false, reason: "invalid" };
   const dot = token.indexOf(".");
-  if (dot <= 0) return null;
+  if (dot <= 0) return { ok: false, reason: "invalid" };
   const payload = token.slice(0, dot);
   const sig = token.slice(dot + 1);
-  if (!payload || !sig) return null;
+  if (!payload || !sig) return { ok: false, reason: "invalid" };
 
   const expected = b64url(crypto.createHmac("sha256", key).update(payload).digest());
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ok: false, reason: "invalid" };
 
   try {
-    const obj = JSON.parse(b64urlDecode(payload).toString("utf8")) as { u?: unknown; e?: unknown };
-    if (typeof obj.u !== "string" || !obj.u) return null;
-    if (typeof obj.e !== "number") return null;
-    if (Math.floor(Date.now() / 1000) > obj.e) return null;
-    return { userId: obj.u };
+    const obj = JSON.parse(b64urlDecode(payload).toString("utf8")) as Record<string, unknown>;
+    if (!obj || typeof obj !== "object" || typeof obj.e !== "number") return { ok: false, reason: "invalid" };
+    if (Math.floor(Date.now() / 1000) > obj.e) return { ok: false, reason: "expired" };
+    return { ok: true, claims: obj };
   } catch {
-    return null;
+    return { ok: false, reason: "invalid" };
   }
+}
+
+/** Mint a signed token for `userId`, valid for `ttlSec` seconds. */
+export function signDlToken(userId: string, ttlSec: number = DEFAULT_TTL_SEC): string {
+  return signScopedToken({ u: userId }, Math.max(30, ttlSec));
+}
+
+/** Verify a token. Returns { userId } or null (bad sig / expired / malformed). */
+export function verifyDlToken(token: string | null | undefined): { userId: string } | null {
+  const check = verifyScopedToken(token);
+  if (!check.ok) return null;
+  const u = check.claims.u;
+  if (typeof u !== "string" || !u) return null;
+  return { userId: u };
 }
 
 /**

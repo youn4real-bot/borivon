@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { usePolling } from "@/lib/usePolling";
 import { cachedRole } from "@/lib/myRole";
 import { isVerified } from "@/lib/verified";
 import { translations } from "@/lib/translations";
@@ -25,6 +26,7 @@ import {
 import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, Copy as DupIcon } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { passportReplaceRefusalText } from "@/lib/passportReplace";
+import { reportIfMaintenance } from "@/lib/maintenance";
 import { b2StageLabel, normalizeB2Stage, effectiveB2Stage, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { AdminSmartSearch } from "@/components/AdminSmartSearch";
@@ -1462,58 +1464,51 @@ export default function AdminPage() {
   };
   const menuRect = (id: string) => (revokeMenu?.id === id ? revokeMenu.rect : undefined);
 
-  // Realtime: LIVE documents for the candidate currently being reviewed. The
-  // instant the candidate uploads (or another admin/sub-admin acts), the
-  // dossier reflects it with NO refresh — supreme admin, sub-admins and the
-  // candidate all stay in sync automatically.
-  useEffect(() => {
-    if (!selectedUser || !accessToken) return;
-    let alive = true;
-    const refresh = async () => {
-      const r = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }).catch(() => null);
-      if (!alive || !r || !r.ok) return;
-      const j = await r.json();
-      const fresh: Doc[] = j.docs ?? [];
-      setDocs(prev => [...prev.filter(d => d.user_id !== selectedUser), ...fresh]);
-      if (Array.isArray(j.docHistory)) setDocHistory(j.docHistory as Doc[]);
-      // Also refresh THIS candidate's profile so admins see extracted /
-      // edited passport data live. LAST-WRITE-WINS (user decision): the
-      // server row overwrites unconditionally — whoever saved last wins,
-      // even for a field another admin is mid-typing. (The editor's own
-      // unsaved edits are still never lost — H-F flush + M-A re-queue.)
-      const pj = j.profiles?.[selectedUser];
-      if (pj) setProfiles(prev => ({ ...prev, [selectedUser]: pj }));
-    };
-    // Pull fresh docs the INSTANT this candidate is opened — the page-load
-    // bootstrap may predate the candidate's upload, so without this the
-    // dossier shows empty boxes even though the notification already fired.
-    refresh();
-    const ch = supabase
-      .channel(`admin-docs-live-${selectedUser}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${selectedUser}` },
-        () => { refresh(); },
-      )
-      // Passport DATA (and any profile edit / OCR result) — push to the
-      // open admin dossier instantly. RLS may gate this for the admin
-      // client; the 8s poll below is the guaranteed fallback.
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${selectedUser}` },
-        () => { refresh(); },
-      )
-      .subscribe();
-    // Fallback poll while this candidate is open — realtime on `documents`
-    // can be RLS-gated for the admin's client, so guarantee sync within 8s
-    // even if the subscription never delivers. Cheap: one request / 8s,
-    // only while actively reviewing ONE candidate. EGRESS: skip the poll while
-    // the tab is hidden, and refetch once on re-show so there's no blind window.
-    const timer = setInterval(() => { if (!document.hidden) refresh(); }, 8_000);
-    const onVis = () => { if (document.visibilityState === "visible") refresh(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", onVis); supabase.removeChannel(ch); };
-  }, [selectedUser, accessToken]);
+  // LIVE dossier for the candidate currently being reviewed. The candidate
+  // uploads (or another admin/sub-admin acts) and the dossier reflects it with
+  // NO refresh — documents AND this candidate's profile, so admins watch
+  // extracted / edited passport data land live, the unsubmitted OCR draft
+  // included (LAW #38).
+  //
+  // This was two Realtime postgres_changes channels (documents +
+  // candidate_profiles) backed by an 8s poll. Realtime goes silent once the
+  // rows live in D1, so the poll is the mechanism now: 5s while the passport
+  // info view is open (that is where someone is watching OCR arrive), 8s
+  // otherwise; visible tab only, refetch on return, backoff on errors. It reads
+  // GET /api/portal/admin, i.e. requireAdminRole + LAW #25 scoping, and restarts
+  // per candidate so a slow response for the previous one is dropped.
+  const refreshDossier = async (signal: AbortSignal): Promise<boolean> => {
+    const uid = selectedUser;
+    if (!uid || !accessToken) return true;
+    const r = await fetch(`/api/portal/admin?userId=${uid}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal, // a read the poll gave up on is cancelled, not left to land late
+    }).catch(() => null);
+    if (signal.aborted) return true;
+    if (!r || !r.ok) return false;
+    const j = await r.json().catch(() => null);
+    if (signal.aborted) return true;
+    if (!j) return false;
+    const fresh: Doc[] = j.docs ?? [];
+    setDocs(prev => [...prev.filter(d => d.user_id !== uid), ...fresh]);
+    if (Array.isArray(j.docHistory)) setDocHistory(j.docHistory as Doc[]);
+    // Also refresh THIS candidate's profile so admins see extracted /
+    // edited passport data live. LAST-WRITE-WINS (user decision): the
+    // server row overwrites unconditionally — whoever saved last wins,
+    // even for a field another admin is mid-typing. (The editor's own
+    // unsaved edits are still never lost — H-F flush + M-A re-queue.)
+    const pj = j.profiles?.[uid];
+    if (pj) setProfiles(prev => ({ ...prev, [uid]: pj }));
+    return true;
+  };
+  // Pulls the INSTANT a candidate is opened (immediate) — the page-load
+  // bootstrap may predate the candidate's upload, so without this the
+  // dossier shows empty boxes even though the notification already fired.
+  usePolling(refreshDossier, {
+    intervalMs: showPassportInfo ? 5_000 : 8_000,
+    enabled: !!selectedUser && !!accessToken,
+    resetKey: selectedUser,
+  });
 
   // Passport FILE download state (pipeline view)
   const [passportPdfDl, setPassportPdfDl] = useState(false);
@@ -3053,6 +3048,8 @@ export default function AdminPage() {
       if (!res?.ok) {
         let body: { error?: string } = {};
         try { body = res ? JSON.parse(res.text) : {}; } catch { /* non-JSON */ }
+        // The write freeze: the calm maintenance notice, not an upload error.
+        if (res && reportIfMaintenance(res.status, body)) return;
         console.error("[adminUploadFile] upload failed:", res?.status, body);
         showError(uploadFailedMsg);
         return;
@@ -6503,7 +6500,15 @@ export default function AdminPage() {
                                               <MoreHorizontal size={14} strokeWidth={1.8} />
                                             </button>
                                             <DropdownMenu open={revokeMenu?.id === pdoc!.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === pdoc!.id ? revokeMenu.el : null} anchorRect={menuRect(pdoc!.id)}>
-                                              <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(mirrorKey, pb.label); }}
+                                              {/* mirrorKey's OWN label, not pb.label: this box READS
+                                                  getAdminDocs(mirrorKey), and the CV twin's mirrorKey is
+                                                  cv_de while pb.label is "Lebenslauf Visum". That pair
+                                                  files the swap under cv_visa, so the box would keep
+                                                  showing the old file and the real CV would never be
+                                                  replaced. No live row carries that fingerprint (198 CV
+                                                  rows checked, all consistent), so this one is closed
+                                                  before it fired, unlike the Übersetzt pair below. */}
+                                              <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(mirrorKey, canonicalDocLabel(mirrorKey, lang) || pb.label); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
                                                 <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Swap"}
                                               </button>
@@ -7426,7 +7431,16 @@ export default function AdminPage() {
                             {/* Sub-boxes — only shown when expanded */}
                             {isExpanded && (
                               <div className="px-3 pb-3 space-y-1.5">
-                                {renderSubDoc(origDoc,  "Original",  item.key,      item.label)}
+                                {/* Each sub-box uploads under ITS OWN label. Passing the pair's
+                                    item.label to both sent the ORIGINAL's label with the
+                                    translation's key, so an admin upload into "Übersetzt" was
+                                    stored as file_type "Diplom": it appeared in the Original box
+                                    and the retire pass, which matches on the label, superseded the
+                                    real original. 30 documents were filed that way, and 29 of
+                                    those uploads left the slot with no live original at all.
+                                    Both rows go through canonicalDocLabel so neither can drift
+                                    again; for these keys it returns item.label itself. */}
+                                {renderSubDoc(origDoc,  "Original",  item.key,      canonicalDocLabel(item.key, lang)      || item.label)}
                                 {renderSubDoc(transDoc, "Übersetzt", item.transKey, canonicalDocLabel(item.transKey, lang) || item.label)}
                               </div>
                             )}

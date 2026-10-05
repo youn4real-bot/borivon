@@ -9,3 +9,6 @@
 *.gif  binary
 *.ico  binary
 *.svg  text
+
+# tests split d1/schema.sql on newlines; a CRLF checkout on Windows made that parse find 0 columns.
+d1/schema.sql text eol=lf

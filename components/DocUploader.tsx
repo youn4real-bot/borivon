@@ -10,8 +10,9 @@
 import { useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import XHRUpload from "@uppy/xhr-upload";
-import { UploadCloud, Loader2, RotateCcw, Camera } from "lucide-react";
+import { UploadCloud, Loader2, RotateCcw, Camera, PauseCircle } from "lucide-react";
 import { isHeicUpload, heicRefusalMessage, HEIC_CODE } from "@/lib/heic";
+import { isMaintenanceUploadError, MAINTENANCE_MESSAGES, type MaintenanceLang } from "@/lib/maintenance";
 
 export default function DocUploader({
   token,
@@ -28,7 +29,10 @@ export default function DocUploader({
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const inputRef = useRef<HTMLInputElement>(null);
-  const [phase, setPhase] = useState<"idle" | "uploading" | "error">("idle");
+  // "paused" is NOT a failure: it is the site answering 503 during the final
+  // Supabase -> D1 copy (dormant today, MAINTENANCE_WRITES="0"). It gets its
+  // own tile because the error tile would blame her file for a planned pause.
+  const [phase, setPhase] = useState<"idle" | "uploading" | "error" | "paused">("idle");
   // WHY the upload failed, not just THAT it did. An iPhone photo shared in
   // through Files arrives as a raw .heic, and "Upload failed. Please try again
   // with a PDF or photo" is a sentence that describes what she already gave
@@ -51,19 +55,41 @@ export default function DocUploader({
     const onProg = (p: number) => setPct(Math.max(2, Math.min(100, Math.round(p))));
     const onSucc = () => { setPhase("idle"); onDoneRef.current(); };
     const fail = (kind: "generic" | "heic" = "generic") => { setErrKind(kind); setPhase("error"); };
-    // The SERVER already answers a HEIC with its own code (app/api/portal/u/
-    // [token]/route.ts) — including one renamed .jpg, which no name or MIME
-    // check here can catch. That answer was being thrown away: Uppy's error
-    // handler ignored the response body and showed the generic line. Read it.
-    const onUploadErr = (_f: unknown, _e: unknown, response?: { body?: unknown }) => {
+    // Uppy re-emits a failed upload on "error" AFTER "upload-error" (core's
+    // upload() catch calls informAndEmit), so a plain setPhase("error") here
+    // would overwrite the maintenance state a moment after it was set, and the
+    // nurse would be back to "your file is wrong".
+    const onErr = () => setPhase((p) => (p === "paused" ? p : "error"));
+    /**
+     * TWO things can come back that are not "your file is wrong", and the
+     * response BODY is the only place either of them is written down. Uppy's
+     * error handler used to throw that body away and show the generic line.
+     *
+     *  • PAUSED — during the final Supabase → D1 copy the route answers 503
+     *    with the maintenance body (lib/maintenance.ts; dormant today). The
+     *    generic tile would tell the nurse her FILE is wrong — "try again with
+     *    a PDF or photo (max 25 MB)" — for a planned ten-minute pause. On the
+     *    login-less link she has nobody to ask, so she re-shoots the photo,
+     *    fails again, and concludes the document did not go through.
+     *  • HEIC — the server answers an iPhone photo with its own code
+     *    (app/api/portal/u/[token]/route.ts), including one renamed .jpg, which
+     *    no name or MIME check on this side can catch. lib/heic.ts names the
+     *    format and the two taps out of it.
+     *
+     * A pause outranks the file: a 503 says nothing about what she sent.
+     */
+    const onUploadErr = (_file: unknown, _error: unknown, response?: { status?: number; body?: unknown }) => {
+      if (isMaintenanceUploadError(response)) { setPhase("paused"); return; }
       const code = (response?.body as { code?: string } | undefined)?.code;
       fail(code === HEIC_CODE ? "heic" : "generic");
     };
     uppy.on("progress", onProg);
     uppy.on("upload-success", onSucc);
     uppy.on("upload-error", onUploadErr);
-    uppy.on("error", () => fail());
-    uppy.on("restriction-failed", () => fail());
+    uppy.on("error", onErr);
+    // A file the restrictions reject really IS the file's problem — it keeps
+    // the error tile, which is the right words for it.
+    uppy.on("restriction-failed", onErr);
     return () => { uppy.destroy(); };
   }, [uppy]);
 
@@ -78,7 +104,17 @@ export default function DocUploader({
       return;
     }
     setPhase("uploading");
+    // A new attempt starts with no reason yet. This is the ONE place the reason
+    // is cleared, and it has to be here: "error" re-emits after "upload-error"
+    // (Uppy core's informAndEmit), so clearing it in that handler instead would
+    // wipe the HEIC verdict the server just sent, and not clearing it anywhere
+    // would show the HEIC wording for the next, unrelated failure.
+    setErrKind("generic");
     setPct(0);
+    // Drop whatever was added before. Without this, sending the SAME file again
+    // — exactly what she does after "try again shortly" — is refused by Uppy as
+    // a duplicate, which lands in the catch below and shows the file error.
+    try { uppy.clear(); } catch { /* an upload in flight: addFile below decides */ }
     try { uppy.addFile({ name: file.name, type: file.type, data: file }); }
     catch { setErrKind("generic"); setPhase("error"); }
   };
@@ -98,6 +134,26 @@ export default function DocUploader({
         <div style={{ height: 6, borderRadius: 4, background: "var(--card)", overflow: "hidden" }}>
           <div style={{ width: `${pct}%`, height: "100%", background: "var(--gold)", transition: "width .2s" }} />
         </div>
+      </div>
+    );
+  }
+
+  if (phase === "paused") {
+    // Not red, not "failed": nothing is wrong with her file or her document.
+    // One calm line in her own language (LAW #19), and the same button so she
+    // can send it the moment the pause ends.
+    const key: MaintenanceLang = lang === "fr" ? "fr" : lang === "de" ? "de" : "en";
+    return (
+      <div style={{ border: "1px solid var(--border-gold)", borderRadius: 14, background: "var(--card)", padding: "16px" }}>
+        <p style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, color: "var(--w2)", marginBottom: 10 }}>
+          <PauseCircle size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 1 }} />
+          <span>{MAINTENANCE_MESSAGES[key]}</span>
+        </p>
+        <button type="button" onClick={() => { setPhase("idle"); inputRef.current?.click(); }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 38, padding: "0 16px", borderRadius: 10, background: "var(--gold)", color: "#1a1205", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>
+          <RotateCcw size={14} /> {L("Try again", "Réessayer", "Erneut versuchen")}
+        </button>
+        <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" style={{ display: "none" }} onChange={onPick} />
       </div>
     );
   }

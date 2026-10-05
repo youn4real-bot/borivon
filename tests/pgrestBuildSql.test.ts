@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
-import { buildSql, isPostgrestError, encodeParam, likePatternToGlob, normalizeTimestamp } from "../lib/d1/pgrest/buildSql";
-import { selectOutputKey } from "../lib/d1/pgrest/decode";
+import { buildSql, isPostgrestError, encodeParam, likePatternToGlob, normalizeTimestamp, D1_MAX_SQL_BYTES } from "../lib/d1/pgrest/buildSql";
+import { asciiSortKeySql, plainAsciiSql } from "../lib/d1/pgrest/collate";
+import { decodeRows, selectOutputKey } from "../lib/d1/pgrest/decode";
 import type { BuiltQuery, Condition, FilterOp, QueryIntent, Registry, Where } from "../lib/d1/pgrest/types";
 
 /**
@@ -23,6 +24,12 @@ const intent = (over: Partial<QueryIntent> & Pick<QueryIntent, "table">): QueryI
 });
 const cmp = (column: string, op: FilterOp, value: unknown, negate = false): Condition =>
   ({ kind: "cmp", column, op, value, ...(negate ? { negate: true } : {}) });
+// Written values go through the column's input function, so a uuid column needs a real uuid.
+const U1 = "11111111-1111-4111-8111-111111111111";
+const U2 = "22222222-2222-4222-8222-222222222222";
+/** Where a bulk write's rows come from: one JSON parameter, unpacked by json_each. */
+const FROM_ROWS = `FROM json_each(?) AS "row$" WHERE true ORDER BY "row$"."key"`;
+const cell = (i: number) => `json_extract("row$"."value", '$[${i}]')`;
 
 /** buildSql(), asserting it succeeded. */
 function ok(i: QueryIntent): BuiltQuery {
@@ -48,36 +55,65 @@ describe("select", () => {
     })).sql).toBe(`SELECT "id", "file_name" FROM "documents"`);
   });
 
-  it("aliases a column, and reads a json path (the `cv_langs:cv_draft->langs` form)", () => {
+  it("names a plain item after its column, and walks an arrow item's leading keys in SQL", () => {
+    // The alias is decode.ts's business: caller text never names an SQL column.
     expect(ok(intent({ table: "documents", select: [{ column: "file_name", alias: "n" }] })).sql)
-      .toBe(`SELECT "file_name" AS "n" FROM "documents"`);
+      .toBe(`SELECT "file_name" FROM "documents"`);
     const q = ok(intent({
       table: "candidate_profiles",
-      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: "langs" }],
+      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] }],
     }));
-    expect(q.sql).toBe(`SELECT "user_id", json_extract("cv_draft", ?) AS "cv_langs" FROM "candidate_profiles"`);
-    expect(q.params).toEqual(["$.langs"]);   // bound, never interpolated
+    // `->` keeps a JSON string quoted (json_extract turned `"51000"` into a number),
+    // json_valid() keeps a non-JSON value from failing the read, and the key is bound.
+    expect(q.sql).toBe(`SELECT "user_id", CASE WHEN json_valid("cv_draft") THEN "cv_draft" -> ? END AS "sel$1" FROM "candidate_profiles"`);
+    expect(q.params).toEqual(['$."langs"']);
   });
 
-  it("names a json path column the way decode.ts will read it back", () => {
-    // parseRequest always supplies the alias, but if it ever stopped, emitting
-    // `AS "cv_draft"` while decodeRows() looks for `langs` would hand every
-    // caller null — a json-path item gets no fallback to the source column, by
-    // decode.ts's design (that fallback would leak the whole CV draft).
-    const item = { column: "cv_draft", jsonPath: "langs" };
-    expect(selectOutputKey(item)).toBe("langs");
-    expect(ok(intent({ table: "candidate_profiles", select: [item] })).sql)
-      .toBe(`SELECT json_extract("cv_draft", ?) AS "langs" FROM "candidate_profiles"`);
-    // A chained path walks every segment — `$."a->b"` would simply never match.
-    expect(ok(intent({ table: "candidate_profiles", select: [{ column: "cv_draft", alias: "x", jsonPath: "a->b" }] })).params)
-      .toEqual(["$.a.b"]);
-    expect(ok(intent({ table: "candidate_profiles", select: [{ column: "cv_draft", alias: "x", jsonPath: "langs->0->name" }] })).params)
-      .toEqual(["$.langs[0].name"]);
-    // `->` takes a KEY, never a JSONPath: a key spelled `$.langs` is looked up
-    // literally (what Postgres does) instead of becoming a live path expression
-    // — which is also what keeps a malformed one out of json_extract's throat.
-    expect(ok(intent({ table: "candidate_profiles", select: [{ column: "cv_draft", alias: "x", jsonPath: "$.langs" }] })).params)
-      .toEqual([`$."$.langs"`]);
+  it("walks keys up to the first index or unspellable key in SQL, as ONE path parameter", () => {
+    const arrow = (column: string, ...steps: (string | number)[]) => ({
+      column, jsonPath: steps.map((s) => (typeof s === "number" ? { arrow: "->" as const, index: s } : { arrow: "->" as const, key: s })),
+    });
+    const walked = (item: ReturnType<typeof arrow>, table = "candidate_profiles") => {
+      const q = ok(intent({ table, select: [item] }));
+      return [q.sql.replace(/ FROM .*/, ""), ...q.params];
+    };
+    const inSql = (column: string) => `SELECT CASE WHEN json_valid("${column}") THEN "${column}" -> ? END AS "sel$0"`;
+    expect(walked(arrow("cv_draft", "langs", 0, "name"))).toEqual([inSql("cv_draft"), '$."langs"']);
+    expect(walked(arrow("cv_draft", "a.b", "", "x y", "ü", "$", "a]b"))).toEqual([inSql("cv_draft"), '$."a.b".""."x y"."ü"."$"."a]b"']);
+    // `$."\"` is "bad JSON path" (a 500 for the read) and `"` ends the label: stop before them.
+    expect(walked(arrow("cv_draft", "a", "b\\c", "d"))).toEqual([inSql("cv_draft"), '$."a"']);
+    expect(walked(arrow("cv_draft", 'x"y'))).toEqual([`SELECT "cv_draft" AS "sel$0"`]);
+    expect(walked(arrow("cv_draft", "a\nb"))).toEqual([`SELECT "cv_draft" AS "sel$0"`]);
+    // An index first, or a column that holds no JSON: the column, walked in decode.ts.
+    expect(walked(arrow("order_keys", 0), "phase_doc_order")).toEqual([`SELECT "order_keys" AS "sel$0"`]);
+    expect(walked(arrow("first_name", "a"))).toEqual([`SELECT "first_name" AS "sel$0"`]);
+    // A long path is still one operator and one parameter: no expression depth, no 100-parameter ceiling.
+    const long = walked(arrow("cv_draft", ...Array.from({ length: 300 }, (_, i) => `k${i}`)));
+    expect([long[0], long.length]).toEqual([inSql("cv_draft"), 2]);
+  });
+
+  it("names every item the way decode.ts will read it back, whatever the caller aliased it", () => {
+    const langs0 = { column: "cv_draft", jsonPath: [{ arrow: "->" as const, key: "langs" }, { arrow: "->" as const, index: 0 }] };
+    expect(selectOutputKey(langs0)).toBe("langs");     // PostgREST's last KEY, not the index
+    expect(ok(intent({ table: "candidate_profiles", select: [langs0] })).sql)
+      .toBe(`SELECT CASE WHEN json_valid("cv_draft") THEN "cv_draft" -> ? END AS "sel$0" FROM "candidate_profiles"`);
+    expect(ok(intent({ table: "app_settings", select: [{ column: "key", alias: "value" }, { column: "*" }] })).sql)
+      .toBe(`SELECT "key", * FROM "app_settings"`);
+    // app_settings.value is text: an arrow on it fetches the column for decode.ts to walk.
+    expect(ok(intent({ table: "app_settings", select: [{ column: "*" }, { column: "value", alias: "v", jsonPath: [{ arrow: "->", index: 0 }] }] })).sql)
+      .toBe(`SELECT *, "value" AS "sel$1" FROM "app_settings"`);
+    // Aliases spelled like the adapter's own names reach no SQL name at all
+    // (live: employers?select=id,rowid$:slug emptied a text-ordered page).
+    for (const alias of ["rowid$", "json$1", "sel$1", "sort$0", "j$", 'a"b']) {
+      expect(ok(intent({ table: "app_settings", select: [{ column: "key", alias }, { column: "value", alias: "sel$0" }] })).sql)
+        .toBe(`SELECT "key", "value" FROM "app_settings"`);
+    }
+    // A mutation's RETURNING is built by the same rule, its path bound after the WHERE's operands.
+    const del = ok(intent({ table: "candidate_profiles", action: "delete", returning: "representation", where: [cmp("user_id", "eq", U1)], select: [langs0] }));
+    expect([del.sql, del.params]).toEqual([
+      `DELETE FROM "candidate_profiles" WHERE "user_id" = ? RETURNING CASE WHEN json_valid("cv_draft") THEN "cv_draft" -> ? END AS "sel$0"`,
+      [U1, '$."langs"'],
+    ]);
   });
 
   it("emits every comparison filter with one placeholder per value", () => {
@@ -168,9 +204,47 @@ describe("select", () => {
     // NOT NULL column → no emulation term needed.
     expect(ok(intent({ table: "documents", order: [{ column: "rotation", ascending: true }] })).sql)
       .toBe(`SELECT * FROM "documents" ORDER BY "rotation" ASC`);
-    // Plain text sorts under a case-insensitive collation, like Supabase's en_US.UTF-8.
-    expect(ok(intent({ table: "documents", order: [{ column: "file_name", ascending: true }] })).sql)
-      .toBe(`SELECT * FROM "documents" ORDER BY "file_name" COLLATE NOCASE ASC`);
+    // A text column can't be sorted in SQL (no ICU; NOCASE folds ASCII only): the
+    // query fetches rowid and raw keys — of every row whose key is not plain ASCII,
+    // and of the plain rows up to the page's end, ordered by collate.ts's key with
+    // the same NULL term, the raw column reversed and rowid last — and read.ts sorts them.
+    const text = ok(intent({
+      table: "documents", where: [cmp("user_id", "eq", "u1")],
+      order: [{ column: "file_name", ascending: false }, { column: "uploaded_at", ascending: true, nullsFirst: true }],
+    }));
+    const keys = `SELECT rowid AS "rowid$", "file_name" AS "sort$0", "uploaded_at" AS "sort$1" FROM "documents"`;
+    const plain = plainAsciiSql(`"file_name"`, false);
+    expect(text.sql).toBe(
+      `SELECT * FROM (${keys} WHERE ("user_id" = ?) AND NOT (${plain}) LIMIT ?)`
+      + ` UNION ALL SELECT * FROM (${keys} WHERE ("user_id" = ?) AND ${plain}`
+      + ` ORDER BY ${asciiSortKeySql(`"file_name"`)} DESC, "file_name" ASC, ("uploaded_at" IS NULL) DESC, "uploaded_at" ASC, rowid ASC LIMIT ?)`,
+    );
+    expect(text.params).toEqual(["u1", 100_001, "u1", 1000]);
+    expect(text.plainCut).toBe(1000);
+    expect(text.sort).toEqual([
+      { key: "sort$0", text: true, ascending: false, nullsFirst: true },
+      { key: "sort$1", text: false, ascending: true, nullsFirst: true },
+    ]);
+    // Two text keys: a row goes to JavaScript when EITHER key is not plain — `NOT a AND b` would send only half of them.
+    const two = ok(intent({ table: "documents", order: [{ column: "file_type", ascending: true }, { column: "file_name", ascending: true }] }));
+    expect(two.sql).toContain(`WHERE NOT (${plainAsciiSql(`"file_type"`, true)} AND ${plainAsciiSql(`"file_name"`, false)}) LIMIT ?`);
+    expect(two.params).toEqual([100_001, 1000]);
+  });
+
+  it("falls back to every match's keys when the narrowed text-order statement would pass D1's statement limit", () => {
+    const wide = (n: number) => ok(intent({
+      table: "documents", order: [{ column: "file_type", ascending: true }],
+      where: [{ kind: "or", children: Array.from({ length: n }, (_, i) => cmp("file_name", "eq", `f${i}`)) }],
+    }));
+    // The filter is written twice in the narrowed statement; its 2n operands are packed into one param.
+    const narrowed = wide(500);
+    // …and, packed, it keeps its sort and cut (fitParams once dropped both).
+    expect([narrowed.plainCut, narrowed.sql.startsWith("SELECT * FROM (SELECT rowid"), narrowed.sql.length <= D1_MAX_SQL_BYTES, narrowed.params.length, narrowed.sort?.length])
+      .toEqual([1000, true, true, 1, 1]);
+    const every = wide(1500);
+    expect([every.plainCut, every.sql.startsWith(`SELECT rowid AS "rowid$", "file_type" AS "sort$0" FROM "documents" WHERE`), every.sql.length <= D1_MAX_SQL_BYTES, every.sort?.length])
+      .toEqual([undefined, true, true, 1]);
+    expect(JSON.parse(every.params[0] as string)).toHaveLength(1501);   // the filter once, then the row limit
   });
 
   it("binds limit and range, and gives a bare offset the LIMIT -1 SQLite needs", () => {
@@ -250,7 +324,7 @@ describe("identifier safety", () => {
     // the cheapest way to make the codec throw (JSON.stringify refuses it).
     const e = refused(intent({
       table: "organizations", action: "insert",
-      values: [{ id: "o1", name: "n", invite_code: "c", vaccine_req: BigInt(1) as unknown as number }],
+      values: [{ id: U1, name: "n", invite_code: "c", vaccine_req: BigInt(1) as unknown as number }],
     }));
     expect(e.code).toBe("XX000");      // errors.ts's own unknown bucket
     expect(e.status).toBe(500);
@@ -315,16 +389,18 @@ describe("parameter encoding", () => {
 });
 
 describe("mutations", () => {
-  it("inserts one row and a bulk array with a single column list", () => {
-    const one = ok(intent({ table: "documents", action: "insert", values: [{ user_id: "u1", file_name: "a.pdf" }] }));
-    expect(one.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") VALUES (?, ?)`);
-    expect(one.params).toEqual(["u1", "a.pdf"]);
+  it("inserts one row and a bulk array with a single column list and ONE parameter", () => {
+    // D1 binds at most 100 parameters; a placeholder per cell refused every bulk
+    // write past that (tests/pgrestWrites.test.ts has the call sites).
+    const one = ok(intent({ table: "documents", action: "insert", values: [{ user_id: U1, file_name: "a.pdf" }] }));
+    expect(one.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") SELECT ${cell(0)}, ${cell(1)} ${FROM_ROWS}`);
+    expect(one.params).toEqual([JSON.stringify([[U1, "a.pdf"]])]);
     const many = ok(intent({
       table: "documents", action: "insert",
-      values: [{ user_id: "u1", file_name: "a.pdf" }, { user_id: "u2", file_name: "b.pdf" }],
+      values: [{ user_id: U1, file_name: "a.pdf" }, { user_id: U2, file_name: "b.pdf" }],
     }));
-    expect(many.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") VALUES (?, ?), (?, ?)`);
-    expect(many.params).toEqual(["u1", "a.pdf", "u2", "b.pdf"]);
+    expect(many.sql).toBe(one.sql);
+    expect(many.params).toEqual([JSON.stringify([[U1, "a.pdf"], [U2, "b.pdf"]])]);
   });
 
   it("refuses a bulk insert whose objects disagree on keys (PGRST102), like PostgREST", () => {
@@ -346,15 +422,15 @@ describe("mutations", () => {
   it("appends RETURNING only when rows were asked for", () => {
     const rep = ok(intent({
       table: "documents", action: "insert", returning: "representation",
-      select: [{ column: "id" }], values: [{ user_id: "u1", file_name: "a.pdf" }],
+      select: [{ column: "id" }], values: [{ user_id: U1, file_name: "a.pdf" }],
     }));
-    expect(rep.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") VALUES (?, ?) RETURNING "id"`);
-    const min = ok(intent({ table: "documents", action: "insert", values: [{ user_id: "u1", file_name: "a.pdf" }] }));
+    expect(rep.sql).toBe(`INSERT INTO "documents" ("user_id", "file_name") SELECT ${cell(0)}, ${cell(1)} ${FROM_ROWS} RETURNING "id"`);
+    const min = ok(intent({ table: "documents", action: "insert", values: [{ user_id: U1, file_name: "a.pdf" }] }));
     expect(min.sql).not.toMatch(/RETURNING/);
     // `.select()` with no columns after a mutation = return everything.
     const star = ok(intent({
       table: "documents", action: "insert", returning: "representation", select: [],
-      values: [{ user_id: "u1", file_name: "a.pdf" }],
+      values: [{ user_id: U1, file_name: "a.pdf" }],
     }));
     expect(star.sql).toMatch(/RETURNING \*$/);
   });
@@ -392,19 +468,19 @@ describe("mutations", () => {
   it("upserts on the given target, on the primary key by default, and DO NOTHING when duplicates are ignored", () => {
     const target = ok(intent({
       table: "organization_members", action: "upsert", onConflict: ["org_id", "sub_admin_email"],
-      values: [{ org_id: "o1", sub_admin_email: "a@x.com", role: "member" }],
+      values: [{ org_id: U1, sub_admin_email: "a@x.com", role: "member" }],
     }));
     expect(target.sql).toBe(
-      `INSERT INTO "organization_members" ("org_id", "sub_admin_email", "role") VALUES (?, ?, ?)`
+      `INSERT INTO "organization_members" ("org_id", "sub_admin_email", "role") SELECT ${cell(0)}, ${cell(1)}, ${cell(2)} ${FROM_ROWS}`
       + ` ON CONFLICT ("org_id", "sub_admin_email") DO UPDATE SET`
       + ` "org_id" = excluded."org_id", "sub_admin_email" = excluded."sub_admin_email", "role" = excluded."role"`,
     );
-    const pk = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: "u1", phone: "+212600" }] }));
+    const pk = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: U1, phone: "+212600" }] }));
     expect(pk.sql).toMatch(/ON CONFLICT \("user_id"\) DO UPDATE SET "user_id" = excluded\."user_id", "phone" = excluded\."phone"$/);
     const ignore = ok(intent({
-      table: "candidate_profiles", action: "upsert", ignoreDuplicates: true, values: [{ user_id: "u1" }],
+      table: "candidate_profiles", action: "upsert", ignoreDuplicates: true, values: [{ user_id: U1 }],
     }));
-    expect(ignore.sql).toBe(`INSERT INTO "candidate_profiles" ("user_id") VALUES (?) ON CONFLICT ("user_id") DO NOTHING`);
+    expect(ignore.sql).toBe(`INSERT INTO "candidate_profiles" ("user_id") SELECT ${cell(0)} ${FROM_ROWS} ON CONFLICT ("user_id") DO NOTHING`);
   });
 });
 
@@ -432,7 +508,7 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
     doc.run("d2", "u1", "axb.pdf", "p2", null, "2026-02-01T00:00:00.000000+00:00", "Diplome");
     doc.run("d3", "u2", "C.pdf", "p3", "approved", null, "Passeport");
     db.prepare(`INSERT INTO candidate_profiles (user_id, cv_draft, passport_confirmed_fields) VALUES (?, ?, '{}')`)
-      .run("u1", `{"langs":[{"name":"Arabe","level":"C2"}],"summary":"x"}`);
+      .run(U1, `{"langs":[{"name":"Arabe","level":"C2"}],"summary":"x"}`);
     const org = db.prepare(`INSERT INTO organizations (id, name, invite_code, vaccine_req, required_doc_keys) VALUES (?,?,?,?,?)`);
     org.run("o1", "Alpha", "AAA", "{}", `["passport","diploma"]`);
     org.run("o2", "Beta", "BBB", "{}", `["diploma"]`);
@@ -451,10 +527,10 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
       .toEqual(["d3", "d1", "d2"]);
   });
 
-  it("sorts text case-insensitively, like Supabase's collation", () => {
-    // Byte order would file "C.pdf" (0x43) before both lowercase names.
-    expect(names(run(intent({ table: "documents", order: [{ column: "file_name", ascending: true }] }))))
-      .toEqual(["a_b.pdf", "axb.pdf", "C.pdf"]);
+  it("fetches rowid and raw sort keys for a text ORDER BY, for read.ts to sort", () => {
+    const rows = run(intent({ table: "documents", order: [{ column: "file_name", ascending: true }] }));
+    expect(rows.map((r) => String(r["sort$0"])).sort()).toEqual(["C.pdf", "a_b.pdf", "axb.pdf"]);
+    expect(rows.every((r) => typeof r["rowid$"] === "number")).toBe(true);
   });
 
   it("matches ilike case-insensitively while honouring ciEmail()'s escapes", () => {
@@ -536,11 +612,11 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
   });
 
   it("reads a json path into an alias", () => {
-    const rows = run(intent({
+    const i = intent({
       table: "candidate_profiles",
-      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: "langs" }],
-    }));
-    expect(JSON.parse(String(rows[0].cv_langs))).toEqual([{ name: "Arabe", level: "C2" }]);
+      select: [{ column: "user_id" }, { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] }],
+    });
+    expect(decodeRows(run(i), i, registry)).toEqual([{ user_id: U1, cv_langs: [{ name: "Arabe", level: "C2" }] }]);
   });
 
   it("does array containment on a JSON-text array, NULL included", () => {
@@ -605,7 +681,7 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
   it("inserts, updates, deletes and hands back the rows RETURNING was asked for", () => {
     const ins = ok(intent({
       table: "notifications", action: "insert", returning: "representation", select: [{ column: "id" }, { column: "read" }],
-      values: [{ user_id: "u9", doc_name: "n", doc_type: "t", action: "approved", read: false }],
+      values: [{ user_id: U2, doc_name: "n", doc_type: "t", action: "approved", read: false }],
     }));
     const created = db.prepare(ins.sql).all(...(ins.params as never[]));
     expect(created).toHaveLength(1);
@@ -628,23 +704,23 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
   it("writes jsonb / text[] / boolean payloads in the stored encoding", () => {
     const ins = ok(intent({
       table: "organizations", action: "insert", returning: "representation", select: [],
-      values: [{ id: "o9", name: "Delta", invite_code: "DDD", vaccine_req: { hep_b: true }, required_doc_keys: ["cv"] }],
+      values: [{ id: U2, name: "Delta", invite_code: "DDD", vaccine_req: { hep_b: true }, required_doc_keys: ["cv"] }],
     }));
     const row = db.prepare(ins.sql).all(...(ins.params as never[]))[0];
     expect(row.vaccine_req).toBe(`{"hep_b":true}`);        // json_valid CHECK would have rejected anything else
     expect(row.required_doc_keys).toBe(`["cv"]`);
     // …and the containment filter finds what the insert wrote.
-    expect(run(intent({ table: "organizations", where: [cmp("required_doc_keys", "cs", ["cv"])] })).map((r) => r.id)).toEqual(["o9"]);
+    expect(run(intent({ table: "organizations", where: [cmp("required_doc_keys", "cs", ["cv"])] })).map((r) => r.id)).toEqual([U2]);
   });
 
   it("upserts: inserts once, then updates in place — unless duplicates are ignored", () => {
     const up = (notes: string, ignoreDuplicates = false) => {
       const q = ok(intent({
         table: "candidate_status", action: "upsert", ignoreDuplicates,
-        values: [{ user_id: "u7", b2_notes: notes }],
+        values: [{ user_id: U2, b2_notes: notes }],
       }));
       db.prepare(q.sql).run(...(q.params as never[]));
-      return db.prepare(`SELECT b2_notes FROM candidate_status WHERE user_id = 'u7'`).get()!.b2_notes;
+      return db.prepare(`SELECT b2_notes FROM candidate_status WHERE user_id = ?`).get(U2)!.b2_notes;
     };
     expect(up("first")).toBe("first");
     expect(up("second")).toBe("second");          // DO UPDATE
@@ -682,41 +758,35 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
       "sub_admin_assignments|sub_admin_email,candidate_user_id",
       "sub_admins|email",
     ];
+    // A value each column's input function accepts.
+    const sample: Record<string, unknown> = {
+      uuid: U1, integer: 1, bigint: 1, numeric: 1, boolean: true, date: "2026-01-01",
+      timestamptz: "2026-01-01T00:00:00Z", jsonb: {}, "text[]": [], "uuid[]": [],
+    };
     const failures: string[] = [];
     for (const pair of pairs) {
       const [table, target] = pair.split("|");
       const cols = target.split(",");
       const q = ok(intent({
         table, action: "upsert", onConflict: cols,
-        values: [Object.fromEntries(cols.map((c) => [c, "x"]))],
+        values: [Object.fromEntries(cols.map((c) => [c, sample[registry[table].columns[c].pg] ?? "x"]))],
       }));
       try { db.prepare(q.sql); } catch { failures.push(pair); }
     }
-    // KNOWN GAP #1 (reported, not this module's to fix): supabase/
-    // fix_notification_kinds_and_commitments.sql adds a plain unique index on
-    // (owner_user_id, source_message_id, what), but d1/schema.sql only carries
-    // the older expression index over coalesce(source_message_id,'') — which no
-    // ON CONFLICT target can match. When the schema gains it, this list goes empty
-    // and the expectation below should be changed to [].
-    expect(failures).toEqual(["assistant_commitments|owner_user_id,source_message_id,what"]);
+    // Formerly KNOWN GAP #1: supabase/fix_notification_kinds_and_commitments.sql
+    // added a plain unique index on (owner_user_id, source_message_id, what); the
+    // schema generated from the 2026-09-13 catalog carries it, so every target binds.
+    expect(failures).toEqual([]);
   });
 
-  it("KNOWN GAP #2: NOT NULL jsonb/array columns lost their Postgres DEFAULT", () => {
-    // PostgREST's OpenAPI snapshot omits `default` for jsonb/array columns, so
-    // d1/gen-schema.mjs emitted 20 NOT NULL columns with no DEFAULT that DO have
-    // one live — supabase/passport_confirmed_fields.sql (`NOT NULL DEFAULT '[]'`),
-    // supabase/org_vaccine_req.sql, supabase/upload_links.sql, supabase/
-    // phase_doc_order.sql, supabase/booking_maxx.sql …
-    //
-    // It bites hardest on upsert: SQLite checks NOT NULL BEFORE resolving ON
-    // CONFLICT, while Postgres constrains the FINAL tuple. So the commonest
-    // upsert in the codebase (candidate_profiles on user_id, 27 call sites)
-    // fails on D1 even though u1 already exists and the payload never touches
-    // the column. The SQL below is exactly what Supabase accepts today.
-    // When the generator restores those defaults this test flips to `.run()`
-    // succeeding — change it then, and delete the exception.
-    const q = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: "u1", phone: "+212600000000" }] }));
-    expect(() => db.prepare(q.sql).run(...(q.params as never[])))
-      .toThrow(/NOT NULL constraint failed: candidate_profiles\.passport_confirmed_fields/);
+  it("NOT NULL jsonb/array columns keep their Postgres DEFAULT, so the commonest upsert works", () => {
+    // Formerly KNOWN GAP #2. PostgREST's OpenAPI omits jsonb/array defaults;
+    // d1/gen-schema.mjs now fills them from the catalog capture. SQLite checks
+    // NOT NULL BEFORE resolving ON CONFLICT (Postgres constrains the final tuple),
+    // so without the DEFAULT this upsert (candidate_profiles on user_id, 27 call
+    // sites) failed on passport_confirmed_fields while Supabase accepted it.
+    const q = ok(intent({ table: "candidate_profiles", action: "upsert", values: [{ user_id: U1, phone: "+212600000000" }] }));
+    expect(() => db.prepare(q.sql).run(...(q.params as never[]))).not.toThrow();
+    expect(db.prepare(`SELECT phone FROM candidate_profiles WHERE user_id = ?`).get(U1)!.phone).toBe("+212600000000");
   });
 });

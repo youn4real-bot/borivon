@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { writesFrozen, freezeDecision, maintenanceResponse, cronSkipResponse } from "@/lib/maintenance";
 
 /**
  * The affiliate portal is a SEPARATE surface, reachable ONLY at
@@ -19,8 +20,19 @@ import { NextRequest, NextResponse } from "next/server";
 const AFFILIATE_HOST = "affiliates.borivon.com";
 
 export function middleware(req: NextRequest) {
-  const host = (req.headers.get("host") || "").toLowerCase();
   const { pathname } = req.nextUrl;
+
+  // WRITE FREEZE (MAINTENANCE_WRITES="1", lib/maintenance.ts) — checked before
+  // any host routing so no subdomain can write around it. Mutating /api/*
+  // requests get a 503 the portal explains in three languages; cron routes are
+  // answered "skipped" without running; /api/health and every GET pass.
+  if (writesFrozen()) {
+    const decision = freezeDecision(req.method, pathname);
+    if (decision === "block") return maintenanceResponse(req.headers.get("accept-language"));
+    if (decision === "skip-cron") return cronSkipResponse();
+  }
+
+  const host = (req.headers.get("host") || "").toLowerCase();
   const onAffiliateHost = host.startsWith("affiliates.");
 
   if (onAffiliateHost) {

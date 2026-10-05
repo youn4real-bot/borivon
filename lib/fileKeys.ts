@@ -142,15 +142,33 @@ export function resolveFileKey(fileType: string | null | undefined): string {
   return LABEL_TO_FILE_KEY[v] ?? v;
 }
 
-/**
- * The catalog label a fileKey OWNS, in one language — or "" for a key the
- * catalog does not know (Bearbeitung/Visum slot UUIDs, org documents).
- */
+/** The label a box DISPLAYS for `fileKey` in `lang` — and therefore the exact
+ *  string an upload from that box must store as `documents.file_type`. Empty
+ *  for a key outside the catalog (a wizard-slot UUID, an org doc). */
 export function canonicalDocLabel(fileKey: string, lang: "fr" | "en" | "de"): string {
-  const tKey = KEY_TO_TKEY[(fileKey ?? "").trim()];
-  if (!tKey) return "";
+  const key = (fileKey ?? "").trim();
+  // hasOwnProperty, not a bare lookup: fileKey is caller-supplied, and "constructor"
+  // would otherwise answer with Object's own and walk on as if it were a doc key.
+  if (!Object.prototype.hasOwnProperty.call(KEY_TO_TKEY, key)) return "";
+  const tKey = KEY_TO_TKEY[key];
   const dict = translations[lang] ?? translations.en ?? translations.fr;
   return (dict[tKey] as string) || "";
+}
+
+/** Which UI language spells a canonical label, so a WRONG label can be replaced
+ *  without also switching the row's language. A label two languages share (e.g.
+ *  "Zusatzblatt A") answers with the first of de, fr, en. A Map, not an object:
+ *  the argument is caller-supplied, and a plain object would answer "constructor"
+ *  with Object's own. */
+const LABEL_LANG = new Map<string, "fr" | "en" | "de">();
+for (const lang of ["de", "fr", "en"] as const) {
+  for (const tKey of Object.values(KEY_TO_TKEY)) {
+    const lbl = translations[lang][tKey] as string;
+    if (lbl && !LABEL_LANG.has(lbl)) LABEL_LANG.set(lbl, lang);
+  }
+}
+export function docLabelLang(label: string | null | undefined): "fr" | "en" | "de" | null {
+  return LABEL_LANG.get((label ?? "").trim()) ?? null;
 }
 
 /**
@@ -166,10 +184,32 @@ export function canonicalDocLabel(fileKey: string, lang: "fr" | "en" | "de"): st
  * original. It drew in the Original box, and the one-live-document-per-slot
  * pass in app/api/portal/upload/route.ts then archived the real original.
  *
- * Unknown keys keep whatever the page sent (slot UUIDs, org labels, "other"
- * uploads): the rule only speaks where the catalog can.
+ * Measured on the live database before the admin panel was fixed: 30 translated
+ * documents (3 candidates, every one an admin upload) were filed in the
+ * Original box, and because the retire pass matches on the label they also
+ * superseded the real original — 29 of those slots were left with no live
+ * original at all.
+ *
+ * Unknown keys keep whatever the page sent (slot UUIDs, org labels): the rule
+ * only speaks where the catalog can. "other"/Sonstiges IS in the catalog and IS
+ * corrected, deliberately — LAW #9's five-file cap is counted with
+ * `.in("file_type", ["Autre","Other","Sonstiges"])`, so a custom label left
+ * alone would slip past the cap. The per-file index lives in the FILENAME, not
+ * the label, so collapsing the label loses nothing.
+ *
+ * The correction is made IN THE LANGUAGE THE CALLER WROTE IN: a label is
+ * cosmetic (every reader goes through resolveFileKey, and FILE_KEY_ALL_LABELS
+ * matches a box in all three languages), so there is no reason for a French
+ * admin's mislabelled upload to come back German. `lang` defaults to the sent
+ * label's own language — which IS "de" for the German labels the panel sends,
+ * so the common path is unchanged — and only falls back to German for a label
+ * no language claims.
  */
-export function labelForUpload(fileKey: string, fileType: string, lang: "fr" | "en" | "de" = "de"): string {
+export function labelForUpload(
+  fileKey: string,
+  fileType: string,
+  lang: "fr" | "en" | "de" = docLabelLang(fileType) ?? "de",
+): string {
   const keyed = canonicalDocLabel(fileKey, lang);
   if (!keyed) return fileType;
   return resolveFileKey(fileType) === (fileKey ?? "").trim() ? fileType : keyed;

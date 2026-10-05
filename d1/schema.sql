@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS "academy_attendance" (
   "source" TEXT NOT NULL DEFAULT 'auto',
   "recorded_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id"),
+  CONSTRAINT "academy_attendance_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "academy_class_sessions" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "academy_attendance_status_check" CHECK ((status IN ('present', 'late', 'absent', 'excused'))),
   CONSTRAINT "academy_attendance_source_check" CHECK ((source IN ('auto', 'admin', 'self')))
 );
@@ -38,7 +39,9 @@ CREATE TABLE IF NOT EXISTS "academy_class_sessions" (
   "external_ref" TEXT,
   "created_by" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "academy_class_sessions_cohort_id_fkey" FOREIGN KEY ("cohort_id") REFERENCES "academy_cohorts" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
+  CONSTRAINT "academy_class_sessions_lesson_id_fkey" FOREIGN KEY ("lesson_id") REFERENCES "academy_lessons" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "academy_cohort_members" (
   "cohort_id" TEXT NOT NULL,
@@ -47,6 +50,7 @@ CREATE TABLE IF NOT EXISTS "academy_cohort_members" (
   "status" TEXT NOT NULL DEFAULT 'active',
   "joined_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("cohort_id", "candidate_user_id"),
+  CONSTRAINT "academy_cohort_members_cohort_id_fkey" FOREIGN KEY ("cohort_id") REFERENCES "academy_cohorts" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "academy_cohort_members_status_check" CHECK ((status IN ('active', 'paused', 'dropped', 'graduated')))
 );
 CREATE TABLE IF NOT EXISTS "academy_cohorts" (
@@ -60,6 +64,7 @@ CREATE TABLE IF NOT EXISTS "academy_cohorts" (
   "created_by" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id"),
+  CONSTRAINT "academy_cohorts_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
   CONSTRAINT "academy_cohorts_status_check" CHECK ((status IN ('active', 'archived')))
 );
 CREATE TABLE IF NOT EXISTS "academy_lessons" (
@@ -67,14 +72,15 @@ CREATE TABLE IF NOT EXISTS "academy_lessons" (
   "org_id" TEXT,
   "level" TEXT NOT NULL DEFAULT 'A1',
   "title" TEXT NOT NULL DEFAULT '',
-  "body" TEXT NOT NULL CHECK ("body" IS NULL OR json_valid("body")),
+  "body" TEXT NOT NULL DEFAULT '{}' CHECK ("body" IS NULL OR json_valid("body")),
   "media_url" TEXT,
   "position" INTEGER NOT NULL DEFAULT 0,
   "published" INTEGER NOT NULL DEFAULT 0 CHECK ("published" IN (0, 1)),
   "created_by" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "academy_lessons_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "academy_point_events" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -84,11 +90,12 @@ CREATE TABLE IF NOT EXISTS "academy_point_events" (
   "points" INTEGER NOT NULL,
   "source_kind" TEXT,
   "source_id" TEXT,
-  "meta" TEXT NOT NULL CHECK ("meta" IS NULL OR json_valid("meta")),
+  "meta" TEXT NOT NULL DEFAULT '{}' CHECK ("meta" IS NULL OR json_valid("meta")),
   "note" TEXT,
   "created_by" TEXT NOT NULL DEFAULT 'system',
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "academy_point_events_cohort_id_fkey" FOREIGN KEY ("cohort_id") REFERENCES "academy_cohorts" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "academy_quizzes" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -97,7 +104,7 @@ CREATE TABLE IF NOT EXISTS "academy_quizzes" (
   "level" TEXT NOT NULL DEFAULT 'A1',
   "title" TEXT NOT NULL DEFAULT '',
   "kind" TEXT NOT NULL DEFAULT 'quiz',
-  "questions" TEXT NOT NULL CHECK ("questions" IS NULL OR json_valid("questions")),
+  "questions" TEXT NOT NULL DEFAULT '[]' CHECK ("questions" IS NULL OR json_valid("questions")),
   "pass_score" INTEGER NOT NULL DEFAULT 60,
   "points_award" INTEGER NOT NULL DEFAULT 0,
   "due_at" TEXT,
@@ -106,6 +113,8 @@ CREATE TABLE IF NOT EXISTS "academy_quizzes" (
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id"),
+  CONSTRAINT "academy_quizzes_cohort_id_fkey" FOREIGN KEY ("cohort_id") REFERENCES "academy_cohorts" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
+  CONSTRAINT "academy_quizzes_lesson_id_fkey" FOREIGN KEY ("lesson_id") REFERENCES "academy_lessons" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
   CONSTRAINT "academy_quizzes_kind_check" CHECK ((kind IN ('quiz', 'homework', 'mock_exam')))
 );
 CREATE TABLE IF NOT EXISTS "academy_settings" (
@@ -122,19 +131,21 @@ CREATE TABLE IF NOT EXISTS "academy_student_badges" (
   "badge_id" TEXT NOT NULL,
   "awarded_by" TEXT NOT NULL DEFAULT 'system',
   "awarded_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "academy_student_badges_badge_id_fkey" FOREIGN KEY ("badge_id") REFERENCES "academy_badges" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "academy_submissions" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
   "quiz_id" TEXT NOT NULL,
   "candidate_user_id" TEXT NOT NULL,
-  "answers" TEXT NOT NULL CHECK ("answers" IS NULL OR json_valid("answers")),
+  "answers" TEXT NOT NULL DEFAULT '[]' CHECK ("answers" IS NULL OR json_valid("answers")),
   "score" REAL,
   "passed" INTEGER CHECK ("passed" IN (0, 1)),
   "on_time" INTEGER CHECK ("on_time" IN (0, 1)),
   "submitted_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "graded_at" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "academy_submissions_quiz_id_fkey" FOREIGN KEY ("quiz_id") REFERENCES "academy_quizzes" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "academy_tab_access" (
   "user_id" TEXT NOT NULL,
@@ -167,7 +178,7 @@ CREATE TABLE IF NOT EXISTS "admin_notifications" (
   "read" INTEGER NOT NULL DEFAULT 0 CHECK ("read" IN (0, 1)),
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id"),
-  CONSTRAINT "admin_notifications_type_check" CHECK ((type IN ('signup', 'upload', 'doc-signed', 'doc-uploaded')))
+  CONSTRAINT "admin_notifications_type_check" CHECK ((type IN ('signup', 'upload', 'doc-signed', 'doc-uploaded', 'org-join', 'org-request')))
 );
 CREATE TABLE IF NOT EXISTS "admin_signatures" (
   "admin_email" TEXT NOT NULL,
@@ -184,7 +195,8 @@ CREATE TABLE IF NOT EXISTS "affiliate_earnings" (
   "placed_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "paid_at" TEXT,
   "note" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "affiliate_earnings_affiliate_id_fkey" FOREIGN KEY ("affiliate_id") REFERENCES "affiliates" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "affiliates" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -256,7 +268,7 @@ CREATE TABLE IF NOT EXISTS "assistant_commitments" (
   "what" TEXT NOT NULL,
   "due_at" TEXT,
   "promised_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  "source_message_id" TEXT,
+  "source_message_id" TEXT NOT NULL DEFAULT '',
   "source_subject" TEXT,
   "status" TEXT NOT NULL DEFAULT 'open',
   "last_nudge_at" TEXT,
@@ -331,12 +343,12 @@ CREATE TABLE IF NOT EXISTS "automation_settings" (
 );
 CREATE TABLE IF NOT EXISTS "booking_availability" (
   "id" INTEGER NOT NULL DEFAULT 1 CHECK ("id" IN (0, 1)),
-  "week" TEXT NOT NULL CHECK ("week" IS NULL OR json_valid("week")),
+  "week" TEXT NOT NULL DEFAULT '{"1": ["09:00-13:00", "14:00-18:00"], "2": ["09:00-13:00", "14:00-18:00"], "3": ["09:00-13:00", "14:00-18:00"], "4": ["09:00-13:00", "14:00-18:00"], "5": ["09:00-13:00", "14:00-18:00"]}' CHECK ("week" IS NULL OR json_valid("week")),
   "slot_minutes" INTEGER NOT NULL DEFAULT 30,
   "buffer_minutes" INTEGER NOT NULL DEFAULT 0,
   "min_notice_hours" INTEGER NOT NULL DEFAULT 12,
   "horizon_days" INTEGER NOT NULL DEFAULT 14,
-  "blackout_dates" TEXT NOT NULL CHECK ("blackout_dates" IS NULL OR json_valid("blackout_dates")),
+  "blackout_dates" TEXT NOT NULL DEFAULT '[]' CHECK ("blackout_dates" IS NULL OR json_valid("blackout_dates")),
   "accepting" INTEGER NOT NULL DEFAULT 1 CHECK ("accepting" IN (0, 1)),
   "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "updated_by" TEXT,
@@ -388,7 +400,7 @@ CREATE TABLE IF NOT EXISTS "bookings" (
   "phone" TEXT,
   "note" TEXT,
   "company" TEXT,
-  "selections" TEXT NOT NULL CHECK ("selections" IS NULL OR json_valid("selections")),
+  "selections" TEXT NOT NULL DEFAULT '{}' CHECK ("selections" IS NULL OR json_valid("selections")),
   "starts_at" TEXT NOT NULL,
   "ends_at" TEXT NOT NULL,
   "calendar_event_id" TEXT,
@@ -420,7 +432,7 @@ CREATE TABLE IF NOT EXISTS "calendar_events" (
   "link_url" TEXT NOT NULL DEFAULT '',
   "location" TEXT NOT NULL DEFAULT '',
   "vip_only" INTEGER NOT NULL DEFAULT 0 CHECK ("vip_only" IN (0, 1)),
-  "attendee_ids" TEXT NOT NULL CHECK ("attendee_ids" IS NULL OR json_valid("attendee_ids")),
+  "attendee_ids" TEXT NOT NULL DEFAULT '[]' CHECK ("attendee_ids" IS NULL OR json_valid("attendee_ids")),
   "created_by" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id")
@@ -462,6 +474,7 @@ CREATE TABLE IF NOT EXISTS "candidate_organizations" (
   "approved_at" TEXT,
   "approved_by" TEXT,
   PRIMARY KEY ("candidate_user_id", "org_id"),
+  CONSTRAINT "candidate_organizations_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "candidate_organizations_status_check" CHECK ((status IN ('pending', 'approved', 'rejected'))),
   CONSTRAINT "candidate_organizations_added_by_check" CHECK ((added_by IN ('admin', 'candidate', 'self_signup')))
 );
@@ -516,7 +529,8 @@ CREATE TABLE IF NOT EXISTS "candidate_pipeline" (
   "pool_call_done" INTEGER NOT NULL DEFAULT 0 CHECK ("pool_call_done" IN (0, 1)),
   "pool_cv_done" INTEGER NOT NULL DEFAULT 0 CHECK ("pool_cv_done" IN (0, 1)),
   "pool_medical_done" INTEGER NOT NULL DEFAULT 0 CHECK ("pool_medical_done" IN (0, 1)),
-  PRIMARY KEY ("user_id")
+  PRIMARY KEY ("user_id"),
+  CONSTRAINT "candidate_pipeline_batch_id_fkey" FOREIGN KEY ("batch_id") REFERENCES "employer_batches" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "candidate_profiles" (
   "user_id" TEXT NOT NULL,
@@ -551,7 +565,7 @@ CREATE TABLE IF NOT EXISTS "candidate_profiles" (
   "payment_tier" TEXT,
   "saved_signature" TEXT,
   "agency_id" TEXT,
-  "passport_confirmed_fields" TEXT NOT NULL CHECK ("passport_confirmed_fields" IS NULL OR json_valid("passport_confirmed_fields")),
+  "passport_confirmed_fields" TEXT NOT NULL DEFAULT '[]' CHECK ("passport_confirmed_fields" IS NULL OR json_valid("passport_confirmed_fields")),
   "employer_id" TEXT,
   "phone" TEXT,
   "cv_use_agency_branding" INTEGER DEFAULT 1 CHECK ("cv_use_agency_branding" IN (0, 1)),
@@ -573,6 +587,8 @@ CREATE TABLE IF NOT EXISTS "candidate_profiles" (
   "lang" TEXT,
   "referred_by_affiliate" TEXT,
   PRIMARY KEY ("user_id"),
+  CONSTRAINT "candidate_profiles_agency_id_fkey" FOREIGN KEY ("agency_id") REFERENCES "agencies" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT "candidate_profiles_employer_id_fkey" FOREIGN KEY ("employer_id") REFERENCES "employers" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
   CONSTRAINT "candidate_profiles_passport_status_check" CHECK ((passport_status IN ('pending', 'approved', 'rejected'))),
   CONSTRAINT "candidate_profiles_lang_check" CHECK (((lang IS NULL) OR (lang IN ('fr', 'en', 'de'))))
 );
@@ -580,7 +596,7 @@ CREATE TABLE IF NOT EXISTS "candidate_reminders" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
   "user_id" TEXT NOT NULL,
   "kind" TEXT NOT NULL DEFAULT 'documents',
-  "items" TEXT NOT NULL CHECK ("items" IS NULL OR json_valid("items")),
+  "items" TEXT NOT NULL DEFAULT '[]' CHECK ("items" IS NULL OR json_valid("items")),
   "sent_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id")
 );
@@ -625,16 +641,18 @@ CREATE TABLE IF NOT EXISTS "classroom_events" (
   "user_id" TEXT,
   "display_name" TEXT,
   "kind" TEXT NOT NULL,
-  "value" TEXT NOT NULL CHECK ("value" IS NULL OR json_valid("value")),
+  "value" TEXT NOT NULL DEFAULT '{}' CHECK ("value" IS NULL OR json_valid("value")),
   "source" TEXT NOT NULL DEFAULT 'client',
-  "at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00')
+  "at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
+  CONSTRAINT "classroom_events_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "classroom_sessions" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "classroom_invites" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
   "session_id" TEXT NOT NULL,
   "user_id" TEXT NOT NULL,
   "invited_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "classroom_invites_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "classroom_sessions" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "classroom_sessions" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -696,7 +714,9 @@ CREATE TABLE IF NOT EXISTS "employer_batches" (
   "notes" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "org_id" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "employer_batches_employer_id_fkey" FOREIGN KEY ("employer_id") REFERENCES "employers" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
+  CONSTRAINT "employer_batches_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "employer_shortlists" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -709,7 +729,9 @@ CREATE TABLE IF NOT EXISTS "employer_shortlists" (
   "created_by" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "employer_shortlists_employer_id_fkey" FOREIGN KEY ("employer_id") REFERENCES "employers" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
+  CONSTRAINT "employer_shortlists_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "employers" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -721,7 +743,8 @@ CREATE TABLE IF NOT EXISTS "employers" (
   "notes" TEXT,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "employers_agency_id_fkey" FOREIGN KEY ("agency_id") REFERENCES "organizations" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "enterprise_leads" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -742,7 +765,8 @@ CREATE TABLE IF NOT EXISTS "enterprise_leads" (
 CREATE TABLE IF NOT EXISTS "feed_comment_likes" (
   "comment_id" TEXT NOT NULL,
   "user_id" TEXT NOT NULL,
-  PRIMARY KEY ("comment_id", "user_id")
+  PRIMARY KEY ("comment_id", "user_id"),
+  CONSTRAINT "feed_comment_likes_comment_id_fkey" FOREIGN KEY ("comment_id") REFERENCES "feed_comments" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "feed_comments" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -751,13 +775,15 @@ CREATE TABLE IF NOT EXISTS "feed_comments" (
   "content" TEXT NOT NULL,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id"),
+  CONSTRAINT "feed_comments_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "feed_posts" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "feed_comments_content_check" CHECK (((length(content) >= 1) AND (length(content) <= 300)))
 );
 CREATE TABLE IF NOT EXISTS "feed_likes" (
   "post_id" TEXT NOT NULL,
   "user_id" TEXT NOT NULL,
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("post_id", "user_id")
+  PRIMARY KEY ("post_id", "user_id"),
+  CONSTRAINT "feed_likes_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "feed_posts" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "feed_posts" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -771,6 +797,7 @@ CREATE TABLE IF NOT EXISTS "feed_posts" (
   "category" TEXT NOT NULL DEFAULT 'general',
   "org_id" TEXT,
   PRIMARY KEY ("id"),
+  CONSTRAINT "feed_posts_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "feed_posts_content_check" CHECK (((length(content) >= 1) AND (length(content) <= 500))),
   CONSTRAINT "feed_posts_title_check" CHECK ((length(title) <= 100))
 );
@@ -805,7 +832,7 @@ CREATE TABLE IF NOT EXISTS "interview_proposals" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
   "candidate_user_id" TEXT NOT NULL,
   "round" INTEGER NOT NULL DEFAULT 1,
-  "proposed_slots" TEXT NOT NULL CHECK ("proposed_slots" IS NULL OR json_valid("proposed_slots")),
+  "proposed_slots" TEXT NOT NULL DEFAULT '[]' CHECK ("proposed_slots" IS NULL OR json_valid("proposed_slots")),
   "picked_slot" TEXT,
   "status" TEXT NOT NULL DEFAULT 'proposed',
   "note" TEXT,
@@ -825,6 +852,8 @@ CREATE TABLE IF NOT EXISTS "invite_tokens" (
   "agency_id" TEXT,
   "invited_email" TEXT,
   PRIMARY KEY ("id"),
+  CONSTRAINT "invite_tokens_agency_id_fkey" FOREIGN KEY ("agency_id") REFERENCES "agencies" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT "invite_tokens_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "invite_tokens_type_check" CHECK ((type IN ('candidate', 'member', 'sub-admin')))
 );
 CREATE TABLE IF NOT EXISTS "leads" (
@@ -834,7 +863,7 @@ CREATE TABLE IF NOT EXISTS "leads" (
   "name" TEXT NOT NULL DEFAULT '',
   "phone" TEXT NOT NULL DEFAULT '',
   "message" TEXT NOT NULL DEFAULT '',
-  "details" TEXT NOT NULL CHECK ("details" IS NULL OR json_valid("details")),
+  "details" TEXT NOT NULL DEFAULT '{}' CHECK ("details" IS NULL OR json_valid("details")),
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "status" TEXT NOT NULL DEFAULT 'new',
   "converted_at" TEXT,
@@ -871,7 +900,7 @@ CREATE TABLE IF NOT EXISTS "notifications" (
   "read" INTEGER NOT NULL DEFAULT 0 CHECK ("read" IN (0, 1)),
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("id"),
-  CONSTRAINT "notifications_action_check" CHECK ((action IN ('approved', 'rejected', 'verified', 'placed', 'sign_request', 'event_invite')))
+  CONSTRAINT "notifications_action_check" CHECK ((action IN ('approved', 'rejected', 'verified', 'placed', 'sign_request', 'event_invite', 'follow_up', 'live_class')))
 );
 CREATE TABLE IF NOT EXISTS "online_course_registrations" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -899,6 +928,7 @@ CREATE TABLE IF NOT EXISTS "org_requirements" (
   "facility_type" TEXT,
   "city" TEXT,
   PRIMARY KEY ("id"),
+  CONSTRAINT "org_requirements_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "org_requirements_facility_type_check" CHECK ((facility_type IN ('Klinik', 'Altenheim', 'Ambulante Pflegedienst')))
 );
 CREATE TABLE IF NOT EXISTS "organization_members" (
@@ -907,6 +937,7 @@ CREATE TABLE IF NOT EXISTS "organization_members" (
   "role" TEXT NOT NULL DEFAULT 'member',
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("org_id", "sub_admin_email"),
+  CONSTRAINT "organization_members_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "organization_members_role_check" CHECK ((role IN ('member', 'owner')))
 );
 CREATE TABLE IF NOT EXISTS "organizations" (
@@ -919,9 +950,10 @@ CREATE TABLE IF NOT EXISTS "organizations" (
   "footer_text" TEXT,
   "member_invite_code" TEXT,
   "agency_id" TEXT,
-  "vaccine_req" TEXT NOT NULL CHECK ("vaccine_req" IS NULL OR json_valid("vaccine_req")),
+  "vaccine_req" TEXT NOT NULL DEFAULT '{}' CHECK ("vaccine_req" IS NULL OR json_valid("vaccine_req")),
   "required_doc_keys" TEXT CHECK ("required_doc_keys" IS NULL OR json_valid("required_doc_keys")),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "organizations_agency_id_fkey" FOREIGN KEY ("agency_id") REFERENCES "agencies" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "partner_api_keys" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -933,7 +965,8 @@ CREATE TABLE IF NOT EXISTS "partner_api_keys" (
   "created_by" TEXT,
   "last_used_at" TEXT,
   "revoked_at" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "partner_api_keys_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "partner_api_log" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -943,7 +976,8 @@ CREATE TABLE IF NOT EXISTS "partner_api_log" (
   "path" TEXT NOT NULL,
   "candidate_user_id" TEXT,
   "document_id" TEXT,
-  "status" INTEGER NOT NULL
+  "status" INTEGER NOT NULL,
+  CONSTRAINT "partner_api_log_key_id_fkey" FOREIGN KEY ("key_id") REFERENCES "partner_api_keys" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "partner_shares" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -952,7 +986,8 @@ CREATE TABLE IF NOT EXISTS "partner_shares" (
   "shared_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "shared_by" TEXT,
   "revoked_at" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "partner_shares_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "pdf_field_mappings" (
   "signature" TEXT NOT NULL,
@@ -965,7 +1000,7 @@ CREATE TABLE IF NOT EXISTS "pdf_field_mappings" (
 );
 CREATE TABLE IF NOT EXISTS "phase_doc_order" (
   "phase" TEXT NOT NULL,
-  "order_keys" TEXT NOT NULL CHECK ("order_keys" IS NULL OR json_valid("order_keys")),
+  "order_keys" TEXT NOT NULL DEFAULT '[]' CHECK ("order_keys" IS NULL OR json_valid("order_keys")),
   "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   PRIMARY KEY ("phase")
 );
@@ -1001,6 +1036,8 @@ CREATE TABLE IF NOT EXISTS "phase_slots" (
   "employer_id" TEXT,
   "is_required" INTEGER NOT NULL DEFAULT 1 CHECK ("is_required" IN (0, 1)),
   PRIMARY KEY ("id"),
+  CONSTRAINT "phase_slots_category_fk" FOREIGN KEY ("category_id") REFERENCES "phase_slot_categories" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
+  CONSTRAINT "phase_slots_employer_id_fkey" FOREIGN KEY ("employer_id") REFERENCES "employers" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT "phase_slots_phase_check" CHECK ((phase IN ('bearbeitung', 'visum'))),
   CONSTRAINT "phase_slots_type_check" CHECK ((type IN ('simple', 'dual')))
 );
@@ -1016,7 +1053,8 @@ CREATE TABLE IF NOT EXISTS "shortlist_candidates" (
   "position" INTEGER NOT NULL DEFAULT 0,
   "admin_note" TEXT,
   "added_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
-  PRIMARY KEY ("shortlist_id", "candidate_user_id")
+  PRIMARY KEY ("shortlist_id", "candidate_user_id"),
+  CONSTRAINT "shortlist_candidates_shortlist_id_fkey" FOREIGN KEY ("shortlist_id") REFERENCES "employer_shortlists" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "sign_requests" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -1051,7 +1089,8 @@ CREATE TABLE IF NOT EXISTS "sub_admins" (
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "agency_id" TEXT,
   "is_agency_admin" INTEGER NOT NULL DEFAULT 0 CHECK ("is_agency_admin" IN (0, 1)),
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "sub_admins_agency_id_fkey" FOREIGN KEY ("agency_id") REFERENCES "agencies" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "suggested_matches" (
   "id" TEXT NOT NULL DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -1062,7 +1101,9 @@ CREATE TABLE IF NOT EXISTS "suggested_matches" (
   "suggested_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
   "decided_at" TEXT,
   "decided_by" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  CONSTRAINT "suggested_matches_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
+  CONSTRAINT "suggested_matches_requirement_id_fkey" FOREIGN KEY ("requirement_id") REFERENCES "org_requirements" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
 );
 CREATE TABLE IF NOT EXISTS "telegram_updates" (
   "update_id" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1074,7 +1115,7 @@ CREATE TABLE IF NOT EXISTS "upload_links" (
   "token_hash" TEXT NOT NULL,
   "candidate_user_id" TEXT NOT NULL,
   "doc_keys" TEXT NOT NULL CHECK ("doc_keys" IS NULL OR json_valid("doc_keys")),
-  "uploaded_keys" TEXT NOT NULL CHECK ("uploaded_keys" IS NULL OR json_valid("uploaded_keys")),
+  "uploaded_keys" TEXT NOT NULL DEFAULT '[]' CHECK ("uploaded_keys" IS NULL OR json_valid("uploaded_keys")),
   "created_by" TEXT,
   "expires_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now','+7 days') || '000+00:00'),
   "used_at" TEXT,
@@ -1098,20 +1139,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS "employer_shortlists_share_token_key" ON "empl
 CREATE INDEX IF NOT EXISTS "idx_employer_shortlists_org" ON "employer_shortlists" (org_id);
 CREATE INDEX IF NOT EXISTS "idx_employer_shortlists_token" ON "employer_shortlists" (share_token);
 CREATE INDEX IF NOT EXISTS "idx_shortlist_candidates_sl" ON "shortlist_candidates" (shortlist_id);
-CREATE UNIQUE INDEX IF NOT EXISTS "suggested_matches_candidate_user_id_org_id_key" ON "suggested_matches" (candidate_user_id, org_id);
 CREATE INDEX IF NOT EXISTS "messages_thread_idx" ON "messages" (thread_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS "messages_unread_admin_idx" ON "messages" (read_by_admin) WHERE (read_by_admin = 0);
 CREATE INDEX IF NOT EXISTS "messages_created_at_idx" ON "messages" (created_at DESC);
 CREATE INDEX IF NOT EXISTS "messages_thread_user_id_idx" ON "messages" (thread_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS "messages_sender_user_id_idx" ON "messages" (sender_user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS "admin_notifications_user_email_idx" ON "admin_notifications" (user_email);
-CREATE INDEX IF NOT EXISTS "admin_notifications_unread_idx" ON "admin_notifications" (read, created_at DESC) WHERE (read = 0);
-CREATE INDEX IF NOT EXISTS "admin_notifications_created_at_idx" ON "admin_notifications" (created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS "suggested_matches_candidate_user_id_org_id_key" ON "suggested_matches" (candidate_user_id, org_id);
+CREATE INDEX IF NOT EXISTS "notifications_user_id_idx" ON "notifications" (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS "notifications_user_unread_idx" ON "notifications" (user_id) WHERE (read = 0);
 CREATE INDEX IF NOT EXISTS "feed_likes_post_id_idx" ON "feed_likes" (post_id);
 CREATE INDEX IF NOT EXISTS "feed_posts_created_at_idx" ON "feed_posts" (pinned DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS "feed_posts_org_id_idx" ON "feed_posts" (org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS "notifications_user_id_idx" ON "notifications" (user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS "notifications_user_unread_idx" ON "notifications" (user_id) WHERE (read = 0);
 CREATE UNIQUE INDEX IF NOT EXISTS "sub_admin_assignments_sub_admin_email_candidate_user_id_key" ON "sub_admin_assignments" (sub_admin_email, candidate_user_id);
 CREATE INDEX IF NOT EXISTS "sub_admin_assignments_email_idx" ON "sub_admin_assignments" (sub_admin_email);
 CREATE INDEX IF NOT EXISTS "sub_admin_assignments_candidate_idx" ON "sub_admin_assignments" (candidate_user_id);
@@ -1187,6 +1225,9 @@ CREATE INDEX IF NOT EXISTS "idx_classroom_events_kind" ON "classroom_events" (ki
 CREATE UNIQUE INDEX IF NOT EXISTS "classroom_sessions_room_name_key" ON "classroom_sessions" (room_name);
 CREATE INDEX IF NOT EXISTS "idx_classroom_sessions_room" ON "classroom_sessions" (room_name);
 CREATE INDEX IF NOT EXISTS "idx_classroom_sessions_open_live" ON "classroom_sessions" (status, open_to_candidates);
+CREATE INDEX IF NOT EXISTS "admin_notifications_user_email_idx" ON "admin_notifications" (user_email);
+CREATE INDEX IF NOT EXISTS "admin_notifications_unread_idx" ON "admin_notifications" (read, created_at DESC) WHERE (read = 0);
+CREATE INDEX IF NOT EXISTS "admin_notifications_created_at_idx" ON "admin_notifications" (created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS "classroom_consent_user_id_key" ON "classroom_consent" (user_id);
 CREATE INDEX IF NOT EXISTS "idx_classroom_consent_user" ON "classroom_consent" (user_id);
 CREATE INDEX IF NOT EXISTS "idx_leads_created_at" ON "leads" (created_at DESC);
@@ -1195,6 +1236,7 @@ CREATE INDEX IF NOT EXISTS "leads_status_idx" ON "leads" (status, created_at DES
 CREATE INDEX IF NOT EXISTS "assistant_chat_turns_owner_created_idx" ON "assistant_chat_turns" (owner_user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS "assistant_commitments_src_idx" ON "assistant_commitments" (owner_user_id, COALESCE(source_message_id, ''), what);
 CREATE INDEX IF NOT EXISTS "assistant_commitments_open_idx" ON "assistant_commitments" (owner_user_id, status, due_at);
+CREATE UNIQUE INDEX IF NOT EXISTS "assistant_commitments_owner_src_what" ON "assistant_commitments" (owner_user_id, source_message_id, what);
 CREATE INDEX IF NOT EXISTS "idx_employer_batches_status" ON "employer_batches" (status);
 CREATE INDEX IF NOT EXISTS "employer_batches_org_idx" ON "employer_batches" (org_id);
 CREATE INDEX IF NOT EXISTS "idx_calendar_events_starts" ON "calendar_events" (starts_at DESC);

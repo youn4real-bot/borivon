@@ -203,6 +203,61 @@ describe("toPostgrestError — the other constraint failures", () => {
   });
 });
 
+describe("toPostgrestError — the upsert whose ON CONFLICT clause was left off", () => {
+  /**
+   * buildSql.ts drops the clause when a payload repeats its conflict key, so
+   * SQLite walks the rows the way Postgres does and the index refuses the repeat
+   * at the row Postgres raises 21000 at. Only THAT index counts: a violation of
+   * another unique index is a genuine 23505 on both sides, because ON CONFLICT
+   * covers only the target it names.
+   */
+  const target = ["cohort_id", "candidate_user_id"];
+
+  it("turns a unique violation on the conflict target back into Postgres' 21000", () => {
+    const e = toPostgrestError(
+      d1("UNIQUE constraint failed: academy_cohort_members.cohort_id, academy_cohort_members.candidate_user_id", "SQLITE_CONSTRAINT_PRIMARYKEY"),
+      { table: "academy_cohort_members", repeatedConflictKey: target },
+    );
+    expect(e).toEqual({
+      code: "21000",
+      message: "ON CONFLICT DO UPDATE command cannot affect row a second time",
+      details: null,
+      hint: "Ensure that no rows proposed for insertion within the same command have duplicate constrained values.",
+      status: 500,
+    });
+    // ON CONFLICT (b, a) names the index on (a, b): the order is not the key.
+    expect(toPostgrestError(
+      d1("UNIQUE constraint failed: academy_cohort_members.cohort_id, academy_cohort_members.candidate_user_id"),
+      { table: "academy_cohort_members", repeatedConflictKey: ["candidate_user_id", "cohort_id"] },
+    ).code).toBe("21000");
+  });
+
+  it("leaves another index's violation a 23505, so the dedupe branches still fire", () => {
+    const e = toPostgrestError(
+      d1("UNIQUE constraint failed: candidate_journey_items.candidate_user_id, candidate_journey_items.preset_key"),
+      { table: "candidate_journey_items", repeatedConflictKey: ["id"] },
+    );
+    expect(e.code).toBe("23505");
+    expect(isUniqueViolation(e)).toBe(true);
+    // A partial/expression index names no columns, so it can never be mistaken for the target.
+    expect(toPostgrestError(d1("UNIQUE constraint failed: index 'bookings_slot_host_unique'"), { table: "bookings", repeatedConflictKey: ["starts_at"] }).code).toBe("23505");
+    // …and with no marker at all nothing changes.
+    expect(toPostgrestError(d1("UNIQUE constraint failed: academy_cohort_members.cohort_id, academy_cohort_members.candidate_user_id")).code).toBe("23505");
+  });
+
+  it("maps an ON CONFLICT target no unique index covers to Postgres' 42P10, not a 500", () => {
+    // Postgres refuses this while planning; SQLite's own wording used to fall
+    // through to XX000 + 500, i.e. "the database broke" for a bad request.
+    const e = toPostgrestError(d1("ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint"), { table: "sub_admins" });
+    expect(e.code).toBe("42P10");
+    expect(e.status).toBe(400);
+    expect(e.message).toBe("there is no unique or exclusion constraint matching the ON CONFLICT specification");
+    // It is a bad request, never "this migration has not been run".
+    expect(migrationCheckIsMissing(e)).toBe(false);
+    expect(isUniqueViolation(e)).toBe(false);
+  });
+});
+
 describe("toPostgrestError — transient D1 trouble must never look like schema drift", () => {
   const transient = [
     "database is locked",

@@ -21,7 +21,10 @@ import path from "node:path";
  * free of the false positives a naive line scan produces.
  */
 
-const HOOK = /\b(useState|useEffect|useLayoutEffect|useMemo|useCallback|useRef|useReducer|useContext|useSensors|useSensor|useTransition|useDeferredValue|useId|useSyncExternalStore)\s*\(/;
+// usePolling is listed because it replaced Realtime subscriptions on the busiest
+// pages (dashboard, admin, bell): one placed below a loading guard would throw
+// #310 the moment the page's data arrived, exactly like the tracker did.
+const HOOK = /\b(useState|useEffect|useLayoutEffect|useMemo|useCallback|useRef|useReducer|useContext|useSensors|useSensor|useTransition|useDeferredValue|useId|useSyncExternalStore|usePolling)\s*\(/;
 /** `if (cond) return …` / `if (cond) { return … }` — a guard, not the final return. */
 const EARLY_RETURN = /^\s*if\s*\(.+\)\s*(\{\s*)?return\b/;
 /** Start of a component-ish function body we should walk. */

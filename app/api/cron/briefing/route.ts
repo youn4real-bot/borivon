@@ -13,6 +13,7 @@ import { isAutomationEnabled } from "@/lib/automationSettings";
 import { isBotQuiet } from "@/lib/botQuiet";
 import { runFollowupChase } from "@/lib/followupsRun";
 import { fireDueReminders } from "@/lib/reminderFire";
+import { runSupabaseFreePlanSafety } from "@/lib/supabaseFreePlanSafety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,13 @@ export async function GET(req: NextRequest) {
   if (cronSecret && req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
     return new Response("forbidden", { status: 403 });
   }
+
+  // Supabase Free-plan safety net (lib/supabaseFreePlanSafety.ts): the daily
+  // keep-alive and the encrypted login backup. It goes FIRST, before any skip
+  // below: Telegram being unconfigured or the bot being quiet must not let
+  // Supabase pause or a backup day go missing. It never throws; the .catch is so
+  // a future edit of it can't take the briefing down either.
+  await runSupabaseFreePlanSafety().catch(() => null);
 
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) {

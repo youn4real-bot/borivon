@@ -19,6 +19,7 @@ import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getMyProfile, meToken } from "@/lib/meApi";
+import { usePolling } from "@/lib/usePolling";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PageLoader, AutosaveIndicator, Spinner } from "@/components/ui/states";
@@ -524,20 +525,20 @@ function MotivationsschreibenPageInner() {
     return () => { sub.subscription.unsubscribe(); };
   }, []);
 
-  // ── Live sync of name/address/phone from candidate_profiles ─────────────
+  // ── Live sync of name/address/phone + employer ───────────────────────────
   // The cover letter needs to react when:
   //   - admin approves the passport (writes first_name, address_*, …),
   //   - candidate (or admin) edits the CV builder (writes cv_draft.phone,
-  //     cv_draft.firstName, etc.).
-  // Postgres realtime push fires inside the candidate's own session (their
-  // own row, RLS-allowed). A 5 s poll backstops the cases realtime is
-  // blocked (suspended tab, channel error, RLS-gated cross-user).
-  useEffect(() => {
-    const room = adminCandidateId ?? userId;
-    if (!room) return;
-    let cancelled = false;
-    const pull = async () => {
-      if (!authToken) return;
+  //     cv_draft.firstName, etc.),
+  //   - an admin matches or unmatches an employer.
+  // A 5 s poll of our own routes does it — visible tab only, immediately on
+  // return, backing off on errors. It used to lean on a Realtime
+  // postgres_changes channel on candidate_profiles with this poll as backstop;
+  // Realtime goes silent once profiles live in D1, so the poll is the mechanism.
+  const letterRoom = adminCandidateId ?? userId;
+  usePolling(async (signal) => {
+      if (!authToken) return true;
+      let ok = true;
       // Admin viewing ?candidate=<uid> passes that uid through so we fetch
       // the CANDIDATE's data, not the admin's session identity.
       const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
@@ -545,13 +546,14 @@ function MotivationsschreibenPageInner() {
       try {
         const r = await fetch(`/api/portal/me/letter-data${qs}`, {
           headers: { Authorization: `Bearer ${authToken}` },
+          signal, // a read the poll gave up on is cancelled, not left to land late
         });
         if (r.ok) {
           const j = await r.json() as {
             sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
             passportStatus: string | null;
           };
-          if (!cancelled) {
+          if (!signal.aborted) {
             const merged: Person = { ...j.sender };
             setPerson(prev => {
               if (!prev) return merged;
@@ -562,8 +564,10 @@ function MotivationsschreibenPageInner() {
               setPassportStatus(j.passportStatus);
             }
           }
+        } else {
+          ok = false;
         }
-      } catch { /* offline */ }
+      } catch { ok = false; /* offline */ }
       // ── Employer (recipient) — refetched on every pull so a fresh
       //    admin match (e.g. UKSH Kiel just assigned) appears within
       //    seconds for BOTH the candidate and any admin viewing the
@@ -572,45 +576,25 @@ function MotivationsschreibenPageInner() {
       try {
         const er = await fetch(`/api/portal/me/employer${qs}`, {
           headers: { Authorization: `Bearer ${authToken}` },
+          signal,
         });
-        if (er.ok && !cancelled) {
+        if (er.ok) {
           const ej = await er.json();
-          if (ej?.assigned && Array.isArray(ej.lines) && ej.lines.length) {
-            setEmployerLines(ej.lines);
-            setEmployerName(typeof ej.name === "string" ? ej.name : "");
-            setCampusAssigned(true);
-          } else {
-            // Unassigned (or just un-matched) → reflect that too.
-            setCampusAssigned(false);
+          if (!signal.aborted) {
+            if (ej?.assigned && Array.isArray(ej.lines) && ej.lines.length) {
+              setEmployerLines(ej.lines);
+              setEmployerName(typeof ej.name === "string" ? ej.name : "");
+              setCampusAssigned(true);
+            } else {
+              // Unassigned (or just un-matched) → reflect that too.
+              setCampusAssigned(false);
+            }
           }
         }
       } catch { /* offline */ }
-    };
-    // Keep the realtime websocket auth in lock-step with our REST JWT —
-    // without this, postgres_changes silently doesn't deliver after a
-    // session restore from localStorage (same bug we fixed for cv-collab).
-    if (authToken) { try { supabase.realtime.setAuth(authToken); } catch { /* offline */ } }
-    const ch = supabase
-      .channel(`letter-profile-${room}${roomSuffix}`)
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${room}` },
-        () => { void pull(); },
-      )
-      .subscribe();
-    // 5 s poll backstop for cases realtime is suppressed.
-    const t = setInterval(() => { if (!document.hidden) void pull(); }, 5000);
-    const onVis = () => { if (!document.hidden) void pull(); };
-    document.addEventListener("visibilitychange", onVis);
-    // Fire once immediately so first reveal already has the freshest data.
-    void pull();
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-      document.removeEventListener("visibilitychange", onVis);
-      supabase.removeChannel(ch);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, adminCandidateId, authToken]);
+      return ok;
+    // Fires once immediately so first reveal already has the freshest data.
+  }, { intervalMs: 5_000, enabled: !!letterRoom && !!authToken, resetKey: letterRoom });
 
   useEffect(() => {
     let cancelled = false;

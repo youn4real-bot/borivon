@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { getMyProfile, getMyDocuments } from "@/lib/meApi";
 import { savePassportDraft, writeLocalDraft, flushAndReleaseLocalDraft } from "@/lib/passportDraft";
 import { classifyProfileRead } from "@/lib/passportDraftGuard";
+import { reportIfMaintenance } from "@/lib/maintenance";
 import { fetchPhaseSlots, emptyStateKind } from "@/lib/dashboardLoad";
 import { fetchMyPipeline } from "@/lib/pipelineLoad";
 import { cachedRole } from "@/lib/myRole";
@@ -2397,6 +2398,21 @@ export default function DashboardPage() {
           // But FIRST verify it didn't actually land: fast uploads often
           // persist server-side while the response is lost.
           const st = xhr.status;
+          // A 503 carrying the maintenance body is NOT an upload failure: the
+          // site is paused for the final Supabase → D1 copy (lib/maintenance.ts).
+          // Dormant today — MAINTENANCE_WRITES is "0", so this never fires — but
+          // it has to be on this path before the generic one, because
+          // classifyUploadFailure would read 503 as a transient server error and
+          // retry straight back into the freeze, then tell her to try again with
+          // a different file. The global MaintenanceNotice says what is actually
+          // happening, so no per-box message is set here.
+          if (reportIfMaintenance(st, xhr.responseText)) {
+            xhrRef.current = null;
+            stopProgressCreep();
+            replaceDocIdRef.current = null; replaceForKeyRef.current = null;
+            setUploadingKey(null);
+            return;
+          }
           // Per-box page-cap rejection → show the specific limit (translated).
           if (st === 413) {
             try {

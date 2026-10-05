@@ -14,9 +14,10 @@
  *
  * ONLY what this codebase actually uses is in scope (measured, not guessed):
  * filters eq/neq/gt/gte/lt/lte/in/is/like/ilike/not/or, order, limit, range,
- * single/maybeSingle, count:exact+head, insert/update/delete/upsert with
- * onConflict + ignoreDuplicates, mutations returning rows, and ONE json path
- * alias (`cv_langs:cv_draft->langs`). No embedded joins, no text search, no csv.
+ * single/maybeSingle, count:exact (with or without head), insert/update/delete/
+ * upsert with onConflict + ignoreDuplicates, mutations returning rows, and arrow
+ * selects (`cv_langs:cv_draft->langs`, `->>`, indexes). No embedded joins, no
+ * text search, no csv.
  */
 
 /** Postgres type of a column, from d1/types.json (the generated registry). */
@@ -28,26 +29,38 @@ export type ColumnMeta = { pg: PgType; nullable: boolean; default: unknown; gene
 export type TableMeta = { columns: Record<string, ColumnMeta>; pk: string[]; fks: { column: string; table: string; ref: string }[] };
 export type Registry = Record<string, TableMeta>;
 
-/** One requested output column. `jsonPath` is set only for `alias:col->key`. */
-export type SelectItem = { column: string; alias?: string; jsonPath?: string };
+/**
+ * One step of an arrow path: `->key`, `->>key`, `->0`, `->>-1`. `->>` is the TEXT
+ * operator — it hands back a string where `->` hands back JSON — and an index is
+ * an int4 PostgREST casts the digits to, so it is already range-checked here.
+ */
+export type JsonOp = { arrow: "->" | "->>"; key: string } | { arrow: "->" | "->>"; index: number };
+
+/**
+ * One requested output column. `column` is `"*"` for a star that sits among other
+ * items (`*,x:cv_draft->langs`); a select that is ONLY a star stays the plain `"*"`.
+ */
+export type SelectItem = { column: string; alias?: string; jsonPath?: JsonOp[] };
 
 export type FilterOp =
   | "eq" | "neq" | "gt" | "gte" | "lte" | "lt"
-  | "like" | "ilike" | "is" | "in" | "cs";
+  | "like" | "ilike" | "is" | "isdistinct" | "in" | "cs" | "cd" | "ov";
 
 /** A leaf condition, e.g. `status=eq.approved` or `org_id=is.null`. */
 export type Condition = {
   kind: "cmp";
   column: string;
   op: FilterOp;
-  /** Already-decoded value: string | number | boolean | null | array (for `in`). */
+  /** Already-decoded value: string | number | boolean | null | array (`in`, `cs`/`cd`/`ov`, quantified ops). */
   value: unknown;
   /** `not.` prefix — PostgREST's negation. */
   negate?: boolean;
+  /** `like(any).{a,b}` / `gt(all).{1,2}`: `value` is the list, combined with ANY (OR) or ALL (AND). */
+  quant?: "any" | "all";
 };
 
-/** `or=(a.eq.1,and(b.is.null,c.eq.2))` parses into these trees. */
-export type Group = { kind: "and" | "or"; children: Where[] };
+/** `or=(a.eq.1,and(b.is.null,c.eq.2))` parses into these trees; `not.and(…)` sets `negate`. */
+export type Group = { kind: "and" | "or"; children: Where[]; negate?: boolean };
 export type Where = Condition | Group;
 
 export type OrderBy = { column: string; ascending: boolean; nullsFirst?: boolean };
@@ -63,6 +76,12 @@ export type QueryIntent = {
   order: OrderBy[];
   limit?: number;
   offset?: number;
+  /**
+   * The offset in full when it is past 2^53 (`offset`, clamped, can't carry it).
+   * Both answers it shapes quote it verbatim: the 416 "An offset of … was
+   * requested" and, past bigint, Postgres' 22003.
+   */
+  offsetText?: string;
   /** `Accept: application/vnd.pgrst.object+json` — .single() / .maybeSingle(). */
   singleObject?: boolean;
   /** true when .single() must fail on 0 rows (PGRST116); false for maybeSingle. */
@@ -75,9 +94,50 @@ export type QueryIntent = {
   /** upsert: `on_conflict=user_id` (comma separated) + Prefer resolution. */
   onConflict?: string[];
   ignoreDuplicates?: boolean;
+  /**
+   * `columns="a","b"`: the columns a write sets. supabase-js sends it with every
+   * array insert/upsert (the union of the rows' keys). A row without one of them
+   * writes NULL there — or the column default under `missingDefault`.
+   */
+  columns?: string[];
+  /** `Prefer: missing=default` — `.insert(rows, { defaultToNull: false })`. */
+  missingDefault?: boolean;
 };
 
-export type BuiltQuery = { sql: string; params: unknown[] };
+/** One ORDER BY term the adapter applies itself, read from the row under `key`. */
+export type SortKey = { key: string; text: boolean; ascending: boolean; nullsFirst: boolean };
+
+/**
+ * `sort` is set when the ORDER BY touches a text column, which SQLite cannot sort
+ * the way Postgres does: the SQL then fetches only rowids and sort keys — of the
+ * rows that could reach the page — and lib/d1/pgrest/read.ts orders, windows and
+ * fetches the page. `plainCut` is how many plain-ASCII rows the keys statement
+ * stops at (buildSql.ts textOrderQuery). Fewer keys than that means every matching
+ * row's keys came back; absent, the statement is the too-long fallback that always
+ * sends every matching row's keys.
+ */
+export type BuiltQuery = {
+  sql: string;
+  params: unknown[];
+  sort?: SortKey[];
+  plainCut?: number;
+  /**
+   * A PATCH whose payload Postgres cannot read. The statement is then not the
+   * UPDATE but `SELECT 1 … WHERE <filter> LIMIT 1`: Postgres only runs the
+   * payload's input functions when the UPDATE's scan hands it a row, so a filter
+   * that matches nothing answers 0 rows and never sees the bad value. A row came
+   * back → answer with this error; none → the write matched nothing.
+   * lib/d1/pgrest/write.ts runs it.
+   */
+  refuseIfMatched?: PostgrestError;
+  /**
+   * An upsert whose own rows repeat this conflict key. The ON CONFLICT clause is
+   * left OFF the statement so SQLite stops at the row Postgres stops at, and a
+   * unique violation on exactly these columns is Postgres' 21000 — see
+   * buildSql.ts buildInsert.
+   */
+  repeatedConflictKey?: string[];
+};
 
 /** What a failed query must look like to callers (PostgREST's error body). */
 export type PostgrestError = {

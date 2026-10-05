@@ -12,12 +12,22 @@ import type { Condition, Group, PostgrestError, QueryIntent, Registry } from "..
  * client can't produce (Range header, malformed input, hand-built `or=` strings).
  *
  * Registry = the generated d1/types.json, not a fixture: a column that is really
- * text (phone) or really numeric (commission_eur) is what makes the decoding
- * decisions meaningful.
+ * text (phone), numeric (commission_eur) or uuid (user_id) is what makes the
+ * decoding decisions meaningful. Every operand is typed by its column's Postgres
+ * input function now, so ids here are real-shaped uuids — `u1` on a uuid column
+ * is a 22P02 on Supabase, and so it is here.
+ *
+ * Wherever a test pins an error body or a grammar decision, the comment names
+ * what the live Supabase project answered for that exact request.
  */
 const registry = JSON.parse(fs.readFileSync("d1/types.json", "utf8")) as Registry;
 
 const BASE = "http://d1.local/rest/v1";
+
+const U1 = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const U2 = "5a1f9c3e-2b7d-4e8a-b6c4-9d0e1f2a3b4c";
+const DOC = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+const LINK = "e4eaaaf2-d142-41e1-b3e4-080027620cdd";
 
 /** Runs a postgrest-js chain against a fake transport and parses what it sent. */
 async function sent(run: (db: any) => PromiseLike<unknown>): Promise<QueryIntent | PostgrestError> {
@@ -38,6 +48,12 @@ async function sent(run: (db: any) => PromiseLike<unknown>): Promise<QueryIntent
 function get(query: string, headers: Record<string, string> = {}, table = "documents") {
   return parseParts({ method: "GET", url: `${BASE}/${table}?${query}`, headers }, registry);
 }
+
+/**
+ * One `key=value` parameter, percent-encoded. Needed whenever a value holds `%`:
+ * `%be` in a raw query string is the byte 0xBE, not a wildcard and two letters.
+ */
+const enc = (key: string, value: string) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 
 function intent(x: QueryIntent | PostgrestError): QueryIntent {
   if (isPgrestError(x)) throw new Error(`expected an intent, got ${x.code}: ${x.message}`);
@@ -67,18 +83,73 @@ describe("select lists", () => {
     expect(q.select).toEqual([
       { column: "user_id" },
       { column: "b2_stage" },
-      { column: "cv_draft", alias: "cv_langs", jsonPath: "langs" },
+      { column: "cv_draft", alias: "cv_langs", jsonPath: [{ arrow: "->", key: "langs" }] },
     ]);
   });
 
-  it("names an un-aliased json path after its last key, like PostgREST", () => {
-    expect(intent(get("select=cv_draft->langs", {}, "candidate_profiles")).select).toEqual([
-      { column: "cv_draft", alias: "langs", jsonPath: "langs" },
+  it("reads an arrow path step by step: `->` apart from `->>`, keys apart from indexes", () => {
+    const sel = (s: string, table = "candidate_profiles") => intent(get(`select=${encodeURIComponent(s)}`, {}, table)).select;
+    expect(sel("cv_draft->>langs")).toEqual([{ column: "cv_draft", jsonPath: [{ arrow: "->>", key: "langs" }] }]);
+    expect(sel("cv_draft->langs->-1->>level")).toEqual([{ column: "cv_draft", jsonPath: [
+      { arrow: "->", key: "langs" }, { arrow: "->", index: -1 }, { arrow: "->>", key: "level" },
+    ] }]);
+    // `"1"` is a key and `01` an index; `1a` and `+0` are keys; a key keeps inner spaces and dashes.
+    expect(sel('week->"1",b:week->01,week->1a,week->+0,week->a b-c', "booking_availability")).toEqual([
+      { column: "week", jsonPath: [{ arrow: "->", key: "1" }] },
+      { column: "week", alias: "b", jsonPath: [{ arrow: "->", index: 1 }] },
+      { column: "week", jsonPath: [{ arrow: "->", key: "1a" }] },
+      { column: "week", jsonPath: [{ arrow: "->", key: "+0" }] },
+      { column: "week", jsonPath: [{ arrow: "->", key: "a b-c" }] },
     ]);
-    // ->> only changes the returned type; the adapter reads the same key.
-    expect(intent(get("select=cv_draft->>langs", {}, "candidate_profiles")).select).toEqual([
-      { column: "cv_draft", alias: "langs", jsonPath: "langs" },
-    ]);
+    // `*` beside other items is every column plus the rest; alone it stays "*".
+    expect(sel("*,x:cv_draft->langs")).toEqual([{ column: "*" }, { column: "cv_draft", alias: "x", jsonPath: [{ arrow: "->", key: "langs" }] }]);
+    expect(sel("*")).toBe("*");
+  });
+
+  it("refuses an arrow Postgres has no operator for, or an index past int4, with Supabase's body", () => {
+    expect(error(get("select=key,value->>0->x", {}, "app_settings"))).toEqual({
+      code: "42883", message: "operator does not exist: text -> unknown", details: null, status: 404,
+      hint: "No operator matches the given name and argument types. You might need to add explicit type casts.",
+    });
+    expect(error(get("select=a:order_keys->>0->>1", {}, "phase_doc_order")).message).toBe("operator does not exist: text ->> integer");
+    // the missing operator is found before the overflowing index after it
+    expect(error(get("select=a:order_keys->>0->2147483648", {}, "phase_doc_order")).message).toBe("operator does not exist: text -> integer");
+    expect(error(get("select=a:order_keys->2147483648", {}, "phase_doc_order"))).toMatchObject({
+      code: "22003", message: 'value "+2147483648" is out of range for type integer', status: 400,
+    });
+    expect(error(get("select=a:order_keys->-2147483649", {}, "phase_doc_order")).message).toBe('value "-2147483649" is out of range for type integer');
+    expect(intent(get("select=a:order_keys->2147483647", {}, "phase_doc_order")).select)
+      .toEqual([{ column: "order_keys", alias: "a", jsonPath: [{ arrow: "->", index: 2147483647 }] }]);
+    // a column that doesn't exist is reported before any arrow after it
+    expect(error(get("select=nope->2147483648,key->>0->x", {}, "app_settings")).code).toBe("42703");
+  });
+
+  it("reports a malformed select the way PostgREST's parser does", () => {
+    expect(error(get("select=key,value->,key", {}, "app_settings"))).toMatchObject({
+      code: "PGRST100", status: 400,
+      message: '"failed to parse select parameter (key,value->,key)" (line 1, column 12)',
+      details: 'unexpected "," expecting "-", digit or any non reserved character different from: .,>()',
+    });
+    expect(error(get("select=a:order_keys->", {}, "phase_doc_order"))).toMatchObject({
+      message: '"failed to parse select parameter (a:order_keys->)" (line 1, column 15)',
+      details: 'unexpected end of input expecting "-", digit or any non reserved character different from: .,>()',
+    });
+    expect(error(get("select=id,x:value->-x", {}, "classroom_events"))).toMatchObject({
+      message: '"failed to parse select parameter (id,x:value->-x)" (line 1, column 14)',
+      details: 'unexpected "x" expecting digit',
+    });
+    expect(error(get("select=key,value->(x", {}, "app_settings")).details)
+      .toBe('unexpected "(" expecting "-", digit or any non reserved character different from: .,>()');
+    expect(error(get('select=a:order_keys->"a"b', {}, "phase_doc_order"))).toMatchObject({
+      message: '"failed to parse select parameter (a:order_keys->"a"b)" (line 1, column 18)',
+      details: `unexpected 'b' expecting "->>", "->", "::", ".", ")", "," or end of input`,
+    });
+    expect(error(get("select=id,"))).toMatchObject({
+      message: '"failed to parse select parameter (id,)" (line 1, column 4)',
+      details: 'unexpected end of input expecting "...", field name (* or [a..z0..9_$]), "*" or "count()"',
+    });
+    // syntax is judged before the table is looked for (live: this is not a PGRST205)
+    expect(error(get("select=a->", {}, "nosuchtable")).code).toBe("PGRST100");
   });
 
   it("refuses an unknown column with 42703 (the code schema-tolerant reads look for)", () => {
@@ -97,11 +168,11 @@ describe("select lists", () => {
 describe("filters", () => {
   it("covers every comparison operator the codebase uses", async () => {
     const q = intent(await sent((db) => db.from("documents").select("*")
-      .eq("user_id", "u1").neq("status", "rejected")
+      .eq("user_id", U1).neq("status", "rejected")
       .gt("rotation", 1).gte("rotation", 2).lt("rotation", 3).lte("rotation", 4)
       .like("file_name", "%pass%").ilike("file_type", "%reisepass%")));
     expect(q.where.map((w) => [cond(w).column, cond(w).op, cond(w).value])).toEqual([
-      ["user_id", "eq", "u1"], ["status", "neq", "rejected"],
+      ["user_id", "eq", U1], ["status", "neq", "rejected"],
       ["rotation", "gt", 1], ["rotation", "gte", 2], ["rotation", "lt", 3], ["rotation", "lte", 4],
       ["file_name", "like", "%pass%"], ["file_type", "ilike", "%reisepass%"],
     ]);
@@ -121,17 +192,51 @@ describe("filters", () => {
     expect(cond(intent(get("status=eq.true")).where[0]).value).toBe("true");
   });
 
-  it("keeps quoted values literal and preserves inner spaces", () => {
-    expect(cond(intent(get("file_name=eq.%22a,b(c)%22")).where[0]).value).toBe("a,b(c)");
+  it("types every operand with the column's Postgres input function", async () => {
+    // uuid_in ignores case and prints lowercase, the only spelling the copy holds.
+    // Live: the upper-case and the braced spelling of a document id both find it.
+    expect(cond(intent(await sent((db) => db.from("documents").select("id").eq("id", DOC.toUpperCase()))).where[0]).value).toBe(DOC);
+    expect(cond(intent(get(`id=eq.{${DOC}}`)).where[0]).value).toBe(DOC);
+    // A value the type refuses is the 400 Supabase answers, not 200 + [] (all live bodies).
+    expect(error(get("id=eq.not-a-uuid"))).toEqual({
+      code: "22P02", status: 400, details: null, hint: null, message: 'invalid input syntax for type uuid: "not-a-uuid"',
+    });
+    expect(error(get("uploaded_by_admin=eq.maybe")).message).toBe('invalid input syntax for type boolean: "maybe"');
+    // `Number("")` is 0: this used to return every rotation-0 document.
+    expect(error(get("rotation=eq.")).message).toBe('invalid input syntax for type integer: ""');
+    expect(error(get("uploaded_at=gte.not-a-date"))).toMatchObject({
+      code: "22007", message: 'invalid input syntax for type timestamp with time zone: "not-a-date"',
+    });
+    // A space-separated UTC timestamp is the same instant to Postgres; the copy
+    // stores it with a `T`, and a space sorts below `T` (eq missed, gte over-matched).
+    expect(cond(intent(get(enc("uploaded_at", "eq.2026-09-12 06:28:29.686587+00:00"))).where[0]).value)
+      .toBe("2026-09-12T06:28:29.686587+00:00");
+  });
+
+  it("takes a top-level value literally — quotes, commas and spaces included", () => {
+    // Live: `status=eq."approved"` matches no document and `neq."approved"` all of
+    // them — PostgREST compares the ten characters, quotes and all.
+    expect(cond(intent(get('status=eq."approved"')).where[0]).value).toBe('"approved"');
+    expect(cond(intent(get("file_name=eq.%22a,b(c)%22")).where[0]).value).toBe('"a,b(c)"');
     expect(cond(intent(get("file_name=eq.%20John%20")).where[0]).value).toBe(" John ");
+    // …while a list item and a logic-tree value ARE unquoted (live: both match).
+    expect(cond(intent(get(enc("file_type", 'in.("a,b",c)'))).where[0]).value).toEqual(["a,b", "c"]);
+    expect(group(intent(get(enc("or", '(file_type.eq."a,b",file_type.eq.c)'))).where[0]).children.map((c) => cond(c).value))
+      .toEqual(["a,b", "c"]);
   });
 
-  it("treats `.eq(col, null)` as PostgREST does — a NULL comparison, not a match", async () => {
-    const q = intent(await sent((db) => db.from("documents").select("*").eq("superseded_at", null as never)));
-    expect(cond(q.where[0])).toMatchObject({ op: "eq", value: null });
+  it("reads `null` as four letters for every operator but `is`", async () => {
+    // Live: `uploaded_at=eq.null` is a 22007 and `user_id=in.(null)` a 22P02 — the
+    // word goes to the column's input function like any other — while on a text
+    // column `file_type=neq.null` returns every row (none holds the text "null").
+    expect(error(await sent((db) => db.from("documents").select("*").eq("superseded_at", null as never)))).toMatchObject({
+      code: "22007", status: 400, message: 'invalid input syntax for type timestamp with time zone: "null"',
+    });
+    expect(error(get("user_id=in.(null)")).message).toBe('invalid input syntax for type uuid: "null"');
+    expect(cond(intent(get("file_type=neq.null")).where[0])).toMatchObject({ op: "neq", value: "null" });
   });
 
-  it("reads is.null / is.true and their not. negations", async () => {
+  it("reads is.null / is.true, their not. negations, and PostgREST's is keywords", async () => {
     const q = intent(await sent((db) => db.from("documents").select("*")
       .is("superseded_at", null).not("drive_file_id", "is", null)
       .not("uploaded_by_admin", "is", true)));
@@ -140,32 +245,55 @@ describe("filters", () => {
       { kind: "cmp", column: "drive_file_id", op: "is", value: null, negate: true },
       { kind: "cmp", column: "uploaded_by_admin", op: "is", value: true, negate: true },
     ]);
-    // hand-written `is.not.null` (legal in an or= string) means the same thing
-    expect(cond(intent(get("superseded_at=is.not.null")).where[0])).toEqual({
+    // The keywords are case-insensitive, `not_null` is one of them, and a double
+    // negation cancels (live: all three answer like their plain forms).
+    expect(cond(intent(get("superseded_at=is.NULL")).where[0])).toEqual({ kind: "cmp", column: "superseded_at", op: "is", value: null });
+    expect(cond(intent(get("superseded_at=is.not_null")).where[0])).toEqual({
       kind: "cmp", column: "superseded_at", op: "is", value: null, negate: true,
     });
-    // …and double negation cancels, like Postgres.
-    expect(cond(intent(get("superseded_at=not.is.not.null")).where[0]).negate).toBeUndefined();
+    expect(cond(intent(get("superseded_at=not.is.not_null")).where[0]).negate).toBeUndefined();
+    // IS UNKNOWN on a boolean is IS NULL; on any other type it is Postgres' 42804 (live).
+    expect(cond(intent(get("uploaded_by_admin=is.unknown")).where[0])).toEqual({ kind: "cmp", column: "uploaded_by_admin", op: "is", value: null });
+    expect(error(get("file_type=is.true"))).toMatchObject({ code: "42804", message: "argument of IS TRUE must be type boolean, not type text" });
+    // `is.not.null` is NOT PostgREST grammar, though it looks like it (live: this exact body).
+    expect(error(get("superseded_at=is.not.null"))).toMatchObject({
+      code: "PGRST100",
+      message: '"failed to parse filter (is.not.null)" (line 1, column 7)',
+      details: 'unexpected "." expecting isVal: (null, not_null, true, false, unknown)',
+    });
+    expect(error(get("uploaded_by_admin=is.nul"))).toMatchObject({
+      message: '"failed to parse filter (is.nul)" (line 1, column 7)',
+      details: "unexpected end of input expecting isVal: (null, not_null, true, false, unknown)",
+    });
     expect(error(get("superseded_at=is.maybe")).code).toBe("PGRST100");
   });
 
   it("reads in-lists, including quoted commas, de-duped values and the empty list", async () => {
-    const q = intent(await sent((db) => db.from("documents").select("*").in("user_id", ["a", "b", "a"])));
-    expect(cond(q.where[0]).value).toEqual(["a", "b"]); // the client de-dupes
+    const q = intent(await sent((db) => db.from("documents").select("*").in("user_id", [U1, U2, U1])));
+    expect(cond(q.where[0]).value).toEqual([U1, U2]); // the client de-dupes
 
     // postgrest-js double-quotes any value containing , ( ) — the split must respect that
     const quoted = intent(await sent((db) => db.from("documents").select("*").in("file_type", ["Diplôme (copie)", "x,y"])));
     expect(cond(quoted.where[0]).value).toEqual(["Diplôme (copie)", "x,y"]);
 
-    // `.in("id", [])` → `in.()`: an empty match, never a parse error
+    // `.in("id", [])` → `in.()`: an empty match, never a parse error, and not typed
     expect(cond(intent(await sent((db) => db.from("documents").select("*").in("user_id", []))).where[0]).value).toEqual([]);
 
-    const notIn = intent(get("user_id=not.in.(a,b)"));
-    expect(cond(notIn.where[0])).toEqual({ kind: "cmp", column: "user_id", op: "in", value: ["a", "b"], negate: true });
+    const notIn = intent(get(`user_id=not.in.(${U1},${U2})`));
+    expect(cond(notIn.where[0])).toEqual({ kind: "cmp", column: "user_id", op: "in", value: [U1, U2], negate: true });
+
+    // Items go through uuid_in one by one: upper case is the same uuid (live: 1 row),
+    // and one bad item fails the whole filter (live: the 22P02 names it).
+    expect(cond(intent(get(`id=in.(${DOC.toUpperCase()})`)).where[0]).value).toEqual([DOC]);
+    expect(error(get(`id=in.(${DOC},not-a-uuid)`)).message).toBe('invalid input syntax for type uuid: "not-a-uuid"');
 
     // list items are decoded per column type too
     expect(cond(intent(await sent((db) => db.from("documents").select("*").in("rotation", [0, 90]))).where[0]).value)
       .toEqual([0, 90]);
+
+    // An item runs to the next `,` or `)`, and what follows the list is ignored
+    // (live: `first_name=in.(<name>,a)b)` finds that candidate).
+    expect(cond(intent(get("file_type=in.(a,b)c)")).where[0]).value).toEqual(["a", "b"]);
   });
 
   it("leaves a bigint beyond 2^53 as text so it can't round", () => {
@@ -177,23 +305,52 @@ describe("filters", () => {
     expect(cond(intent(get("id=eq.42", {}, "assistant_chat_turns")).where[0]).value).toBe(42);
   });
 
-  it("tells a jsonb containment object from a text[] array literal", () => {
-    // `{a,b}` is a Postgres array literal (never valid JSON); `{"k":1}` is jsonb.
+  it("reads array literals for text[] containment, and refuses jsonb containment by name", () => {
     expect(cond(intent(get("uploaded_keys=cs.{a,b}", {}, "upload_links")).where[0]).value).toEqual(["a", "b"]);
-    expect(cond(intent(get('cv_draft=cs.{"langs":1}', {}, "candidate_profiles")).where[0]).value).toEqual({ langs: 1 });
+    // `.contains(col, [])` sends `cs.{}` — the empty array, contained in every
+    // array (live: every upload_links row). It used to be JSON.parse'd into an
+    // object and matched no row at all.
+    expect(cond(intent(get("uploaded_keys=cs.{}", {}, "upload_links")).where[0]).value).toEqual([]);
+    // jsonb `@>` is recursive key/value containment; nothing here filters jsonb
+    // that way, so it is refused loudly instead of answered with array SQL, which
+    // found nothing where Supabase found rows.
+    const jsonb = error(get(enc("cv_draft", 'cs.{"langs":1}'), {}, "candidate_profiles"));
+    expect(jsonb.code).toBe("PGRST100");
+    expect(jsonb.details).toMatch(/jsonb containment/);
+    // A malformed literal is worded the way array_in words it (live body).
+    expect(error(get("doc_keys=cs.{a}x", {}, "upload_links"))).toMatchObject({
+      code: "22P02", message: 'malformed array literal: "{a}x"', details: "Junk after closing right brace.",
+    });
   });
 
   it("reads the one array-containment filter in the codebase", async () => {
     // app/api/portal/u/[token]/route.ts:169 — the single-use upload link claim.
     const q = intent(await sent((db) => db.from("upload_links").update({ uploaded_keys: ["passport"] })
-      .eq("id", "l1").is("used_at", null).not("uploaded_keys", "cs", "{passport}").select("id")));
+      .eq("id", LINK).is("used_at", null).not("uploaded_keys", "cs", "{passport}").select("id")));
     expect(q.action).toBe("update");
+    expect(cond(q.where[0]).value).toBe(LINK);
     expect(cond(q.where[2])).toEqual({ kind: "cmp", column: "uploaded_keys", op: "cs", value: ["passport"], negate: true });
   });
 
   it("accepts `*` as a like wildcard, the way PostgREST does", () => {
     expect(cond(intent(get("file_name=ilike.*pass*")).where[0]).value).toBe("%pass%");
-    expect(cond(intent(get('file_name=ilike."*pass*"')).where[0]).value).toBe("*pass*"); // quoted = literal
+    // A quoted top-level pattern keeps its quotes, but `*` still becomes `%`:
+    // PostgREST maps it over the whole operand (live: `ilike."*PASS*"` matches nothing).
+    expect(cond(intent(get('file_name=ilike."*pass*"')).where[0]).value).toBe('"%pass%"');
+  });
+
+  it("reads (any)/(all) quantifiers", () => {
+    expect(cond(intent(get(enc("file_type", "like(all).{%Noten%,%bersicht%}"))).where[0])).toEqual({
+      kind: "cmp", column: "file_type", op: "like", quant: "all", value: ["%Noten%", "%bersicht%"],
+    });
+    // `eq(any)` is exactly `in`, NULL elements and the empty list included.
+    expect(cond(intent(get(enc("file_type", "eq(any).{a,b}"))).where[0])).toEqual({ kind: "cmp", column: "file_type", op: "in", value: ["a", "b"] });
+    // Elements are typed (live: 22P02), and `*` becomes `%` before the operand is
+    // read as an array (live: the error names "%Noten%").
+    expect(error(get(enc("id", "eq(any).{not-a-uuid}"))).message).toBe('invalid input syntax for type uuid: "not-a-uuid"');
+    expect(error(get(enc("file_type", "like(any).*Noten*")))).toMatchObject({
+      code: "22P02", message: 'malformed array literal: "%Noten%"', details: 'Array value must start with "{" or dimension information.',
+    });
   });
 
   it("rejects unknown columns and operators rather than dropping them", () => {
@@ -201,6 +358,60 @@ describe("filters", () => {
     expect(error(get("file_name=fts.hello")).details).toMatch(/operator 'fts'/);
     expect(error(get("file_name=eq")).code).toBe("PGRST100");
     expect(error(get("instruments.order=id.asc")).details).toMatch(/referenced-table/);
+  });
+
+  it("reports a bad operator at the position PostgREST reports it", () => {
+    // Parsec reports a failed operator name where it STARTED, so only a complete
+    // name moves the error forward. Every body below is the live one.
+    expect(error(get("file_type=foo.x"))).toMatchObject({
+      code: "PGRST100", message: '"failed to parse filter (foo.x)" (line 1, column 1)',
+      details: 'unexpected "f" expecting "not" or operator (eq, gt, ...)',
+    });
+    expect(error(get("file_type=not.foo.x"))).toMatchObject({
+      message: '"failed to parse filter (not.foo.x)" (line 1, column 5)', details: 'unexpected "f" expecting operator (eq, gt, ...)',
+    });
+    expect(error(get("file_type=eqx.x"))).toMatchObject({
+      message: '"failed to parse filter (eqx.x)" (line 1, column 3)', details: 'unexpected "x" expecting operator (eq, gt, ...)',
+    });
+    expect(error(get("file_type=eq"))).toMatchObject({
+      message: '"failed to parse filter (eq)" (line 1, column 3)', details: "unexpected end of input expecting operator (eq, gt, ...)",
+    });
+    expect(error(get(enc("file_type", "neq(any).{a}")))).toMatchObject({
+      message: '"failed to parse filter (neq(any).{a})" (line 1, column 4)', details: 'unexpected "(" expecting operator (eq, gt, ...)',
+    });
+  });
+
+  it("answers operators no column here supports with Postgres' own error", () => {
+    // Checked live against all eleven column types.
+    expect(error(get(enc("id", "sl.a")))).toEqual({
+      code: "42883", status: 404, details: null, message: "operator does not exist: uuid << unknown",
+      hint: "No operator matches the given name and argument types. You might need to add explicit type casts.",
+    });
+    expect(error(get(enc("uploaded_at", "adj.a"))).message).toBe("operator does not exist: timestamp with time zone -|- unknown");
+    expect(error(get(enc("rotation", "nxr.a"))).message).toBe("operator does not exist: integer &< unknown");
+    expect(error(get(enc("doc_keys", "sr.{a}"), {}, "upload_links")).message).toBe("operator does not exist: text[] >> unknown");
+    expect(error(get(enc("id", "fts.a")))).toEqual({
+      code: "42883", status: 404, details: null, message: "function to_tsvector(uuid) does not exist",
+      hint: "No function matches the given name and argument types. You might need to add explicit type casts.",
+    });
+    expect(error(get(enc("id", "fts(simple).a"))).message).toBe("function to_tsvector(unknown, uuid) does not exist");
+    // Refused by name: `<<` on an integer is a bit shift whose failure is worded by
+    // its place in the tree, and text/jsonb really can be searched on Supabase.
+    expect(error(get(enc("rotation", "sl.1"))).details).toMatch(/^d1-adapter: operator 'sl' on integer/);
+    expect(error(get(enc("file_type", "match.^Noten"))).details).toMatch(/^d1-adapter: operator 'match'/);
+    expect(error(get(enc("cv_draft", "fts.a"), {}, "candidate_profiles")).details).toMatch(/^d1-adapter: operator 'fts'/);
+  });
+
+  it("refuses a json-path filter by name, never as the 42703 that means 'migration not run'", () => {
+    const top = error(get(enc("vaccines->>masern", "eq.done"), {}, "candidate_status"));
+    const inTree = error(get(enc("or", "(cv_draft->>driverLicense.eq.unset,user_id.is.null)"), {}, "candidate_profiles"));
+    for (const e of [top, inTree]) {
+      expect(e.code).toBe("PGRST100");
+      expect(e.details).toMatch(/json path filter/);
+    }
+    // The key is read as a field name and what follows it is ignored
+    // (live: a 42703 for the column `file_type-`).
+    expect(error(get(enc("file_type- >x", "eq.a"))).message).toBe("column documents.file_type- does not exist");
   });
 });
 
@@ -237,13 +448,13 @@ describe("or= groups", () => {
 
   it("parses an in.() list inside a group without splitting on its commas", async () => {
     // lib/assistantTools.ts:3809 — org scoping for slots
-    const q = intent(await sent((db) => db.from("phase_slots").select("*").or("org_id.is.null,org_id.in.(a,b)")));
+    const q = intent(await sent((db) => db.from("phase_slots").select("*").or(`org_id.is.null,org_id.in.(${U1},${U2})`)));
     const g = group(q.where[0]);
     expect(g.children).toHaveLength(2);
-    expect(cond(g.children[1])).toEqual({ kind: "cmp", column: "org_id", op: "in", value: ["a", "b"] });
+    expect(cond(g.children[1])).toEqual({ kind: "cmp", column: "org_id", op: "in", value: [U1, U2] });
   });
 
-  it("handles deep nesting, not.<op> leaves, and refuses a negated group", () => {
+  it("handles deep nesting, not.<op> leaves and negated groups", () => {
     const q = intent(get("or=(status.eq.approved,and(status.eq.pending,or(rotation.gt.0,rotation.not.is.null)))"));
     const g = group(q.where[0]);
     const inner = group(group(g.children[1]).children[1]);
@@ -252,9 +463,47 @@ describe("or= groups", () => {
     // two .or() calls append two params — they AND together, like PostgREST
     const two = intent(get("or=(status.eq.a,status.eq.b)&or=(rotation.eq.0,rotation.eq.90)"));
     expect(two.where.map((w) => group(w).kind)).toEqual(["or", "or"]);
-    expect(error(get("or=(not.and(status.eq.a,status.eq.b))")).details).toMatch(/negated group/);
+    // Negated groups are PostgREST grammar and work live, both as `not.and(…)`
+    // inside a tree and as a `not.or=` parameter.
+    expect(group(intent(get("or=(not.and(status.eq.a,status.eq.b))")).where[0]).children[0]).toEqual({
+      kind: "and", negate: true,
+      children: [
+        { kind: "cmp", column: "status", op: "eq", value: "a" },
+        { kind: "cmp", column: "status", op: "eq", value: "b" },
+      ],
+    });
+    expect(group(intent(get("not.or=(status.eq.a,status.eq.b)")).where[0])).toMatchObject({ kind: "or", negate: true });
     expect(error(get("or=(status.eq.a,)")).code).toBe("PGRST100");
     expect(error(get("or=(nope.eq.a)")).code).toBe("42703");
+  });
+
+  it("ends a tree value at the first `,` or `)`, as PostgREST does — parens are not balanced", () => {
+    // The admin candidate search (app/api/portal/admin/classroom/candidates/route.ts)
+    // sends `%${q}%` without escaping parens. Live, a term like `a)` returns 23
+    // candidates: the value stops at `)`, which closes the group, and the rest of
+    // the parameter is ignored.
+    const q = intent(get(enc("or", "(first_name.ilike.%a)%,last_name.ilike.%a)%)"), {}, "candidate_profiles"));
+    expect(group(q.where[0])).toEqual({ kind: "or", children: [{ kind: "cmp", column: "first_name", op: "ilike", value: "%a" }] });
+    // Inside and() the early `)` closes and(), and text before the next `,` / `)`
+    // is a parse error — live, with this exact body.
+    expect(error(get(enc("or", "(and(first_name.ilike.%a)b),last_name.ilike.%a)"), {}, "candidate_profiles"))).toMatchObject({
+      code: "PGRST100",
+      message: '"failed to parse logic tree ((and(first_name.ilike.%a)b),last_name.ilike.%a))" (line 1, column 28)',
+      details: 'unexpected "b" expecting "," or ")"',
+    });
+    expect(error(get(enc("or", "(first_name.ilike.%a"), {}, "candidate_profiles"))).toMatchObject({
+      message: '"failed to parse logic tree ((first_name.ilike.%a)" (line 1, column 23)',
+      details: 'unexpected end of input expecting "," or ")"',
+    });
+    // A value that opens with a quote is unquoted only when that quote closes the
+    // item; a backslash escapes any character; braces are kept whole (all live).
+    const value = (v: string) =>
+      cond(group(intent(get(enc("or", `(first_name.eq.${v},first_name.eq.zz)`), {}, "candidate_profiles")).where[0]).children[0]).value;
+    expect(value('"AB"')).toBe("AB");
+    expect(value('"AB"x')).toBe('"AB"x');
+    expect(value('"A\\B"')).toBe("AB");
+    expect(value('"a,b"')).toBe("a,b");
+    expect(value("{a,b}")).toBe("{a,b}");
   });
 });
 
@@ -282,23 +531,44 @@ describe("modifiers", () => {
     const q = intent(await sent((db) => db.from("documents").select("*").order("id").range(100, 199)));
     expect([q.offset, q.limit]).toEqual([100, 100]);
     expect(intent(await sent((db) => db.from("documents").select("*").limit(5))).limit).toBe(5);
-    expect(error(get("limit=-1")).code).toBe("PGRST100");
-    expect(error(get("offset=abc")).code).toBe("PGRST100");
   });
 
-  it("also honours a Range header (PostgREST does; postgrest-js never sends one)", () => {
-    expect([intent(get("", { Range: "0-9" })).offset, intent(get("", { Range: "0-9" })).limit]).toEqual([0, 10]);
-    // explicit params win over the header
+  it("reads limit/offset as PostgREST does: ignores what it can't read, 416s a negative window", () => {
+    // live: limit=-1 → 416; offset=abc → every row; limit=abc&offset=5 → 416
+    // (tests/pgrestRange.test.ts pins the whole grammar)
+    expect(error(get("limit=-1"))).toEqual({
+      code: "PGRST103", message: "Requested range not satisfiable", details: "Limit should be greater than or equal to zero.", hint: null, status: 416,
+    });
+    const ignored = intent(get("offset=abc"));
+    expect([ignored.offset, ignored.limit]).toEqual([undefined, undefined]);
+    expect(error(get("limit=abc&offset=5")).code).toBe("PGRST103");
+    const hex = intent(get("limit=0x3&offset=(5)"));
+    expect([hex.offset, hex.limit]).toEqual([5, 3]);
+    // a range error outranks the table, the columns and the operands, but not a syntax error
+    expect(error(get("select=nope&id=eq.bad&limit=-1", {}, "nosuchtable")).code).toBe("PGRST103");
+    expect(error(get("or=(&limit=-1")).code).toBe("PGRST100");
+    // an offset past 2^53 travels exactly, for the 22003 and the 416 message that quote it
+    expect(intent(get("offset=99999999999999999999"))).toMatchObject({ offset: Number.MAX_SAFE_INTEGER, offsetText: "99999999999999999999" });
+  });
+
+  it("also honours a Range header on GET (PostgREST does; postgrest-js never sends one)", () => {
+    expect([intent(get("", { Range: "0-9" })).offset, intent(get("", { Range: "0-9" })).limit]).toEqual([undefined, 10]);
+    // the query-string window is intersected with the header's
     const q = intent(get("limit=3&offset=6", { Range: "0-9" }));
     expect([q.offset, q.limit]).toEqual([6, 3]);
+    expect(error(get("", { Range: "5-2" })).details)
+      .toBe("The lower boundary must be lower than or equal to the upper boundary in the Range header.");
+    // a HEAD ignores it (live: HEAD with Range 5-2 is a 200 over every row)
+    const head = intent(parseParts({ method: "HEAD", url: `${BASE}/documents?select=id`, headers: { Range: "5-2" } }, registry));
+    expect([head.offset, head.limit]).toEqual([undefined, undefined]);
   });
 
   it("maps .single() to singleObject, and leaves .maybeSingle() a plain list read", async () => {
-    const one = intent(await sent((db) => db.from("documents").select("*").eq("id", "d1").single()));
+    const one = intent(await sent((db) => db.from("documents").select("*").eq("id", DOC).single()));
     expect(one.singleObject).toBe(true);
     expect(one.requireExactlyOne).toBe(true);
     // postgrest-js #361: maybeSingle sends NOTHING extra — it counts rows client-side.
-    const maybe = intent(await sent((db) => db.from("documents").select("*").eq("id", "d1").maybeSingle()));
+    const maybe = intent(await sent((db) => db.from("documents").select("*").eq("id", DOC).maybeSingle()));
     expect(maybe.singleObject).toBeUndefined();
     expect(maybe.head).toBeUndefined();
   });
@@ -350,15 +620,15 @@ describe("mutations", () => {
 
   it("update and delete keep their filters, and only return rows when .select() was chained", async () => {
     const upd = intent(await sent((db) => db.from("documents").update({ status: "approved" })
-      .eq("id", "d1").is("superseded_at", null).select("id")));
+      .eq("id", DOC).is("superseded_at", null).select("id")));
     expect(upd).toMatchObject({ action: "update", returning: "representation" });
     expect(upd.values).toEqual([{ status: "approved" }]);
     expect(upd.where).toHaveLength(2);
 
-    const del = intent(await sent((db) => db.from("notifications").delete().eq("user_id", "u1")));
+    const del = intent(await sent((db) => db.from("notifications").delete().eq("user_id", U1)));
     expect(del).toMatchObject({ action: "delete", returning: "minimal" });
     expect(del.values).toBeUndefined();
-    expect(cond(del.where[0]).value).toBe("u1");
+    expect(cond(del.where[0]).value).toBe(U1);
   });
 
   it("flags a column the table doesn't have with PGRST204 so writes can degrade gracefully", async () => {
@@ -397,7 +667,7 @@ describe("routing and failure modes", () => {
   });
 
   it("never throws — every bad input comes back as a PostgrestError value", () => {
-    for (const q of ["user_id=", "user_id=eq", "or=", "or=(", "limit=", "select=:", "user_id=in.a,b"]) {
+    for (const q of ["user_id=", "user_id=eq", "or=", "or=(", "limit=-1", "select=:", "user_id=in.a,b"]) {
       const out = get(q);
       expect(isPgrestError(out)).toBe(true);
       expect(typeof error(out).code).toBe("string");

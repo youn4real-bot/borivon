@@ -724,8 +724,17 @@ export async function POST(req: NextRequest) {
   // that resolves to another catalog key would file this document in that
   // other slot and let the supersede pass below archive whatever lives there
   // -- which is how a sub-admin's translated upload replaced the original
-  // (the admin panel's "Ubersetzt" row sent the original's label).
+  // (the admin panel's "Ubersetzt" row sent fileKey=diploma_de with the
+  // ORIGINAL's label "Diplom", and the supersede pass matches on the LABEL, so
+  // the translation landed in the Original box and archived the real original:
+  // 30 documents were stored that way, 6 of them still the live file in their
+  // box). The admin panel is fixed, but this route is also reached by the
+  // candidate dashboard and by the admin-on-behalf path, so the invariant is
+  // enforced HERE rather than trusted per call site.
   const fileType  = labelForUpload(fileKey, sentType);
+  // Say so when a caller still disagrees. The correction is silent otherwise,
+  // and a page that sends the wrong label would keep doing it unseen -- this
+  // line is how the next one gets found.
   if (fileType !== sentType) console.warn(`[upload] label "${sentType}" belongs to another slot than fileKey "${fileKey}" -- stored as "${fileType}"`);
   const forUserId = (formData.get("forUserId") as string) ?? null;
 
