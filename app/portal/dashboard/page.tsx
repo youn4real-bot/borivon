@@ -1411,15 +1411,6 @@ export default function DashboardPage() {
     if (classifyProfileRead(read) === "failed") return false;
     const row = (read.data ?? {}) as Record<string, unknown>;
 
-    // passport_status is admin-driven and read-only here, so it is applied on
-    // every successful read rather than only on a diff: a live row IS the
-    // answer a failed bootstrap read never gave, and that is what clears the
-    // "we could not check" banner. Identical values short-circuit in React, so
-    // this costs no render on a quiet tick.
-    setPassportStatus((row.passport_status as string | null | undefined) ?? null);
-    setPassportStatusKnown(true);
-    setPassportLoadFailed(prev => (prev === "status" ? null : prev));
-
     // Her editable fields and her LAW #38 ticks are held back while this read
     // may predate her own input — she typed within the guard before it was
     // sent, a save of hers is still out, or one landed after it was sent. That
@@ -1427,9 +1418,32 @@ export default function DashboardPage() {
     // landing over what she typed. Held-back columns are NOT advanced, so a
     // genuine change from her other device is applied on the next quiet tick
     // instead of being lost. null = the read started before the page's own
-    // load of these columns, i.e. it is older than the screen: drop it.
+    // load of these columns, i.e. it is older than the screen: drop it, and
+    // note that this call still has to happen so the snapshot moves on.
     const step = passportLive.step(userId, row, readAt, { always: LIVE_META_COLS, deferrable: LIVE_PASSPORT_COLS });
-    if (!step || step.apply.size === 0) return true;
+    if (!step) return true;
+
+    // passport_status is read-only on this page, so it is applied on every
+    // read rather than only on a diff: a live row IS the answer a failed
+    // bootstrap read never gave, and applying it unconditionally is what
+    // clears the "we could not check" banner — gating it on a change would
+    // leave that banner up forever, because the first read only becomes the
+    // baseline. Identical values short-circuit in React, so a quiet tick
+    // costs no render.
+    //
+    // But not from a read that might predate her own writes. Submitting the
+    // passport sets this to "pending" locally (the box turns yellow at once),
+    // and a read sent a second earlier answering a second later would put the
+    // box back to neutral and re-offer the submit form. Realtime could not do
+    // that — it delivered in commit order — so the poll has to ask. Nothing is
+    // lost by waiting: the next quiet read applies whatever the server says.
+    if (!passportLive.mayMissLocalWrites(readAt)) {
+      setPassportStatus((row.passport_status as string | null | undefined) ?? null);
+      setPassportStatusKnown(true);
+      setPassportLoadFailed(prev => (prev === "status" ? null : prev));
+    }
+
+    if (step.apply.size === 0) return true;
     const changed = step.apply;
 
     const meta = row as { manually_verified?: boolean; profile_photo?: string | null };

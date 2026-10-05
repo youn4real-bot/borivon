@@ -231,6 +231,22 @@ describe("the failed-read distinction survived the port", () => {
     expect(DASH).toMatch(/setPassportStatusKnown\(true\);\s*\n\s*setPassportLoadFailed\(prev => \(prev === "status" \? null : prev\)\);/);
   });
 
+  it("...but not from a read that could predate her own submit", () => {
+    // Submitting sets passportStatus to "pending" locally so the box turns
+    // yellow at once. A read sent a second earlier, answering a second later,
+    // would put it back to neutral and re-offer the submit form. Realtime
+    // delivered in commit order and could not do that; the poll has to ask.
+    expect(DASH).toMatch(/if \(!passportLive\.mayMissLocalWrites\(readAt\)\) \{\s*\n\s*setPassportStatus\(/);
+    // And the question is asked AFTER step(), which must run either way so the
+    // snapshot moves on — skipping it would strand an admin flag forever,
+    // which is the bug the first merge of these two channels was reverted for.
+    const stepAt = DASH.indexOf("const step = passportLive.step(");
+    const askAt = DASH.indexOf("passportLive.mayMissLocalWrites(readAt)");
+    expect(stepAt).toBeGreaterThan(-1);
+    expect(askAt).toBeGreaterThan(stepAt);
+    expect(DASH).toMatch(/const step = passportLive\.step\([^\n]*\n\s*if \(!step\) return true;/);
+  });
+
   it("a dropped pipeline read cannot re-lock a stage the admin opened", () => {
     // LAW #31/#32. The poll now runs this read every 30 s, so the "never blank
     // it on a failure" rule is exercised far more often than it was.
