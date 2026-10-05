@@ -970,12 +970,27 @@
     "nullable": false,
     "default": "now()",
     "generated": false
+   },
+   "doc_id": {
+    "pg": "uuid",
+    "nullable": true,
+    "default": null,
+    "generated": false
    }
   },
   "pk": [
    "id"
   ],
-  "fks": []
+  "fks": [
+   {
+    "column": "doc_id",
+    "table": "documents",
+    "ref": "id",
+    "on_delete": "SET NULL",
+    "on_update": "NO ACTION",
+    "name": "admin_notifications_doc_id_fkey"
+   }
+  ]
  },
  "admin_signatures": {
   "columns": {

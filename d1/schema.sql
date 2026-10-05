@@ -177,7 +177,9 @@ CREATE TABLE IF NOT EXISTS "admin_notifications" (
   "doc_name" TEXT,
   "read" INTEGER NOT NULL DEFAULT 0 CHECK ("read" IN (0, 1)),
   "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00'),
+  "doc_id" TEXT,
   PRIMARY KEY ("id"),
+  CONSTRAINT "admin_notifications_doc_id_fkey" FOREIGN KEY ("doc_id") REFERENCES "documents" ("id") ON DELETE SET NULL ON UPDATE NO ACTION,
   CONSTRAINT "admin_notifications_type_check" CHECK ((type IN ('signup', 'upload', 'doc-signed', 'doc-uploaded', 'org-join', 'org-request')))
 );
 CREATE TABLE IF NOT EXISTS "admin_signatures" (
@@ -1267,6 +1269,7 @@ CREATE INDEX IF NOT EXISTS "partner_api_log_org_idx" ON "partner_api_log" (org_i
 CREATE UNIQUE INDEX IF NOT EXISTS "upload_links_token_hash_key" ON "upload_links" (token_hash);
 CREATE INDEX IF NOT EXISTS "idx_upload_links_hash" ON "upload_links" (token_hash);
 CREATE INDEX IF NOT EXISTS "idx_upload_links_candidate" ON "upload_links" (candidate_user_id);
+CREATE INDEX IF NOT EXISTS "admin_notifications_doc_id_idx" ON "admin_notifications" (doc_id) WHERE (doc_id IS NOT NULL);
 
 CREATE TRIGGER IF NOT EXISTS "employers_set_updated_at" AFTER UPDATE ON "employers" FOR EACH ROW WHEN NEW."updated_at" IS OLD."updated_at"
 BEGIN UPDATE "employers" SET "updated_at" = (strftime('%Y-%m-%dT%H:%M:%f','now') || '000+00:00') WHERE "id" = NEW."id"; END;

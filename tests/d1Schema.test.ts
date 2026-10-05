@@ -55,7 +55,7 @@ describe("catalogDefault", () => {
 
 describe("the catalog the schema is generated from", () => {
   it("is the v2 capture, and the generator reports nothing it could not translate", () => {
-    expect(CURRENT_CATALOG).toBe("snapshot/catalog-2026-09-13.json");
+    expect(CURRENT_CATALOG).toBe("snapshot/catalog-2026-10-05.json");
     expect(built.warnings).toEqual([]);
   });
 
@@ -132,7 +132,7 @@ describe.skipIf(!DatabaseSync)("generated D1 schema in a real SQLite", () => {
     const ACTION: Record<string, string> = { a: "NO ACTION", r: "RESTRICT", c: "CASCADE", n: "SET NULL", d: "SET DEFAULT" };
     for (const f of cat.foreignKeys.filter((x) => x.ref !== "auth.users")) want[ACTION[f.on_delete]] = (want[ACTION[f.on_delete]] ?? 0) + 1;
     expect(got).toEqual(want);
-    expect(got).toEqual({ CASCADE: 23, "SET NULL": 14, "NO ACTION": 4 });
+    expect(got).toEqual({ CASCADE: 23, "SET NULL": 15, "NO ACTION": 4 });
   });
 
   it("an organization delete cascades to its members and candidate links, and blanks SET NULL references", () => {

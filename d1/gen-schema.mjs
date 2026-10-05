@@ -299,7 +299,7 @@ export function buildSchema(api, rawCatalog) {
 }
 
 /** The catalog the committed schema is generated from. */
-export const CURRENT_CATALOG = "snapshot/catalog-2026-09-13.json";
+export const CURRENT_CATALOG = "snapshot/catalog-2026-10-05.json";
 
 // CLI
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
