@@ -23,20 +23,14 @@ Every deploy is **`npm run cf:build && npm run cf:deploy`**. `cf:deploy` alone s
 
 - [ ] `node d1/shadow-report.mjs <repo-root> 24` prints **DIFFERENCES: none** over at least the last 24 hours.
 - [ ] The adapter branch and every prep branch are merged. On that main: `npx tsc --noEmit` = 0, `npm test` green, `npm run cf:build` exit 0.
-- [ ] **prep/polling is merged.** No screen may still subscribe to Supabase Realtime `postgres_changes`: Realtime
-  follows Supabase's own write log, so on D1 the bell, the chat and the admin's live passport draft (LAW #38) would
-  stop updating with no error. `node d1/cutover.mjs` enforces this as its step 1 (it matches
-  `.on("postgres_changes"` as code, so the comments prep/polling keeps do not count).
+- [x] **Every screen is off Supabase Realtime.** Realtime follows Supabase's own write log, so on D1 the bell, the
+  chat and the admin's live passport draft (LAW #38) would stop updating with no error at all. `node d1/cutover.mjs`
+  enforces this as its step 1 (it matches `.on("postgres_changes"` as code, so comments do not count).
 
-  **ONE FILE IS KNOWINGLY STILL ON REALTIME: `app/portal/dashboard/page.tsx` (4 subscriptions).** When main was
-  merged into the live line, prep/polling's copy of this page was two weeks behind production's, and taking it
-  would have dropped the LAW #31/#32 guard that stops a failed read re-locking a stage the founder had opened, the
-  fix for the 62 wiped passport profiles, and `SessionExpiredNotice`. Production's page won, so the
-  Realtime → polling swap has to be re-applied on top of it. What to port: the `usePolling` call that replaces the
-  documents + pipeline channels and the focus backstop, and `createLiveRowTracker` (`lib/liveRowDiff.ts`) for the
-  passport modal — both already on disk and already unit-tested. Every other screen (bell, chat, admin panel,
-  cv-builder, motivationsschreiben) is done. This is not a silent gap: step 1 above refuses the flip and prints the
-  exact `file:line` list until it is cleared.
+  Cleared 2026-10-05: `app/portal/dashboard/page.tsx` was the last file on Realtime, and the polling port was
+  re-applied on top of production's version of that page — keeping the LAW #31/#32 guard that stops a failed read
+  re-locking a stage the founder had opened, the fix for the wiped passport profiles, and `SessionExpiredNotice`.
+  `grep -rn '.on("postgres_changes"' app lib components` now finds nothing.
 - [ ] The orchestrator has applied the pending D1 schema changes (`d1/schema.sql`).
 - [ ] `node d1/cutover.mjs <repo-root>` and `node d1/cutover.mjs <repo-root> --rollback` (both dry runs) print their steps without error.
 - [ ] `npx wrangler deployments list`: write down the current Version ID as **PRE-SWITCH**.
