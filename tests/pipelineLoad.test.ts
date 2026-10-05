@@ -130,8 +130,12 @@ describe("the dashboard side — it refuses to downgrade her view on an unknown"
     // The old shape: `.then(r => r.json()).then(({ pipeline: p }) => setPipeline(p ?? null))`
     expect(DASH).not.toMatch(/\.then\(\s*\(\{\s*pipeline:/);
     expect(DASH).toMatch(/fetchMyPipeline<Pipeline>\(fetch, token\)/);
-    // A failed read leaves what is on screen alone.
-    expect(DASH).toMatch(/if \(!res\.ok\) \{[\s\S]{0,400}?setPipelineLoadFailed\(true\);[\s\S]{0,80}?return;/);
+    // A failed read leaves what is on screen alone. `return false` and not a
+    // bare `return`: loadPipeline now reports the verdict to the live poll that
+    // replaced the Realtime channel, so a dropped read backs that loop off
+    // instead of passing for a healthy tick. It must still return BEFORE any
+    // setPipeline — that is the part LAW #31/#32 rests on.
+    expect(DASH).toMatch(/if \(!res\.ok\) \{[\s\S]{0,400}?setPipelineLoadFailed\(true\);[\s\S]{0,80}?return false;/);
   });
 
   it("the stage gate will not bounce her out of a stage while the pipeline is unknown", () => {

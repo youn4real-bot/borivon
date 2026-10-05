@@ -15,6 +15,8 @@ import { reportIfMaintenance } from "@/lib/maintenance";
 import { fetchPhaseSlots, emptyStateKind } from "@/lib/dashboardLoad";
 import { fetchMyPipeline } from "@/lib/pipelineLoad";
 import { cachedRole } from "@/lib/myRole";
+import { usePolling } from "@/lib/usePolling";
+import { createLiveRowTracker, sameJson } from "@/lib/liveRowDiff";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
 import { MAPS_URL, DEMANDE_EXAMPLE_URL } from "@/lib/workLicenseGuide";
@@ -503,6 +505,17 @@ export default function DashboardPage() {
    * These two drive a notice that says the load failed, and a retry.
    */
   const [docsLoadFailed, setDocsLoadFailed]   = useState(false);
+  /**
+   * The same EMPTY-vs-BROKEN answer, readable synchronously.
+   *
+   * `docsLoadFailed` is state: it drives the notice on screen, and the poll
+   * below cannot read it (the value it closes over is one render old). The poll
+   * has to report failure to its own loop — that is what backs the interval off
+   * instead of hammering a 500 every 30 s — so loadDocs records the SAME verdict
+   * in a ref the poll can read the instant the read settles. Two writers, one
+   * truth: every place that sets one sets the other.
+   */
+  const docsLoadOkRef             = useRef(true);
   const [slotsLoadFailed, setSlotsLoadFailed] = useState(false);
   /**
    * Third member of the same family, and the most dangerous one.
@@ -853,6 +866,22 @@ export default function DashboardPage() {
   const [passportSaving, setPassportSaving] = useState(false);
   const [confirmedFields, setConfirmedFields] = useState<Set<keyof PassportData>>(new Set());
   /**
+   * The live passport row (lib/liveRowDiff createLiveRowTracker): the poll's
+   * snapshot of candidate_profiles, her local edits (field or checkbox), and
+   * her draft saves.
+   *
+   * Realtime delivered one event per real change, in commit order; a poll hands
+   * the same row back every tick and has to prove its read is NEWER than what
+   * she is doing. So every passport write goes through `trackSave` and every
+   * keystroke/tick through `markLocalEdit`, and the poll asks this before it
+   * patches anything: a read sent while a save of hers was out, or within the
+   * guard after she typed, is held back rather than applied. That is what stops
+   * an older draft landing over the eighteen-field form she is filling in — and
+   * stops an echo re-ticking a confirmation box she just unticked, which would
+   * leave a LAW #38 tick saved with no human click behind it.
+   */
+  const [passportLive] = useState(() => createLiveRowTracker());
+  /**
    * The open form was seeded from a source that actually holds her passport —
    * a profile read that SUCCEEDED, a fresh OCR extraction, or the local draft
    * restored at bootstrap. False means the eighteen inputs on screen are not
@@ -897,6 +926,10 @@ export default function DashboardPage() {
    */
   const reopenPassportData = useCallback(async (): Promise<boolean> => {
     if (!userId) return false;
+    // Taken BEFORE the await: what the form ends up showing is the live poll's
+    // baseline, and any poll read that was already in flight when this one
+    // started is older than the screen and must be dropped, not applied.
+    const readAt = passportLive.readStart();
     const read = await getMyProfile(
       "first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_confirmed_fields",
       { userId },
@@ -932,8 +965,17 @@ export default function DashboardPage() {
       ? (p.passport_confirmed_fields as unknown[]).filter((x): x is keyof PassportData => typeof x === "string")
       : [];
     setConfirmedFields(new Set(savedConfirmed));
+    // What the form now shows becomes the live poll's baseline for exactly
+    // these columns. Without the seed the first poll read would count as a
+    // change on every one of them and re-apply what is already on screen; with
+    // it, a change that lands between this read and the first tick is still
+    // picked up, because the baseline is the row as it was HERE.
+    const seedRow = (read.data ?? {}) as Record<string, unknown>;
+    passportLive.seed(userId, Object.fromEntries(
+      [...Object.keys(blank), "passport_confirmed_fields"].map(k => [k, seedRow[k] ?? null]),
+    ), readAt);
     return true;
-  }, [userId, lang]);
+  }, [userId, lang, passportLive]);
 
   /** Re-read passport_status on its own. Returns false when the read failed,
    *  so the caller can say "unknown" instead of writing null into the state
@@ -971,12 +1013,6 @@ export default function DashboardPage() {
   const addressHintShown = useRef(false);
   const postalHintShown = useRef(false);
   const authorityHintShown = useRef(false);
-  // Timestamp of the last LOCAL passport edit (field or checkbox). The
-  // realtime sync ignores incoming updates within a short window after it,
-  // so an in-flight echo of the previous state never reverts the user's
-  // own check/uncheck or keystroke.
-  const lastLocalPassportEdit = useRef(0);
-
   // Autosave indicator for passport modal
   const [passportSavedAt, setPassportSavedAt]   = useState<Date | null>(null);
   /**
@@ -1015,14 +1051,20 @@ export default function DashboardPage() {
    */
   const [passportDraftUnsent, setPassportDraftUnsent] = useState(false);
   const [passportDraftRetrying, setPassportDraftRetrying] = useState(false);
-  /** On main this wraps every passport write in passportLive.trackSave, so a
-   *  live poll cannot patch the modal from a read that predates the save. That
-   *  live poll is part of the paused D1 work and does not exist on this line,
-   *  so the write goes straight out. The indirection stays so the two lines
-   *  remain one edit apart, and so every caller below is already routed. */
+  /**
+   * Every passport write — the debounced draft save, the immediate flush, the
+   * modal-close flush, the explicit submit — goes out through here, and here
+   * hands it to passportLive.trackSave.
+   *
+   * WHY the indirection earns its keep: the live poll below must not patch the
+   * form from a read that was SENT before one of these writes landed. The
+   * tracker only knows that if it sees the write, and routing every caller
+   * through one wrapper is the only version of that which cannot be forgotten
+   * by the next person who adds a fifth write.
+   */
   const passportFetch = useCallback<typeof fetch>(
-    (input, init) => fetch(input, init),
-    [],
+    (input, init) => passportLive.trackSave(fetch(input, init)),
+    [passportLive],
   );
 
   // Immediate (non-debounced) DB draft-save. Fired the instant passport data
@@ -1274,152 +1316,164 @@ export default function DashboardPage() {
   }, [pipeline, pipelineKnown, upgradeOpen, upgradeTargetStage]);
 
 
-  // Realtime: LIVE documents — the instant an admin/sub-admin approves,
-  // rejects, requests, or uploads-on-behalf (or the candidate uploads on
-  // another device), the doc grid reflects it with NO refresh. keepPhase so
-  // the live update never yanks the phase nav out from under the candidate.
-  useEffect(() => {
-    if (!userId) return;
-    const ch = supabase
-      .channel(`docs-live-${userId}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${userId}` },
-        () => { loadDocs(userId, true); },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  // ── LIVE documents + pipeline unlock flags ────────────────────────────────
+  // An admin/sub-admin approves, rejects, requests or uploads-on-behalf, or
+  // unlocks a stage (or she uploads on another device) and the dashboard
+  // reflects it with NO refresh: within one tick while the tab is visible, and
+  // at once when she comes back to the tab.
+  //
+  // This was two Realtime postgres_changes channels — documents and
+  // candidate_pipeline (UPDATE *and* INSERT, because a candidate's FIRST
+  // unlock arrives as an INSERT) — plus a focus/visibility backstop bolted on
+  // because Realtime has no replay: a change made while the phone was locked
+  // stayed invisible until reload. Realtime streams SUPABASE's write-ahead
+  // log, so all of it goes silent for good once these rows live in D1.
+  // Polling our own authorised routes works identically on either backend, and
+  // lib/poller.ts has the backstop built in: visible tab only, refetch on
+  // return, never two requests overlapping, backoff on errors.
+  //
+  // WHY 30 s: before this there was no timed request here at all (Realtime
+  // pushed), so every visible candidate tab now adds a documents read and a
+  // pipeline read on top of the bell's — and ~106 nurses pay for it out of
+  // Moroccan mobile data. A document verdict is not seconds-critical, and the
+  // moment she actually looks at the tab it refetches anyway, which is more
+  // than Realtime ever did. Nothing is re-rendered when a tick finds the same
+  // rows: both loaders keep the previous state's identity (sameJson).
+  //
+  // keepPhase: true so a live update never yanks the phase nav out from under
+  // her. immediate: false because the bootstrap's Promise.allSettled already
+  // loaded both — a mount run would just double every candidate's first paint.
+  usePolling(async (signal) => {
+    if (!userId || !authToken) return true;
+    const [, pipelineOk] = await Promise.all([
+      loadDocs(userId, true, signal),
+      // Only a SUCCESSFUL read replaces the pipeline. LAW #31/#32: the stage
+      // lock is the supreme admin's discretion alone, so a dropped read must
+      // never re-lock, on her screen, a stage he opened — not even for the
+      // seconds until the next tick.
+      loadPipeline(authToken, signal),
+    ]);
+    // The failed-read distinction, carried into the loop. A 500 or a dead
+    // socket is a FAILURE here (so the loop backs off instead of hammering it
+    // every 30 s), while "she has no documents yet" is a healthy tick — the
+    // two look identical in the returned list, which is exactly why
+    // docsLoadOkRef exists alongside the notice on screen.
+    return docsLoadOkRef.current && pipelineOk;
+  }, { intervalMs: 30_000, enabled: !!userId && !!authToken, immediate: false, resetKey: userId });
 
-  // Realtime: keep pipeline unlock flags in sync when admin changes them.
-  // INSERT as well as UPDATE: PATCH /api/portal/pipeline inserts the row when
-  // none exists yet, so a candidate's FIRST unlock arrives as an INSERT.
-  useEffect(() => {
-    if (!userId) return;
-    const merge = (payload: { new: Partial<Pipeline> }) => {
-      const row = payload.new;
-      setPipeline(prev => prev ? { ...prev, ...row } : (row as Pipeline));
-    };
-    const ch = supabase
-      .channel(`pipeline-unlock-${userId}`)
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        merge,
-      )
-      .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
-        merge,
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId]);
+  // ── LIVE two-way passport sync + the admin-driven account flags ───────────
+  // She edits on her phone → the draft save lands → the form open on the
+  // laptop updates. An admin flips passport_status, or marks her verified, or
+  // her profile photo changes → this device reflects it.
+  //
+  // This was a Realtime postgres_changes channel on candidate_profiles doing
+  // both jobs (it had been TWO channels on the same table with the same
+  // filter, so every profile update woke two sockets and two handlers raced to
+  // set passport_status). It reads /api/portal/me/profile — her OWN row only,
+  // LAW #25 — every 5 s while the eighteen-field form is open, which is where
+  // someone is watching extracted data land and typing over it, and every 30 s
+  // otherwise: the admin-driven flags are not seconds-critical and tab return
+  // refetches at once. immediate: false — the bootstrap read the flags and
+  // reopenPassportData read the fields; a mount run would only repeat them.
+  //
+  // A poll hands back the SAME row every tick, but this handler must act only
+  // on CHANGES: it dispatches window events, it can open the verified
+  // celebration, and it patches fields she may be typing but has not saved. So
+  // every tick is diffed against passportLive's snapshot (lib/liveRowDiff) and
+  // only the moved columns are applied.
+  const PP_KEYS: (keyof PassportData)[] = [
+    "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
+    "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
+    "address_number","address_postal","city_of_residence","country_of_residence",
+    "marital_status","children_ages",
+  ];
+  /** Admin-driven: nobody types these here, so they apply the moment they move
+   *  — even while she is mid-keystroke. The guard below exists to protect her
+   *  own input from a stale echo; it must not also swallow an admin flipping
+   *  her to verified. Keeping those two apart is the whole reason the first
+   *  attempt at merging the two channels was reverted. */
+  const LIVE_META_COLS = ["passport_status", "profile_photo", "manually_verified"];
+  /** Hers to edit — held back while a read might predate her own writes. */
+  const LIVE_PASSPORT_COLS: string[] = [...PP_KEYS, "passport_confirmed_fields"];
+  usePolling(async (signal) => {
+    if (!userId) return true;
+    // Taken BEFORE the await: whether this read may predate her own writes is a
+    // question about when it was SENT, not about when a cold Worker (2-5 s)
+    // finally answered it.
+    const readAt = passportLive.readStart();
+    const read = await getMyProfile([...LIVE_META_COLS, ...LIVE_PASSPORT_COLS].join(","), { userId, signal });
+    if (signal.aborted) return true;
+    // "I could not read it" is not "it is empty" — the rule this whole file is
+    // governed by. A failed read backs the loop off and changes NOTHING on
+    // screen: it must not claim a status, and it must not downgrade
+    // passportStatusKnown, or one bad minute of signal would raise the
+    // failure banner over data she can already see.
+    if (classifyProfileRead(read) === "failed") return false;
+    const row = (read.data ?? {}) as Record<string, unknown>;
 
-  // Backstop for the documents + pipeline channels above. Realtime has no
-  // replay, so a change made while the socket was down (backgrounded phone
-  // tab, network blip) is lost until reload. Refetch both when the tab comes
-  // back. Throttled: focus and visibilitychange usually fire together.
-  useEffect(() => {
-    if (!authToken || !userId) return;
-    let last = 0;
-    const refresh = () => {
-      const now = Date.now();
-      if (now - last < 5_000) return;
-      last = now;
-      loadDocs(userId, true);
-      // Only a successful read replaces state; a failed one keeps what's on
-      // screen and says so.
-      void loadPipeline(authToken);
-    };
-    const onFocus = () => refresh();
-    const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+    // passport_status is admin-driven and read-only here, so it is applied on
+    // every successful read rather than only on a diff: a live row IS the
+    // answer a failed bootstrap read never gave, and that is what clears the
+    // "we could not check" banner. Identical values short-circuit in React, so
+    // this costs no render on a quiet tick.
+    setPassportStatus((row.passport_status as string | null | undefined) ?? null);
+    setPassportStatusKnown(true);
+    setPassportLoadFailed(prev => (prev === "status" ? null : prev));
 
-  // Realtime: LIVE two-way passport-data sync. Edit on one device → the DB
-  // draft-save fires → this fires on the other device → the open passport
-  // modal updates instantly. Same canonical channel pattern as pipeline.
-  useEffect(() => {
-    if (!userId) return;
-    const PP_KEYS: (keyof PassportData)[] = [
-      "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
-      "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
-      "address_number","address_postal","city_of_residence","country_of_residence",
-      "marital_status","children_ages",
-    ];
-    const ch = supabase
-      .channel(`passport-data-${userId}`)
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = (payload.new ?? {}) as Record<string, unknown> & { passport_status?: string | null };
-          // passport_status is admin-driven — always honor it.
-          if (typeof row.passport_status === "string" || row.passport_status === null) {
-            setPassportStatus(row.passport_status ?? null);
-            // A live row IS the answer the failed bootstrap read never gave.
-            setPassportStatusKnown(true);
-            setPassportLoadFailed(prev => (prev === "status" ? null : prev));
-          }
-          // ── Merged in from the old `profile-status-${userId}` channel ──────
-          // That was a SECOND postgres_changes subscription on this same table
-          // with this same filter, so every profile update woke two websockets
-          // and two handlers raced to set passport_status. One channel now
-          // carries both jobs.
-          //
-          // These live ABOVE the local-edit guard below on purpose: the guard
-          // exists to stop an in-flight echo reverting a checkbox the candidate
-          // just toggled, and it must not also swallow an admin flipping her to
-          // verified. That ordering is the whole reason the first attempt at
-          // this merge was reverted.
-          const meta = row as {
-            manually_verified?: boolean; profile_photo?: string | null;
-          };
-          if (meta.profile_photo !== undefined) {
-            window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
-          }
-          if (meta.manually_verified !== undefined) setManuallyVerified(!!meta.manually_verified);
-          if (meta.manually_verified === true) {
-            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
-            try {
-              if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
-            } catch { /* private mode */ }
-          }
-          // Guard: if the user just edited locally (typed / toggled a box),
-          // skip the field + checkbox patch for a short window so an
-          // in-flight echo of the PREVIOUS state can't revert their change
-          // (the fix for "uncheck bounces back to green").
-          if (Date.now() - lastLocalPassportEdit.current < 3000) return;
-          // Only patch the editor when it's open — and only the fields that
-          // actually changed, so the device currently typing isn't disrupted.
-          setPassportModal(prev => {
-            if (!prev) return prev;
-            let changed = false;
-            const next = { ...prev };
-            for (const k of PP_KEYS) {
-              const v = row[k];
-              if (typeof v === "string" && v !== prev[k]) { next[k] = v; changed = true; }
-            }
-            if (!changed) return prev;
-            return { ...next, sex: normalizeSex(next.sex, lang) };
-          });
-          // Live-sync the confirmation checkboxes too.
-          if (Array.isArray(row.passport_confirmed_fields)) {
-            const incoming = (row.passport_confirmed_fields as unknown[])
-              .filter((x): x is keyof PassportData => typeof x === "string");
-            setConfirmedFields(prev => {
-              if (prev.size === incoming.length && incoming.every(k => prev.has(k))) return prev;
-              return new Set(incoming);
-            });
-          }
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId, lang]);
+    // Her editable fields and her LAW #38 ticks are held back while this read
+    // may predate her own input — she typed within the guard before it was
+    // sent, a save of hers is still out, or one landed after it was sent. That
+    // is the fix for "uncheck bounces back to green" and for an older draft
+    // landing over what she typed. Held-back columns are NOT advanced, so a
+    // genuine change from her other device is applied on the next quiet tick
+    // instead of being lost. null = the read started before the page's own
+    // load of these columns, i.e. it is older than the screen: drop it.
+    const step = passportLive.step(userId, row, readAt, { always: LIVE_META_COLS, deferrable: LIVE_PASSPORT_COLS });
+    if (!step || step.apply.size === 0) return true;
+    const changed = step.apply;
+
+    const meta = row as { manually_verified?: boolean; profile_photo?: string | null };
+    if (changed.has("profile_photo")) {
+      window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
+    }
+    if (changed.has("manually_verified")) {
+      setManuallyVerified(!!meta.manually_verified);
+      if (meta.manually_verified === true) {
+        window.dispatchEvent(new CustomEvent("bv-verified-changed"));
+        try {
+          if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
+        } catch { /* private mode */ }
+      }
+    }
+    // Only patch the editor when it is open — and only the fields that actually
+    // moved, so the device currently typing is not disrupted.
+    const movedFields = PP_KEYS.filter(k => changed.has(k));
+    if (movedFields.length) {
+      setPassportModal(prev => {
+        if (!prev) return prev;
+        let any = false;
+        const next = { ...prev };
+        for (const k of movedFields) {
+          const v = row[k];
+          if (typeof v === "string" && v !== prev[k]) { next[k] = v; any = true; }
+        }
+        if (!any) return prev;
+        return { ...next, sex: normalizeSex(next.sex, lang) };
+      });
+    }
+    // The confirmation boxes mirror a HUMAN tick made on another device, and
+    // nothing else: the value comes from passport_confirmed_fields, never
+    // derived from whether a field happens to be filled in (LAW #38).
+    if (changed.has("passport_confirmed_fields") && Array.isArray(row.passport_confirmed_fields)) {
+      const incoming = (row.passport_confirmed_fields as unknown[])
+        .filter((x): x is keyof PassportData => typeof x === "string");
+      setConfirmedFields(prev => {
+        if (prev.size === incoming.length && incoming.every(k => prev.has(k))) return prev;
+        return new Set(incoming);
+      });
+    }
+    return true;
+  }, { intervalMs: passportModal ? 5_000 : 30_000, enabled: !!userId, immediate: false, resetKey: userId });
 
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   /** One-line failure notice inside the preview overlay. The slot-message
@@ -1787,6 +1841,7 @@ export default function DashboardPage() {
         // a) Profile (passport status / verified flag)
         (async () => {
           try {
+            const readAt = passportLive.readStart();
             const read = await getMyProfile("passport_status, manually_verified", { userId: user.id });
             if (cancelled) return;
             // SHAPE A. The error was destructured away, so a failed read set
@@ -1800,6 +1855,14 @@ export default function DashboardPage() {
             const data = read.data;
             setPassportStatus(data?.passport_status ?? null);
             setManuallyVerified(!!data?.manually_verified);
+            // These two are now on screen, so they are the live poll's
+            // baseline: a candidate who was ALREADY verified when the page
+            // loaded must not have the celebration re-fired at her by the
+            // first tick reading the same `true` back.
+            passportLive.seed(user.id, {
+              passport_status: data?.passport_status ?? null,
+              manually_verified: data?.manually_verified ?? null,
+            }, readAt);
             if (data?.manually_verified) {
               window.dispatchEvent(new CustomEvent("bv-verified-changed"));
               try {
@@ -1925,18 +1988,32 @@ export default function DashboardPage() {
    * On success `pipelineKnown` turns true and stays true: a later refresh that
    * fails leaves the stages she can see exactly as they were, which is the
    * whole point — the admin's unlock survives a bad minute of signal.
+   *
+   * Returns whether the read succeeded, so the live poll can back off on a
+   * failure instead of reporting a dropped read as a healthy tick. Existing
+   * callers ignore it.
    */
-  async function loadPipeline(token: string) {
+  async function loadPipeline(token: string, signal?: AbortSignal): Promise<boolean> {
+    // fetchMyPipeline owns its own AbortController (that is its timeout), so
+    // the poll's signal is not handed to the fetch — it would replace the
+    // timeout. It is checked around the await instead: a read the poll gave up
+    // on must not write state, and must not report a failure either, or a
+    // cancellation would back the loop off.
     const res = await fetchMyPipeline<Pipeline>(fetch, token);
+    if (signal?.aborted) return true;
     if (!res.ok) {
       // Leave `pipeline` alone. Setting it to null here is precisely the
       // damage being fixed.
       setPipelineLoadFailed(true);
-      return;
+      return false;
     }
     setPipelineLoadFailed(false);
-    setPipeline(res.pipeline);
+    // Same row → keep the object's identity. The stage gate and the
+    // upgrade-modal auto-dismiss are effects keyed on `pipeline`; a new object
+    // every 30 s would re-run both on every tick for no change at all.
+    setPipeline(prev => sameJson(prev, res.pipeline) ? prev : res.pipeline);
     setPipelineKnown(true);
+    return true;
   }
 
   /** "Try again" from the failed-load notice / empty state. Retries ALL THREE
@@ -1949,7 +2026,13 @@ export default function DashboardPage() {
     finally { setReloadRetrying(false); }
   }
 
-  async function loadDocs(uid: string, keepPhase = false) {
+  /**
+   * `signal` (optional): the live poll's AbortSignal. A read the poll has given
+   * up on is really cancelled instead of lingering on a dead mobile socket and
+   * landing, minutes later, over a newer list — and nothing after an abort
+   * touches state, so an unmounted page cannot be written to.
+   */
+  async function loadDocs(uid: string, keepPhase = false, signal?: AbortSignal) {
     let fetched: Doc[] = [];
     try {
       // Hide ARCHIVED docs (superseded_at set, LAW #33). Try the column; if it isn't
@@ -1967,10 +2050,15 @@ export default function DashboardPage() {
       // runs the same three-step column fallback and reports whether
       // superseded_at existed. It always reads the CALLER's own documents,
       // which is what this RLS-guarded query could only ever return anyway.
-      const res = await getMyDocuments<Row>();
+      const res = await getMyDocuments<Row>({ signal });
       const hadSuperseded = res.hadSuperseded;
+      // Abandoned by the poll (tab return, deadline, unmount): this answer is
+      // no longer the newest thing in flight, so it says nothing — not "failed"
+      // either, or a cancelled read would raise the notice and back the loop off.
+      if (signal?.aborted) return docsRef.current;
       if (res.error) {
         console.error("loadDocs error:", res.error, uid);
+        docsLoadOkRef.current = false;
         setDocsLoadFailed(true); // say so — see the notice above the phase list
         // A FAILED read is not an empty document list. Returning [] here made a
         // single mobile-network blip blank every box back to "not submitted" —
@@ -1979,6 +2067,7 @@ export default function DashboardPage() {
         // already on screen instead.
         return docsRef.current;
       }
+      docsLoadOkRef.current = true;
       setDocsLoadFailed(false);
       const rows = (res.data ?? []) as unknown as Row[];
       data = hadSuperseded ? rows.filter((d) => !d.superseded_at) : rows;
@@ -1994,8 +2083,13 @@ export default function DashboardPage() {
         seenKeys.add(fk);
         return true;
       });
-      setDocs(fetched);
+      // Same content → keep the array's identity, so the effects keyed on
+      // `docs` (the notification deep-link resolver, the seen-badge work) do
+      // not re-run on every poll tick that found nothing new.
+      setDocs(prev => sameJson(prev, fetched) ? prev : fetched);
     } catch (err) {
+      if (signal?.aborted) return docsRef.current;
+      docsLoadOkRef.current = false;
       setDocsLoadFailed(true);
       console.error("loadDocs exception:", err);
     }
@@ -5169,12 +5263,12 @@ export default function DashboardPage() {
                                   const y = parseInt(isoCur.slice(0, 4), 10) + (e.deltaY < 0 ? 1 : -1);
                                   if (y < 1900 || y > 2100) return;
                                   const iso = `${y}-${isoCur.slice(5, 7)}-${isoCur.slice(8, 10)}`;
-                                  lastLocalPassportEdit.current = Date.now();
+                                  passportLive.markLocalEdit();
                                   setPassportModal(p => p ? { ...p, [f.key]: toGerDate(iso) } : p);
                                   setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                                 }}
                                 onChange={e => {
-                                  lastLocalPassportEdit.current = Date.now();
+                                  passportLive.markLocalEdit();
                                   const ger = toGerDate(e.target.value);
                                   setPassportModal(p => p ? { ...p, [f.key]: ger } : p);
                                   setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
@@ -5187,7 +5281,7 @@ export default function DashboardPage() {
                           ) : f.type === "select" ? (
                             <select value={passportModal[f.key]}
                               onChange={e => {
-                                lastLocalPassportEdit.current = Date.now();
+                                passportLive.markLocalEdit();
                                 setPassportModal(p => p ? { ...p, [f.key]: e.target.value } : p);
                                 setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                               }}
@@ -5202,7 +5296,7 @@ export default function DashboardPage() {
                                 if (f.numericOnly) val = val.replace(/\D/g, "");
                                 if (f.wordsOnly)   val = val.replace(/[^A-Za-zÀ-ÿ\s'-]/g, "");
                                 if (f.uppercase)   val = val.toUpperCase();
-                                lastLocalPassportEdit.current = Date.now();
+                                passportLive.markLocalEdit();
                                 setPassportModal(p => p ? { ...p, [f.key]: val } : p);
                                 setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                               }}
@@ -5238,7 +5332,7 @@ export default function DashboardPage() {
                                 setPassportHint(f.key as keyof PassportData);
                                 return; // don't confirm yet — user sees popup first
                               }
-                              lastLocalPassportEdit.current = Date.now();
+                              passportLive.markLocalEdit();
                               setConfirmedFields(prev => {
                                 const next = new Set(prev);
                                 if (next.has(f.key)) next.delete(f.key); else next.add(f.key);
@@ -5378,7 +5472,13 @@ export default function DashboardPage() {
                     onClick={async () => {
                       setPassportSaving(true);
                       try {
-                        const res = await fetch("/api/portal/passport", {
+                        // passportFetch, not fetch: the explicit submit is the
+                        // biggest write of this row (every field plus the LAW
+                        // #38 ticks), so the live poll must hold its reads back
+                        // while it is out — otherwise a read sent a moment
+                        // earlier answers afterwards and puts the pre-submit
+                        // draft back into the form she just submitted.
+                        const res = await passportFetch("/api/portal/passport", {
                           method: "POST",
                           headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
                           body: JSON.stringify({ ...passportModal, confirmed_fields: Array.from(confirmedFields) }),
