@@ -34,7 +34,7 @@ describe("foreign-key orders from the real registry", () => {
     expect(order).toHaveLength(Object.keys(types).length);
     const at = new Map(order.map((t, i) => [t, i]));
     const all = edges(types) as { table: string; parent: string }[];
-    expect(all.length).toBe(41);
+    expect(all.length).toBe(42);
     for (const e of all) expect(at.get(e.parent)!, `${e.parent} before ${e.table}`).toBeLessThan(at.get(e.table)!);
     expect(deleteOrder(types)).toEqual([...order].reverse());
     // The pairs the old alphabetical refresh got wrong.

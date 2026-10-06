@@ -78,7 +78,7 @@ describe("the CLI", () => {
     expect(out.stdout).toContain("0. refuse unless d1/schema.sql + d1/types.json are what the snapshots generate: ok today");
     expect(out.stdout).toMatch(/2\. refuse unless the site still reads Supabase .*: ok today for wrangler\.jsonc \+ \.env\.local/);
     expect(out.stdout).toContain("DROP TABLE IF EXISTS, children first");
-    expect(out.stdout).toContain('{"CASCADE":23,"SET NULL":14,"NO ACTION":4}');
+    expect(out.stdout).toContain('{"CASCADE":23,"SET NULL":15,"NO ACTION":4}');
     expect(out.stdout).toContain("--i-mean-it");
   });
 
@@ -177,7 +177,7 @@ describe.skipIf(!DatabaseSync)("rebuild against a real SQLite with foreign keys 
       expect(out, `pass ${pass}`).toEqual({ ok: true, stage: "done", problems: [] });
       expect(counts(target.db)).toEqual(want);
       expect(target.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-      expect(await foreignKeysByAction(target.run, Object.keys(types))).toEqual({ CASCADE: 23, "SET NULL": 14, "NO ACTION": 4 });
+      expect(await foreignKeysByAction(target.run, Object.keys(types))).toEqual({ CASCADE: 23, "SET NULL": 15, "NO ACTION": 4 });
       expect(diffStructure(await expectedStructure(schemaSql), target.run("select type, name, tbl_name, sql from sqlite_master where substr(name,1,7) <> 'sqlite_'"))).toEqual([]);
     }
     // The 16 restored defaults are live: the upsert that used to fail with 23502 works.
