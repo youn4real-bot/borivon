@@ -117,10 +117,11 @@
   // the response has gone out, and logged when the two disagree.
   "vars": {
     "CF_CRONS_ENABLED": "true",
-    "SHADOW_D1_RATE": "0.25",
+    "SHADOW_D1_RATE": "0",
     "ASSISTANT_ENABLED": "false",
-    "DATA_BACKEND": "supabase",
-    "MAINTENANCE_WRITES": "0"
+    "DATA_BACKEND": "d1",
+    "MAINTENANCE_WRITES": "0",
+    "STORAGE_BACKEND": "r2"
   },
   "observability": {
     "enabled": true
