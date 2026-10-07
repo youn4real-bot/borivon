@@ -138,6 +138,13 @@ describe("keep-alive", () => {
     }
   });
 
+  it("its ok lines survive production: removeConsole strips console.log, so they go out as warn", () => {
+    const src = fs.readFileSync("lib/supabaseFreePlanSafety.ts", "utf8");
+    expect(src).toMatch(/log\.warn\(`\[supabase-keepalive\] ok/);
+    expect(src).toMatch(/log\.warn\(`\[auth-backup\] ok/);
+    expect(src).not.toMatch(/log\.log\(/);
+  });
+
   it("a dead Supabase is alerted, and neither that nor a broken alerter throws out of the cron", async () => {
     for (const mode of ["down", "reject"] as const) {
       const sb = fakeSupabase(ACCOUNTS, { keepAlive: mode });

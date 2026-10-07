@@ -35,10 +35,15 @@ describe("the flag", () => {
     expect(writesFrozen({ MAINTENANCE_WRITES: "1" })).toBe(true);
   });
 
-  it("ships OFF in wrangler.jsonc", () => {
+  it("never rests frozen in wrangler.jsonc, and keeps STORAGE_BACKEND once R2 has served files", () => {
+    // Cut over 2026-10-06 (docs/cutover-runbook.md): D1 holds the data, R2 the files.
+    // A freeze is minutes long and never committed as the resting state. Deleting
+    // STORAGE_BACKEND would 404 every file URL minted while R2 was active.
     const src = fs.readFileSync("wrangler.jsonc", "utf8");
     expect(src).toMatch(/"MAINTENANCE_WRITES":\s*"0"/);
-    expect(src).toMatch(/"DATA_BACKEND":\s*"supabase"/);
+    expect(src).toMatch(/"DATA_BACKEND":\s*"(supabase|d1)"/);
+    expect(src).toMatch(/"STORAGE_BACKEND":\s*"(r2|supabase)"/);
+    if (/"DATA_BACKEND":\s*"d1"/.test(src)) expect(src).toMatch(/"SHADOW_D1_RATE":\s*"0"/);
   });
 });
 

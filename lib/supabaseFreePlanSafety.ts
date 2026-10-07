@@ -218,7 +218,9 @@ export async function authUsersBackup(deps: SafetyDeps): Promise<BackupResult> {
     } catch (e) {
       pruneError = errText(e);
     }
-    deps.log.log(`[auth-backup] ok ${key} accounts=${accounts.length} bytes=${sealed.length} pruned=${pruned}`);
+    // warn, not log: next.config's removeConsole strips console.log in production,
+    // and the runbook's Day-3 check looks for this exact line in the Worker logs.
+    deps.log.warn(`[auth-backup] ok ${key} accounts=${accounts.length} bytes=${sealed.length} pruned=${pruned}`);
     return { state: "written", key, accounts: accounts.length, bytes: sealed.length, pruned, ...(pruneError ? { pruneError } : {}) };
   } catch (e) {
     return { state: "failed", detail: errText(e) };
@@ -291,7 +293,8 @@ export async function runSupabaseFreePlanSafety(overrides: Partial<SafetyDeps> =
     const alive = await supabaseKeepAlive(deps);
     if (alive.ok) {
       summary.keepAlive = "ok";
-      deps.log.log(`[supabase-keepalive] ok (app_settings rows=${alive.rows ?? "?"})`);
+      // warn, not log: removeConsole strips console.log in production (see [auth-backup] ok).
+      deps.log.warn(`[supabase-keepalive] ok (app_settings rows=${alive.rows ?? "?"})`);
     } else {
       await loud("Supabase keep-alive failed", alive.detail, KEEPALIVE_ADVICE);
     }

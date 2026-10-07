@@ -94,9 +94,13 @@ describe("backendProblems — refuse unless every source says the site reads Sup
   const supabaseDeployed = { bindings: [{ name: "DATA_BACKEND", type: "plain_text", text: "supabase" }] };
   const wrangler = (body: string) => `{\n  "name": "borivon",\n  ${body}\n}`;
 
-  it("passes this checkout's wrangler.jsonc, and 'supabase' set explicitly everywhere", () => {
-    expect(backendProblems({ wranglerText: fs.readFileSync("wrangler.jsonc", "utf8"), envLocalText: "", deployed: supabaseDeployed })).toEqual([]);
+  it("passes 'supabase' set explicitly everywhere", () => {
     expect(backendProblems({ wranglerText: wrangler('"vars": { "DATA_BACKEND": "supabase" }'), envLocalText: 'DATA_BACKEND="supabase"', deployed: { bindings: [] } })).toEqual([]);
+  });
+
+  it("refuses this checkout since the 2026-10-06 cutover: D1 now holds the only copy of new writes", () => {
+    const problems = backendProblems({ wranglerText: fs.readFileSync("wrangler.jsonc", "utf8"), envLocalText: "", deployed: supabaseDeployed });
+    expect(problems).toEqual([expect.stringMatching(/^wrangler\.jsonc vars\.DATA_BACKEND is "d1"$/)]);
   });
 
   it("refuses when any one source may point at D1 — or cannot be read", () => {

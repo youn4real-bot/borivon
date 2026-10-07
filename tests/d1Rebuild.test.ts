@@ -76,7 +76,8 @@ describe("the CLI", () => {
     expect(out.status).toBe(0);
     expect(out.stdout).toMatch(/^DRY RUN/);
     expect(out.stdout).toContain("0. refuse unless d1/schema.sql + d1/types.json are what the snapshots generate: ok today");
-    expect(out.stdout).toMatch(/2\. refuse unless the site still reads Supabase .*: ok today for wrangler\.jsonc \+ \.env\.local/);
+    // Since the 2026-10-06 cutover D1 is the backend, so a rebuild must refuse.
+    expect(out.stdout).toMatch(/2\. refuse unless the site still reads Supabase .*: REFUSED today:\s+- wrangler\.jsonc vars\.DATA_BACKEND is "d1"/);
     expect(out.stdout).toContain("DROP TABLE IF EXISTS, children first");
     expect(out.stdout).toContain('{"CASCADE":23,"SET NULL":15,"NO ACTION":4}');
     expect(out.stdout).toContain("--i-mean-it");
