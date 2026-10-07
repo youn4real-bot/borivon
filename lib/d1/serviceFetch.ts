@@ -40,23 +40,45 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
  * an admin resetting a compromised account would leave every stolen session and
  * refresh token alive. They are not data: never journaled, never frozen.
  *
- * app_delete_user is deliberately NOT here: it deletes public rows too, and
- * delete-user/route.ts already falls back to the D1 row sweep plus
- * auth.admin.deleteUser when D1 answers PGRST202.
+ * app_delete_user is deliberately NOT here: it deletes public rows too, so it
+ * is a data write — frozen like one. It is ROUTED to Supabase all the same
+ * (SUPABASE_SIDE_RPCS below).
  */
 export const AUTH_RPCS = new Set(["admin_force_logout"]);
 
-export function isAuthRpc(url: string): boolean {
+/**
+ * RPCs answered by Supabase even on "d1". app_delete_user removes the login
+ * (auth.users) — which only Supabase holds — together with every row FK'd to
+ * it in Supabase's own tables. Callers first clear the same rows on D1
+ * (lib/authLinkedRows.ts deleteAuthLinkedRows, journaled like any delete), so
+ * both sides end identical and a rollback replay finds nothing left to do.
+ * The fallback it replaces, auth.admin.deleteUser, is blocked by Supabase's
+ * NO ACTION key invite_tokens.used_by for anyone who signed up with an invite:
+ * the account was banned and scrambled instead of deleted. Not journaled
+ * (Supabase did it already); still frozen (it writes data).
+ */
+export const SUPABASE_SIDE_RPCS = new Set([...AUTH_RPCS, "app_delete_user"]);
+
+function rpcNameOf(url: string): string | null {
   let pathname: string;
-  try { pathname = new URL(url, "http://auth-rpc.invalid").pathname; } catch { return false; }
-  const rpc = pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)$/);
-  return !!rpc && AUTH_RPCS.has(rpc[1]);
+  try { pathname = new URL(url, "http://auth-rpc.invalid").pathname; } catch { return null; }
+  return pathname.match(/\/rest\/v1\/rpc\/([A-Za-z0-9_]+)$/)?.[1] ?? null;
 }
 
-/** Auth-only RPCs to Supabase; every other request to the data backend. */
+export function isAuthRpc(url: string): boolean {
+  const rpc = rpcNameOf(url);
+  return !!rpc && AUTH_RPCS.has(rpc);
+}
+
+export function isSupabaseSideRpc(url: string): boolean {
+  const rpc = rpcNameOf(url);
+  return !!rpc && SUPABASE_SIDE_RPCS.has(rpc);
+}
+
+/** Supabase-side RPCs to Supabase; every other request to the data backend. */
 export function routeAuthRpcs(supabase: typeof fetch, data: typeof fetch): typeof fetch {
   return function authRpcRouter(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    return isAuthRpc(urlOf(input)) ? supabase(input as RequestInfo, init) : data(input as RequestInfo, init);
+    return isSupabaseSideRpc(urlOf(input)) ? supabase(input as RequestInfo, init) : data(input as RequestInfo, init);
   } as typeof fetch;
 }
 
@@ -155,7 +177,8 @@ export function buildServiceFetch(plan: ServicePlan, deps: ServiceFetchDeps): ty
       const runner = deps.runner;
       f = withWriteJournal(f, { ...(deps.journal ?? {}), runner: deps.journal?.runner ?? (runner ? async () => runner : undefined) });
     }
-    // Outside the journal: an auth RPC is not a data write a rollback replays.
+    // Outside the journal: a Supabase-side RPC already ran on Supabase, so a
+    // rollback has nothing to replay for it.
     f = routeAuthRpcs(deps.base, f);
   } else {
     f = plan.shadow ? withShadowReads(deps.base) : deps.base;

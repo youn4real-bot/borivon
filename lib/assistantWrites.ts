@@ -33,6 +33,7 @@ import { collectUserStorage, removeUserStorage } from "@/lib/deleteUserStorage";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { isFunnelStage } from "@/lib/batchBoard";
 import { UUID_RE } from "@/lib/uuid";
+import { deleteAuthLinkedRows } from "@/lib/authLinkedRows";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { normalizeReq } from "@/lib/impfungJourney";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -1435,6 +1436,10 @@ async function writeDeleteCandidate(userId: string): Promise<WriteResult> {
   // PUBLIC profile + feed photos) BEFORE the cascade drops the rows that name
   // them — the SAME sweep the website's delete-user route runs.
   const storage = await collectUserStorage(db, userId);
+  // D1 has no foreign keys to the logins: clear this login's rows there first
+  // (lib/authLinkedRows.ts), then the RPC deletes the login on Supabase.
+  const linked = await deleteAuthLinkedRows(db, userId);
+  if (linked.error) return { ok: false, error: "delete_failed" };
   const { error } = await db.rpc("app_delete_user", { p_uid: userId });
   if (error) return { ok: false, error: "delete_failed" };
   // Rows gone — drop the now-orphaned objects (best-effort, never throws).

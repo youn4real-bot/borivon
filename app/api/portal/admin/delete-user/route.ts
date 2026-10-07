@@ -4,6 +4,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { makeDriveRestClient } from "@/lib/googleDriveShim";
 import { UUID_RE } from "@/lib/uuid";
 import { deleteUserStorage } from "@/lib/deleteUserStorage";
+import { deleteAuthLinkedRows } from "@/lib/authLinkedRows";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
@@ -161,6 +162,14 @@ export async function POST(req: NextRequest) {
   // app_delete_user (supabase/hard_delete_user.sql) clears EVERY table whose
   // FK points at auth.users(id) then deletes the auth row, all in one tx.
   // No soft-delete, no ghost account — Delete means gone, everywhere.
+  // On D1 the data holds no foreign keys to the logins, so the rows tied to
+  // this login are cleared there first (journaled); the RPC then runs on
+  // Supabase (lib/d1/serviceFetch.ts SUPABASE_SIDE_RPCS) for the login itself.
+  const linked = await deleteAuthLinkedRows(db, userId);
+  if (linked.error) {
+    console.error("[delete-user] clearing rows tied to the login failed:", linked.error);
+    return Response.json({ error: "Delete failed: " + linked.error }, { status: 500 });
+  }
   const { error: rpcErr } = await db.rpc("app_delete_user", { p_uid: userId });
   if (!rpcErr) {
     return Response.json({ ok: true, displayName });

@@ -154,10 +154,15 @@ then race live writes.
 ## Known gaps while D1 is the backend
 
 - `admin_force_logout` (revoke a user's sessions on password reset) still reaches Supabase: it only touches the
-  `auth` schema. `app_delete_user` (hard-delete a user) is answered by D1 as "function not found". The portal's
-  delete-user route then falls back to its row sweep on D1 plus `auth.admin.deleteUser` on Supabase, so it works.
-  **The Telegram bot's "delete candidate" (`lib/assistantWrites.ts` `writeDeleteCandidate`) returns
-  `delete_failed` for the whole window.** Delete from the portal instead.
+  `auth` schema. Deleting a user (portal and bot) first clears every row tied to the login on D1
+  (`lib/authLinkedRows.ts`, the catalog's 20 foreign keys to `auth.users`, journaled), then `app_delete_user` runs
+  **on Supabase** (`SUPABASE_SIDE_RPCS` in `lib/d1/serviceFetch.ts`): the same rows in Supabase's copy plus the login,
+  in one transaction. Both sides end identical, so a rollback has nothing extra to replay. (Fixed 2026-10-07: before,
+  the fallback swept only 9 of the 20 and `auth.admin.deleteUser` was blocked by `invite_tokens.used_by` for anyone
+  who signed up with an invite, so the account was banned and scrambled instead of deleted.)
+  One residue: the route nulls `pdf_field_mappings.created_by` on D1 to keep shared mappings, while Supabase's
+  function deletes its stale copy of those rows. 0 rows today; if a deleted admin had created mappings, R3b names
+  `pdf_field_mappings` — re-insert those rows into Supabase by hand.
 - `employers.updated_at`: after a rollback it holds the replay time, not the time of the edit on D1 (Supabase's
   `BEFORE UPDATE` trigger). Nothing reads it for decisions.
 - Files: the journal covers database rows only; files have their own safety net. While `STORAGE_BACKEND="r2"`,

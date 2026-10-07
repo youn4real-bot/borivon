@@ -20,6 +20,8 @@
  * The last two reach into Supabase's `auth` schema, which the copy does not
  * hold, so they answer with PostgREST's own "function not found" — the same
  * thing a missing migration produces, which the call sites already handle.
+ * On "d1" neither reaches this file: lib/d1/serviceFetch.ts routes both to
+ * Supabase (SUPABASE_SIDE_RPCS).
  * They must be implemented with the auth move, not faked here.
  */
 import type { PostgrestError } from "@/lib/d1/pgrest/types";

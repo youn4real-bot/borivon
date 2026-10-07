@@ -133,6 +133,30 @@ describe.skipIf(!hasSqlite)("auth-only RPCs stay on Supabase (logins are not par
     expect(scheduled).toHaveLength(0);                         // neither was journaled
   });
 
+  it("on d1: app_delete_user reaches Supabase (it owns the login), unjournaled — but a freeze still stops it", async () => {
+    const net = network();
+    const sql: string[] = [];
+    const runner = sqliteRunner(openDb({ schema: true }), (s) => sql.push(s));
+    const scheduled: Promise<void>[] = [];
+    const f = buildServiceFetch({ backend: "d1", shadow: false, freeze: false }, {
+      base: net.f, runner, journal: { schedule: (w) => { scheduled.push(w()); }, log: () => {} },
+    });
+    const res = await f(`${SB}/rest/v1/rpc/app_delete_user`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ p_uid: "11111111-1111-4111-8111-111111111111" }) });
+    expect(res.status).toBe(200);
+    expect(net.calls).toEqual(["POST /rest/v1/rpc/app_delete_user"]);
+    expect(sql).toEqual([]);
+    await Promise.all(scheduled);
+    expect(scheduled).toHaveLength(0);
+
+    for (const backend of ["d1", "supabase"] as const) {
+      const frozenNet = network();
+      const frozen = buildServiceFetch({ backend, shadow: false, freeze: true }, { base: frozenNet.f, runner: sqliteRunner(openDb({ schema: true })), journal: false });
+      const refused = await frozen(`${SB}/rest/v1/rpc/app_delete_user`, { method: "POST", body: "{}" });
+      expect(refused.status, backend).toBe(503);
+      expect(frozenNet.calls, backend).toEqual([]);
+    }
+  });
+
   it("the write freeze lets it through on either backend — revoking sessions is not a data write", async () => {
     for (const backend of ["d1", "supabase"] as const) {
       const net = network();
