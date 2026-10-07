@@ -66,3 +66,28 @@ describe("SENSITIVE_TABLES", () => {
     expect(new Set(SENSITIVE_TABLES).size).toBe(SENSITIVE_TABLES.length);
   });
 });
+
+describe("runRlsWatchdog", () => {
+  it("closes every probe's body — an unread one holds one of a Worker's six connections", async () => {
+    const { vi } = await import("vitest");
+    const { runRlsWatchdog } = await import("@/lib/rlsWatchdog");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://proj.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
+    let opened = 0, cancelled = 0;
+    vi.stubGlobal("fetch", async () => {
+      opened++;
+      const body = new ReadableStream({ cancel() { cancelled++; } });
+      return new Response(body, { status: 206, headers: { "content-range": "0-0/0" } });
+    });
+    try {
+      const r = await runRlsWatchdog("2026-10-07T00:00:00.000Z");
+      expect(r.checked).toBe(SENSITIVE_TABLES.length);
+      expect(r.errored).toEqual([]);
+      expect(opened).toBe(SENSITIVE_TABLES.length);
+      expect(cancelled).toBe(SENSITIVE_TABLES.length);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+});

@@ -81,6 +81,12 @@ export async function runRlsWatchdog(now: string = new Date().toISOString()): Pr
           signal: AbortSignal.timeout(5000),
           cache: "no-store",
         });
+        // Only the status and Content-Range matter. An unread body keeps its
+        // connection open, and a Worker allows six: with two dozen probes in
+        // flight the runtime cancelled the stalled ones ("A stalled HTTP
+        // response was canceled to prevent deadlock"), and those tables came
+        // back as "could not check".
+        await r.body?.cancel().catch(() => {});
         // 401/403 = refused (revoked grant) → definitely safe, rows 0.
         if (r.status === 401 || r.status === 403) return { table, rows: 0, status: r.status };
         if (r.status === 200 || r.status === 206) return { table, rows: totalFromContentRange(r.headers.get("content-range")) ?? 0, status: r.status };
