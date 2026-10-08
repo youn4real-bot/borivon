@@ -611,6 +611,49 @@ describe.skipIf(!DatabaseSync)("runs against the real D1 schema", () => {
     expect(mine(cmp("created_at", "eq", "2026-02-01T00:00:00.000Z"))).toEqual(["2026-02-01T00:00:00+00:00"]);
   });
 
+  it("compares a timestamp by instant whichever spelling the row and the operand carry", () => {
+    // Imported rows are trimmed (`.15`, nothing for a whole second), a D1 DEFAULT
+    // writes six digits, and a `+00:00` operand is kept as sent. Live Supabase
+    // finds `.150000+00:00` for a stored `.15`; byte-wise it is neither equal nor
+    // on the same side of it, and a trimmed operand missed a six-digit row too.
+    const doc = db.prepare(`INSERT INTO documents (id, user_id, file_name, file_path, uploaded_at) VALUES (?,?,?,?,?)`);
+    doc.run("i1", "instant", "trimmed", "i1", "2026-03-01T00:00:00.15+00:00");
+    doc.run("i2", "instant", "default", "i2", "2026-03-02T00:00:00.155000+00:00");
+    doc.run("i3", "instant", "whole", "i3", "2026-03-03T00:00:00+00:00");
+    doc.run("i4", "instant", "later", "i4", "2026-03-03T00:00:00.000001+00:00");
+    doc.run("i5", "instant", "none", "i5", null);
+    const mine = (...extra: Where[]) => names(run(intent({
+      table: "documents", select: [{ column: "file_name" }],
+      where: [cmp("user_id", "eq", "instant"), ...extra], order: [{ column: "uploaded_at", ascending: true }],
+    })));
+    for (const [spelled, row] of [
+      ["2026-03-01T00:00:00.150000+00:00", "trimmed"],
+      ["2026-03-01T00:00:00.1500+00:00", "trimmed"],
+      ["2026-03-02T00:00:00.155+00:00", "default"],
+      ["2026-03-02T00:00:00.155Z", "default"],
+      ["2026-03-03T00:00:00.000000+00:00", "whole"],
+      ["2026-03-03T01:00:00.0+01:00", "whole"],
+    ]) {
+      expect(mine(cmp("uploaded_at", "eq", spelled)), spelled).toEqual([row]);
+      expect(mine(cmp("uploaded_at", "eq", spelled, true)), spelled).not.toContain(row);
+      expect(mine(cmp("uploaded_at", "neq", spelled)), spelled).not.toContain(row);
+      expect(mine(cmp("uploaded_at", "gte", spelled)), spelled).toContain(row);
+      expect(mine(cmp("uploaded_at", "lte", spelled)), spelled).toContain(row);
+      expect(mine(cmp("uploaded_at", "gt", spelled)), spelled).not.toContain(row);
+      expect(mine(cmp("uploaded_at", "lt", spelled)), spelled).not.toContain(row);
+      expect(mine(cmp("uploaded_at", "isdistinct", spelled)), spelled).toEqual(["trimmed", "default", "whole", "later", "none"].filter((n) => n !== row));
+      expect(mine(cmp("uploaded_at", "in", [spelled, "2031-01-01T00:00:00Z"])), spelled).toEqual([row]);
+    }
+    // One microsecond on is another instant, on the right side of every spelling.
+    expect(mine(cmp("uploaded_at", "gt", "2026-03-03T00:00:00.000000+00:00"))).toEqual(["later"]);
+    expect(mine(cmp("uploaded_at", "lte", "2026-03-03T00:00:00+00:00"))).toEqual(["trimmed", "default", "whole"]);
+    // A NULL row is in no comparison, negated or not, as in Postgres.
+    expect(mine(cmp("uploaded_at", "neq", "2026-03-03T00:00:00+00:00"))).toEqual(["trimmed", "default", "later"]);
+    // An operand that is no instant keeps the plain comparison.
+    expect(mine(cmp("uploaded_at", "lt", "infinity"))).toEqual(["trimmed", "default", "whole", "later"]);
+    db.exec(`DELETE FROM documents WHERE user_id = 'instant'`);   // the tests below count every document
+  });
+
   it("reads a json path into an alias", () => {
     const i = intent({
       table: "candidate_profiles",

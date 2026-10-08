@@ -67,6 +67,30 @@ function dateToStoredTimestamp(d: Date): string {
 }
 
 /**
+ * Every spelling the copy can hold for the UTC instant `stored`, Postgres' own
+ * (the trimmed fraction) first and six digits last — or null when `stored` is not
+ * a stored-form instant (`…T17:25:01[.1-6 digits]+00:00`).
+ *
+ * The copy holds one instant in more than one spelling: imported rows carry what
+ * Postgres printed (`.15+00:00`, nothing for a whole second), a D1 column DEFAULT
+ * writes six digits (`.150000+00:00`, d1/gen-schema.mjs nowExpr), and a `+00:00`
+ * value a caller writes or filters with is kept as sent. Between the first and
+ * the last of these lie only spellings of the same instant: a fraction digit
+ * sorts above the `+` that ends a shorter fraction, and `.` above the `+` of a
+ * whole second, so every other instant sorts wholly below the first or wholly
+ * above the last. buildSql compares against those two ends.
+ */
+export function storedTimestampSpellings(stored: unknown): string[] | null {
+  if (typeof stored !== "string") return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?\+00:00$/.exec(stored);
+  if (!m) return null;
+  const digits = (m[2] ?? "").replace(/0+$/, "");
+  const out = digits ? [] : [`${m[1]}+00:00`];
+  for (let width = Math.max(digits.length, 1); width <= 6; width++) out.push(`${m[1]}.${digits.padEnd(width, "0")}+00:00`);
+  return out;
+}
+
+/**
  * Assign one output key.
  *
  * `__proto__` is the one name that cannot be written with plain assignment: it

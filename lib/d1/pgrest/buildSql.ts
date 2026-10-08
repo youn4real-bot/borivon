@@ -52,7 +52,7 @@ import type {
 // byte-for-byte with the rows d1/export-data.mjs already wrote — and a
 // disagreement is invisible: the filter simply stops matching. Both imports are
 // pure functions; nothing else of decode.ts is used.
-import { encodeValue, selectSqlKey, sqlArrowKeys } from "./decode";
+import { encodeValue, selectSqlKey, sqlArrowKeys, storedTimestampSpellings } from "./decode";
 // The write half of Postgres' type checking: what a column's input function makes
 // of a payload value, or the 22P02 / 22007 / 22008 it refuses it with.
 import { isInputError, jsonbStoredText, writeInput } from "./pgInput";
@@ -519,9 +519,45 @@ export function likeSql(ref: string, pattern: string, caseInsensitive: boolean, 
   return tooDeep(lowered) ?? substrLikeSql(`lower(${folded.column})`, lowered);
 }
 
+/**
+ * A timestamptz comparison against the instant, not one spelling of it.
+ *
+ * Postgres compares instants; the copy holds an instant in up to seven spellings
+ * (decode.ts storedTimestampSpellings) and SQLite compares their bytes. Against
+ * the operand's own spelling, `eq.…13.658640+00:00` found its row on Supabase and
+ * nothing here, `gte` dropped it and `lt` kept it (measured live on documents,
+ * candidate_profiles, invite_tokens and calendar_events) — and the same happens
+ * to a `.155000+00:00` row a D1 DEFAULT wrote, filtered with the `.155` a JS Date
+ * gives. Comparing against the first and last spelling answers for all of them,
+ * and stays a range on the column, so its index still serves it. null for an
+ * operand that is no stored-form instant (`infinity`, a value timestamptzIn
+ * could not judge): that keeps the plain comparison.
+ */
+function timestampComparisonSql(ctx: Ctx, ref: string, op: FilterOp, value: unknown): string | null {
+  const spellings = storedTimestampSpellings(encodeParam(value, "timestamptz"));
+  if (!spellings) return null;
+  const first = spellings[0];
+  const last = spellings[spellings.length - 1];
+  const push = (...v: unknown[]) => { ctx.params.push(...v); };
+  switch (op) {
+    case "eq":  push(first, last); return `(${ref} BETWEEN ? AND ?)`;
+    case "neq": push(first, last); return `(${ref} NOT BETWEEN ? AND ?)`;
+    case "gt":  push(last); return `${ref} > ?`;
+    case "gte": push(first); return `${ref} >= ?`;
+    case "lt":  push(first); return `${ref} < ?`;
+    case "lte": push(last); return `${ref} <= ?`;
+    case "isdistinct": push(first, last); return `(${ref} IS NULL OR ${ref} NOT BETWEEN ? AND ?)`;
+    default: return null;
+  }
+}
+
 /** One comparison of `ref` with one operand — shared by plain and quantified filters. */
 function comparisonSql(ctx: Ctx, col: ColumnMeta, ref: string, op: FilterOp, value: unknown): string {
   const push = (v: unknown) => { ctx.params.push(v); };
+  if (col.pg === "timestamptz") {
+    const instant = timestampComparisonSql(ctx, ref, op, value);
+    if (instant !== null) return instant;
+  }
   switch (op) {
     case "eq":  push(encodeParam(value, col.pg)); return `${ref} = ?`;
     case "neq": push(encodeParam(value, col.pg)); return `${ref} <> ?`;
@@ -598,7 +634,11 @@ function conditionSql(ctx: Ctx, c: Condition): string {
       // grew past 100 candidates. Items are still encoded per column type, so
       // affinity works exactly as it did with placeholders.
       expr = `${ref} IN (SELECT value FROM json_each(?))`;
-      push(JSON.stringify(list.map((v) => encodeParam(v, col.pg))));
+      // A timestamp matches by instant, so each one stands for all its spellings.
+      push(JSON.stringify(list.flatMap((v) => {
+        const encoded = encodeParam(v, col.pg);
+        return (col.pg === "timestamptz" && storedTimestampSpellings(encoded)) || [encoded];
+      })));
       break;
     }
 
