@@ -278,4 +278,16 @@ describe.skipIf(!hasSqlite)("withWriteJournal against a real SQLite", () => {
     const parts = d1.prepare(`SELECT data FROM "${JOURNAL_PART_TABLE}" WHERE journal_id = ? ORDER BY n`).all(id);
     expect(parts.map((p) => String(p.data)).join("")).toBe(body);
   });
+
+  it("never cuts a part between the two halves of an emoji", async () => {
+    // Each half alone is stored as U+FFFD (SQLite and D1 alike): cut at exactly
+    // PART_CHARS, the replay wrote two replacement characters for the emoji.
+    for (const ddl of JOURNAL_DDL) await runner.run(ddl);
+    const body = JSON.stringify({ body: "x".repeat(PART_CHARS - 10) + "\u{1F600}" + "y".repeat(20) });
+    expect(body.charCodeAt(PART_CHARS - 1)).toBe(0xd83d);   // a plain cut lands inside the pair
+    const id = await appendEntry(runner, { at: FIXED_NOW, at_ms: 1, seq: 1, method: "POST", path: "/rest/v1/messages", prefer: null, body, status: 201, note: null }, null);
+    const parts = d1.prepare(`SELECT data FROM "${JOURNAL_PART_TABLE}" WHERE journal_id = ? ORDER BY n`).all(id);
+    expect(parts.map((p) => String(p.data)).join("")).toBe(body);
+    expect(parts.map((p) => String(p.data).length)).toEqual([PART_CHARS - 1, body.length - PART_CHARS + 1]);
+  });
 });

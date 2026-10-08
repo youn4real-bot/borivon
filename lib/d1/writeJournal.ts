@@ -88,6 +88,24 @@ export const JOURNAL_DDL = [
  */
 export const PART_CHARS = 500_000;
 
+/**
+ * A big body cut into parts of at most PART_CHARS — never between the two halves
+ * of a surrogate pair (an emoji). Each part is stored as UTF-8 text, where half a
+ * pair cannot exist: D1 and SQLite read each half back as U+FFFD, so the replay
+ * would have written two U+FFFD where the candidate wrote one emoji.
+ */
+export function splitBody(body: string): string[] {
+  const parts: string[] = [];
+  for (let start = 0; start < body.length;) {
+    let end = Math.min(start + PART_CHARS, body.length);
+    const last = body.charCodeAt(end - 1);
+    if (end < body.length && last >= 0xd800 && last <= 0xdbff) end--;
+    parts.push(body.slice(start, end));
+    start = end;
+  }
+  return parts;
+}
+
 /** RPCs whose writes are not part of the copy. See the header. */
 export const EPHEMERAL_RPCS = new Set(["rl_hit"]);
 
@@ -383,7 +401,8 @@ export function resetJournalForTests(): void {
 export async function appendEntry(runner: D1Runner, entry: JournalEntry, fill: (Row | null)[] | null): Promise<number> {
   await ensureTables(runner);
   const body = entry.body;
-  const parts = body !== null && body.length > PART_CHARS ? Math.ceil(body.length / PART_CHARS) : 0;
+  const chunks = body !== null && body.length > PART_CHARS ? splitBody(body) : [];
+  const parts = chunks.length;
   const answer = await runner.run(
     `INSERT INTO "${JOURNAL_TABLE}" ("at", "at_ms", "seq", "method", "path", "prefer", "body", "body_parts", "fill", "status", "note")
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING "id"`,
@@ -399,7 +418,7 @@ export async function appendEntry(runner: D1Runner, entry: JournalEntry, fill: (
   for (let n = 0; n < parts; n++) {
     await runner.run(
       `INSERT INTO "${JOURNAL_PART_TABLE}" ("journal_id", "n", "data") VALUES (?, ?, ?)`,
-      [id, n, body!.slice(n * PART_CHARS, (n + 1) * PART_CHARS)],
+      [id, n, chunks[n]],
     );
   }
   return id;
