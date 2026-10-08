@@ -651,11 +651,29 @@ async function redirectToSupabase(kind: "public" | "sign", bucket: string, path:
  * URLs work without Supabase. `kind` pins the route to its one job: the public
  * route can never answer a signed or authenticated request, whatever the URL.
  * With `rollback`, R2 is never asked: the browser is sent to Supabase.
+ *
+ * Every answer carries `Access-Control-Allow-Origin: *`, as Supabase's did
+ * (probed live, on objects and on refusals alike). The URLs are minted on
+ * www.borivon.com, but the apex borivon.com serves the same portal and carries
+ * most of its traffic; without the header a page there could not fetch() them —
+ * pdf.js opening a sign-request preview, the admin's profile-photo download —
+ * and the browser blocked them as cross-origin. No cookie is read here: the
+ * token in the URL is the whole credential, as it was on supabase.co.
  */
 export async function serveMediaRequest(
   req: Request,
   kind: "public" | "sign",
   opts: { store?: ObjectStore | null; prefix?: string; rollback?: SupabaseRedirects | null } = {},
+): Promise<Response> {
+  const res = await answerMediaRequest(req, kind, opts);
+  res.headers.set("access-control-allow-origin", "*");
+  return res;
+}
+
+async function answerMediaRequest(
+  req: Request,
+  kind: "public" | "sign",
+  opts: { store?: ObjectStore | null; prefix?: string; rollback?: SupabaseRedirects | null },
 ): Promise<Response> {
   const method = req.method.toUpperCase();
   const route = parseStorageUrl(req.url);

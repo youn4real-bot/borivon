@@ -408,6 +408,32 @@ describe("public URLs (profile-photos, feed-photos) from our own route", () => {
   });
 });
 
+describe("pages on another borivon origin can fetch() these URLs, as they could from supabase.co", () => {
+  // The URLs are minted on www.borivon.com; the apex borivon.com serves the same
+  // portal. pdf.js (sign-request preview) and the admin photo download fetch()
+  // them, so without CORS the browser blocks every one from the apex.
+  it("every answer — object, refusal, missing, rollback redirect — allows any origin, like Supabase", async () => {
+    const mem = memoryStore();
+    mem.seed("supabase/profile-photos/u.jpg", "jpg", "image/jpeg");
+    mem.seed("supabase/sign-documents/c/r.pdf", "%PDF", "application/pdf");
+    const db = r2Client(mem.store);
+    const signed = (await db.storage.from("sign-documents").createSignedUrl("c/r.pdf", 60)).data!.signedUrl;
+    const fromApex = (u: string) => new Request(u, { headers: { Origin: "https://borivon.com" } });
+    const answers = [
+      await serveMediaRequest(fromApex(`${BASE}/object/public/profile-photos/u.jpg?t=1`), "public", { store: mem.store }),
+      await serveMediaRequest(fromApex(signed), "sign", { store: mem.store }),
+      await serveMediaRequest(fromApex(`${BASE}/object/public/profile-photos/missing.jpg`), "public", { store: mem.store }),
+      await serveMediaRequest(fromApex(`${BASE}/object/public/sign-documents/c/r.pdf`), "public", { store: mem.store }),
+      await serveMediaRequest(fromApex(`${BASE}/object/sign/sign-documents/c/r.pdf?token=bad`), "sign", { store: mem.store }),
+      await serveMediaRequest(fromApex(`${BASE}/object/public/profile-photos/u.jpg`), "public", {
+        rollback: { publicUrl: () => "https://proj.supabase.co/storage/v1/object/public/profile-photos/u.jpg", signedUrl: async () => null },
+      }),
+    ];
+    expect(answers.map((r) => r.status)).toEqual([200, 200, 400, 400, 400, 302]);
+    for (const r of answers) expect(r.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
 describe("signed URLs (sign-documents, slot-templates) need a live token for that exact object", () => {
   let mem: ReturnType<typeof memoryStore>;
   let db: ReturnType<typeof r2Client>;
