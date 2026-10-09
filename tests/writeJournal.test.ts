@@ -93,6 +93,32 @@ describe("prepareWrite", () => {
     expect(out.fillPlan?.missing[0]).toEqual(["created_at"]);
   });
 
+  it("prefills an upsert row whose conflict key holds a NULL — it can only ever be inserted", () => {
+    const P = `${SB}/rest/v1/academy_point_events?on_conflict=candidate_user_id,type,source_kind,source_id`;
+    // awardPoints' manual adjustment: source_id NULL, nothing to read it back by.
+    const single = prepareWrite("POST", P, "resolution=ignore-duplicates", JSON.stringify({ candidate_user_id: U1, type: "manual", points: -2, source_kind: "admin", source_id: null }), registry, gen);
+    expect(JSON.parse(single.body!)).toMatchObject({ id: FIXED_UUID, created_at: FIXED_NOW, source_id: null });
+    expect(single.fillPlan).toBeNull();
+    expect(single.note).toBeNull();
+
+    const cols = `&columns=${encodeURIComponent('"candidate_user_id","type","points","source_kind","source_id"')}`;
+    const allNull = prepareWrite("POST", P + cols, "resolution=ignore-duplicates", JSON.stringify([
+      { candidate_user_id: U1, type: "manual", points: 1, source_kind: "admin", source_id: null },
+      { candidate_user_id: U1, type: "manual", points: 2, source_kind: null, source_id: null },
+    ]), registry, gen);
+    expect(JSON.parse(allNull.body!).every((r: Record<string, unknown>) => r.id === FIXED_UUID && r.created_at === FIXED_NOW)).toBe(true);
+    expect(new URL(allNull.url).searchParams.get("columns")).toBe('"candidate_user_id","type","points","source_kind","source_id","id","created_at"');
+
+    // One keyed row beside it: listing id would make the keyed row's id NULL on
+    // D1 itself, so nothing is prefilled and the fill reads the keyed row back.
+    const mixed = prepareWrite("POST", P + cols, "resolution=ignore-duplicates", JSON.stringify([
+      { candidate_user_id: U1, type: "quiz", points: 5, source_kind: "quiz", source_id: U1 },
+      { candidate_user_id: U1, type: "manual", points: 2, source_kind: "admin", source_id: null },
+    ]), registry, gen);
+    expect(mixed.changed).toBe(false);
+    expect(mixed.note).toBe("fill-unkeyed");
+  });
+
   it("leaves updates, deletes, unknown tables and unparseable bodies alone", () => {
     for (const [m, url, body] of [
       ["PATCH", `${N}?id=eq.${U1}`, JSON.stringify({ read: true })],

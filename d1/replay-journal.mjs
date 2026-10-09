@@ -62,7 +62,7 @@ export const REPLAYED_DDL = `CREATE TABLE IF NOT EXISTS "${REPLAYED_TABLE}" (
 
 /** Notes the journal leaves on an entry whose replay cannot be exact. */
 const NOTE_WARNINGS = {
-  "fill-unkeyed": "an upserted row had no conflict key; a newly inserted row gets a new id on Supabase",
+  "fill-unkeyed": "an upserted row had no conflict key; rows this upsert inserted get new ids on Supabase",
   "fill-partial": "some generated values could not be read back; those rows get new ids on Supabase",
   "fill-failed": "generated values could not be read back; newly inserted rows get new ids on Supabase",
 };
@@ -126,16 +126,31 @@ export function mergeFill(pathAndQuery, bodyText, fill) {
   if (!fill || bodyText == null) return { path: pathAndQuery, body: bodyText };
   const parsed = JSON.parse(bodyText);
   const rows = Array.isArray(parsed) ? parsed : [parsed];
-  const added = [];
+  const has = (row, k) => !!row && typeof row === "object" && Object.prototype.hasOwnProperty.call(row, k);
+  const merged = rows.map(() => []);
   rows.forEach((row, i) => {
     const f = fill[i];
     if (!f || !row || typeof row !== "object") return;
     for (const [k, v] of Object.entries(f)) {
-      if (Object.prototype.hasOwnProperty.call(row, k)) continue;
+      if (has(row, k)) continue;
       row[k] = v;
-      if (!added.includes(k)) added.push(k);
+      merged[i].push(k);
     }
   });
+  // A bulk write names its columns once for EVERY row (`columns=`; without it
+  // PostgREST refuses rows whose keys differ): a row that lacks one is NULL
+  // there, so `id` merged into some rows only (the others had nothing to read
+  // back — fill-unkeyed, fill-partial) made Supabase refuse the whole entry with
+  // 23502 and halted the replay. Such a column is not merged at all: the rows
+  // the upsert inserted get fresh defaults on Supabase, as its WARN line says.
+  const added = [];
+  for (const k of [...new Set(merged.flat())]) {
+    if (Array.isArray(parsed) && !rows.every((row) => has(row, k))) {
+      rows.forEach((row, i) => { if (merged[i].includes(k)) delete row[k]; });
+    } else {
+      added.push(k);
+    }
+  }
   let outPath = pathAndQuery;
   const q = pathAndQuery.indexOf("?");
   if (added.length && q >= 0) {

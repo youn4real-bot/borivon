@@ -62,15 +62,29 @@ describe("pure pieces", () => {
   it("merges generated values into upsert rows and lists them in columns=, touching nothing else", () => {
     const path = `/rest/v1/employers?on_conflict=slug&columns=${encodeURIComponent('"slug","name"')}&select=*`;
     const body = JSON.stringify([{ slug: "a", name: "A" }, { slug: "b", name: "B", id: ID(9) }]);
-    const out = mergeFill(path, body, [{ id: ID(1), created_at: "2026-09-14T10:00:00.000000+00:00" }, { id: ID(2) }]);
+    const out = mergeFill(path, body, [{ id: ID(1), created_at: "2026-09-14T10:00:00.000000+00:00" }, { id: ID(2), created_at: "2026-09-14T11:00:00.000000+00:00" }]);
     expect(JSON.parse(out.body!)).toEqual([
       { slug: "a", name: "A", id: ID(1), created_at: "2026-09-14T10:00:00.000000+00:00" },
-      { slug: "b", name: "B", id: ID(9) },                          // the caller's own id wins
+      { slug: "b", name: "B", id: ID(9), created_at: "2026-09-14T11:00:00.000000+00:00" },   // the caller's own id wins
     ]);
     expect(out.path.startsWith("/rest/v1/employers?on_conflict=slug&columns=")).toBe(true);
     expect(out.path.endsWith("&select=*")).toBe(true);
     expect(new URL(out.path, SB).searchParams.get("columns")).toBe('"slug","name","id","created_at"');
     expect(mergeFill(path, body, null)).toEqual({ path, body });
+  });
+
+  it("never lists a merged column that some rows of a bulk upsert would carry as NULL", () => {
+    // Row 1 was read back; row 2 had a NULL conflict key, so nothing could be.
+    // Listing id for both made Supabase insert row 2 with id NULL: 23502, HALT.
+    const path = `/rest/v1/academy_point_events?on_conflict=candidate_user_id,type,source_kind,source_id&columns=${encodeURIComponent('"candidate_user_id","type","points","source_id"')}`;
+    const body = JSON.stringify([{ candidate_user_id: U1, type: "quiz", points: 5, source_id: ID(7) }, { candidate_user_id: U1, type: "manual", points: 1, source_id: null }]);
+    const out = mergeFill(path, body, [{ id: ID(1), created_at: "2026-09-14T10:00:00.000000+00:00" }, null]);
+    expect(out.path).toBe(path);
+    expect(out.body).toBe(body);
+    // A column every row carries is still merged and listed.
+    const both = mergeFill(path, body, [{ id: ID(1) }, { id: ID(2) }]);
+    expect(JSON.parse(both.body!).map((r: { id: string }) => r.id)).toEqual([ID(1), ID(2)]);
+    expect(new URL(both.path, SB).searchParams.get("columns")).toBe('"candidate_user_id","type","points","source_id","id"');
   });
 
   it("redacts values from PostgREST messages but keeps constraint names", () => {

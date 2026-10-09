@@ -262,24 +262,38 @@ export function prepareWrite(
   const timeValue = (offsetMs: number) => (offsetMs === 0 ? nowValue : new Date(Date.parse(nowValue) + offsetMs).toISOString());
   let changed = false;
   const added: string[] = [];
+  const has = (r: Row, name: string) => Object.prototype.hasOwnProperty.call(r, name);
+  // An upsert row whose (non-key) conflict target holds a NULL can never
+  // conflict — a NULL is distinct from every other value in a unique index, in
+  // Postgres and SQLite alike — so it is always an insert, and every value the
+  // database would invent for it can be prefilled like a plain insert's. Left to
+  // the fill instead, it had no key to be read back by, and the replay gave it a
+  // new id and created_at (awardPoints' manual adjustments, source_id NULL).
+  const alwaysInsert = rows.map((r) => upsert && !conflictIsPk && keyCols.some((k) => r[k] === null || r[k] === undefined));
 
   for (const [name, make] of generators) {
-    // An upsert may only have its KEY prefilled, and only when the conflict
-    // target is that key: a row without it can never conflict, so it is always
-    // an insert, and a fresh id is exactly what the database would have given
-    // it. Anything else on an upsert would be written on the UPDATE path too.
-    if (upsert && !(conflictIsPk && meta.pk.includes(name))) continue;
+    // Otherwise an upsert may only have its KEY prefilled, and only when the
+    // conflict target is that key: a row without it can never conflict, so it is
+    // always an insert, and a fresh id is exactly what the database would have
+    // given it. Anything else on an upsert would be written on the UPDATE path too.
+    const keyOfPkUpsert = upsert && conflictIsPk && meta.pk.includes(name);
+    const eligible = (i: number) => !upsert || keyOfPkUpsert || alwaysInsert[i];
+    const lacking = rows.map((_, i) => i).filter((i) => !has(rows[i], name));
+    if (!lacking.some(eligible)) continue;
     const inColumns = columns?.includes(name) ?? false;
     // A column listed in `columns` but absent from a row is NULL in PostgREST
     // (unless missing=default) — prefilling it would turn an insert that fails
     // on Supabase into one that succeeds on D1. Leave that semantics alone.
     if (columns && inColumns && !missingDefault) continue;
-    for (const row of rows) {
-      if (Object.prototype.hasOwnProperty.call(row, name)) continue;
-      row[name] = make.kind === "uuid" ? (gen.uuid ?? (() => crypto.randomUUID()))() : timeValue(make.offsetMs);
+    // Adding a column to `columns` names it for EVERY row: a row left without it
+    // would then be NULL there, not defaulted. So only when every row gets it.
+    if (columns && !lacking.every(eligible)) continue;
+    for (const i of lacking) {
+      if (!eligible(i)) continue;
+      rows[i][name] = make.kind === "uuid" ? (gen.uuid ?? (() => crypto.randomUUID()))() : timeValue(make.offsetMs);
       changed = true;
     }
-    if (columns && !inColumns && rows.some((r) => Object.prototype.hasOwnProperty.call(r, name))) added.push(name);
+    if (columns && !inColumns && rows.some((r) => has(r, name))) added.push(name);
   }
 
   if (added.length && columns) {
