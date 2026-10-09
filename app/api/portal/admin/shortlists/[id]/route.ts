@@ -13,6 +13,7 @@ import { requireAdminRole, canActOnOrg, type AdminRole } from "@/lib/admin-auth"
 import { getServiceSupabase } from "@/lib/supabase";
 import { getCandidateSummaries, genShareToken } from "@/lib/shortlist";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,8 +77,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const body = await req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
-  if (typeof body.title === "string") { const t = body.title.trim().slice(0, 200); if (!t) return NextResponse.json({ error: "Title required" }, { status: 400 }); patch.title = t; }
-  if (typeof body.note === "string") patch.note = body.note.trim().slice(0, 2000) || null;
+  if (typeof body.title === "string") { const t = clipText(body.title.trim(), 200); if (!t) return NextResponse.json({ error: "Title required" }, { status: 400 }); patch.title = t; }
+  if (typeof body.note === "string") patch.note = clipText(body.note.trim(), 2000) || null;
   if (typeof body.status === "string") {
     if (body.status !== "draft" && body.status !== "shared") return NextResponse.json({ error: "Bad status" }, { status: 400 });
     patch.status = body.status;

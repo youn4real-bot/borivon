@@ -5,6 +5,7 @@ import { bookWorkspaceEvent, cancelWorkspaceEvent } from "@/lib/workspaceCalenda
 import { keepAlive } from "@/lib/keepAlive";
 import { getAdminUserId } from "@/lib/telegram";
 import { DEFAULT_AVAILABILITY, looksLikeEmail, followUpsFor, type BookingKind } from "@/lib/booking";
+import { clipText } from "@/lib/clipText";
 
 /**
  * ADMIN side of the booking system.
@@ -107,11 +108,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const kind = body?.kind;
   const at = Number(body?.at);
-  const name = String(body?.name ?? "").trim().slice(0, 120);
-  const email = String(body?.email ?? "").trim().slice(0, 254).toLowerCase();
-  const phone = String(body?.phone ?? "").trim().slice(0, 40) || null;
-  const company = String(body?.company ?? "").trim().slice(0, 160) || null;
-  const note = String(body?.note ?? "").trim().slice(0, 1000) || null;
+  const name = clipText(String(body?.name ?? "").trim(), 120);
+  const email = clipText(String(body?.email ?? "").trim(), 254).toLowerCase();
+  const phone = clipText(String(body?.phone ?? "").trim(), 40) || null;
+  const company = clipText(String(body?.company ?? "").trim(), 160) || null;
+  const note = clipText(String(body?.note ?? "").trim(), 1000) || null;
   const minutes = Math.min(240, Math.max(10, Number(body?.minutes) || DEFAULT_AVAILABILITY.slotMinutes));
   const invite = body?.invite !== false; // default: send them a real invite
 
@@ -203,7 +204,7 @@ export async function PATCH(req: NextRequest) {
     }
     patch.status = String(body.status) as Status;
   }
-  if (body?.outcome !== undefined) patch.outcome = String(body.outcome ?? "").trim().slice(0, 2000) || null;
+  if (body?.outcome !== undefined) patch.outcome = clipText(String(body.outcome ?? "").trim(), 2000) || null;
   if (!Object.keys(patch).length) return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });
 
   const db = getServiceSupabase();

@@ -11,6 +11,7 @@ import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
   const rawSlots = Array.isArray(body?.slots) ? body.slots : [];
   const slots = [...new Set(rawSlots.filter(isRealSlot))].slice(0, 6);
   if (slots.length === 0) return NextResponse.json({ error: "Give at least one valid time slot" }, { status: 400 });
-  const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : null;
+  const note = typeof body?.note === "string" ? clipText(body.note.trim(), 500) : null;
 
   const db = getServiceSupabase();
   // Supersede any STILL-OPEN proposal for this candidate+round before inserting.

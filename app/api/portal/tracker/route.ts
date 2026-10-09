@@ -19,6 +19,7 @@ import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
 import { isFunnelStage } from "@/lib/batchBoard";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { readAllRows } from "@/lib/readAllRows";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -195,7 +196,7 @@ export async function PATCH(req: NextRequest) {
     if (!UUID_RE.test(body.batchId)) return NextResponse.json({ error: "Bad batch id" }, { status: 400 });
     // LAW #25 — an org admin can only edit notes on their OWN agency's batches.
     if (!(await canActOnBatch(auth.role, auth.email, body.batchId))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    const notes = body.notes.trim().slice(0, 5000);
+    const notes = clipText(body.notes.trim(), 5000);
     const { error } = await getServiceSupabase()
       .from("employer_batches")
       .update({ notes: notes || null })

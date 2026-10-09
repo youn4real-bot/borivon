@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleOrgIds } from "@/lib/admin-auth";
+import { clipText } from "@/lib/clipText";
 
 // Avoid 0/O, 1/I/L — easier to dictate over the phone
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -109,8 +110,8 @@ export async function POST(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const name  = typeof body?.name  === "string" ? body.name.trim().slice(0, 200)  : "";
-  const notes = typeof body?.notes === "string" ? body.notes.trim().slice(0, 500) : "";
+  const name  = typeof body?.name  === "string" ? clipText(body.name.trim(), 200)  : "";
+  const notes = typeof body?.notes === "string" ? clipText(body.notes.trim(), 500) : "";
   let code   = typeof body?.inviteCode === "string"
     ? body.inviteCode.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 32)
     : "";

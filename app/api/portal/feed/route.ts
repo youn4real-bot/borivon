@@ -6,6 +6,7 @@ import { getAccessibleOrgIds } from "@/lib/feedAccess";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 const BUCKET = "feed-photos";
 const PAGE_SIZE = 20;
@@ -297,7 +298,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Content must be 1–500 characters" }, { status: 400 });
   }
 
-  const title = typeof body.title === "string" ? body.title.trim().slice(0, 100) : null;
+  const title = typeof body.title === "string" ? clipText(body.title.trim(), 100) : null;
   const gifUrl = typeof body.gifUrl === "string" && body.gifUrl.startsWith("http") ? body.gifUrl.trim() : null;
   const category = typeof body.category === "string" ? body.category : "general";
   const validCategories = ["general", "progress", "question", "tip"];

@@ -4,13 +4,14 @@ import { requireAdminRole } from "@/lib/admin-auth";
 import {
   generateAffiliateCode, generateDashToken, hashDashToken, reconcileAffiliateEarnings,
 } from "@/lib/affiliates";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BASE = (process.env.PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/$/, "");
 const AFF_HOST = process.env.AFFILIATE_BASE_URL || "https://affiliates.borivon.com";
-const clip = (s: unknown, n: number) => (typeof s === "string" ? s : "").trim().slice(0, n);
+const clip = (s: unknown, n: number) => clipText((typeof s === "string" ? s : "").trim(), n);
 
 // Affiliates + payouts touch real money → SUPREME ADMIN ONLY (like LAW #31).
 async function gate(req: NextRequest) {

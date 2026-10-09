@@ -85,3 +85,25 @@ describe("public lead forms with an emoji at the length limit", () => {
     expect(writes.map((w) => w.status)).toEqual([201]);
   });
 });
+
+/* ── no request field is length-capped with a bare .slice(0, n) again ── */
+describe("request fields are capped with clipText", () => {
+  it("app/api has no body.<field>.slice(0, n)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (p.endsWith(".ts")) {
+          fs.readFileSync(p, "utf8").split(/\r?\n/).forEach((l, i) => {
+            if (/\bbody\??\.[A-Za-z0-9_]+(\.trim\(\))?\.slice\(0, ?\d/.test(l) || /String\(body\??\.[A-Za-z0-9_.]+( \?\? "")?\)\.trim\(\)\.slice\(0/.test(l)) hits.push(`${p}:${i + 1}`);
+          });
+        }
+      }
+    };
+    walk("app/api");
+    expect(hits).toEqual([]);
+  });
+});

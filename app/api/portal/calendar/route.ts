@@ -6,6 +6,7 @@ import { UUID_RE } from "@/lib/uuid";
 import { signFeedToken } from "@/lib/calendarFeed";
 import { googleStatus, fanOutUpsert, fanOutDelete, type PushEvent } from "@/lib/googleCalendar";
 import { listEventsInWindow, BORIVON_TZ } from "@/lib/workspaceCalendar";
+import { clipText } from "@/lib/clipText";
 
 /**
  * ONE CALENDAR. Three sources, merged in the GET below for staff:
@@ -44,7 +45,7 @@ type EventRow = {
   vip_only: boolean; created_at: string; attendee_ids: string[] | null;
 };
 
-const MAX = (s: unknown, n: number) => (typeof s === "string" ? s : "").trim().slice(0, n);
+const MAX = (s: unknown, n: number) => clipText((typeof s === "string" ? s : "").trim(), n);
 
 /** Accept only renderable, non-script image sources (https or inline image data). */
 function safeImageUrl(s: unknown): string {
@@ -86,7 +87,7 @@ async function notifyAttendees(
   const rows = userIds.map((uid) => ({
     user_id: uid,
     doc_id: eventId,
-    doc_name: title.slice(0, 200) || "Event",
+    doc_name: clipText(title, 200) || "Event",
     doc_type: "event_invite",
     action: "event_invite",
     feedback: null,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 
 /** GET — list all requirements for an org (active + inactive). */
@@ -44,11 +45,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     .from("org_requirements")
     .insert({
       org_id:     id,
-      specialty:  typeof body.specialty  === "string" ? body.specialty.trim().slice(0, 200) || null : null,
+      specialty:  typeof body.specialty  === "string" ? clipText(body.specialty.trim(), 200) || null : null,
       slots:      typeof body.slots === "number" ? Math.max(1, Math.floor(body.slots)) : 1,
-      location:   typeof body.location   === "string" ? body.location.trim().slice(0, 200)  || null : null,
+      location:   typeof body.location   === "string" ? clipText(body.location.trim(), 200)  || null : null,
       start_date: typeof body.start_date === "string" ? body.start_date || null : null,
-      notes:      typeof body.notes      === "string" ? body.notes.trim().slice(0, 500) || null : null,
+      notes:      typeof body.notes      === "string" ? clipText(body.notes.trim(), 500) || null : null,
       active:     true,
     })
     .select("id, specialty, slots, location, start_date, notes, active, created_at")
@@ -76,11 +77,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!UUID_RE.test(reqId)) return NextResponse.json({ error: "Invalid requirement id" }, { status: 400 });
 
   const updates: Record<string, unknown> = {};
-  if (typeof body.specialty  === "string")  updates.specialty  = body.specialty.trim().slice(0, 200) || null;
+  if (typeof body.specialty  === "string")  updates.specialty  = clipText(body.specialty.trim(), 200) || null;
   if (typeof body.slots      === "number")  updates.slots      = Math.max(1, Math.floor(body.slots));
-  if (typeof body.location   === "string")  updates.location   = body.location.trim().slice(0, 200) || null;
+  if (typeof body.location   === "string")  updates.location   = clipText(body.location.trim(), 200) || null;
   if (typeof body.start_date === "string")  updates.start_date = body.start_date || null;
-  if (typeof body.notes      === "string")  updates.notes      = body.notes.trim().slice(0, 500) || null;
+  if (typeof body.notes      === "string")  updates.notes      = clipText(body.notes.trim(), 500) || null;
   if (typeof body.active     === "boolean") updates.active     = body.active;
 
   if (Object.keys(updates).length === 0) {

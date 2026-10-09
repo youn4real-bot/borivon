@@ -37,6 +37,7 @@ import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
 import { readAllRows } from "@/lib/readAllRows";
 import type { AssistantScope } from "@/lib/assistantScope";
+import { clipText } from "@/lib/clipText";
 
 type ProfileRow = {
   user_id: string;
@@ -1654,7 +1655,7 @@ export function buildAssistantTools(
       }),
       execute: async ({ reminderId, text, dueAt, recurrence }) => {
         const patch: Record<string, unknown> = {};
-        if (text != null) patch.text = text.slice(0, 500);
+        if (text != null) patch.text = clipText(text, 500);
         if (dueAt != null) {
           const due = localIsoToInstant(dueAt);
           if (!due) return { error: "bad_dueAt" };
@@ -2225,14 +2226,14 @@ export function buildAssistantTools(
         if (!clean) return { error: "empty" };
         const { data, error } = await db
           .from("assistant_memory")
-          .update({ text: clean.slice(0, 300) })
+          .update({ text: clipText(clean, 300) })
           .eq("id", memoryId)
           .eq("owner_user_id", scope.userId) // can only edit your OWN rules
           .select("id")
           .maybeSingle();
         if (error) return { error: "update_failed" };
         if (!data) return { error: "not_found" };
-        return { updated: true, text: clean.slice(0, 300) };
+        return { updated: true, text: clipText(clean, 300) };
       },
     }),
 
@@ -2578,14 +2579,14 @@ export function buildAssistantTools(
       execute: async ({ leadId, name, phone, email, note, cohort }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const patch: Record<string, unknown> = {};
-        if (name != null) patch.name = name.trim().slice(0, 120);
+        if (name != null) patch.name = clipText(name.trim(), 120);
         if (phone != null) patch.phone = phone.trim().slice(0, 40);
         if (email != null) patch.email = email.trim().toLowerCase().slice(0, 254);
-        if (note != null) patch.message = note.slice(0, 1000);
+        if (note != null) patch.message = clipText(note, 1000);
         if (cohort != null) {
           const { data: cur } = await db.from("leads").select("details").eq("id", leadId).maybeSingle();
           const details = (((cur as { details?: Record<string, unknown> } | null)?.details) ?? {}) as Record<string, unknown>;
-          details.cohort = cohort.trim().slice(0, 60);
+          details.cohort = clipText(cohort.trim(), 60);
           patch.details = details;
         }
         if (Object.keys(patch).length === 0) return { error: "nothing_to_change" };
@@ -2644,11 +2645,11 @@ export function buildAssistantTools(
         if (scope.role !== "admin") return { error: "admin_only" };
         const rows = leads.map((l) => ({
           kind: "person",
-          name: l.name.trim().slice(0, 120),
+          name: clipText(l.name.trim(), 120),
           email: (l.email ?? "").trim().toLowerCase().slice(0, 254),
           phone: (l.phone ?? "").trim().slice(0, 40),
-          message: (l.note ?? "").trim().slice(0, 1000),
-          details: l.cohort && l.cohort.trim() ? { cohort: l.cohort.trim().slice(0, 60) } : {},
+          message: clipText((l.note ?? "").trim(), 1000),
+          details: l.cohort && l.cohort.trim() ? { cohort: clipText(l.cohort.trim(), 60) } : {},
         }));
         const { data, error } = await db.from("leads").insert(rows).select("id");
         if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "leads_not_set_up" : "insert_failed" };

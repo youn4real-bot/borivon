@@ -4,6 +4,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { livekitConfigured, livekitUrl, mintClassroomToken } from "@/lib/livekit";
 import { isPermanentTester } from "@/lib/classroomTesters";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { clipText } from "@/lib/clipText";
 
 /**
  * Candidate-facing classroom join. Three gates, all server-side:
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   if (!livekitConfigured()) return NextResponse.json({ error: "LiveKit not configured", needsSetup: true }, { status: 503 });
 
   const body = await req.json().catch(() => ({})) as { room?: unknown };
-  const room = typeof body.room === "string" ? body.room.trim().slice(0, 80) : "";
+  const room = typeof body.room === "string" ? clipText(body.room.trim(), 80) : "";
   if (!room) return NextResponse.json({ error: "room required" }, { status: 400 });
 
   const db = getServiceSupabase();

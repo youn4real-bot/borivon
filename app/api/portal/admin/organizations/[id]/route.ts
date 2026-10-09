@@ -5,6 +5,7 @@ import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
 import { normalizeReq } from "@/lib/impfungJourney";
 import { CHECKLIST_KEYS } from "@/lib/candidateChecklist";
+import { clipText } from "@/lib/clipText";
 
 
 /**
@@ -23,12 +24,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const updates: Record<string, unknown> = {};
 
   if (typeof body?.name === "string") {
-    const name = body.name.trim().slice(0, 200);
+    const name = clipText(body.name.trim(), 200);
     if (!name) return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
     updates.name = name;
   }
   if (typeof body?.notes === "string") {
-    updates.notes = body.notes.trim().slice(0, 500) || null;
+    updates.notes = clipText(body.notes.trim(), 500) || null;
   }
   if (typeof body?.inviteCode === "string") {
     const code = body.inviteCode.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 32);
@@ -54,7 +55,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
   }
   if (typeof body?.footerText === "string") {
-    updates.footer_text = body.footerText.trim().slice(0, 500) || null;
+    updates.footer_text = clipText(body.footerText.trim(), 500) || null;
   }
   // Per-agency vaccine requirement (drives the Impfung pipeline track). Always
   // normalized to {masern,varizell} with each 0..5; all-zero = no Impfung needed.

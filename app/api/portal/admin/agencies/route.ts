@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { clipText } from "@/lib/clipText";
 
 // Supreme admin only — agency CRUD
 
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const name = typeof body?.name === "string" ? body.name.trim().slice(0, 200) : "";
+  const name = typeof body?.name === "string" ? clipText(body.name.trim(), 200) : "";
   if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
 
   const db = getServiceSupabase();

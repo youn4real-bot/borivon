@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { livekitConfigured, livekitUrl, mintClassroomToken } from "@/lib/livekit";
+import { clipText } from "@/lib/clipText";
 
 /**
  * SUPREME-ADMIN-ONLY (testing phase): mint a LiveKit join token for a classroom
@@ -27,8 +28,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({})) as { room?: unknown; name?: unknown; openToCandidates?: unknown; invitedUserIds?: unknown };
-  const room = (typeof body.room === "string" && body.room.trim()) ? body.room.trim().slice(0, 80) : "borivon-class";
-  const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "Admin";
+  const room = (typeof body.room === "string" && body.room.trim()) ? clipText(body.room.trim(), 80) : "borivon-class";
+  const name = typeof body.name === "string" ? clipText(body.name.trim(), 80) : "Admin";
   const invitedUserIds = Array.isArray(body.invitedUserIds)
     ? Array.from(new Set(body.invitedUserIds.filter((x): x is string => typeof x === "string" && UUID_RE.test(x)))).slice(0, 200)
     : [];
