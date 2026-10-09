@@ -116,20 +116,32 @@ export async function GET(req: NextRequest) {
     // break the cron.
     try {
       const lines = alertable.map((p) => `${p.name}: ${p.detail ?? "failed"}`);
+      // Since DATA_BACKEND="d1" the data lives in Cloudflare D1 and only the
+      // logins stay on Supabase: `database` down is D1, `auth` down is Supabase.
+      const onD1 = process.env.DATA_BACKEND === "d1";
       const dbDown = alertable.some((p) => p.name === "database");
+      const supabaseDown = onD1 ? alertable.some((p) => p.name === "auth") : dbDown;
       const subject = dbDown
         ? "🔴 Borivon portal DOWN — database unreachable"
-        : `⚠️ Borivon portal — dependency down: ${alertable.map((p) => p.name).join(", ")}`;
+        : supabaseDown
+          ? "🔴 Borivon portal — logins DOWN (Supabase unreachable)"
+          : `⚠️ Borivon portal — dependency down: ${alertable.map((p) => p.name).join(", ")}`;
       const body = [
         dbDown
-          ? "The portal is DOWN: the Supabase database is unreachable, so login and all data fail."
-          : "A portal dependency is failing:",
+          ? `The portal is DOWN: the ${onD1 ? "Cloudflare D1" : "Supabase"} database is unreachable, so all data fails.`
+          : supabaseDown
+            ? "Nobody can log in: Supabase (which runs the logins) is unreachable."
+            : "A portal dependency is failing:",
         "",
         ...lines,
         "",
-        dbDown
-          ? "Most likely the Supabase project is paused/suspended. Open https://supabase.com/dashboard, find the project and Restore/Resume it. Then check https://status.supabase.com."
-          : "Check the affected service.",
+        ...(supabaseDown
+          ? ["Most likely the Supabase project is paused/suspended (Free plan: about 7 days without database activity). Open https://supabase.com/dashboard, find the project and Restore/Resume it. Then check https://status.supabase.com."]
+          : []),
+        ...(dbDown && onD1
+          ? ["Check D1 borivon-db in the Cloudflare dashboard (Storage & Databases → D1) and https://www.cloudflarestatus.com."]
+          : []),
+        ...(!dbDown && !supabaseDown ? ["Check the affected service."] : []),
         "",
         `Checked at ${new Date().toISOString()}.`,
       ].join("\n");

@@ -37,13 +37,17 @@ beforeEach(() => {
   h.r2Configured.mockReturnValue(true);
   h.r2List.mockResolvedValue([]);
   process.env.RESEND_API_KEY = "re_test";
+  // Supabase auth (the logins) answers; tests/healthProbesOps.test.ts covers it failing.
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://p.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon";
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
 });
 
 describe("health probes — Drive is reported separately from Google", () => {
   it("a healthy Workspace reports google AND drive true, from ONE live check", async () => {
     h.testWorkspace.mockResolvedValue({ ok: true, connectedAs: "founder@borivon.com", gmail: true, calendar: true, drive: true });
     const probes = await runHealthProbes();
-    expect(publicSummary(probes)).toEqual({ google: true, drive: true, r2: true, database: true, email: true });
+    expect(publicSummary(probes)).toEqual({ google: true, drive: true, r2: true, database: true, auth: true, email: true });
     // Two probes, one API round trip — a second testWorkspace() would double the
     // daily traffic to learn nothing.
     expect(h.testWorkspace).toHaveBeenCalledTimes(1);
@@ -88,7 +92,7 @@ describe("health probes — Drive is reported separately from Google", () => {
     // a dead Workspace client means.
     h.testWorkspace.mockRejectedValue(new Error("boom"));
     const probes = await runHealthProbes();
-    expect(probes.map((p) => p.name).sort()).toEqual(["database", "drive", "email", "google", "r2"]);
+    expect(probes.map((p) => p.name).sort()).toEqual(["auth", "database", "drive", "email", "google", "r2"]);
     expect(by(probes, "google")).toMatchObject({ ok: false, detail: "boom" });
     expect(by(probes, "drive")).toMatchObject({ ok: false, detail: "boom" });
   });
@@ -96,7 +100,7 @@ describe("health probes — Drive is reported separately from Google", () => {
   it("a failing Drive never drags R2, the database or email down with it", async () => {
     h.testWorkspace.mockResolvedValue({ ok: true, gmail: true, calendar: true, drive: false });
     const probes = await runHealthProbes();
-    expect(publicSummary(probes)).toEqual({ google: true, drive: false, r2: true, database: true, email: true });
+    expect(publicSummary(probes)).toEqual({ google: true, drive: false, r2: true, database: true, auth: true, email: true });
   });
 
   it("the public body stays booleans only — no detail leaks to an unauthenticated caller", async () => {
