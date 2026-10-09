@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleOrgIds } from "@/lib/admin-auth";
 import { isOrgSide } from "@/lib/messagesAuth";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 
 /**
@@ -52,7 +53,7 @@ function sanitizeIn(body: Body, opts: { isCreate: boolean }): { err?: string; ro
 
   if ("name" in body) {
     if (typeof body.name !== "string" || !body.name.trim()) return { err: "name required" };
-    row.name = body.name.trim().slice(0, 200);
+    row.name = clipText(body.name.trim(), 200);
   } else if (opts.isCreate) {
     return { err: "name required" };
   }
@@ -82,7 +83,7 @@ function sanitizeIn(body: Body, opts: { isCreate: boolean }): { err?: string; ro
   if ("notes" in body) {
     if (body.notes === null || body.notes === "") row.notes = null;
     else if (typeof body.notes !== "string") return { err: "notes must be a string" };
-    else row.notes = body.notes.slice(0, 2000);
+    else row.notes = clipText(body.notes, 2000);
   }
 
   return { row };

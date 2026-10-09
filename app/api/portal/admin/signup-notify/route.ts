@@ -3,6 +3,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { clipText } from "@/lib/clipText";
 
 // Called client-side from /portal/auth/callback after a new user signs up.
 // Requires the caller's verified JWT — both name and email come from the verified
@@ -17,9 +18,9 @@ export async function POST(req: NextRequest) {
   try {
     const { data } = await getAnonVerifyClient().auth.getUser(auth.jwt);
     const fullName = data?.user?.user_metadata?.full_name;
-    if (typeof fullName === "string" && fullName.trim()) displayName = fullName.trim().slice(0, 200);
+    if (typeof fullName === "string" && fullName.trim()) displayName = clipText(fullName.trim(), 200);
     const rawPhone = data?.user?.user_metadata?.phone;
-    if (typeof rawPhone === "string" && rawPhone.trim()) phone = rawPhone.trim().slice(0, 40);
+    if (typeof rawPhone === "string" && rawPhone.trim()) phone = clipText(rawPhone.trim(), 40);
   } catch { /* fall back to email */ }
 
   const db = getServiceSupabase();

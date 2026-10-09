@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole, canActOnOrg, canActOnCandidate, type AdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // The admin must be allowed to act on this candidate (org-scoped admins can't
   // shortlist candidates outside their org).
   if (!(await canActOnCandidate(auth.role, auth.email, candidateUserId))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const adminNote = typeof body?.adminNote === "string" ? body.adminNote.trim().slice(0, 500) : null;
+  const adminNote = typeof body?.adminNote === "string" ? clipText(body.adminNote.trim(), 500) : null;
 
   const db = getServiceSupabase();
   // Next position = current max + 1.

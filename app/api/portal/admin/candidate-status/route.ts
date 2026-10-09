@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 
 /**
@@ -104,7 +105,7 @@ export async function PUT(req: NextRequest) {
     b2_results_expected_date: toIsoDate(body.b2_results_expected_date),
     b2_planned_exam_date:     toIsoDate(body.b2_planned_exam_date),
     b2_registration_status:   regStatus === "paid" || regStatus === "waiting" ? regStatus : null,
-    b2_notes:                 typeof body.b2_notes === "string" ? body.b2_notes.slice(0, 4000) || null : null,
+    b2_notes:                 typeof body.b2_notes === "string" ? clipText(body.b2_notes, 4000) || null : null,
     vaccines:                 sanitizeVaccines(body.vaccines),
     updated_at:               new Date().toISOString(),
   };

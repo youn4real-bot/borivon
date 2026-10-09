@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 const VALID_FACILITY = ["Klinik", "Altenheim", "Ambulante Pflegedienst"] as const;
 
@@ -37,10 +38,10 @@ export async function POST(req: NextRequest) {
       org_id:        orgId,
       facility_type: facilityType,
       bundesland:    typeof body.bundesland === "string" ? body.bundesland.trim() || null : null,
-      city:          typeof body.city       === "string" ? body.city.trim().slice(0, 100) || null : null,
+      city:          typeof body.city       === "string" ? clipText(body.city.trim(), 100) || null : null,
       slots:         typeof body.slots === "number" ? Math.max(1, Math.floor(body.slots)) : 1,
       start_date:    typeof body.start_date === "string" ? body.start_date || null : null,
-      notes:         typeof body.notes === "string" ? body.notes.trim().slice(0, 300) || null : null,
+      notes:         typeof body.notes === "string" ? clipText(body.notes.trim(), 300) || null : null,
       active:        true,
     })
     .select("id, facility_type, bundesland, city, slots, start_date, notes, active, created_at")
@@ -75,10 +76,10 @@ export async function PATCH(req: NextRequest) {
     updates.facility_type = ft;
   }
   if (typeof body.bundesland  === "string") updates.bundesland  = body.bundesland.trim() || null;
-  if (typeof body.city        === "string") updates.city        = body.city.trim().slice(0, 100) || null;
+  if (typeof body.city        === "string") updates.city        = clipText(body.city.trim(), 100) || null;
   if (typeof body.slots       === "number") updates.slots       = Math.max(1, Math.floor(body.slots));
   if (typeof body.start_date  === "string") updates.start_date  = body.start_date || null;
-  if (typeof body.notes       === "string") updates.notes       = body.notes.trim().slice(0, 300) || null;
+  if (typeof body.notes       === "string") updates.notes       = clipText(body.notes.trim(), 300) || null;
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });

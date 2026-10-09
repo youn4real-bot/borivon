@@ -5,6 +5,7 @@
  * effect, no fine-tuning. Capped so it can't balloon the context.
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { clipText } from "@/lib/clipText";
 
 export async function loadMemory(adminUserId: string | null): Promise<string> {
   if (!adminUserId) return "";
@@ -70,7 +71,7 @@ export async function saveMemory(adminUserId: string | null, text: string, kind 
       .limit(400);
     const needle = clean.toLowerCase();
     if (((existing as { text: string }[] | null) ?? []).some((r) => (r.text ?? "").trim().toLowerCase() === needle)) return "duplicate";
-    const { error } = await db.from("assistant_memory").insert({ owner_user_id: adminUserId, text: clean.slice(0, 300), kind });
+    const { error } = await db.from("assistant_memory").insert({ owner_user_id: adminUserId, text: clipText(clean, 300), kind });
     return error ? "failed" : "saved";
   } catch {
     return "failed";

@@ -6,6 +6,7 @@ import { keepAlive } from "@/lib/keepAlive";
 import { getAdminUserId } from "@/lib/telegram";
 import { tgSend } from "@/lib/telegram";
 import { sendBookingConfirmedEmail } from "@/lib/email";
+import { clipText } from "@/lib/clipText";
 import { loadBookingConfig, newManageToken } from "@/lib/bookingConfig";
 import { loadEventType, overlayEventType, looksLikeSlug } from "@/lib/bookingEventTypes";
 import {
@@ -269,10 +270,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const kind = body?.kind;
   const at = Number(body?.at);
-  const name = String(body?.name ?? "").trim().slice(0, 120);
-  const email = String(body?.email ?? "").trim().slice(0, 254).toLowerCase();
-  const phone = String(body?.phone ?? "").trim().slice(0, 40) || null;
-  const company = String(body?.company ?? "").trim().slice(0, 160) || null;
+  const name = clipText(String(body?.name ?? "").trim(), 120);
+  const email = clipText(String(body?.email ?? "").trim(), 254).toLowerCase();
+  const phone = clipText(String(body?.phone ?? "").trim(), 40) || null;
+  const company = clipText(String(body?.company ?? "").trim(), 160) || null;
   // Page language, whitelisted. Anything else falls back to English.
   const lang: "fr" | "en" | "de" = body?.lang === "de" ? "de" : body?.lang === "fr" ? "fr" : "en";
 

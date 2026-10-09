@@ -11,6 +11,8 @@
  *   • leading =,+,-,@ → prefixed with ' so spreadsheets don't run it as a formula
  * then trim + length-cap.
  */
+import { clipText } from "@/lib/clipText";
+
 export function cleanPublicText(s: unknown, n: number): string {
   let v = typeof s === "string" ? s : "";
   // Drop control chars (codepoint < 32, or DEL 127) by char code — avoids a
@@ -18,7 +20,7 @@ export function cleanPublicText(s: unknown, n: number): string {
   v = Array.from(v).filter((ch) => { const c = ch.charCodeAt(0); return c >= 32 && c !== 127; }).join("");
   v = v.replace(/[<>]/g, "");                              // no angle brackets
   v = v.replace(/(javascript|data|vbscript)\s*:/gi, "");   // no script URL schemes
-  v = v.trim().slice(0, n);
+  v = clipText(v.trim(), n);
   if (/^[=+\-@]/.test(v)) v = "'" + v;                     // CSV/formula-injection guard
   return v;
 }

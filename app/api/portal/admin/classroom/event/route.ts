@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 /**
  * Append one telemetry event to the classroom ledger — the participant logs
@@ -28,11 +29,11 @@ export async function POST(req: NextRequest) {
     sessionId?: unknown; roomName?: unknown; kind?: unknown; value?: unknown; displayName?: unknown;
   };
   const kind = typeof body.kind === "string" ? body.kind : "";
-  const roomName = typeof body.roomName === "string" ? body.roomName.trim().slice(0, 80) : "";
+  const roomName = typeof body.roomName === "string" ? clipText(body.roomName.trim(), 80) : "";
   if (!KINDS.has(kind) || !roomName) return NextResponse.json({ ok: false, error: "bad event" }, { status: 400 });
 
   const sessionId = typeof body.sessionId === "string" && UUID_RE.test(body.sessionId) ? body.sessionId : null;
-  const displayName = typeof body.displayName === "string" ? body.displayName.slice(0, 80) : null;
+  const displayName = typeof body.displayName === "string" ? clipText(body.displayName, 80) : null;
   const value = (body.value && typeof body.value === "object") ? body.value : {};
 
   const db = getServiceSupabase();

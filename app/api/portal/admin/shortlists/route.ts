@@ -14,6 +14,7 @@ import { requireAdminRole, getVisibleOrgIds, canActOnOrg } from "@/lib/admin-aut
 import { getServiceSupabase } from "@/lib/supabase";
 import { genShareToken } from "@/lib/shortlist";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,12 +80,12 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
 
-  const title = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
+  const title = typeof body?.title === "string" ? clipText(body.title.trim(), 200) : "";
   if (!title) return NextResponse.json({ error: "Title required" }, { status: 400 });
 
   const orgId = typeof body?.orgId === "string" && UUID_RE.test(body.orgId) ? body.orgId : null;
   const employerId = typeof body?.employerId === "string" && UUID_RE.test(body.employerId) ? body.employerId : null;
-  const note = typeof body?.note === "string" ? body.note.trim().slice(0, 2000) : null;
+  const note = typeof body?.note === "string" ? clipText(body.note.trim(), 2000) : null;
 
   // LAW #25 — an org-scoped admin can only create a shortlist for their own org.
   if (!(await canActOnOrg(auth.role, auth.email, orgId))) {

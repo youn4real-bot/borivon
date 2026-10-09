@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, ciEmail } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
+import { clipText } from "@/lib/clipText";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -73,8 +74,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const body  = await req.json().catch(() => ({}));
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   const role  = body?.role === "owner" ? "owner" : "member";
-  const name  = typeof body?.name  === "string" ? body.name.slice(0, 200)  : "";
-  const label = typeof body?.label === "string" ? body.label.slice(0, 200) : "";
+  const name  = typeof body?.name  === "string" ? clipText(body.name, 200)  : "";
+  const label = typeof body?.label === "string" ? clipText(body.label, 200) : "";
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Invalid email" }, { status: 400 });
 
   const db = getServiceSupabase();

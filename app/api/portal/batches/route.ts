@@ -25,6 +25,7 @@ import { isFunnelStage } from "@/lib/batchBoard";
 import { resyncBatchFolder } from "@/lib/driveMirror";
 import { keepAlive } from "@/lib/keepAlive";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
+import { clipText } from "@/lib/clipText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,14 +110,14 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
-  const name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
+  const name = typeof body.name === "string" ? clipText(body.name.trim(), 120) : "";
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
   const row: Record<string, unknown> = { name, seats: Number.isFinite(body.seats) ? Math.max(1, Math.min(1000, Math.round(body.seats))) : 10 };
   if (typeof body.employerId === "string" && UUID_RE.test(body.employerId)) row.employer_id = body.employerId;
   if (typeof body.orgId === "string" && UUID_RE.test(body.orgId)) row.org_id = body.orgId;
   if (typeof body.targetStart === "string" && body.targetStart) row.target_start = body.targetStart;
   if (typeof body.targetEnd === "string" && body.targetEnd) row.target_end = body.targetEnd;
-  if (typeof body.notes === "string" && body.notes.trim()) row.notes = body.notes.trim().slice(0, 500);
+  if (typeof body.notes === "string" && body.notes.trim()) row.notes = clipText(body.notes.trim(), 500);
 
   // LAW #25: a scoped admin may only create a batch inside an org they control.
   // Supreme + true HQ sub-admin pass for any (or no) org; an org-scoped admin
@@ -219,7 +220,7 @@ export async function PATCH(req: NextRequest) {
   if (!(await canActOnBatch(auth.role, auth.email, body.batchId)))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const upd: Record<string, unknown> = {};
-  if (typeof body.name === "string") upd.name = body.name.trim().slice(0, 120);
+  if (typeof body.name === "string") upd.name = clipText(body.name.trim(), 120);
   if (Number.isFinite(body.seats)) upd.seats = Math.max(1, Math.min(1000, Math.round(body.seats)));
   if (body.employerId === null || body.employerId === "") upd.employer_id = null;
   else if (typeof body.employerId === "string" && UUID_RE.test(body.employerId)) upd.employer_id = body.employerId;
@@ -227,7 +228,7 @@ export async function PATCH(req: NextRequest) {
   else if (typeof body.orgId === "string" && UUID_RE.test(body.orgId)) upd.org_id = body.orgId;
   if (typeof body.targetStart === "string") upd.target_start = body.targetStart || null;
   if (typeof body.targetEnd === "string") upd.target_end = body.targetEnd || null;
-  if (typeof body.notes === "string") upd.notes = body.notes.trim().slice(0, 500) || null;
+  if (typeof body.notes === "string") upd.notes = clipText(body.notes.trim(), 500) || null;
   if (body.close === true || body.status === "closed") upd.status = "closed";
   if (body.status === "open") upd.status = "open";
   if (Object.keys(upd).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
