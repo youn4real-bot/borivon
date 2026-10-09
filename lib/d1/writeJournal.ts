@@ -46,6 +46,7 @@ import type { D1Runner } from "@/lib/d1/client";
 import { getD1 } from "@/lib/d1/client";
 import { encodeParam } from "@/lib/d1/pgrest/buildSql";
 import { scheduleBackground } from "@/lib/d1/background";
+import { LAST_ROW_ID_HEADER } from "@/lib/d1/bvFetch";
 
 export const JOURNAL_TABLE = "_write_journal";
 export const JOURNAL_PART_TABLE = "_write_journal_part";
@@ -233,7 +234,43 @@ export type PreparedWrite = {
   changed: boolean;
   fillPlan: FillPlan | null;
   note: string | null;
+  /** A plain insert whose rows D1 numbers itself: their ids are recorded after it answers. */
+  identity?: { column: string; rows: number } | null;
 };
+
+/**
+ * The single integer key a table numbers itself: a Postgres identity / bigserial
+ * column (types.json gives it no default), an INTEGER PRIMARY KEY on D1. Eight
+ * tables: bookings, email_followup_chase, assistant_commitments, … Unlike a
+ * uuid, the id cannot be invented before D1 sees the row — D1 gives max+1 — so
+ * it is read from D1's answer afterwards (recordIdentity). Replayed without it,
+ * Supabase numbers the row from its OWN sequence, and a later
+ * `PATCH bookings?id=eq.9` lands on another booking, or none.
+ */
+export function identityColumn(meta: Registry[string]): string | null {
+  if (meta.pk.length !== 1) return null;
+  const col = meta.columns[meta.pk[0]];
+  const numbered = !!col && (col.pg === "bigint" || col.pg === "integer") && !col.generated && (col.default === null || col.default === undefined);
+  return numbered ? meta.pk[0] : null;
+}
+
+/**
+ * Put the ids D1 gave a plain insert's rows into the journaled request. Rows of
+ * one INSERT are numbered consecutively in order (one statement, one writer),
+ * so the last row's id says them all.
+ */
+export function recordIdentity(url: string, body: string, identity: { column: string; rows: number }, lastRowId: number): { url: string; body: string } {
+  const parsed = JSON.parse(body);
+  const rows: Row[] = Array.isArray(parsed) ? parsed : [parsed];
+  rows.forEach((r, i) => { r[identity.column] = lastRowId - rows.length + 1 + i; });
+  const u = new URL(url);
+  const columnsRaw = u.searchParams.get("columns");
+  if (columnsRaw !== null) {
+    const cols = parseColumnsParam(columnsRaw);
+    if (!cols.includes(identity.column)) u.searchParams.set("columns", [...cols, identity.column].map((c) => `"${c}"`).join(","));
+  }
+  return { url: columnsRaw !== null ? u.toString() : url, body: JSON.stringify(Array.isArray(parsed) ? rows : rows[0]) };
+}
 
 /**
  * Prefill what a plain insert would let the database invent, and work out what
@@ -257,7 +294,8 @@ export function prepareWrite(
   const generators = Object.entries(meta.columns)
     .map(([name, col]) => [name, generatorFor(col)] as const)
     .filter((g): g is readonly [string, Generator] => g[1] !== null);
-  if (!generators.length) return unchanged;
+  const idCol = identityColumn(meta);
+  if (!generators.length && !idCol) return unchanged;
 
   let parsed: unknown;
   try { parsed = JSON.parse(body); } catch { return unchanged; }  // the adapter will refuse it; nothing to journal
@@ -267,6 +305,11 @@ export function prepareWrite(
   const u = new URL(url);
   const tokens = preferTokens(prefer);
   const upsert = tokens.some((t) => t.startsWith("resolution="));
+  // A plain insert's self-numbered ids are read from D1's answer; with some rows
+  // carrying their own id the rest are not consecutive, so that is only noted.
+  const idLacking = idCol ? rows.filter((r) => !Object.prototype.hasOwnProperty.call(r, idCol)).length : 0;
+  const identity = idCol && !upsert && idLacking === rows.length ? { column: idCol, rows: rows.length } : null;
+  const identityNote = idCol && !upsert && idLacking && !identity ? "identity-mixed" : null;
   const missingDefault = tokens.includes("missing=default");
   const conflict = (u.searchParams.get("on_conflict") ?? "").split(",").map((c) => c.trim()).filter(Boolean);
   const keyCols = conflict.length ? conflict : meta.pk;
@@ -280,24 +323,38 @@ export function prepareWrite(
   const timeValue = (offsetMs: number) => (offsetMs === 0 ? nowValue : new Date(Date.parse(nowValue) + offsetMs).toISOString());
   let changed = false;
   const added: string[] = [];
+  const has = (r: Row, name: string) => Object.prototype.hasOwnProperty.call(r, name);
+  // An upsert row whose (non-key) conflict target holds a NULL can never
+  // conflict — a NULL is distinct from every other value in a unique index, in
+  // Postgres and SQLite alike — so it is always an insert, and every value the
+  // database would invent for it can be prefilled like a plain insert's. Left to
+  // the fill instead, it had no key to be read back by, and the replay gave it a
+  // new id and created_at (awardPoints' manual adjustments, source_id NULL).
+  const alwaysInsert = rows.map((r) => upsert && !conflictIsPk && keyCols.some((k) => r[k] === null || r[k] === undefined));
 
   for (const [name, make] of generators) {
-    // An upsert may only have its KEY prefilled, and only when the conflict
-    // target is that key: a row without it can never conflict, so it is always
-    // an insert, and a fresh id is exactly what the database would have given
-    // it. Anything else on an upsert would be written on the UPDATE path too.
-    if (upsert && !(conflictIsPk && meta.pk.includes(name))) continue;
+    // Otherwise an upsert may only have its KEY prefilled, and only when the
+    // conflict target is that key: a row without it can never conflict, so it is
+    // always an insert, and a fresh id is exactly what the database would have
+    // given it. Anything else on an upsert would be written on the UPDATE path too.
+    const keyOfPkUpsert = upsert && conflictIsPk && meta.pk.includes(name);
+    const eligible = (i: number) => !upsert || keyOfPkUpsert || alwaysInsert[i];
+    const lacking = rows.map((_, i) => i).filter((i) => !has(rows[i], name));
+    if (!lacking.some(eligible)) continue;
     const inColumns = columns?.includes(name) ?? false;
     // A column listed in `columns` but absent from a row is NULL in PostgREST
     // (unless missing=default) — prefilling it would turn an insert that fails
     // on Supabase into one that succeeds on D1. Leave that semantics alone.
     if (columns && inColumns && !missingDefault) continue;
-    for (const row of rows) {
-      if (Object.prototype.hasOwnProperty.call(row, name)) continue;
-      row[name] = make.kind === "uuid" ? (gen.uuid ?? (() => crypto.randomUUID()))() : timeValue(make.offsetMs);
+    // Adding a column to `columns` names it for EVERY row: a row left without it
+    // would then be NULL there, not defaulted. So only when every row gets it.
+    if (columns && !lacking.every(eligible)) continue;
+    for (const i of lacking) {
+      if (!eligible(i)) continue;
+      rows[i][name] = make.kind === "uuid" ? (gen.uuid ?? (() => crypto.randomUUID()))() : timeValue(make.offsetMs);
       changed = true;
     }
-    if (columns && !inColumns && rows.some((r) => Object.prototype.hasOwnProperty.call(r, name))) added.push(name);
+    if (columns && !inColumns && rows.some((r) => has(r, name))) added.push(name);
   }
 
   if (added.length && columns) {
@@ -305,9 +362,11 @@ export function prepareWrite(
   }
 
   let fillPlan: FillPlan | null = null;
-  let note: string | null = null;
+  let note: string | null = identityNote;
   if (upsert) {
-    const genNames = generators.map(([n]) => n);
+    // A self-numbered id is read back with the rest (lib/commitments.ts upserts
+    // assistant_commitments on owner_user_id,source_message_id,what).
+    const genNames = [...generators.map(([n]) => n), ...(idCol && !conflictIsPk ? [idCol] : [])];
     const missing = rows.map((r) => genNames.filter((n) => !Object.prototype.hasOwnProperty.call(r, n)));
     if (missing.some((m) => m.length)) {
       const keyless = rows.some((r, i) => missing[i].length && keyCols.some((k) => r[k] === null || r[k] === undefined));
@@ -316,13 +375,14 @@ export function prepareWrite(
     }
   }
 
-  if (!changed) return { url, body, changed: false, fillPlan, note };
+  if (!changed) return { url, body, changed: false, fillPlan, note, identity };
   return {
     url: u.toString(),
     body: JSON.stringify(Array.isArray(parsed) ? rows : rows[0]),
     changed: true,
     fillPlan,
     note,
+    identity,
   };
 }
 
@@ -518,16 +578,22 @@ export function withWriteJournal(inner: typeof fetch, opts: JournalOptions = {})
     function recordAfter(status: number): void {
       // Order is taken NOW, when D1 has answered — see JOURNAL_DDL.
       const atMs = now();
+      let { url: journaledUrl, body: journaledBody, note: journaledNote } = prepared;
+      if (prepared.identity && journaledBody !== undefined) {
+        const last = Number(res.headers.get(LAST_ROW_ID_HEADER) ?? NaN);
+        if (Number.isSafeInteger(last)) ({ url: journaledUrl, body: journaledBody } = recordIdentity(journaledUrl, journaledBody, prepared.identity, last));
+        else journaledNote = journaledNote ?? "identity-unknown";
+      }
       const entry: JournalEntry = {
         at: new Date(atMs).toISOString(),
         at_ms: atMs,
         seq: ++seq,
         method,
-        path: (() => { const u = new URL(prepared.url); return u.pathname + u.search; })(),
+        path: (() => { const u = new URL(journaledUrl); return u.pathname + u.search; })(),
         prefer: headers.get("prefer"),
-        body: prepared.body ?? null,
+        body: journaledBody ?? null,
         status,
-        note: prepared.note,
+        note: journaledNote,
       };
       if (text === null) log("error", `[write-journal] LOST ${method} ${label}: body could not be recorded`);
 

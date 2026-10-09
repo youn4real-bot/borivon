@@ -35,8 +35,11 @@ export function sqliteRunner(db: SqliteDb, spy?: (sql: string) => void): D1Runne
       spy?.(sql);
       const stmt = db.prepare(sql);
       const bound = params.map((v) => (typeof v === "boolean" ? (v ? 1 : 0) : v));
-      if (/^\s*(select|with|pragma)\b/i.test(sql) || /\breturning\b/i.test(sql)) {
-        return { results: stmt.all(...bound), meta: {} };
+      if (/^\s*(select|with|pragma)\b/i.test(sql)) return { results: stmt.all(...bound), meta: {} };
+      if (/\breturning\b/i.test(sql)) {
+        // D1 reports last_row_id for every write, RETURNING or not.
+        const results = stmt.all(...bound);
+        return { results, meta: { last_row_id: Number(db.prepare("SELECT last_insert_rowid() AS id").all()[0].id) } };
       }
       const out = stmt.run(...bound);
       return { results: [], meta: { changes: Number(out.changes), last_row_id: Number(out.lastInsertRowid) } };

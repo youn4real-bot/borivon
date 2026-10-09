@@ -1,4 +1,5 @@
 import { getServiceSupabase } from "@/lib/supabase";
+import type { D1Runner } from "@/lib/d1/client";
 
 /**
  * Dependency probes — the single source of truth for "is this portal actually working".
@@ -22,7 +23,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 
 export type Probe = {
   /** Stable subsystem name. Public — appears in the /api/health body. */
-  name: "google" | "drive" | "r2" | "database" | "email";
+  name: "google" | "drive" | "r2" | "database" | "email" | "auth" | "journal";
   ok: boolean;
   /** Human-readable cause. PRIVATE — never returned to an unauthenticated caller. */
   detail?: string;
@@ -120,6 +121,71 @@ async function checkDatabase(): Promise<Probe> {
 }
 
 /**
+ * Logins. Since DATA_BACKEND="d1" the `database` probe reads D1, so a paused or
+ * down Supabase — the Free plan pauses a quiet project; then NOBODY can log in —
+ * left every hourly probe green. Only the 06:00 keep-alive would notice, up to a
+ * day later. GoTrue's health endpoint answers only while the project is up.
+ */
+async function checkAuth(): Promise<Probe> {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  if (!url || !key) return { name: "auth", ok: false, detail: "Supabase URL or anon key missing — nobody can log in" };
+  const res = await fetch(`${url}/auth/v1/health`, { headers: { apikey: key }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+  await res.body?.cancel().catch(() => {});
+  return res.ok
+    ? { name: "auth", ok: true }
+    : { name: "auth", ok: false, detail: `Supabase auth answered HTTP ${res.status} — logins fail (paused project?)` };
+}
+
+/** Tables every one of whose rows is inserted through the journaled service client, with their insert time. */
+export const JOURNAL_WATCHED: readonly (readonly [table: string, column: string])[] = [
+  ["notifications", "created_at"],
+  ["admin_notifications", "created_at"],
+  ["messages", "created_at"],
+  ["documents", "uploaded_at"],
+  ["leads", "created_at"],
+];
+
+/** How long a journal insert may trail its write (it runs after the response). */
+export const JOURNAL_LAG_MS = 10 * 60_000;
+
+/**
+ * The rollback journal (lib/d1/writeJournal.ts) — D1 only. A write it fails to
+ * record is a write a rollback silently loses, and the only signal was a
+ * "[write-journal] LOST" line nobody reads. Proof here instead: the newest row
+ * of each watched table must have a journaled insert into that table no older
+ * than itself (minus the background lag). A row newer than the journal's first
+ * entry (the copy's own rows are older) and newer than every journaled insert
+ * into its table was written without the journal.
+ */
+export async function checkJournal(runner: D1Runner, now = Date.now()): Promise<Probe> {
+  const parts = JOURNAL_WATCHED.map(([t, c], i) =>
+    `(SELECT max("${c}") FROM "${t}") AS "row${i}", ` +
+    // POST and PATCH: the page organiser and replace-passport-pdf move
+    // documents.uploaded_at forward with an UPDATE, so its newest value can
+    // belong to a journaled PATCH, not an insert.
+    `(SELECT max("at") FROM "_write_journal" WHERE "method" IN ('POST', 'PATCH') AND ("path" = '/rest/v1/${t}' OR "path" LIKE '/rest/v1/${t}?%')) AS "jn${i}"`);
+  let row: Record<string, unknown>;
+  try {
+    row = (await runner.run(`SELECT (SELECT min("at") FROM "_write_journal") AS "first", ${parts.join(", ")}`)).results[0] ?? {};
+  } catch (e) {
+    // No journal table: D1 has not answered a write yet. Nothing to compare with.
+    if (/no such table/i.test(e instanceof Error ? e.message : String(e))) return { name: "journal", ok: true, detail: "no journal yet" };
+    throw e;
+  }
+  const first = Date.parse(String(row.first ?? ""));
+  const lost = JOURNAL_WATCHED.filter((_, i) => {
+    const newest = Date.parse(String(row[`row${i}`] ?? ""));
+    if (!Number.isFinite(newest) || !Number.isFinite(first) || newest < first - JOURNAL_LAG_MS || newest > now) return false;
+    const journaled = Date.parse(String(row[`jn${i}`] ?? ""));
+    return !Number.isFinite(journaled) || newest > journaled + JOURNAL_LAG_MS;
+  }).map(([t]) => t);
+  return lost.length
+    ? { name: "journal", ok: false, detail: `newest ${lost.join(", ")} row(s) are not in the rollback journal — a rollback would lose them (search the logs for "[write-journal] LOST")` }
+    : { name: "journal", ok: true };
+}
+
+/**
  * Email is a CONFIG probe, not a reachability probe: actually sending a test
  * email costs money and lands in somebody's inbox every single day. Presence of
  * the key is the honest thing to check daily.
@@ -142,9 +208,17 @@ function checkEmail(): Probe {
  * that actually matter.
  */
 
+async function journalProbe(): Promise<Probe> {
+  const { getD1 } = await import("@/lib/d1/client");
+  const runner = await getD1();
+  if (!runner) return { name: "journal", ok: false, detail: "D1 is not reachable from this runtime" };
+  return checkJournal(runner);
+}
+
 /** Run every probe concurrently. Never throws. */
 export async function runHealthProbes(): Promise<Probe[]> {
-  const [workspace, r2, database] = await Promise.all([
+  const onD1 = process.env.DATA_BACKEND === "d1";
+  const [workspace, r2, database, auth, journal] = await Promise.all([
     // A throw or a hang here must not lose the drive row: reporting one probe
     // where two are expected reads as "drive was fine", which is the opposite of
     // what a dead Workspace client means.
@@ -154,8 +228,10 @@ export async function runHealthProbes(): Promise<Probe[]> {
     }),
     guard("r2", checkR2),
     guard("database", checkDatabase),
+    guard("auth", checkAuth),
+    onD1 ? guard("journal", journalProbe) : Promise.resolve(null),
   ]);
-  return [...workspace, r2, database, checkEmail()];
+  return [...workspace, r2, database, auth, ...(journal ? [journal] : []), checkEmail()];
 }
 
 /** Public shape: booleans only, no detail, no variable names. */

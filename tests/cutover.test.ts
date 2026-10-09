@@ -284,3 +284,14 @@ describe("the printed commands", () => {
     expect(at('"DATA_BACKEND": "supabase"')).toBeLessThan(at("--archive --i-mean-it"));
   });
 });
+
+describe("rollback: replayed self-numbered ids need Supabase's identity columns and sequences prepared", () => {
+  it("R2b comes before the replay, R3c after it and before the flip back", () => {
+    const lines = rollbackInstructions("/r");
+    const at = (s: string) => lines.findIndex((l) => l.includes(s));
+    expect(at("R2b.")).toBeGreaterThan(-1);
+    expect(at("R2b.")).toBeLessThan(at("replay-journal.mjs /r --i-mean-it"));
+    expect(at("replay-journal.mjs /r --i-mean-it")).toBeLessThan(at("R3c."));
+    expect(at("R3c.")).toBeLessThan(at('"DATA_BACKEND": "supabase"'));
+  });
+});

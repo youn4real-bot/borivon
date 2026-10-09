@@ -28,7 +28,7 @@ import { noMatchingConstraint, toPostgrestError } from "./errors";
 export type Run = (sql: string, params: unknown[]) => Promise<D1Answer>;
 
 /** The rows RETURNING gave back (still encoded) and how many rows the write touched. */
-export type WriteResult = { rows: Record<string, unknown>[]; changes?: number };
+export type WriteResult = { rows: Record<string, unknown>[]; changes?: number; lastRowId?: number };
 
 /** Whether some unique index of the table is exactly these columns. */
 function hasUniqueIndexOn(rows: Record<string, unknown>[], target: readonly string[]): boolean {
@@ -83,7 +83,7 @@ export async function runWrite(intent: QueryIntent, registry: Registry, run: Run
 
   try {
     const answer = await run(built.sql, built.params);
-    return { rows: answer.results, changes: answer.meta?.changes };
+    return { rows: answer.results, changes: answer.meta?.changes, lastRowId: answer.meta?.last_row_id };
   } catch (err) {
     return toPostgrestError(err, { table: intent.table, repeatedConflictKey });
   }

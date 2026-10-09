@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { parseParityArgs } from "./parity-args.mjs";
+import { norm, sortByKey } from "./parity-rows.mjs";
 
 let parsed;
 try { parsed = parseParityArgs(process.argv.slice(2)); } catch (err) { console.error(String(err.message ?? err)); process.exit(1); }
@@ -46,23 +47,6 @@ async function d1(sql, params = []) {
   return j.result[0].results;
 }
 
-/** One canonical string per value, so Postgres and SQLite forms compare equal. */
-function norm(v, pg) {
-  if (v === null || v === undefined) return "∅";
-  if (pg === "boolean") return v === true || v === 1 || v === "1" || v === "true" ? "1" : "0";
-  if (pg === "jsonb" || pg === "text[]" || pg === "uuid[]") {
-    const parsed = typeof v === "string" ? (() => { try { return JSON.parse(v); } catch { return v; } })() : v;
-    return JSON.stringify(parsed);
-  }
-  if (pg === "integer" || pg === "bigint") return String(Number(v));
-  if (pg === "numeric") return String(Number(v));
-  if (pg === "timestamptz") {
-    const t = Date.parse(String(v));
-    return Number.isFinite(t) ? String(t) : String(v);   // ignore fraction/offset formatting
-  }
-  return String(v);
-}
-
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
 const tables = (only.length ? only : Object.keys(types).sort()).filter((t) => !SKIP.has(t));
 let bad = 0, rowsChecked = 0;
@@ -75,7 +59,7 @@ for (const table of tables) {
   const order = pk.map((c) => `${c}.asc`).join(",");
 
   // Supabase, paged.
-  const sbRows = [];
+  let sbRows = [];
   for (let from = 0; ; from += 1000) {
     const r = await fetch(`${SB}/rest/v1/${table}?select=${cols.join(",")}&order=${order}&offset=${from}&limit=1000`, {
       headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
@@ -87,12 +71,17 @@ for (const table of tables) {
   }
 
   // D1, paged the same way.
-  const d1Rows = [];
+  let d1Rows = [];
   for (let off = 0; ; off += 1000) {
     const page = await d1(`SELECT ${cols.map((c) => `"${c}"`).join(",")} FROM "${table}" ORDER BY ${pk.map((c) => `"${c}"`).join(",")} LIMIT 1000 OFFSET ${off}`);
     d1Rows.push(...page);
     if (page.length < 1000) break;
   }
+
+  // One key order for both sides (see sortByKey): the databases' own ORDER BY
+  // disagree on text keys, which used to pair row i with a different row i.
+  sbRows = sortByKey(sbRows, pk, types[table].columns);
+  d1Rows = sortByKey(d1Rows, pk, types[table].columns);
 
   // Per-column normalised values, so a difference can be named precisely.
   const cells = (row) => cols.map((c) => norm(row[c], types[table].columns[c].pg));
