@@ -55,7 +55,7 @@ import type {
 import { encodeValue, selectSqlKey, sqlArrowKeys, storedTimestampSpellings } from "./decode";
 // The write half of Postgres' type checking: what a column's input function makes
 // of a payload value, or the 22P02 / 22007 / 22008 it refuses it with.
-import { isInputError, jsonbStoredText, writeInput } from "./pgInput";
+import { isInputError, jsonEscapeError, jsonbStoredText, writeInput } from "./pgInput";
 // Postgres' text order over plain ASCII, as SQL: the part of a text ORDER BY D1 can do.
 import { asciiSortKeySql, plainAsciiSql } from "./collate";
 
@@ -1149,7 +1149,14 @@ function buildInsert(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   const DEFAULT_CELL = {};
   const defaulted = new Set<number>();
   const cells: unknown[][] = [];
+  // A string Postgres' JSON lexer refuses (pgInput.ts jsonEscapeError). The lexer
+  // reaches a row's strings before that row's values are converted, but only after
+  // the rows before it were — json_to_recordset converts each object as it ends.
+  // Under missing=default the whole body is read as jsonb first, so any row's.
+  const lexed = (row: unknown) => { const e = jsonEscapeError(row); if (e) fail(e); };
+  if (viaJsonb) rows.forEach(lexed);
   for (const row of rows) {
+    if (!viaJsonb) lexed(row);
     const encoded: unknown[] = new Array(cols.length).fill(null);
     for (const i of conversionOrder(cols)) {
       if (Object.prototype.hasOwnProperty.call(row, cols[i])) {
@@ -1285,6 +1292,10 @@ function buildUpdate(ctx: Ctx, intent: QueryIntent): BuiltQuery {
   const values: unknown[] = new Array(cols.length).fill(null);
   let unreadable: PostgrestError | undefined;
   try {
+    // The JSON lexer's refusals come first: it de-escapes the payload before any
+    // value reaches an input function, and runs only once the scan has a row, too.
+    const lexError = jsonEscapeError(payload);
+    if (lexError) fail(lexError);
     for (const i of conversionOrder(cols)) {
       if (Object.prototype.hasOwnProperty.call(payload, cols[i])) values[i] = writeParam(metas[i], payload[cols[i]], false);
     }

@@ -114,6 +114,31 @@ describe("every written value goes through its column's input function", () => {
     expect(JSON.parse(String(q.params[0]))).toEqual([[U1, "5", "2026-09-04", "2026-03-04T00:00:00+00:00", 1, 7]]);
   });
 
+  it("refuses a NUL or a lone surrogate anywhere in the payload, as Postgres' JSON lexer does", () => {
+    // Supabase's answers, read through a jsonb filter (jsonb_in runs the same
+    // lexer json_to_recordset de-escapes the body with). D1 stored all of them,
+    // so /api/leads answered ok to a name Supabase refuses — and journaled a write
+    // a rollback replay could never get past.
+    const nul = { code: "22P05", message: "unsupported Unicode escape sequence", details: "\\u0000 cannot be converted to text.", hint: null, status: 400 };
+    const low = { code: "22P02", message: "invalid input syntax for type json", details: "Unicode low surrogate must follow a high surrogate.", hint: null, status: 400 };
+    const lead = (over: Record<string, unknown>) => intent({ table: "leads", action: "insert", values: [{ kind: "person", name: "N", details: {}, ...over }] });
+    expect(refused(lead({ name: "a\u0000b" }))).toEqual(nul);
+    expect(refused(lead({ details: { a: ["ok", { b: "\u0000" }] } }))).toEqual(nul);
+    expect(refused(lead({ details: { "\u0000": 1 } }))).toEqual(nul);
+    expect(refused(lead({ name: "a\ud800b" }))).toEqual(low);
+    expect(refused(lead({ details: { a: "\udc00" } }))).toEqual(low);
+    expect(refused(lead({ name: "\ud800\ud800" }))).toEqual({ ...low, details: "Unicode high surrogate must not follow a high surrogate." });
+    // The first one the lexer meets wins, and it beats any input function.
+    expect(refused(lead({ name: "\u0000\ud800" }))).toEqual(nul);
+    expect(refused(intent({ table: "assistant_reminders", action: "insert", values: [{ owner_user_id: "abc", text: "\u0000" }] }))).toEqual(nul);
+    // …but only within its row: an earlier row's values are converted first.
+    expect(refused(intent({ table: "assistant_reminders", action: "insert", columns: ["owner_user_id", "text"], values: [{ owner_user_id: "abc", text: "t" }, { owner_user_id: U1, text: "\u0000" }] })).code).toBe("22P02");
+    // A PATCH withholds it until its filter matches a row, like an input error.
+    expect(ok(intent({ table: "leads", action: "update", values: [{ name: "a\u0000b" }] })).refuseIfMatched).toEqual(nul);
+    // A surrogate PAIR is one character, written as is.
+    expect(JSON.parse(String(ok(lead({ name: "😀" })).params[0]))[0][1]).toBe("😀");
+  });
+
   it("stores a jsonb object with its keys in jsonb's order, as the imported rows are", () => {
     const q = ok(intent({ table: "leads", action: "insert", values: [{ kind: "person", name: "N", details: { positions: ["x"], sector: "Pflege", city: "Kiel" } }] }));
     expect(JSON.parse(String(q.params[0]))).toEqual([["person", "N", '{"city":"Kiel","sector":"Pflege","positions":["x"]}']]);

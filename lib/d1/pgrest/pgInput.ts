@@ -957,6 +957,58 @@ export function jsonbStoredText(v: unknown): string {
   return json === undefined ? "null" : walk(JSON.parse(json));
 }
 
+/* ── the payload's JSON strings ───────────────────────────────────────────── */
+
+/**
+ * What Postgres' JSON lexer refuses while it de-escapes a write payload, before
+ * any column's input function runs.
+ *
+ * PostgREST hands the body over as ONE json parameter and json_to_recordset()
+ * de-escapes every string in it, key or value (jsonapi.c json_lex_string with
+ * need_escapes). JSON.stringify — supabase-js — spells U+0000 and a lone UTF-16
+ * surrogate as `\u0000` / `\udXXX` escapes, and the lexer refuses both: Postgres'
+ * text cannot hold a NUL, and a surrogate is only a character in a pair. D1 took
+ * both and stored them, so a lead whose name held a NUL answered `ok` where
+ * Supabase answers 400 — and its journal entry was one Supabase would refuse,
+ * halting a rollback replay at that write. Codes, messages and details are
+ * Supabase's own, checked against the live project through a jsonb filter
+ * (jsonb_in runs the same lexer).
+ *
+ * Walked in JSON order — keys before their values, left to right — because the
+ * lexer stops at the first one.
+ */
+export function jsonEscapeError(v: unknown): PostgrestError | null {
+  if (typeof v === "string") return stringEscapeError(v);
+  if (Array.isArray(v)) {
+    for (const item of v) { const e = jsonEscapeError(item); if (e) return e; }
+    return null;
+  }
+  if (v !== null && typeof v === "object" && !(v instanceof Date)) {
+    for (const [k, item] of Object.entries(v)) {
+      const e = stringEscapeError(k) ?? jsonEscapeError(item);
+      if (e) return e;
+    }
+  }
+  return null;
+}
+
+function stringEscapeError(s: string): PostgrestError | null {
+  const surrogate = (details: string) =>
+    ({ code: "22P02", message: "invalid input syntax for type json", details, hint: null, status: 400 });
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0) return { code: "22P05", message: "unsupported Unicode escape sequence", details: "\\u0000 cannot be converted to text.", hint: null, status: 400 };
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) { i++; continue; }
+      if (next >= 0xd800 && next <= 0xdbff) return surrogate("Unicode high surrogate must not follow a high surrogate.");
+      return surrogate("Unicode low surrogate must follow a high surrogate.");
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) return surrogate("Unicode low surrogate must follow a high surrogate.");
+  }
+  return null;
+}
+
 /* ── dispatch ─────────────────────────────────────────────────────────────── */
 
 /**
