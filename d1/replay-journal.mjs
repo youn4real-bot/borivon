@@ -250,6 +250,75 @@ async function alreadyPresent(entry, bodyText, target, registry) {
 }
 
 /**
+ * The login a 23503 says is missing: Postgres names the key and the table in
+ * `details` — `Key (user_id)=(<uuid>) is not present in table "users".` No
+ * public table is called "users", so that table is auth.users.
+ */
+export function missingLogin(err) {
+  const m = /^Key \(([A-Za-z0-9_]+)\)=\(([0-9a-fA-F-]{36})\) is not present in table "users"\.?$/.exec(String(err?.details ?? ""));
+  return err?.code === "23503" && m ? { column: m[1], id: m[2].toLowerCase() } : null;
+}
+
+/** Is this login gone from Supabase auth? A GET; anything but 200/404 is "cannot tell". */
+async function loginIsGone(id, target) {
+  const base = String(target.url).replace(/\/+$/, "");
+  const res = await target.fetch(`${base}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
+    method: "GET", headers: { apikey: target.key, Authorization: `Bearer ${target.key}` },
+  });
+  if (res.status === 404) return true;
+  if (res.ok) return false;
+  throw new Error(`could not check whether a login still exists (auth answered HTTP ${res.status})`);
+}
+
+const sameId = (v, id) => typeof v === "string" && v.toLowerCase() === id;
+
+/**
+ * A write that points at a login deleted LATER in the D1 period. Deleting a user
+ * clears every row tied to the login on D1 (lib/authLinkedRows.ts, journaled
+ * deletes that come after this entry) and then runs app_delete_user ON SUPABASE
+ * at once — so by replay time the login is gone and Supabase refuses this entry
+ * with 23503, which used to halt the whole rollback for good. Every row this
+ * write would tie to that login is deleted later in the journal anyway, so:
+ *   an insert/upsert is sent without the rows naming the login (nothing left: skipped);
+ *   a PATCH that sets the column to the login deletes the rows it matches instead.
+ * Only when Supabase auth confirms the login is gone (404). The parity gate
+ * (R3b) still compares every row afterwards. Returns null when it does not apply.
+ */
+async function replayWithoutDeletedLogins(entry, req, firstError, target) {
+  const isTable = /\/rest\/v1\/[A-Za-z0-9_]+(\?|$)/.test(entry.path);
+  if (!isTable || req.init.body == null) return null;
+  let { method, body } = req.init;
+  let headers = { ...req.init.headers };
+  let error = firstError;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const ref = missingLogin(error);
+    if (!ref || !(await loginIsGone(ref.id, target))) return null;
+    if (method === "POST") {
+      const parsed = JSON.parse(body);
+      const rows = Array.isArray(parsed) ? parsed : [parsed];
+      const keep = rows.filter((r) => !(r && sameId(r[ref.column], ref.id)));
+      if (keep.length === rows.length) return null;
+      if (!keep.length) return { outcome: "skipped-login-deleted", status: 409 };
+      body = JSON.stringify(Array.isArray(parsed) ? keep : keep[0]);
+    } else if (method === "PATCH") {
+      if (!sameId(JSON.parse(body)?.[ref.column], ref.id)) return null;
+      method = "DELETE";
+      body = undefined;
+      delete headers["Content-Type"];
+    } else {
+      return null;
+    }
+    const res = await target.fetch(req.url, { method, headers, body });
+    if (res.ok) return { outcome: method === "DELETE" ? "deleted-login-rows-deleted" : "applied-without-deleted-login-rows", status: res.status };
+    error = await res.json().catch(() => ({}));
+    if (error?.code !== "23503") {
+      throw new Error(`Supabase answered HTTP ${res.status}${error?.code ? ` ${error.code}` : ""}${error?.message ? `: ${redactMessage(error.message)}` : ""}`);
+    }
+  }
+  return null;
+}
+
+/**
  * Replay the journal. Everything it talks to is injected, so the tests drive it
  * against node:sqlite and a fake Supabase:
  *   d1        { run(sql, params) → { results } }
@@ -259,7 +328,7 @@ async function alreadyPresent(entry, bodyText, target, registry) {
 export async function replayJournal({ d1, target, registry, dryRun = true, limit = Infinity, allowLate = false, log = console.log }) {
   const targetKey = new URL(target.url).host;
   const journal = await loadJournal(d1, targetKey);
-  const summary = { ok: true, dryRun, journaled: journal.entries.length, alreadyReplayed: 0, pending: 0, sent: 0, alreadyPresent: 0, late: 0, warnings: [], haltedAt: null };
+  const summary = { ok: true, dryRun, journaled: journal.entries.length, alreadyReplayed: 0, pending: 0, sent: 0, alreadyPresent: 0, loginGone: 0, late: 0, warnings: [], haltedAt: null };
   if (!journal.exists) {
     log("journal: no _write_journal table in D1 — D1 has never answered a write. Nothing to replay.");
     return summary;
@@ -308,7 +377,11 @@ export async function replayJournal({ d1, target, registry, dryRun = true, limit
         outcome = "applied";
       } else {
         const err = await res.json().catch(() => ({}));
-        if ((res.status === 409 || err?.code === "23505") && await alreadyPresent(e, req.init.body ?? null, target, registry)) {
+        const repaired = missingLogin(err) ? await replayWithoutDeletedLogins(e, req, err, target) : null;
+        if (repaired) {
+          ({ outcome, status } = repaired);
+          summary.loginGone++;
+        } else if ((res.status === 409 || err?.code === "23505") && await alreadyPresent(e, req.init.body ?? null, target, registry)) {
           outcome = "already-present";
         } else {
           throw new Error(`Supabase answered HTTP ${res.status}${err?.code ? ` ${err.code}` : ""}${err?.message ? `: ${redactMessage(err.message)}` : ""}`);
@@ -334,7 +407,7 @@ export async function replayJournal({ d1, target, registry, dryRun = true, limit
     }
     summary.sent++;
     if (outcome === "already-present") summary.alreadyPresent++;
-    log(`  ${outcome === "applied" ? "ok  " : "had "} ${describeEntry(e)}${outcome === "already-present" ? " (already in Supabase)" : ""}`);
+    log(`  ${outcome === "applied" ? "ok  " : "had "} ${describeEntry(e)}${outcome === "already-present" ? " (already in Supabase)" : outcome === "applied" ? "" : ` (${outcome}: its login was deleted later on D1 — parity checks the result)`}`);
   }
   summary.pending = pending.length - batch.length;
   summary.ok = summary.pending === 0;

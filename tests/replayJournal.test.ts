@@ -10,6 +10,7 @@ import {
   replayJournal, describeEntry, replayPrefer, mergeFill, redactMessage, archiveJournal, REPLAYED_TABLE,
 } from "../d1/replay-journal.mjs";
 import { journalRowCount } from "../d1/cutover.mjs";
+import { AUTH_LINKED_ROWS, deleteAuthLinkedRows } from "@/lib/authLinkedRows";
 import { hasSqlite, openDb, sqliteRunner, type SqliteDb } from "./helpers/sqliteD1";
 
 /**
@@ -404,5 +405,83 @@ describe.skipIf(!hasSqlite)("a rollback loses nothing: D1 writes → journal →
       expect(dump(sbDb, table, key), table).toEqual(expected);
     }
     expect(dump(sbDb, "notifications", "id")).toHaveLength(2);
+  });
+});
+
+describe.skipIf(!hasSqlite)("a login deleted later in the D1 period does not halt the rollback", () => {
+  it("drops the rows tied to it, deletes what its invite claim touched, and ends identical to D1", async () => {
+    resetJournalForTests();
+    const d1Db = openDb({ schema: true }), sbDb = openDb({ schema: true });
+    const d1 = sqliteRunner(d1Db), sb = sqliteRunner(sbDb);
+    const GONE = "99999999-9999-4999-8999-999999999999", TOKEN = ID(60);
+    const seed = `INSERT INTO invite_tokens (id, type, code, created_at) VALUES ('${TOKEN}', 'candidate', 'c1', '2026-01-01T00:00:00+00:00')`;
+    d1Db.exec(seed); sbDb.exec(seed);
+
+    const pending: Promise<void>[] = [];
+    const noNetwork = (async () => { throw new Error("no network"); }) as unknown as typeof fetch;
+    const portal = createClient(SB, "service", {
+      auth: { persistSession: false },
+      global: { fetch: buildServiceFetch({ backend: "d1", shadow: false, freeze: false }, { base: noNetwork, runner: d1, journal: { schedule: (w) => { pending.push(w()); } } }) },
+    });
+    // Sign-up through an invite, a first upload, a bell for someone else too…
+    await portal.from("invite_tokens").update({ used_by: GONE, used_at: "2026-10-07T10:00:00Z" }).eq("id", TOKEN).is("used_by", null);
+    await portal.from("candidate_profiles").upsert({ user_id: GONE, lang: "fr" }, { onConflict: "user_id" });
+    await portal.from("notifications").insert([
+      { user_id: GONE, doc_name: "cv", doc_type: "cv_de", action: "approved" },
+      { user_id: U1, doc_name: "cv", doc_type: "cv_de", action: "approved" },
+    ]);
+    // …then the admin deletes that user: rows cleared on D1 (journaled), login deleted on Supabase.
+    expect(await deleteAuthLinkedRows(portal, GONE)).toEqual({ error: null });
+    while (pending.length) await Promise.all(pending.splice(0));
+
+    // Supabase refuses any row naming the deleted login, as its auth.users foreign keys do.
+    const linked = new Map<string, string[]>();
+    for (const { table, column } of AUTH_LINKED_ROWS) linked.set(table, [...(linked.get(table) ?? []), column]);
+    const adapter = makeBvFetch({ runner: sb });
+    const authChecks: string[] = [];
+    const supabase = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.startsWith("/auth/v1/admin/users/")) {
+        authChecks.push(init?.method ?? "GET");
+        return new Response(JSON.stringify({ code: 404, msg: "User not found" }), { status: url.pathname.endsWith(GONE) ? 404 : 200 });
+      }
+      const table = url.pathname.split("/").pop()!;
+      if (init?.body && linked.has(table)) {
+        const parsed = JSON.parse(String(init.body));
+        for (const row of Array.isArray(parsed) ? parsed : [parsed]) {
+          for (const col of linked.get(table)!) {
+            if (row?.[col] === GONE) {
+              return json(409, { code: "23503", hint: null, message: `insert or update on table "${table}" violates foreign key constraint "${table}_${col}_fkey"`, details: `Key (${col})=(${GONE}) is not present in table "users".` });
+            }
+          }
+        }
+      }
+      return adapter(input as RequestInfo, init);
+    }) as typeof fetch;
+
+    const out = quiet();
+    const summary = await replayJournal({ d1, target: { url: SB, key: "service", fetch: supabase }, registry, dryRun: false, log: out.log });
+    expect(summary, out.lines.join("\n")).toMatchObject({ ok: true, pending: 0, loginGone: 3 });
+    expect(authChecks.every((m) => m === "GET")).toBe(true);
+    expect(out.lines.join("\n")).not.toContain(GONE);
+    for (const [table, key] of [["invite_tokens", "id"], ["candidate_profiles", "user_id"], ["notifications", "id"]]) {
+      const dump = (db: SqliteDb) => db.prepare(`SELECT * FROM "${table}" ORDER BY "${key}"`).all();
+      expect(dump(sbDb), table).toEqual(dump(d1Db));
+    }
+    expect(sbDb.prepare(`SELECT count(*) AS n FROM notifications`).all()[0].n).toBe(1);
+  });
+
+  it("still halts when the login a write names is alive (a real refusal)", async () => {
+    resetJournalForTests();
+    const db = openDb();
+    const runner = sqliteRunner(db);
+    for (const ddl of JOURNAL_DDL) await runner.run(ddl);
+    await appendEntry(runner, { at: "2026-10-07T00:00:00.000Z", at_ms: 1, seq: 1, method: "POST", path: "/rest/v1/notifications", prefer: null, body: JSON.stringify({ id: ID(1), user_id: U1 }), status: 201, note: null }, null);
+    const sbFake = fakeSupabase((s) => {
+      if (s.url.includes("/auth/v1/admin/users/")) return json(200, { id: U1 });
+      return json(409, { code: "23503", message: "insert or update on table \"notifications\" violates foreign key constraint \"notifications_user_id_fkey\"", details: `Key (user_id)=(${U1}) is not present in table "users".` });
+    });
+    const summary = await replayJournal({ d1: runner, target: sbFake.target, registry, dryRun: false, log: quiet().log });
+    expect(summary).toMatchObject({ ok: false, haltedAt: 1, loginGone: 0 });
   });
 });
