@@ -16,7 +16,12 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 60);
   const db = getServiceSupabase();
 
-  let query = db.from("candidate_profiles").select("user_id, first_name, last_name").limit(40);
+  // Ordered BEFORE the limit: without it the 40 rows were whichever the database
+  // returned first — Postgres heap order before the D1 switch, rowid order after
+  // — so the default list was a different, arbitrary 25 on each backend. By name
+  // it is the alphabetical first page the sort below always meant to show.
+  let query = db.from("candidate_profiles").select("user_id, first_name, last_name")
+    .order("first_name").order("last_name").order("user_id").limit(40);
   if (q) {
     const safe = q.replace(/[\\%_]/g, (c) => "\\" + c);
     query = query.or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%`);
