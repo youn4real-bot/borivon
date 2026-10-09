@@ -24,6 +24,9 @@ import { getD1, type D1Runner } from "@/lib/d1/client";
 
 const registry = registryJson as unknown as Registry;
 
+/** Private response header: D1's last_row_id after a plain insert. supabase-js never reads it. */
+export const LAST_ROW_ID_HEADER = "x-bv-last-row-id";
+
 /** PostgREST data requests look like <supabase-url>/rest/v1/<table>?… */
 export function isPostgrestUrl(url: string): boolean {
   return /\/rest\/v1\//.test(url);
@@ -89,7 +92,11 @@ export function makeBvFetch(opts?: { runner?: D1Runner; passthrough?: typeof fet
       // — write.ts runs those and decides the answer.
       const written = await runWrite(intent, registry, (sql, params) => runner.run(sql, params));
       if (isError(written)) return errorResponse(written);
-      return respond(decodeRows(written.rows, intent, registry), { changes: written.changes }, intent);
+      const res = respond(decodeRows(written.rows, intent, registry), { changes: written.changes }, intent);
+      // The rowid D1 gave the last row a plain insert added: the write journal
+      // turns it into the ids of the rows it numbered itself (lib/d1/writeJournal.ts).
+      if (intent.action === "insert" && res.ok && Number.isSafeInteger(written.lastRowId)) res.headers.set(LAST_ROW_ID_HEADER, String(written.lastRowId));
+      return res;
     } catch (err) {
       return errorResponse(toPostgrestError(err, { table }), {}, head);
     }

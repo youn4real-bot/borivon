@@ -5,7 +5,7 @@ import type { Registry } from "@/lib/d1/pgrest/types";
 import type { D1Runner } from "@/lib/d1/client";
 import {
   journalTarget, prepareWrite, withWriteJournal, appendEntry, resetJournalForTests, intervalMs, defaultKind,
-  JOURNAL_DDL, JOURNAL_TABLE, JOURNAL_PART_TABLE, PART_CHARS, type JournalOptions,
+  JOURNAL_DDL, JOURNAL_TABLE, JOURNAL_PART_TABLE, PART_CHARS, recordIdentity, type JournalOptions,
 } from "@/lib/d1/writeJournal";
 import { makeBvFetch } from "@/lib/d1/bvFetch";
 import { buildServiceFetch } from "@/lib/d1/serviceFetch";
@@ -117,6 +117,22 @@ describe("prepareWrite", () => {
     ]), registry, gen);
     expect(mixed.changed).toBe(false);
     expect(mixed.note).toBe("fill-unkeyed");
+  });
+
+  it("plans to record the ids D1 numbers a plain insert's rows with, and reads them back for an upsert", () => {
+    const B = `${SB}/rest/v1/bookings?columns=${encodeURIComponent('"kind","name"')}`;
+    const rows = [{ kind: "nurse", name: "a" }, { kind: "nurse", name: "b" }];
+    const plain = prepareWrite("POST", B, null, JSON.stringify(rows), registry, gen);
+    expect(plain.identity).toEqual({ column: "id", rows: 2 });
+    const recorded = recordIdentity(plain.url, plain.body!, plain.identity!, 12);
+    expect(JSON.parse(recorded.body).map((r: { id: number }) => r.id)).toEqual([11, 12]);
+    expect(new URL(recorded.url).searchParams.get("columns")).toBe('"kind","name","created_at","id"');
+    expect(prepareWrite("POST", B, null, JSON.stringify([{ ...rows[0], id: 3 }, rows[1]]), registry, gen)).toMatchObject({ identity: null, note: "identity-mixed" });
+    // telegram_updates' key is Telegram's own number: always sent, nothing to record.
+    expect(prepareWrite("POST", `${SB}/rest/v1/telegram_updates`, null, JSON.stringify({ update_id: 5 }), registry, gen).identity ?? null).toBeNull();
+    const up = prepareWrite("POST", `${SB}/rest/v1/assistant_commitments?on_conflict=owner_user_id,source_message_id,what`, "resolution=ignore-duplicates",
+      JSON.stringify({ owner_user_id: U1, who_email: "w", what: "x", source_message_id: "m" }), registry, gen);
+    expect(up.fillPlan?.missing[0]).toContain("id");
   });
 
   it("leaves updates, deletes, unknown tables and unparseable bodies alone", () => {

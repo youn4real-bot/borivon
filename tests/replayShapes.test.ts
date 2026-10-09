@@ -3,7 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import registryJson from "@/d1/types.json";
 import type { Registry } from "@/lib/d1/pgrest/types";
 import type { D1Runner } from "@/lib/d1/client";
-import { resetJournalForTests, defaultKind, PART_CHARS } from "@/lib/d1/writeJournal";
+import { resetJournalForTests, defaultKind, identityColumn, PART_CHARS } from "@/lib/d1/writeJournal";
 import { makeBvFetch } from "@/lib/d1/bvFetch";
 import { buildServiceFetch } from "@/lib/d1/serviceFetch";
 import { replayJournal, REPLAY_RECOMPUTED } from "../d1/replay-journal.mjs";
@@ -44,10 +44,11 @@ const shaping = (prefer: string[]) => prefer.filter((t) => !t.startsWith("return
 const columnsOf = (u: URL) => (u.searchParams.get("columns") ?? "").split(",").map((c) => c.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean);
 const tableOf = (u: URL) => u.pathname.match(/\/rest\/v1\/([A-Za-z0-9_]+)$/)?.[1] ?? null;
 
-/** Columns whose value the database invents (gen_random_uuid(), now(), now() + interval). */
+/** Columns whose value the database invents (gen_random_uuid(), now(), now() + interval, a self-numbered id). */
 function generated(table: string): Set<string> {
   const cols = registry[table]?.columns ?? {};
-  return new Set(Object.entries(cols).filter(([, c]) => ["uuid", "time"].includes(defaultKind(c).kind)).map(([n]) => n));
+  const id = registry[table] ? identityColumn(registry[table]) : null;
+  return new Set([...Object.entries(cols).filter(([, c]) => ["uuid", "time"].includes(defaultKind(c).kind)).map(([n]) => n), ...(id ? [id] : [])]);
 }
 
 const describeD1 = describe.skipIf(!hasSqlite);
@@ -229,6 +230,23 @@ describeD1("every mutation shape replays as the request supabase-js sent", () =>
     await ok(db.rpc("release_upload_key", { p_link_id: LINK, p_key: "passport" }));
     await ok(db.rpc("rl_hit", { p_key: "ip:1", p_window_ms: 60_000 }));                                      // ephemeral: never replayed
     await check();
+  });
+
+  it("self-numbered ids (bookings, assistant_commitments…) replay as the ids D1 gave, whatever Supabase's sequence says", async () => {
+    // Supabase's sequence is ahead of D1's: a booking was created and deleted
+    // there before the copy (the copy only knows rows, not sequences).
+    sbDb.exec(`INSERT INTO bookings (id, kind, name, starts_at, ends_at) VALUES (7, 'nurse', 'x', '2026-01-01T00:00:00+00:00', '2026-01-01T01:00:00+00:00'); DELETE FROM bookings WHERE id = 7;`);
+    const slot = (h: number) => ({ kind: "nurse", starts_at: `2026-10-10T${h}:00:00Z`, ends_at: `2026-10-10T${h}:30:00Z` });
+    const { data: b } = await ok(db.from("bookings").insert({ ...slot(9), name: "A" }).select("id").single());
+    await ok(db.from("bookings").update({ calendar_event_id: "ev1" }).eq("id", b!.id));          // app/api/book/route.ts
+    await ok(db.from("bookings").insert([{ ...slot(10), name: "B" }, { ...slot(11), name: "C" }]));        // return=minimal: no ids in the answer
+    await ok(db.from("bookings").update({ status: "cancelled" }).eq("id", b!.id + 2));
+    await ok(db.from("assistant_commitments").upsert(
+      [{ owner_user_id: U1, who_email: "w@example.invalid", what: "send CV", source_message_id: "m1" }],
+      { onConflict: "owner_user_id,source_message_id,what", ignoreDuplicates: true }));
+    await ok(db.from("assistant_commitments").update({ status: "done" }).eq("id", 1));
+    await check();
+    expect(String(replayed.find((s) => s.url.pathname.endsWith("/bookings") && s.method === "POST")!.body)).toContain(`"id":${b!.id}`);
   });
 
   it("a body too big for one journal row, reassembled from its parts", async () => {

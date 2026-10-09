@@ -65,6 +65,8 @@ const NOTE_WARNINGS = {
   "fill-unkeyed": "an upserted row had no conflict key; rows this upsert inserted get new ids on Supabase",
   "fill-partial": "some generated values could not be read back; those rows get new ids on Supabase",
   "fill-failed": "generated values could not be read back; newly inserted rows get new ids on Supabase",
+  "identity-unknown": "D1 did not report the ids it numbered these rows with; Supabase numbers them from its own sequence",
+  "identity-mixed": "some rows carried their own id and the rest were numbered by D1; those get ids from Supabase's own sequence",
 };
 
 /**
@@ -384,7 +386,10 @@ export async function replayJournal({ d1, target, registry, dryRun = true, limit
         } else if ((res.status === 409 || err?.code === "23505") && await alreadyPresent(e, req.init.body ?? null, target, registry)) {
           outcome = "already-present";
         } else {
-          throw new Error(`Supabase answered HTTP ${res.status}${err?.code ? ` ${err.code}` : ""}${err?.message ? `: ${redactMessage(err.message)}` : ""}`);
+          // 428C9: an explicit id into a GENERATED ALWAYS identity column. The runbook's
+          // R2b turns those columns into BY DEFAULT before the replay.
+          const hint = err?.code === "428C9" ? " — run the R2b SQL (docs/cutover-runbook.md) in the Supabase SQL editor first" : "";
+          throw new Error(`Supabase answered HTTP ${res.status}${err?.code ? ` ${err.code}` : ""}${err?.message ? `: ${redactMessage(err.message)}` : ""}${hint}`);
         }
       }
     } catch (err) {
