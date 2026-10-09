@@ -161,7 +161,10 @@ export const JOURNAL_LAG_MS = 10 * 60_000;
 export async function checkJournal(runner: D1Runner, now = Date.now()): Promise<Probe> {
   const parts = JOURNAL_WATCHED.map(([t, c], i) =>
     `(SELECT max("${c}") FROM "${t}") AS "row${i}", ` +
-    `(SELECT max("at") FROM "_write_journal" WHERE "method" = 'POST' AND ("path" = '/rest/v1/${t}' OR "path" LIKE '/rest/v1/${t}?%')) AS "jn${i}"`);
+    // POST and PATCH: the page organiser and replace-passport-pdf move
+    // documents.uploaded_at forward with an UPDATE, so its newest value can
+    // belong to a journaled PATCH, not an insert.
+    `(SELECT max("at") FROM "_write_journal" WHERE "method" IN ('POST', 'PATCH') AND ("path" = '/rest/v1/${t}' OR "path" LIKE '/rest/v1/${t}?%')) AS "jn${i}"`);
   let row: Record<string, unknown>;
   try {
     row = (await runner.run(`SELECT (SELECT min("at") FROM "_write_journal") AS "first", ${parts.join(", ")}`)).results[0] ?? {};

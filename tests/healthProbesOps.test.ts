@@ -41,7 +41,7 @@ describe.skipIf(!hasSqlite)("journal probe: every new row has its journaled inse
   let db: SqliteDb;
   const NOW = Date.parse("2026-10-08T12:00:00.000Z");
   const iso = (ms: number) => new Date(ms).toISOString();
-  const journal = (at: number, path: string) => db.prepare(`INSERT INTO _write_journal (at, at_ms, seq, method, path, status) VALUES (?, ?, 1, 'POST', ?, 201)`).run(iso(at), at, path);
+  const journal = (at: number, path: string, method = "POST") => db.prepare(`INSERT INTO _write_journal (at, at_ms, seq, method, path, status) VALUES (?, ?, 1, ?, ?, 201)`).run(iso(at), at, method, path);
   const notification = (at: number) => db.prepare(`INSERT INTO notifications (id, user_id, doc_name, doc_type, action, created_at) VALUES (lower(hex(randomblob(16))), 'u', 'cv', 't', 'approved', ?)`).run(iso(at).replace("Z", "+00:00"));
 
   beforeEach(async () => {
@@ -64,6 +64,15 @@ describe.skipIf(!hasSqlite)("journal probe: every new row has its journaled inse
     const probe = await checkJournal(sqliteRunner(db), NOW);
     expect(probe).toMatchObject({ name: "journal", ok: false });
     expect(probe.detail).toMatch(/^newest notifications row/);
+  });
+
+  it("green when the newest timestamp came from a journaled UPDATE (the page organiser re-stamps uploaded_at)", async () => {
+    const doc = (at: number) => db.prepare(`INSERT INTO documents (id, user_id, file_name, file_path, uploaded_at) VALUES (lower(hex(randomblob(16))), 'u', 'f.pdf', 'p', ?)`).run(iso(at).replace("Z", "+00:00"));
+    journal(NOW - 7_200_000, "/rest/v1/documents");
+    doc(NOW - 7_200_000);
+    doc(NOW - 3_600_000);                                   // stands for the PATCH's new uploaded_at
+    journal(NOW - 3_600_000 + 200, "/rest/v1/documents?id=eq.x", "PATCH");
+    expect((await checkJournal(sqliteRunner(db), NOW)).ok).toBe(true);
   });
 
   it("no journal table yet is not an alarm", async () => {
