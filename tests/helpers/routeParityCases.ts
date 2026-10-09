@@ -69,7 +69,9 @@ export type RouteCase = {
   persona?: Persona;
   params?: Record<string, string>;
   headers?: Record<string, string>;
-  method?: "GET";
+  /** POST only for the read-only POST handlers (search, facets): they read, never write — the guards would record it. */
+  method?: "GET" | "POST";
+  body?: unknown;
   /** Run-time lookup (read-only client) for values that must not be committed. */
   prepare?: (db: SupabaseClient<any, any, any>) => Promise<Prepared>;
   /** Drop volatile parts of the body before comparing. */
@@ -80,6 +82,13 @@ export type RouteCase = {
 };
 
 const mod = (route: string) => `@/app/api/${route}/route`;
+/**
+ * Reported, not failed: the rows match, only the sequence of rows the code never
+ * ordered (or ranked with ties) differs — Postgres returns heap order, D1 rowid
+ * order (tests/d1OrderParity.test.ts). Each was checked: the screen re-sorts, or
+ * the ties are equal-rank rows whose relative order nobody relies on.
+ */
+const ORDER_TIES = "order of unordered/equal-rank rows (heap vs rowid order); same rows";
 const cases: RouteCase[] = [];
 function add(route: string, url: string, personas: (Persona | undefined)[], extra: Partial<RouteCase> = {}) {
   for (const persona of personas) {
@@ -112,21 +121,25 @@ add("portal/admin/classroom/tester", `/api/portal/admin/classroom/tester?userId=
 add("portal/admin/sign-request", `/api/portal/admin/sign-request?candidateId=${SIGN_CANDIDATE}`, ADMINS);
 add("portal/admin/slot-template", "/api/portal/admin/slot-template?slotId=343df171-377d-4691-8c46-703377558231", ["admin"]);
 add("portal/admin/me/signature", "/api/portal/admin/me/signature", ADMINS);
-add("portal/admin/pdf-mappings", "/api/portal/admin/pdf-mappings", ["admin"]);
+add("portal/admin/pdf-mappings", "/api/portal/admin/pdf-mappings?signature=route-parity", ["admin"]);
 add("portal/admin/checklist", "/api/portal/admin/checklist", ADMINS);
 add("portal/admin/assigned-tasks", "/api/portal/admin/assigned-tasks", ADMINS);
 add("portal/passport-pdf", `/api/portal/passport-pdf?userId=${T_IN}`, ["admin"]);
-add("portal/file", "/api/portal/file?id=847e59b9-ae5c-4393-981f-75ef4012a9b6", ["admin", "orgadmin", "c_docs", "c_journey"]);
+add("portal/file", "/api/portal/file?docId=847e59b9-ae5c-4393-981f-75ef4012a9b6", ["admin", "orgadmin", "c_docs", "c_journey"]);
 add("portal/classroom/engagement/[userId]", `/api/portal/classroom/engagement/${T_IN}`, ["admin"], { params: { userId: T_IN } });
 
 // ── candidate search + facets, dashboards, boards ──
-add("portal/pipeline", "/api/portal/pipeline", ADMINS);
+// search and facets are POSTs that only read (the query travels in the body).
+add("portal/admin/facets", "/api/portal/admin/facets", ADMINS, { method: "POST", body: { lang: "en", selection: {} } });
+add("portal/admin/facets", "/api/portal/admin/facets#b2+docs", ["admin", "orgadmin"], { method: "POST", body: { lang: "de", selection: { b2: ["full_cert", "awaiting"], docs: ["missing", "pending"] } } });
+add("portal/admin/search", "/api/portal/admin/search", ADMINS, { method: "POST", body: { query: "", lang: "en" } });
+add("portal/admin/search", "/api/portal/admin/search#keyword", ["admin", "orgadmin"], { method: "POST", body: { query: "b2 missing documents", lang: "en" } });
 add("portal/pipeline", `/api/portal/pipeline?userId=${T_IN}`, ["admin", "orgadmin"]);
-add("portal/journey/pipeline", "/api/portal/journey/pipeline", ADMINS);
+add("portal/journey/pipeline", "/api/portal/journey/pipeline", ADMINS, { expectedDiff: ORDER_TIES }); // sorted by health rank; ties keep read order
 add("portal/batches", "/api/portal/batches", ADMINS);
 add("portal/tracker", "/api/portal/tracker", ADMINS);
 add("portal/admin/analytics", "/api/portal/admin/analytics", ADMINS);
-add("portal/admin/b2-overview", "/api/portal/admin/b2-overview", ADMINS, { expectedDiff: "b2 completion upserted since the switch (journal)" });
+add("portal/admin/b2-overview", "/api/portal/admin/b2-overview", ADMINS, { expectedDiff: ORDER_TIES }); // b2-status page re-sorts by stage + name
 add("portal/admin/chase", "/api/portal/admin/chase", ADMINS);
 add("portal/admin/expiry-radar", "/api/portal/admin/expiry-radar", ADMINS);
 add("portal/admin/needs", "/api/portal/admin/needs?lang=de", ADMINS);
@@ -167,7 +180,7 @@ add("book/manage", "/api/book/manage?t=route-parity-not-a-token", [undefined]);
 // ── academy ──
 add("portal/academy/admin", "/api/portal/academy/admin?view=cohorts", ADMINS);
 add("portal/academy/admin", "/api/portal/academy/admin?view=cohort&id=536e2dbb-b07a-4c4a-8482-aa4d79b0bd9c", ["admin", "orgadmin"]);
-add("portal/academy/admin", "/api/portal/academy/admin?view=candidates&cohortId=536e2dbb-b07a-4c4a-8482-aa4d79b0bd9c", ["admin", "orgadmin"]);
+add("portal/academy/admin", "/api/portal/academy/admin?view=candidates&cohortId=536e2dbb-b07a-4c4a-8482-aa4d79b0bd9c", ["admin", "orgadmin"], { expectedDiff: ORDER_TIES }); // name sort; nameless "—" rows tie
 add("portal/academy/admin", "/api/portal/academy/admin?view=quizzes&cohortId=536e2dbb-b07a-4c4a-8482-aa4d79b0bd9c", ["admin"]);
 add("portal/academy/visibility", "/api/portal/academy/visibility", ADMINS);
 add("portal/academy/me", "/api/portal/academy/me", ["c_docs", "c_journey"]);
@@ -201,7 +214,7 @@ add("portal/me/sign-requests", "/api/portal/me/sign-requests", CANDS);
 add("portal/me/signature", "/api/portal/me/signature", ["c_docs", "c_journey"]);
 add("portal/me/verified", "/api/portal/me/verified", CANDS);
 add("portal/pipeline/me", "/api/portal/pipeline/me", CANDS);
-add("portal/journey", "/api/portal/journey", CANDS);
+for (const c of CANDS) add("portal/journey", `/api/portal/journey?candidateId=${CANDIDATES[c]}`, [c]);
 add("portal/journey", `/api/portal/journey?candidateId=${T_OUT}`, ["admin", "orgadmin"]);
 add("portal/messages", "/api/portal/messages", ["c_msgs", "c_docs", "c_journey"]);
 add("portal/messages/[id]/attachment", "/api/portal/messages/1633146d-9047-462a-8dbb-ea05cab33570/attachment", ["c_msgs", "c_docs"], { params: { id: "1633146d-9047-462a-8dbb-ea05cab33570" } });
@@ -210,7 +223,7 @@ add("portal/self-report", "/api/portal/self-report", ["c_docs", "c_journey"]);
 add("portal/admin-photo", "/api/portal/admin-photo", ["c_docs"]);
 add("portal/classroom/consent", "/api/portal/classroom/consent", ["c_docs", "c_journey"]);
 add("portal/classroom/sessions", "/api/portal/classroom/sessions", ["c_docs", "admin"]);
-add("portal/org/me", "/api/portal/org/me", ["orgadmin", "hqsub", "c_docs"]);
+add("portal/org/me", "/api/portal/org/me", ["orgadmin", "hqsub", "c_docs"], { expectedDiff: ORDER_TIES }); // link order; no UI reads this route
 add("portal/org/candidates/[userId]", `/api/portal/org/candidates/${T_IN}`, ["orgadmin", "c_docs"], { params: { userId: T_IN } });
 add("portal/org/candidates/[userId]", `/api/portal/org/candidates/${T_OUT}`, ["orgadmin"], { params: { userId: T_OUT } });
 add("portal/dl-token", "/api/portal/dl-token", ["c_docs"]);
@@ -218,8 +231,6 @@ add("portal/dl-token", "/api/portal/dl-token", ["c_docs"]);
 // ── cv / letter data loads ──
 add("portal/cv/text", "/api/portal/cv/text", ["c_docs", "c_journey", "c_nopipe"]);
 add("portal/cv/text", `/api/portal/cv/text?candidateId=${T_IN}`, ["admin", "orgadmin"]);
-add("portal/cv/visa", "/api/portal/cv/visa", ["c_docs", "c_journey"]);
-add("portal/cv/visa", `/api/portal/cv/visa?candidateId=${T_IN}`, ["admin"]);
 add("portal/letter-body", "/api/portal/letter-body", ["c_docs", "c_journey"]);
 add("portal/letter-body", `/api/portal/letter-body?variant=visa&userId=${T_IN}`, ["admin"]);
 
@@ -288,6 +299,7 @@ export const SKIPPED: Record<string, string> = {
   "portal/admin/rls-status": "probes Supabase RLS with the anon key — Supabase-only by design",
   "portal/admin/email-attachment": "streams a Gmail attachment (Gmail API); no database read",
   "storage/v1/object/public|sign": "serve R2 objects through the Worker binding — no R2 outside Workers (tests/r2StorageParity.test.ts covers them)",
+  "portal/cv/visa": "renders through a .tsx React-PDF module the node test runtime cannot load (500 on both sides); its data is the /me/cv-draft + /cv/text read",
   "portal/cv/live-file | cv/preview-file | documents/merge-pdf | admin/passport-data-pdf | me/passport-data-pdf | qr | feed/gifs": "render or stream files from storage/R2 or call Giphy; their DB reads are the same rows /me/profile, /me/documents and /admin load",
   "r/[code]": "affiliate click redirect: increments affiliates.clicks (a write) — 0 affiliates in live data",
 };

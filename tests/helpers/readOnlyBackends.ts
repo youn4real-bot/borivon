@@ -65,6 +65,16 @@ export function assertSelectOnly(sql: string): void {
 export type Runner = { run(sql: string, params?: unknown[]): Promise<{ results: Record<string, unknown>[]; meta: Record<string, unknown> }> };
 
 /**
+ * The ONE runner that may write: the throwaway D1 copy, and nothing else — the
+ * id is asserted at construction, so a wrong env var cannot turn it on live.
+ * For GET handlers that write (they are run there, never on live).
+ */
+export function throwawayRunner(opts: { send: typeof fetch; accountId: string; token: string; databaseId: string }): Runner {
+  if (opts.databaseId !== SCRATCH_D1_ID) throw new ReadOnlyViolation(`writes are allowed only on the throwaway D1 ${SCRATCH_D1_ID}, not ${opts.databaseId}`);
+  return d1HttpRunner(opts, () => {});
+}
+
+/**
  * A D1 runner over Cloudflare's HTTP API that refuses every non-SELECT.
  * `send` is the real network fetch, captured before any global guard replaces it.
  */
@@ -75,15 +85,25 @@ export function selectOnlyRunner(opts: {
   databaseId: string;
   attempts?: Attempt[];
 }): Runner {
+  if (opts.databaseId === SCRATCH_D1_ID) throw new ReadOnlyViolation("selectOnlyRunner is for live D1; use throwawayRunner for the copy");
+  return d1HttpRunner(opts, (sql) => {
+    try {
+      assertSelectOnly(sql);
+    } catch (err) {
+      opts.attempts?.push({ kind: "sql", what: sql.replace(/\s+/g, " ").slice(0, 160) });
+      throw err;
+    }
+  });
+}
+
+function d1HttpRunner(
+  opts: { send: typeof fetch; accountId: string; token: string; databaseId: string },
+  check: (sql: string) => void,
+): Runner {
   const url = `https://api.cloudflare.com/client/v4/accounts/${opts.accountId}/d1/database/${opts.databaseId}/query`;
   return {
     async run(sql, params = []) {
-      try {
-        assertSelectOnly(sql);
-      } catch (err) {
-        opts.attempts?.push({ kind: "sql", what: sql.replace(/\s+/g, " ").slice(0, 160) });
-        throw err;
-      }
+      check(sql);
       for (let attempt = 1; ; attempt++) {
         const res = await opts.send(url, {
           method: "POST", // the D1 query API is POST-only; the statement itself was checked above
@@ -127,6 +147,8 @@ export function getOnlyFetch(send: typeof fetch, allowOrigin: string, attempts?:
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = urlOf(input);
     const method = methodOf(input, init);
+    // data:/blob: never leave the process (pdf code loads its wasm this way).
+    if (/^(data|blob):/i.test(url)) return send(input as RequestInfo, init);
     let origin = "";
     try { origin = new URL(url).origin; } catch { /* relative or junk: refused below */ }
     if (origin !== allowed || (method !== "GET" && method !== "HEAD")) {

@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { makeBvFetch } from "../lib/d1/bvFetch";
-import { selectOnlyRunner, getOnlyFetch, LIVE_D1_ID, type Attempt } from "./helpers/readOnlyBackends";
+import { selectOnlyRunner, throwawayRunner, getOnlyFetch, LIVE_D1_ID, SCRATCH_D1_ID, type Attempt, type Runner } from "./helpers/readOnlyBackends";
 import { CASES, type Prepared, type RouteCase } from "./helpers/routeParityCases";
 
 /**
@@ -40,11 +40,12 @@ import { CASES, type Prepared, type RouteCase } from "./helpers/routeParityCases
  *
  * Skipped unless RUN_ROUTE_PARITY=1:
  *   RUN_ROUTE_PARITY=1 npx vitest run tests/routeParity.test.ts
- * Optional: ROUTE_PARITY_ONLY=<substring of case id>, ROUTE_PARITY_OUT=<file>.
+ * Optional: ROUTE_PARITY_ONLY=<regex on case id>, ROUTE_PARITY_OUT=<file>.
  */
 const ENABLED = process.env.RUN_ROUTE_PARITY === "1";
 
-type Backend = "supabase" | "d1";
+/** "scratch" = the throwaway D1 copy, writable — only for GET handlers that write. */
+type Backend = "supabase" | "d1" | "scratch";
 
 type Harness = {
   backend: Backend;
@@ -53,6 +54,7 @@ type Harness = {
   reads: number;
   users: Map<string, User>;
   clients: Record<Backend, SupabaseClient<any, any, any>>;
+  scratchRunner: Runner;
   authSchema: SupabaseClient<any, any, any>;
 };
 
@@ -142,7 +144,7 @@ function stubRealtime(client: any, attempts: () => Attempt[]) {
 }
 
 // ─── normalising answers ──────────────────────────────────────────────────────
-type Answer = { status: number; type: string; location?: string; body: unknown; attempts: Attempt[]; reads: number; threw?: string };
+type Answer = { status: number; type: string; location?: string; body: unknown; attempts: Attempt[]; reads: number; threw?: string; logs?: string[] };
 
 async function readAnswer(res: Response | undefined): Promise<Omit<Answer, "attempts" | "reads">> {
   if (!res) return { status: -1, type: "none", body: null };
@@ -265,8 +267,35 @@ describe.skipIf(!ENABLED)("route handlers answer the same on Supabase and on liv
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const attempts: Attempt[] = [];
     const guarded = getOnlyFetch(realFetch, url, attempts);
+    // Auth is not under test (logins stay on Supabase on both backends), and a
+    // burst of 35 getUserById calls from a workstation drops a few on connect
+    // timeouts — a different few per run, which made the org admin's candidate
+    // names differ between the two runs for no database reason. So every auth
+    // GET is answered once (retried until it lands) and replayed to both sides.
+    const authCache = new Map<string, Promise<{ status: number; headers: [string, string][]; body: string }>>();
+    const authGet = (u: string, init?: RequestInit) => {
+      let hit = authCache.get(u);
+      if (!hit) {
+        hit = (async () => {
+          for (let attempt = 1; ; attempt++) {
+            try {
+              const r = await guarded(u, init);
+              return { status: r.status, headers: [...r.headers.entries()], body: await r.text() };
+            } catch (err) {
+              if (attempt >= 5 || (err as Error).name === "ReadOnlyViolation") throw err;
+              await new Promise((res) => setTimeout(res, 500 * attempt));
+            }
+          }
+        })();
+        authCache.set(u, hit);
+        hit.catch(() => authCache.delete(u));
+      }
+      return hit.then((x) => new Response(x.status === 204 ? null : x.body, { status: x.status, headers: x.headers }));
+    };
     const sbGet = ((input: RequestInfo | URL, init?: RequestInit) => {
       const u = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (/\/auth\/v1\//.test(u) && method === "GET" && !(input instanceof Request)) return authGet(u, init);
       if (/\/rest\/v1\//.test(u) && (globalThis as any).__routeParity?.backend === "supabase") H().reads++;
       return guarded(input as RequestInfo, init);
     }) as typeof fetch;
@@ -281,16 +310,24 @@ describe.skipIf(!ENABLED)("route handlers answer the same on Supabase and on liv
     const runner = { run: (sql: string, params?: unknown[]) => { if ((globalThis as any).__routeParity) H().reads++; return liveRunner.run(sql, params); } };
     const supa = createClient(url, key, { ...opts, global: { fetch: sbGet } });
     const d1 = createClient(url, key, { ...opts, global: { fetch: makeBvFetch({ runner, passthrough: sbGet }) } });
+    const scratchRunner = throwawayRunner({
+      send: realFetch,
+      accountId: process.env.CLOUDFLARE_ACCOUNT_ID!,
+      token: process.env.CLOUDFLARE_API_TOKEN!,
+      databaseId: SCRATCH_D1_ID,
+    });
+    const scratch = createClient(url, key, { ...opts, global: { fetch: makeBvFetch({ runner: scratchRunner, passthrough: sbGet }) } });
     const harness: Harness = {
       backend: "supabase",
       attempts,
       reads: 0,
       users: new Map(),
-      clients: { supabase: supa, d1 },
+      clients: { supabase: supa, d1, scratch },
+      scratchRunner,
       authSchema: createClient(url, key, { ...opts, db: { schema: "auth" }, global: { fetch: sbGet } }),
     };
     (globalThis as any).__routeParity = harness;
-    for (const c of [supa, d1]) {
+    for (const c of [supa, d1, scratch]) {
       (c as any).storage = stubStorage(() => H().attempts);
       stubRealtime(c, () => H().attempts);
     }
@@ -332,20 +369,31 @@ describe.skipIf(!ENABLED)("route handlers answer the same on Supabase and on liv
     const handler = mod[c.method ?? "GET"];
     const headers = new Headers(c.headers ?? {});
     if (c.persona) headers.set("authorization", `Bearer persona:${c.persona}`);
-    const req = new NextRequest(new URL(prep.url ?? c.url, "https://www.borivon.com"), { method: c.method ?? "GET", headers });
+    if (c.body !== undefined) headers.set("content-type", "application/json");
+    const req = new NextRequest(new URL(prep.url ?? c.url, "https://www.borivon.com"), {
+      method: c.method ?? "GET",
+      headers,
+      body: c.body === undefined ? undefined : JSON.stringify(c.body),
+    });
     let res: Response | undefined;
     let threw: string | undefined;
+    // What the handler logged (not compared — kept in the report to explain a 500).
+    const logs: string[] = [];
+    const keep = (...a: unknown[]) => { if (logs.length < 20) logs.push(a.map((x) => (x instanceof Error ? x.message : typeof x === "string" ? x : JSON.stringify(x))).join(" ").slice(0, 300)); };
+    const spies = [vi.spyOn(console, "error").mockImplementation(keep), vi.spyOn(console, "warn").mockImplementation(keep)];
     try {
       res = await handler(req, { params: Promise.resolve(prep.params ?? c.params ?? {}) });
     } catch (err) {
       threw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    } finally {
+      spies.forEach((sp) => sp.mockRestore());
     }
     const answer = await readAnswer(res);
-    return { ...answer, threw, attempts: [...h.attempts], reads: h.reads };
+    return { ...answer, threw, attempts: [...h.attempts], reads: h.reads, logs };
   }
 
   const only = process.env.ROUTE_PARITY_ONLY;
-  for (const c of CASES.filter((x) => !only || x.id.includes(only))) {
+  for (const c of CASES.filter((x) => !only || new RegExp(only).test(x.id))) {
     it(c.id, async () => {
       const prep = c.prepare ? await c.prepare(H().clients.supabase) : {};
       const a = await runOnce(c, prep, "supabase");
@@ -365,6 +413,58 @@ describe.skipIf(!ENABLED)("route handlers answer the same on Supabase and on liv
       if (c.expectStatus !== undefined) expect(a.status, `${c.id} supabase status`).toBe(c.expectStatus);
     }, 600_000);
   }
+
+  /**
+   * GET handlers that WRITE (found by the write record above: the guards refused
+   * them on both sides). Their writes are exercised here, on the THROWAWAY copy
+   * only, for an invented person whose rows are deleted afterwards.
+   */
+  const DBG_CANDIDATE = "dbd0e5e0-0000-4000-8000-000000000001"; // invented: no auth user, no live rows
+  const DBG_SELF = "dbd0e5e0-0000-4000-8000-000000000002";
+  async function onScratch(module: string, url: string, persona: string): Promise<{ status: number; body: any }> {
+    const h = H();
+    h.backend = "scratch";
+    vi.resetModules();
+    try {
+      const mod = await import(/* @vite-ignore */ module);
+      const res: Response = await mod.GET(new NextRequest(new URL(url, "https://www.borivon.com"), { headers: { authorization: `Bearer persona:${persona}` } }), { params: Promise.resolve({}) });
+      return { status: res.status, body: await res.json() };
+    } finally {
+      h.backend = "supabase";
+    }
+  }
+
+  it.skipIf(!!only && !/throwaway/.test(only))("journey GET seeds the preset milestones on D1, once (throwaway copy)", async () => {
+    const run = H().scratchRunner.run;
+    try {
+      const first = await onScratch("@/app/api/portal/journey/route", `/api/portal/journey?candidateId=${DBG_CANDIDATE}`, "admin");
+      const second = await onScratch("@/app/api/portal/journey/route", `/api/portal/journey?candidateId=${DBG_CANDIDATE}`, "admin");
+      const { JOURNEY_PRESETS } = await import("@/lib/candidateJourney");
+      expect(first.status).toBe(200);
+      expect(first.body.items.map((i: any) => i.preset_key).sort()).toEqual(JOURNEY_PRESETS.map((p: any) => p.key).sort());
+      expect(second.body.items).toEqual(first.body.items); // ignoreDuplicates: the second seed changes nothing
+      const { results } = await run(`SELECT count(*) AS n FROM "candidate_journey_items" WHERE "candidate_user_id" = ?`, [DBG_CANDIDATE]);
+      expect(Number(results[0].n)).toBe(JOURNEY_PRESETS.length);
+    } finally {
+      await run(`DELETE FROM "candidate_journey_items" WHERE "candidate_user_id" = ?`, [DBG_CANDIDATE]);
+    }
+  }, 120_000);
+
+  it.skipIf(!!only && !/throwaway/.test(only))("letter-data GET creates the missing profile stub on D1 (throwaway copy)", async () => {
+    const run = H().scratchRunner.run;
+    H().users.set("persona:dbg_self", {
+      id: DBG_SELF, aud: "authenticated", app_metadata: {}, created_at: "2026-10-08T00:00:00Z",
+      email: "dbg-routes-self@example.invalid", user_metadata: { first_name: "Dbg", last_name: "Routes" },
+    } as unknown as User);
+    try {
+      const out = await onScratch("@/app/api/portal/me/letter-data/route", "/api/portal/me/letter-data", "dbg_self");
+      expect(out.status).toBe(200);
+      const { results } = await run(`SELECT "first_name", "last_name" FROM "candidate_profiles" WHERE "user_id" = ?`, [DBG_SELF]);
+      expect(results).toEqual([{ first_name: "Dbg", last_name: "Routes" }]);
+    } finally {
+      await run(`DELETE FROM "candidate_profiles" WHERE "user_id" = ?`, [DBG_SELF]);
+    }
+  }, 120_000);
 
   it("summary: no unexplained differences", () => {
     const bad = results.filter((r) => (r.verdict === "differs" || r.verdict === "order-only") && !CASES.find((c) => c.id === r.id)?.expectedDiff);

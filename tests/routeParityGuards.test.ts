@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assertSelectOnly, selectOnlyRunner, getOnlyFetch, ReadOnlyViolation, type Attempt } from "./helpers/readOnlyBackends";
+import { assertSelectOnly, selectOnlyRunner, throwawayRunner, getOnlyFetch, ReadOnlyViolation, LIVE_D1_ID, SCRATCH_D1_ID, type Attempt } from "./helpers/readOnlyBackends";
 
 /**
  * The route-parity harness (tests/routeParity.test.ts) runs real handlers
@@ -64,6 +64,21 @@ describe("selectOnlyRunner — a write never reaches the network", () => {
   });
 });
 
+describe("throwawayRunner — the only runner that writes, and only to the throwaway copy", () => {
+  const send = (async () => new Response(JSON.stringify({ success: true, result: [{ results: [], meta: { changes: 1 } }] }))) as unknown as typeof fetch;
+  it("cannot be built for live D1 (or any other id)", () => {
+    expect(() => throwawayRunner({ send, accountId: "a", token: "t", databaseId: LIVE_D1_ID })).toThrow(ReadOnlyViolation);
+    expect(() => throwawayRunner({ send, accountId: "a", token: "t", databaseId: "anything-else" })).toThrow(ReadOnlyViolation);
+  });
+  it("writes to the throwaway copy", async () => {
+    const runner = throwawayRunner({ send, accountId: "a", token: "t", databaseId: SCRATCH_D1_ID });
+    await expect(runner.run(`DELETE FROM "x" WHERE "id" = ?`, ["1"])).resolves.toMatchObject({ meta: { changes: 1 } });
+  });
+  it("the read-only runner refuses to be pointed at the throwaway copy (no mixing them up)", () => {
+    expect(() => selectOnlyRunner({ send, accountId: "a", token: "t", databaseId: SCRATCH_D1_ID })).toThrow(ReadOnlyViolation);
+  });
+});
+
 describe("getOnlyFetch — Supabase is only ever read, nothing else is reached", () => {
   const ok = (async () => new Response("{}")) as unknown as typeof fetch;
   const base = "https://proj.supabase.co";
@@ -87,6 +102,11 @@ describe("getOnlyFetch — Supabase is only ever read, nothing else is reached",
   it("refuses a POST carried by a Request object", async () => {
     const f = getOnlyFetch(ok, base);
     await expect(f(new Request(`${base}/rest/v1/rpc/rl_hit`, { method: "POST", body: "{}" }))).rejects.toThrow(ReadOnlyViolation);
+  });
+
+  it("lets data: URLs through — they never leave the process", async () => {
+    const f = getOnlyFetch(ok, base);
+    await expect(f("data:application/octet-stream;base64,AGFzbQ==")).resolves.toBeInstanceOf(Response);
   });
 
   it("refuses every other host, even for GET", async () => {
