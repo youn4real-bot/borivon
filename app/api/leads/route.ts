@@ -4,6 +4,7 @@ import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { tgSend } from "@/lib/telegram";
 import { looksLikeAffiliateCode } from "@/lib/affiliates";
 import { isWriteFrozenError, maintenanceResponse } from "@/lib/maintenance";
+import { clipText } from "@/lib/clipText";
 
 /**
  * Public lead-capture endpoint for the homepage funnel (components/Funnel.tsx).
@@ -20,7 +21,7 @@ import { isWriteFrozenError, maintenanceResponse } from "@/lib/maintenance";
  * Spam mitigation: Cloudflare Turnstile in front of the form + server-side IP
  * rate-limit + body-size cap + 1h dedupe.
  */
-const MAX = (s: unknown, n: number) => (typeof s === "string" ? s : "").trim().slice(0, n);
+const MAX = (s: unknown, n: number) => clipText((typeof s === "string" ? s : "").trim(), n);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Kind-specific extra fields the funnel may send — captured into `details`.

@@ -8,6 +8,7 @@
  * makes the feature a silent no-op (never a crash, never spam).
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { clipText } from "@/lib/clipText";
 
 /** Hours since the last nudge before an open follow-up is eligible again. Set
  *  just under 12h so the morning + evening cron passes (≈11h apart) each fire it
@@ -25,7 +26,7 @@ export async function recordSentForFollowup(ownerUserId: string | null, toEmail:
   if (!ownerUserId || !email.includes("@")) return;
   try {
     await getServiceSupabase().from("email_followup_chase").insert({
-      owner_user_id: ownerUserId, to_email: email.slice(0, 254), subject: (subject || "").slice(0, 200),
+      owner_user_id: ownerUserId, to_email: clipText(email, 254), subject: clipText(subject || "", 200),
     });
   } catch {
     /* table not migrated / transient → drop silently */

@@ -3,6 +3,7 @@ import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { sendOutboundEmail } from "@/lib/outboundEmail";
 import { getServiceSupabase } from "@/lib/supabase";
 import { tgSend } from "@/lib/telegram";
+import { clipText } from "@/lib/clipText";
 
 /**
  * Public ENTERPRISE lead form for the /v2 marketing site ("Book a needs audit").
@@ -16,7 +17,7 @@ import { tgSend } from "@/lib/telegram";
  * Returns ok if the lead landed in at least one durable sink (db or email).
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const clip = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
+const clip = (s: unknown, n: number) => (typeof s === "string" ? clipText(s.trim(), n) : "");
 
 export async function POST(req: NextRequest) {
   // 5 submissions / minute / IP — generous for a human, brutal for a bot.

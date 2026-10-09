@@ -13,6 +13,7 @@
  * no-op rather than a crash or a spam loop.
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { clipText } from "@/lib/clipText";
 
 /** Grace after a stated deadline before we call it overdue (people send late in the day). */
 export const COMMITMENT_GRACE_HOURS = 12;
@@ -122,7 +123,7 @@ export async function recordCommitments(ownerUserId: string, found: ExtractedCom
         owner_user_id: ownerUserId,
         who_email: c.who_email.trim().toLowerCase(),
         who_name: c.who_name ?? null,
-        what: c.what.trim().slice(0, 300),
+        what: clipText(c.what.trim(), 300),
         due_at: c.due_at ?? null,
         promised_at: c.promised_at ?? new Date().toISOString(),
         // Never null: the unique index is a PLAIN (owner, source_message_id, what)
