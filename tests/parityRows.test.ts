@@ -30,6 +30,6 @@ describe("parity pairs the same rows whatever order each database sent them in",
 
   it("numeric keys sort as numbers", () => {
     const ids = [{ id: 10 }, { id: 9 }, { id: "100" }];
-    expect(sortByKey(ids, ["id"], { id: { pg: "bigint" } }).map((r) => Number(r.id))).toEqual([9, 10, 100]);
+    expect(sortByKey(ids, ["id"], { id: { pg: "bigint" } }).map((r: { id: unknown }) => Number(r.id))).toEqual([9, 10, 100]);
   });
 });
