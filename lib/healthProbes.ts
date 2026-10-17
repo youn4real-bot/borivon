@@ -32,19 +32,19 @@ export type Probe = {
 /** Bound every probe so one hanging dependency cannot eat the whole cron slot. */
 const PROBE_TIMEOUT_MS = 12_000;
 
-async function withTimeout<T>(label: string, p: Promise<T>): Promise<T> {
+async function withTimeout<T>(label: string, p: Promise<T>, ms = PROBE_TIMEOUT_MS): Promise<T> {
   return await Promise.race([
     p,
     new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error(`${label} timed out after ${PROBE_TIMEOUT_MS}ms`)), PROBE_TIMEOUT_MS),
+      setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms),
     ),
   ]);
 }
 
 /** Never let a probe throw — a health check that dies is worse than none. */
-async function guard(name: Probe["name"], fn: () => Promise<Probe>): Promise<Probe> {
+async function guard(name: Probe["name"], fn: () => Promise<Probe>, ms = PROBE_TIMEOUT_MS): Promise<Probe> {
   try {
-    return await withTimeout(name, fn());
+    return await withTimeout(name, fn(), ms);
   } catch (e) {
     return { name, ok: false, detail: e instanceof Error ? e.message : String(e) };
   }
@@ -130,12 +130,30 @@ async function checkAuth(): Promise<Probe> {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
   if (!url || !key) return { name: "auth", ok: false, detail: "Supabase URL or anon key missing — nobody can log in" };
-  const res = await fetch(`${url}/auth/v1/health`, { headers: { apikey: key }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-  await res.body?.cancel().catch(() => {});
-  return res.ok
+  // Two tries, AUTH_RETRY_MS apart. On 2026-10-17 12:00 one health call took
+  // longer than 12 s while every check before and after answered in about a
+  // second, and the founder got "nobody can log in" for nothing. A paused
+  // project fails both tries fast, so a real outage still alerts this hour.
+  const attempt = async (): Promise<string | null> => {
+    try {
+      const res = await fetch(`${url}/auth/v1/health`, { headers: { apikey: key }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+      await res.body?.cancel().catch(() => {});
+      return res.ok ? null : `HTTP ${res.status}`;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
+  const first = await attempt();
+  if (first === null) return { name: "auth", ok: true };
+  await new Promise((r) => setTimeout(r, AUTH_RETRY_MS));
+  const second = await attempt();
+  return second === null
     ? { name: "auth", ok: true }
-    : { name: "auth", ok: false, detail: `Supabase auth answered HTTP ${res.status} — logins fail (paused project?)` };
+    : { name: "auth", ok: false, detail: `Supabase auth failed twice, ${AUTH_RETRY_MS / 1000} s apart (${first}; then ${second}) — logins fail (paused project?)` };
 }
+
+/** Wait between the two auth tries. */
+export const AUTH_RETRY_MS = 15_000;
 
 /** Tables every one of whose rows is inserted through the journaled service client, with their insert time. */
 export const JOURNAL_WATCHED: readonly (readonly [table: string, column: string])[] = [
@@ -228,7 +246,8 @@ export async function runHealthProbes(): Promise<Probe[]> {
     }),
     guard("r2", checkR2),
     guard("database", checkDatabase),
-    guard("auth", checkAuth),
+    // Two tries plus the wait between them (see checkAuth).
+    guard("auth", checkAuth, 2 * PROBE_TIMEOUT_MS + AUTH_RETRY_MS + 1_000),
     onD1 ? guard("journal", journalProbe) : Promise.resolve(null),
   ]);
   return [...workspace, r2, database, auth, ...(journal ? [journal] : []), checkEmail()];

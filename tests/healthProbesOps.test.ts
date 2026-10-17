@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { checkJournal, runHealthProbes, JOURNAL_LAG_MS } from "../lib/healthProbes";
+import { checkJournal, runHealthProbes, JOURNAL_LAG_MS, AUTH_RETRY_MS } from "../lib/healthProbes";
 import { JOURNAL_DDL } from "@/lib/d1/writeJournal";
 import { hasSqlite, openDb, sqliteRunner, type SqliteDb } from "./helpers/sqliteD1";
 
@@ -20,15 +20,34 @@ describe("auth probe: the logins Supabase still runs", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://p.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon";
   });
-  afterEach(() => { vi.unstubAllGlobals(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-  it("is red when Supabase auth does not answer 200 (a paused project), with the database probe still green", async () => {
+  /** Runs the probes with the retry wait fast-forwarded. */
+  const probesSkippingTheWait = async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const run = runHealthProbes();
+    await vi.advanceTimersByTimeAsync(AUTH_RETRY_MS);
+    return run;
+  };
+
+  it("is red when Supabase auth fails twice (a paused project), with the database probe still green", async () => {
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (u: string) => { calls.push(String(u)); return new Response("paused", { status: 540 }); }));
-    const probes = await runHealthProbes();
+    const probes = await probesSkippingTheWait();
     expect(probes.find((p) => p.name === "database")!.ok).toBe(true);
     expect(probes.find((p) => p.name === "auth")).toMatchObject({ ok: false, detail: expect.stringContaining("540") });
-    expect(calls).toEqual(["https://p.supabase.co/auth/v1/health"]);
+    expect(calls).toEqual(["https://p.supabase.co/auth/v1/health", "https://p.supabase.co/auth/v1/health"]);
+  });
+
+  it("stays green when one slow answer is followed by a good one (the 2026-10-17 12:00 false alarm)", async () => {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      if (n++ === 0) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      return new Response("{}", { status: 200 });
+    }));
+    const probes = await probesSkippingTheWait();
+    expect(probes.find((p) => p.name === "auth")).toMatchObject({ ok: true });
+    expect(n).toBe(2);
   });
 
   it("is green when it answers", async () => {
