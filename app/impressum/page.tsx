@@ -20,7 +20,7 @@ const ph = (s: string) => s; // placeholders are plain text; replace with real d
 export default function ImpressumPage() {
   return (
     <main
-      className="mx-auto px-5 py-16 bv-page-bottom"
+      className="mx-auto px-5 pt-[112px] pb-16 bv-page-bottom"
       style={{ maxWidth: 760, color: "var(--w2)", lineHeight: 1.7 }}
     >
       <h1

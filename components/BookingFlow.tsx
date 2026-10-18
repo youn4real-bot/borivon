@@ -447,7 +447,7 @@ export function BookingFlow({
       // "Confirm" and are never told it worked. tabIndex={-1} + autofocus moves
       // the caret here so the confirmation is the next thing announced.
       <main
-        className="mx-auto px-5 py-20 bv-page-bottom bv-enter"
+        className="mx-auto px-5 pt-[120px] pb-20 bv-page-bottom bv-enter"
         style={{ maxWidth: 560 }}
         role="status"
         aria-live="polite"
@@ -800,7 +800,8 @@ export function BookingFlow({
   );
 
   return (
-    <main className="mx-auto px-5 py-14 bv-page-bottom bv-enter" style={{ maxWidth: 1040 }}>
+    // pt clears the fixed 58px top bar (the old py-14 = 56px sat the step tabs under its edge).
+    <main className="mx-auto px-5 pt-[104px] pb-14 bv-page-bottom bv-enter" style={{ maxWidth: 1040 }}>
       {/* Two panes on a wide screen, one column on a phone. The inline
           grid-template only bites once `display:grid` is switched on at lg. */}
       <div className="lg:grid lg:gap-8" style={{ gridTemplateColumns: "300px minmax(0, 1fr)" }}>

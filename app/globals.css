@@ -1348,7 +1348,8 @@ html.lenis, html.lenis body { height: auto; }
 
 /* Headlines in Playfair (upright), body stays Lexend. */
 :root { --font-heading: var(--font-serif-upright-v), "Playfair Display", "Times New Roman", Georgia, serif; }
-h1, h2 { font-family: var(--font-heading); font-weight: 500; letter-spacing: -0.02em; }
+h1, h2,
+.bv-h1, .bv-h2 { font-family: var(--font-heading); font-weight: 500; letter-spacing: -0.02em; }
 
 /* ── Ambient gold light behind every page (one compositor-only layer) ─────── */
 body::before {
