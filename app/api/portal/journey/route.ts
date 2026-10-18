@@ -9,8 +9,21 @@ import {
   allowedOwnersFor,
   canToggle,
   isJourneyOwner,
+  resolvePreset,
   type JourneyOwner,
 } from "@/lib/candidateJourney";
+
+/**
+ * Built-in stations display in the CATALOG's order, not the position stored when
+ * the row was seeded: stations added to the catalog later then slot in where
+ * they belong for candidates seeded long ago, with no data migration. Custom
+ * tasks keep their own order, after the catalog.
+ */
+const CUSTOM_OFFSET = 1000;
+function withDisplayPosition<T extends Record<string, unknown>>(it: T): T {
+  const p = resolvePreset(typeof it.preset_key === "string" ? it.preset_key : null);
+  return { ...it, position: p ? p.position : CUSTOM_OFFSET + Number(it.position ?? 0) };
+}
 
 /**
  * Per-candidate JOURNEY checklist. ONE endpoint serves three caller types:
@@ -164,7 +177,9 @@ export async function GET(req: NextRequest) {
   // PII hygiene: done_by / created_by are actor emails (often Borivon staff).
   // Only Borivon sees them; partner orgs + candidates get them stripped so a
   // partner can't harvest internal staff emails off a shared candidate journey.
-  let items: Record<string, unknown>[] = (data ?? []) as Record<string, unknown>[];
+  let items: Record<string, unknown>[] = ((data ?? []) as Record<string, unknown>[])
+    .map(withDisplayPosition)
+    .sort((a, b) => Number(a.position) - Number(b.position)); // stable: created_at order kept within ties
   if (g.access.party !== "borivon") {
     items = items.map(({ done_by, created_by, ...rest }) => {
       void done_by; void created_by;
@@ -234,7 +249,7 @@ export async function POST(req: NextRequest) {
     .select(SELECT)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ item: data });
+  return NextResponse.json({ item: data ? withDisplayPosition(data as Record<string, unknown>) : data });
 }
 
 // PATCH { candidateId, id, done? , text? } → toggle (owner-gated) or rename (Borivon only)
@@ -325,7 +340,7 @@ export async function PATCH(req: NextRequest) {
     .select(SELECT)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ item: data });
+  return NextResponse.json({ item: data ? withDisplayPosition(data as Record<string, unknown>) : data });
 }
 
 // DELETE { candidateId, id } → remove a CUSTOM item (Borivon only; presets are permanent)

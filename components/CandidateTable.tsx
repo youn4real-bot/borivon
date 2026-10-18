@@ -85,7 +85,7 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
           return (
             <div style={{ minWidth: 130 }}>
               <div style={{ fontSize: 11.5, color: "var(--w2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160, marginBottom: 3 }}>
-                {r.status.health === "done" ? T("Arrived 🇩🇪", "Angekommen 🇩🇪", "Arrivé 🇩🇪") : pl(r.status.current?.key)}
+                {r.status.health === "done" ? T("Part of the team 🇩🇪", "Fest im Team 🇩🇪", "Dans l'équipe 🇩🇪") : pl(r.status.current?.key)}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ flex: 1, height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden", minWidth: 64 }}><div style={{ width: `${pct}%`, height: "100%", background: hc }} /></div>

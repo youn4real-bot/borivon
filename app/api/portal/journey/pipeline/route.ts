@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleCandidateIds, getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
+import { PRESET_BY_KEY } from "@/lib/candidateJourney";
 import { evaluateSellable } from "@/lib/sellable";
 import { normalizeB2Stage, isB2Passed, effectiveB2Stage } from "@/lib/b2Journey";
 import { normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
@@ -218,7 +219,8 @@ export async function GET(req: NextRequest) {
     // NOTE: "Documents ready for embassy" (docs_collected) is a deliberate
     // visa-readiness judgement (ALL papers gathered) — NOT "has one approved
     // doc" — so it is NOT auto-derived; an admin/org marks it explicitly.
-    const autoDone = new Set<string>();
+    // Everyone on this board has applied — that station is a fact, not a task.
+    const autoDone = new Set<string>(["application_received"]);
     // CV is "finalized" only once an admin has APPROVED the Lebenslauf (green),
     // not merely uploaded — so candidates move here on real approval.
     // CV is "finalized" once an approved German CV (Lebenslauf) doc exists.
@@ -288,13 +290,13 @@ export async function GET(req: NextRequest) {
       followUp,
       openTasks,
       // Weekly admin check-in nudge (the ⚡). Pulses on candidates in the
-      // onboarding → Vorabzustimmung phase (rail position ≤ 5) when there's been
+      // onboarding → Vorabzustimmung phase (rail up to Vorabzustimmung) when there's been
       // no activity in a week (or none yet). Past Vorabzustimmung it's mostly
       // external waiting (embassy/visa/flight), so no weekly nag there. The ⚡
       // means "check in + tell them the next step" (shown in the peek).
       needsUpdate: (() => {
         const pos = status.current?.position ?? 99;        // null current = done
-        if (pos > 5) return false;                          // 5 = Vorabzustimmung
+        if (pos > PRESET_BY_KEY.vorabzustimmung.position) return false;
         const la = lastActivity.get(p.user_id);
         return !la || (nowMs - la) > WEEK_MS;
       })(),
@@ -348,7 +350,8 @@ export async function GET(req: NextRequest) {
     almost: candidates.filter((c) => !c.sellable.sellable && (c.sellable.cvDone || c.sellable.diplomaApproved)).length,
     needsAttention: candidates.filter((c) => c.status.health === "blocked" || c.status.health === "overdue").length,
     needsFollowUp: candidates.filter((c) => c.followUp.needed).length,
-    arrived: candidates.filter((c) => c.status.health === "done").length,
+    // "Arrived" = in Germany. Not health "done" — that now means through probation.
+    arrived: candidates.filter((c) => c.status.arrived).length,
   };
 
   // Order: most urgent first (blocked → overdue → due_soon → on_track → done),

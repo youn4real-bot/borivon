@@ -62,6 +62,17 @@ export type PipelineStatus = {
    * arrived without B2).
    */
   parallel: { key: string; done: boolean }[];
+  /**
+   * In Germany: the "arrived" station (or anything after it) is done. Separate
+   * from `health === "done"`, which now means the WHOLE journey through
+   * probation — the board's "arrived" count must not drop when the
+   * post-arrival stations were added.
+   */
+  arrived: boolean;
+  /** Every sequential station counted as done (ticked, evidence, or implied). */
+  doneKeys: string[];
+  /** The subset of doneKeys done WITHOUT a tick (evidence or implied) — nothing to undo there. */
+  autoKeys: string[];
 };
 
 /** Whole-day difference between two YYYY-MM-DD dates (b - a), UTC-safe. */
@@ -112,10 +123,21 @@ export function computePipelineStatus(
   // A preset counts as done if its checkbox is ticked OR it's auto-derived from
   // real evidence (autoDone) — so a finalized CV / uploaded docs move the
   // candidate even when nobody manually ticked the box.
-  const isDone = (key: string) => rowByKey.get(key)?.done === true || autoDone.has(key);
+  const ticked = (key: string) => rowByKey.get(key)?.done === true;
+  const baseDone = (key: string) => ticked(key) || autoDone.has(key);
 
   // The RAIL is sequential presets only — B2 (parallel) never sits on the rail.
   const orderedPresets = SEQUENTIAL_PRESETS.slice().sort((a, b) => a.position - b.position);
+
+  // IMPLIED stations count as done once any LATER station is done: a candidate
+  // with a sealed contract has necessarily applied and been checked, even though
+  // nobody ever ticked those (they were added after she was already past them).
+  let lastBase = -1;
+  orderedPresets.forEach((p, i) => { if (baseDone(p.key)) lastBase = i; });
+  const doneSet = new Set(
+    orderedPresets.filter((p, i) => baseDone(p.key) || (p.implied === true && i < lastBase)).map((p) => p.key),
+  );
+  const isDone = (key: string) => doneSet.has(key);
   const totalPresets = orderedPresets.length;
   const doneCount = orderedPresets.filter((p) => isDone(p.key)).length;
   const progress = totalPresets > 0 ? doneCount / totalPresets : 0;
@@ -174,5 +196,10 @@ export function computePipelineStatus(
   else if (current && current.daysToDue !== null && current.daysToDue <= DUE_SOON_DAYS) health = "due_soon";
   else health = "on_track";
 
-  return { progress, doneCount, totalPresets, current, reached, overdueCount, blockedCount, health, parallel };
+  const arrivedIdx = orderedPresets.findIndex((p) => p.key === "arrived");
+  const arrived = arrivedIdx >= 0 && orderedPresets.some((p, i) => i >= arrivedIdx && isDone(p.key));
+  const doneKeys = orderedPresets.filter((p) => isDone(p.key)).map((p) => p.key);
+  const autoKeys = doneKeys.filter((k) => !ticked(k));
+
+  return { progress, doneCount, totalPresets, current, reached, overdueCount, blockedCount, health, parallel, arrived, doneKeys, autoKeys };
 }

@@ -36,7 +36,7 @@ describe("computePipelineStatus", () => {
     const s = computePipelineStatus(presetRows(), TODAY);
     expect(s.doneCount).toBe(0);
     expect(s.progress).toBe(0);
-    expect(s.current?.key).toBe("cv_finalized"); // position 0 (new first station)
+    expect(s.current?.key).toBe("application_received"); // position 0 (first station)
     expect(s.health).toBe("on_track");
   });
 
@@ -52,9 +52,9 @@ describe("computePipelineStatus", () => {
   it("autoDone moves a candidate even with NO ticked checkbox (CV evidence)", () => {
     // Empty journey rows, but real evidence says the German CV is finalized.
     const s = computePipelineStatus([], TODAY, false, new Set(["cv_finalized"]));
-    expect(s.doneCount).toBe(1);
-    expect(s.reached?.key).toBe("cv_finalized");        // furthest auto-done (position 0)
-    expect(s.current?.key).toBe("interview_first");     // next real to-do (position 1)
+    expect(s.doneCount).toBe(4);                         // CV + the 3 implied stations before it
+    expect(s.reached?.key).toBe("cv_finalized");        // furthest auto-done
+    expect(s.current?.key).toBe("interview_first");     // next real to-do
   });
 
   it("REGRESSION: a candidate with NO journey rows is at the START, never 'arrived'", () => {
@@ -63,7 +63,7 @@ describe("computePipelineStatus", () => {
     const s = computePipelineStatus([], TODAY);
     expect(s.doneCount).toBe(0);
     expect(s.progress).toBe(0);
-    expect(s.current?.key).toBe("cv_finalized"); // first milestone (position 0)
+    expect(s.current?.key).toBe("application_received"); // first milestone (position 0)
     expect(s.health).not.toBe("done");
     expect(s.health).toBe("on_track");
   });
@@ -74,8 +74,8 @@ describe("computePipelineStatus", () => {
       [{ id: "x", owner: "borivon", done: true, preset_key: "cv_finalized", position: 0, text: "", due_date: null, blocked: false, blocked_reason: null }],
       TODAY,
     );
-    expect(s.doneCount).toBe(1);
-    expect(s.current?.key).toBe("interview_first"); // position 1 — missing row, treated as not-done
+    expect(s.doneCount).toBe(4); // the CV + the 3 implied stations before it
+    expect(s.current?.key).toBe("interview_first"); // missing row, treated as not-done
     expect(s.health).not.toBe("done");
   });
 
@@ -84,7 +84,7 @@ describe("computePipelineStatus", () => {
       presetRows({ cv_finalized: { done: true }, interview_first: { done: true } }),
       TODAY,
     );
-    expect(s.doneCount).toBe(2);
+    expect(s.doneCount).toBe(5); // 2 ticked + 3 implied
     expect(s.current?.key).toBe("interview_second"); // B2 is parallel, not the next rail step
   });
 
@@ -120,14 +120,14 @@ describe("computePipelineStatus", () => {
   });
 
   it("an open past-due item → overdue health + count", () => {
-    const s = computePipelineStatus(presetRows({ cv_finalized: { due_date: "2026-05-20" } }), TODAY);
+    const s = computePipelineStatus(presetRows({ application_received: { due_date: "2026-05-20" } }), TODAY);
     expect(s.overdueCount).toBe(1);
     expect(s.health).toBe("overdue");
     expect(s.current?.daysToDue).toBe(daysBetween(TODAY, "2026-05-20"));
   });
 
   it("due within 7 days but not past → due_soon", () => {
-    const s = computePipelineStatus(presetRows({ cv_finalized: { due_date: "2026-06-06" } }), TODAY);
+    const s = computePipelineStatus(presetRows({ application_received: { due_date: "2026-06-06" } }), TODAY);
     expect(s.health).toBe("due_soon");
     expect(s.overdueCount).toBe(0);
   });
@@ -150,5 +150,46 @@ describe("computePipelineStatus", () => {
     expect(s.overdueCount).toBe(0);
     expect(s.blockedCount).toBe(0);
     expect(s.health).toBe("done");
+  });
+});
+
+describe("full journey (23 stations)", () => {
+  it("catalog positions are a gapless 0..n-1 sequence (the admin wizard indexes by position)", () => {
+    const pos = JOURNEY_PRESETS.map((p) => p.position).sort((a, b) => a - b);
+    expect(pos).toEqual(pos.map((_, i) => i));
+    expect(new Set(JOURNEY_PRESETS.map((p) => p.key)).size).toBe(JOURNEY_PRESETS.length);
+  });
+
+  it("IMPLIED stations count as done once any later station is done", () => {
+    const s = computePipelineStatus(presetRows({ contract_signed: { done: true } }), TODAY);
+    for (const k of ["application_received", "german_assessed", "documents_verified"]) expect(s.doneKeys).toContain(k);
+    expect(s.autoKeys).toEqual(expect.arrayContaining(["application_received", "german_assessed", "documents_verified"]));
+    expect(s.autoKeys).not.toContain("contract_signed");      // that one was ticked
+    expect(s.doneKeys).not.toContain("recognition_filed");    // implied, but nothing after it is done yet
+  });
+
+  it("an implied station is NOT done when nothing after it is", () => {
+    const s = computePipelineStatus([], TODAY, true, new Set(["application_received"]));
+    expect(s.doneCount).toBe(1);
+    expect(s.current?.key).toBe("german_assessed");
+  });
+
+  it("recognition approved implies it was applied for", () => {
+    const s = computePipelineStatus([], TODAY, true, new Set(["recognition_submitted"]));
+    expect(s.doneKeys).toContain("recognition_filed");
+  });
+
+  it("post-arrival stations are never implied: a first shift does not tick the bank account", () => {
+    const s = computePipelineStatus(presetRows({ arrived: { done: true }, first_shift: { done: true } }), TODAY);
+    expect(s.doneKeys).not.toContain("bank_account");
+    expect(s.current?.key).toBe("cv_finalized"); // only IMPLIED stations fill in; real ones stay open
+  });
+
+  it("arrived = in Germany, separate from health 'done' (which now means through probation)", () => {
+    const s = computePipelineStatus([], TODAY, true, new Set(["arrived"]));
+    expect(s.arrived).toBe(true);
+    expect(s.health).not.toBe("done");
+    expect(computePipelineStatus([], TODAY, true, new Set(["flight_booked"])).arrived).toBe(false);
+    expect(computePipelineStatus([], TODAY, true, new Set(["probation_passed"])).arrived).toBe(true);
   });
 });

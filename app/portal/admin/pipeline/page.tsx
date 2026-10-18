@@ -52,6 +52,10 @@ type Status = {
   current: { key: string; owner: string; position: number; dueDate: string | null; blocked: boolean; blockedReason: string | null; daysToDue: number | null } | null;
   reached: { key: string; position: number } | null;
   overdueCount: number; blockedCount: number; health: Health;
+  /** In Germany (arrived or later) — separate from health "done" = through probation. */
+  arrived?: boolean;
+  /** Stations counted done; autoKeys = done without a tick (evidence / implied), so no Undo. */
+  doneKeys?: string[]; autoKeys?: string[];
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
 type FollowUp = { needed: boolean; reasons: string[] };
@@ -480,9 +484,32 @@ export default function AdminPipelinePage() {
     setSavingStep(false);
   };
 
+  // Tick/untick a journey STATION that has no candidate_pipeline field (the
+  // full-journey stations). Goes through the journey API, which seeds any
+  // missing preset row and enforces who may tick what, then reloads the board
+  // so the open peek advances exactly like saveStep does.
+  const saveJourneyStep = async (key: string, done: boolean) => {
+    if (!peek) return;
+    const id = peek.userId;
+    setSavingStep(true);
+    const fail = () => toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec de l'enregistrement"));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const h = { Authorization: `Bearer ${session?.access_token ?? ""}` };
+      const list = await fetch(`/api/portal/journey?candidateId=${encodeURIComponent(id)}`, { headers: h });
+      const j = list.ok ? await list.json() : null;
+      const row = ((j?.items ?? []) as { id: string; preset_key: string | null }[]).find((it) => it.preset_key === key);
+      if (!row) { fail(); setSavingStep(false); return; }
+      const res = await fetch("/api/portal/journey", { method: "PATCH", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ candidateId: id, id: row.id, done }) });
+      if (res.ok) { toast.success(T("Saved ✓", "Gespeichert ✓", "Enregistré ✓")); await reload(); }
+      else fail();
+    } catch { fail(); }
+    setSavingStep(false);
+  };
+
   if (loading) return <PageLoader />;
 
-  const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
+  const initials =(n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
 
   return (
     <main id="bv-main" className="mx-auto px-4 sm:px-5 py-5 sm:py-7 bv-page-bottom" style={{ maxWidth: 1080 }}>
@@ -595,7 +622,7 @@ export default function AdminPipelinePage() {
               case "flight_booked": return T("When is the flight?", "Wann ist der Flug?", "Quand est le vol ?");
               case "housing_arranged": return T("Housing arranged?", "Unterkunft organisiert?", "Logement organisé ?");
               case "arrived": return T(`Has ${firstName} arrived in Germany?`, `Ist ${firstName} in Deutschland angekommen?`, `${firstName} est arrivé en Allemagne ?`);
-              default: return presetLabel(k, lang);
+              default: return `${presetLabel(k, lang)}?`;
             }
           };
           // Save the WHOLE interview lifecycle for round n: Termin (+confirmed),
@@ -636,6 +663,29 @@ export default function AdminPipelinePage() {
               )}
             </div>
           );
+          // Same look as confirmControls, but for stations stored on the journey row.
+          // Done-without-a-tick (evidence / implied by later progress) has no Undo:
+          // there is nothing ticked to take back.
+          const journeyControls = (k: string) => {
+            const done = !!peek.status.doneKeys?.includes(k);
+            const auto = !!peek.status.autoKeys?.includes(k);
+            return (
+              <div className="flex items-center gap-2 flex-wrap">
+                {!done ? (
+                  <button onClick={() => void saveJourneyStep(k, true)} disabled={savingStep} className="bv-press inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl disabled:opacity-60" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                    <Check size={15} strokeWidth={2.6} /> {T("Yes, done", "Ja, erledigt", "Oui, fait")}
+                  </button>
+                ) : (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                      <CheckCircle2 size={15} strokeWidth={2.4} /> {T("Done ✓", "Erledigt ✓", "Fait ✓")}
+                    </span>
+                    {!auto && <button onClick={() => void saveJourneyStep(k, false)} disabled={savingStep} className="bv-press text-[12px] font-medium px-3 py-2" style={{ color: "var(--w3)" }}>{T("Undo", "Rückgängig", "Annuler")}</button>}
+                  </>
+                )}
+              </div>
+            );
+          };
           const saveAndNext = (onSave: () => void, disabled: boolean) => (
             <button onClick={onSave} disabled={savingStep || disabled} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl disabled:opacity-50 mt-1" style={{ background: "var(--gold)", color: "#131312" }}>
               {savingStep ? T("Saving…", "Speichern…", "Enregistrement…") : <>{T("Save & next", "Speichern & weiter", "Enregistrer & suivant")} <ArrowRight size={14} strokeWidth={2.5} /></>}
@@ -858,7 +908,10 @@ export default function AdminPipelinePage() {
                         );
                       case "housing_arranged": return confirmControls(!!pf?.housingDone, { housing_done: true }, { housingDone: true }, { housing_done: false }, { housingDone: false });
                       case "arrived": return confirmControls(!!pf?.arrivedDone, { arrived_done: true }, { arrivedDone: true }, { arrived_done: false }, { arrivedDone: false }, T("Yes, arrived 🎉", "Ja, angekommen 🎉", "Oui, arrivé 🎉"));
-                      default: return null;
+                      // Stations with no candidate_pipeline field (the ones added for the
+                      // full journey: application, German check, Bürgeramt, bank, tax ID,
+                      // insurance, first shift, coaching, probation) tick their journey row.
+                      default: return journeyControls(stepKey);
                     }
                   })()}
                 </div>

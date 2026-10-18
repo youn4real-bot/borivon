@@ -2,7 +2,7 @@
 
 /**
  * Living journey map — every candidate as an avatar-dot travelling the
- * Morocco → Germany rail. Each of the 11 journey milestones is a "station";
+ * Morocco → Germany rail. Each journey milestone (application → probation) is a "station";
  * a candidate sits at their current (first not-done) station, ringed by their
  * health color. Finished candidates land at the 🇩🇪 finish.
  *
@@ -324,7 +324,8 @@ export function JourneyMap({
     onMoveStage?.(uid, toStage);
   };
 
-  // Stations = the 11 presets in order, plus an implicit "arrived" finish.
+  // Stations = every preset in order (application → probation), plus an implicit
+  // "part of the team" finish once all of them (and B2) are done.
   const stations = useMemo(
     () => JOURNEY_PRESETS.slice().sort((a, b) => a.position - b.position),
     [],
@@ -654,14 +655,14 @@ export function JourneyMap({
               );
             })}
 
-            {/* Finish line — arrived in Germany */}
+            {/* Finish line — every station done, probation included */}
             <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22, flexShrink: 0 }}>
                 <span style={{ fontSize: 15, marginTop: -2 }}>🇩🇪</span>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneRows.length ? 8 : 0 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a" }}>{T("Arrived in Germany", "In Deutschland angekommen", "Arrivé en Allemagne")}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a" }}>{T("Part of the team", "Fest im Team", "Dans l'équipe")}</span>
                   {doneRows.length > 0 && <Count n={doneRows.length} bg="rgba(22,163,74,0.15)" fg="#16a34a" />}
                 </div>
                 {doneRows.length > 0 && (
