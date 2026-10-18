@@ -18,7 +18,7 @@ export default function AboutPage() {
         <div className="mx-auto max-w-[940px] text-center">
           <Up>
             <span className="bv-eyebrow">{T(C.eyebrow)}</span>
-            <h1 className="mx-auto mt-5 max-w-[18ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.4rem, 6vw, 4.1rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
+            <h1 className="mx-auto mt-5 max-w-[18ch] font-medium" style={{ fontSize: "clamp(2.4rem, 6vw, 4.1rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
               {T(C.title)} <span style={{ color: "var(--gold)" }}>{T(C.accent)}</span>
             </h1>
             <p className="mx-auto mt-6 max-w-[600px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.22rem)", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.sub)}</p>
@@ -42,7 +42,7 @@ export default function AboutPage() {
         <div className="mx-auto grid max-w-[1000px] items-start gap-12 lg:grid-cols-2">
           <Up>
             <span className="bv-eyebrow">{T(C.storyEyebrow)}</span>
-            <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.9rem, 3.8vw, 2.7rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(C.storyTitle)}</h2>
+            <h2 className="mt-4 font-medium" style={{ fontSize: "clamp(1.9rem, 3.8vw, 2.7rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(C.storyTitle)}</h2>
           </Up>
           <Up delay={0.1}>
             <p style={{ fontFamily: "var(--font-sans)", fontSize: "1.08rem", lineHeight: 1.75, color: "var(--w2)" }}>{T(C.storyP1)}</p>

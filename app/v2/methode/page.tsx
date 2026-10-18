@@ -24,7 +24,7 @@ export default function MethodePage() {
         <div className="mx-auto max-w-[940px] text-center">
           <Up>
             <span className="bv-eyebrow">{T(C.eyebrow)}</span>
-            <h1 className="mx-auto mt-5 max-w-[16ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.4rem, 6vw, 4.1rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
+            <h1 className="mx-auto mt-5 max-w-[16ch] font-medium" style={{ fontSize: "clamp(2.4rem, 6vw, 4.1rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
               {T(C.title)} <span style={{ color: "var(--gold)" }}>{T(C.accent)}</span>
             </h1>
             <p className="mx-auto mt-6 max-w-[560px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.22rem)", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.sub)}</p>

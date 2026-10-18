@@ -116,7 +116,7 @@ export function SectionHead({ eyebrow, title, accent, sub, index, center = true,
           <span className="bv-eyebrow">{eyebrow}</span>
         </span>
       )}
-      <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2rem, 4.6vw, 3.3rem)", lineHeight: 1.07, letterSpacing: "-0.028em", color: "var(--w)" }}>
+      <h2 className="mt-4 font-medium" style={{ fontSize: "clamp(2rem, 4.6vw, 3.3rem)", lineHeight: 1.07, letterSpacing: "-0.028em", color: "var(--w)" }}>
         {title} {accent && <span style={{ color: "var(--gold)" }}>{accent}</span>}
       </h2>
       {sub && <p className={`mt-5 ${center ? "mx-auto" : ""} bv-measure-tight`} style={{ fontFamily: "var(--font-sans)", fontSize: "1.06rem", lineHeight: 1.65, color: "var(--w2)" }}>{sub}</p>}
@@ -336,7 +336,7 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
           <div className="max-w-[720px]">
             <Up><span className="bv-eyebrow" style={{ color: "var(--gold)" }}>{eyebrow}</span></Up>
             <Up delay={0.08}>
-              <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.1rem, 5vw, 3.7rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "#fff" }}>
+              <h2 className="mt-4 font-medium" style={{ fontSize: "clamp(2.1rem, 5vw, 3.7rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "#fff" }}>
                 {line1} <span style={{ color: "var(--gold)" }}>{line2}</span>
               </h2>
             </Up>

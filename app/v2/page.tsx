@@ -80,7 +80,7 @@ function HomeHero() {
             <span className="bv-eyebrow">{T(C.home.heroEyebrow)}</span>
           </motion.div>
 
-          <h1 className="mt-6 max-w-[20ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.5rem, 6.4vw, 5.2rem)", lineHeight: 1.02, letterSpacing: "-0.035em", color: "var(--w)" }}>
+          <h1 className="mt-6 max-w-[20ch] font-medium" style={{ fontSize: "clamp(2.5rem, 6.4vw, 5.2rem)", lineHeight: 1.02, letterSpacing: "-0.035em", color: "var(--w)" }}>
             {words.map((w, i) => (<MaskWord key={i} delay={0.15 + 0.07 * i}>{w}</MaskWord>))}
             <MaskWord delay={0.15 + 0.07 * words.length} accent>{T(C.home.heroAccent)}</MaskWord>
           </h1>
@@ -206,7 +206,7 @@ function OutcomesSticky() {
         <div>
           <Up>
             <span className="bv-eyebrow">{T(E.eyebrow)}</span>
-            <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2rem, 4.4vw, 3.2rem)", lineHeight: 1.07, letterSpacing: "-0.027em", color: "var(--w)" }}>
+            <h2 className="mt-4 font-medium" style={{ fontSize: "clamp(2rem, 4.4vw, 3.2rem)", lineHeight: 1.07, letterSpacing: "-0.027em", color: "var(--w)" }}>
               {T(E.title)} <span style={{ color: "var(--gold)" }}>{T(E.accent)}</span>
             </h2>
             <p className="mt-6 max-w-[460px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.08rem", lineHeight: 1.7, color: "var(--w2)" }}>{T(E.body)}</p>
@@ -283,7 +283,7 @@ function VorOrt() {
     <section className="px-[6vw] py-20" style={{ background: "var(--bg2)" }}>
       <Up className="mx-auto max-w-[760px] text-center">
         <span className="bv-eyebrow">{T(V.eyebrow)}</span>
-        <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.7rem, 4vw, 2.6rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(V.title)}</h2>
+        <h2 className="mt-4 font-medium" style={{ fontSize: "clamp(1.7rem, 4vw, 2.6rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(V.title)}</h2>
         <p className="mx-auto mt-5 max-w-[560px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(V.body)}</p>
         <div className="mt-8 flex justify-center"><PrimaryCTA href="/v2/contact" big>{T(V.cta)}</PrimaryCTA></div>
       </Up>
@@ -323,7 +323,7 @@ function FinalCTA() {
           animate={{ opacity: [0.7, 1, 0.7] }} transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }} />
       )}
       <Up className="relative mx-auto max-w-[820px]">
-        <h2 className="mx-auto font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.3rem, 5.5vw, 4rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
+        <h2 className="mx-auto font-medium" style={{ fontSize: "clamp(2.3rem, 5.5vw, 4rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
           <RiseWords text={T(C.home.finalTitle)} />{" "}
           <RiseWords text={T(C.home.finalAccent)} accent delay={0.12} />
         </h2>
@@ -434,7 +434,7 @@ function Commitment() {
         <div className="bv-surface rounded-[26px] p-8 sm:p-12">
           <Up className="text-center">
             <span className="bv-eyebrow">{T(M.eyebrow)}</span>
-            <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.7rem, 3.6vw, 2.5rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(M.title)} <span style={{ color: "var(--gold)" }}>{T(M.accent)}</span></h2>
+            <h2 className="mt-4 font-medium" style={{ fontSize: "clamp(1.7rem, 3.6vw, 2.5rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(M.title)} <span style={{ color: "var(--gold)" }}>{T(M.accent)}</span></h2>
             <p className="mx-auto mt-5 max-w-[520px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(M.sub)}</p>
           </Up>
           <motion.ul className="mx-auto mt-9 grid max-w-[600px] gap-3 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>

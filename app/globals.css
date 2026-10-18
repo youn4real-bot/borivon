@@ -1413,6 +1413,9 @@ a[style*="background: var(--gold)"]:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 18px 42px -12px rgba(201, 162, 64, 0.75) !important;
 }
 
+/* Shared buttons are pills, like every button on /pflege. */
+.bv-btn, .bv-btn-primary-lg { border-radius: 999px; }
+
 /* ── Inputs: gold focus halo ────────────────────────────────────────────── */
 .bv-input:focus { box-shadow: 0 0 0 4px rgba(201, 162, 64, 0.14); }
 

@@ -39,7 +39,7 @@ export default function ContactPage() {
       <div className="mx-auto max-w-[680px]">
         <Up className="text-center">
           <span className="bv-eyebrow">{T(C.eyebrow)}</span>
-          <h1 className="mx-auto mt-5 max-w-[18ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.2rem, 5.4vw, 3.6rem)", lineHeight: 1.06, letterSpacing: "-0.03em", color: "var(--w)" }}>{T(C.title)}</h1>
+          <h1 className="mx-auto mt-5 max-w-[18ch] font-medium" style={{ fontSize: "clamp(2.2rem, 5.4vw, 3.6rem)", lineHeight: 1.06, letterSpacing: "-0.03em", color: "var(--w)" }}>{T(C.title)}</h1>
           <p className="mx-auto mt-5 max-w-[540px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.sub)}</p>
         </Up>
 
@@ -47,7 +47,7 @@ export default function ContactPage() {
           <Up className="mt-12">
             <div className="rounded-[22px] p-10 text-center" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
               <div className="mx-auto grid h-12 w-12 place-items-center rounded-full" style={{ background: "var(--gold)" }}><Check size={24} color="#131312" /></div>
-              <h2 className="mt-5 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "1.4rem", color: "var(--w)" }}>{T(C.okTitle)}</h2>
+              <h2 className="mt-5 font-medium" style={{ fontSize: "1.4rem", color: "var(--w)" }}>{T(C.okTitle)}</h2>
               <p className="mt-2" style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", color: "var(--w2)" }}>{T(C.okBody)}</p>
             </div>
           </Up>
