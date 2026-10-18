@@ -32,8 +32,9 @@ const LANGS: { code: Lang; flag: string; label: string }[] = [
 
 function Wordmark() {
   return (
-    <Link href="/v2" aria-label="Borivon" className="select-none" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "1.5rem", letterSpacing: "-0.01em", color: "var(--w)" }}>
-      Borivon<span style={{ color: "var(--gold)" }}>.</span>
+    // Same wordmark as the portal Navbar: Playfair italic 400 + upright gold dot.
+    <Link href="/v2" aria-label="Borivon" className="select-none" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400, fontSize: "clamp(1.15rem, 3.5vw, 1.4rem)", color: "var(--w)" }}>
+      Borivon<span style={{ color: "var(--gold)", fontStyle: "normal" }}>.</span>
     </Link>
   );
 }

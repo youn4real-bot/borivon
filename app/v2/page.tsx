@@ -71,7 +71,7 @@ function HomeHero() {
       <div className="bv-hero-grid" />
       {/* giant watermark — slow counter-parallax for real depth */}
       <motion.div aria-hidden className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden" style={reduce ? undefined : { y: wmY }}>
-        <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.05, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
+        <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.05, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
       </motion.div>
 
       <motion.div className="relative z-[1] mx-auto max-w-[1180px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
