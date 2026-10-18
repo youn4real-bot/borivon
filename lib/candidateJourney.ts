@@ -76,7 +76,7 @@ export const JOURNEY_PRESETS: JourneyPreset[] = [
   // ── Arrival ─────────────────────────────────────────────────────────────────
   { key: "flight_booked",         owner: "borivon",      position: 13, phase: "arrival",   label: { en: "Flight booked",                       fr: "Vol réservé",                         de: "Flug gebucht" } },
   { key: "housing_arranged",      owner: "organization", position: 14, phase: "arrival",   label: { en: "Housing arranged",                    fr: "Logement organisé",                   de: "Unterkunft organisiert" } },
-  { key: "arrived",               owner: "candidate",    position: 15, phase: "arrival",   label: { en: "Arrived in Germany",                  fr: "Arrivé en Allemagne",                 de: "In Deutschland angekommen" } },
+  { key: "arrived",               owner: "candidate",    position: 15, phase: "arrival",   label: { en: "Arrived in Germany",                  fr: "Arrivée en Allemagne",                de: "In Deutschland angekommen" } },
   // After landing: the remote integration Borivon walks her through, in her
   // mother tongue. These are what the employer reads in the weekly report.
   { key: "address_registered",    owner: "candidate",    position: 16, phase: "arrival",   label: { en: "Address registered",                  fr: "Domicile déclaré",                    de: "Wohnsitz angemeldet" } },
@@ -84,8 +84,8 @@ export const JOURNEY_PRESETS: JourneyPreset[] = [
   { key: "tax_id",                owner: "candidate",    position: 18, phase: "arrival",   label: { en: "Tax ID received",                     fr: "Numéro fiscal reçu",                  de: "Steuer-ID erhalten" } },
   { key: "health_insurance",      owner: "candidate",    position: 19, phase: "arrival",   label: { en: "Health insurance set up",             fr: "Assurance maladie en place",          de: "Krankenkasse angemeldet" } },
   // ── On the job ──────────────────────────────────────────────────────────────
-  { key: "first_shift",           owner: "organization", position: 20, phase: "work",      label: { en: "First shift on the ward",             fr: "Premier service",                     de: "Erster Dienst auf Station" } },
-  { key: "coaching_started",      owner: "borivon",      position: 21, phase: "work",      label: { en: "Nursing language coaching started",   fr: "Coaching de langue médicale commencé", de: "Fachsprach-Coaching gestartet" } },
+  { key: "first_shift",           owner: "organization", position: 20, phase: "work",      label: { en: "First shift on the ward",             fr: "Prise de poste",                      de: "Erster Dienst auf Station" } },
+  { key: "coaching_started",      owner: "borivon",      position: 21, phase: "work",      label: { en: "Nursing language coaching started",   fr: "Coaching linguistique démarré",        de: "Fachsprach-Coaching gestartet" } },
   { key: "probation_passed",      owner: "organization", position: 22, phase: "work",      label: { en: "Probation passed",                    fr: "Période d'essai réussie",             de: "Probezeit bestanden" } },
   // NOTE: B2 is NOT a journey preset anymore — it's its own sub-journey tracked
   // on candidate_profiles.b2_stage (see lib/b2Journey.ts). It runs in parallel

@@ -735,7 +735,7 @@ export default function AdminPipelinePage() {
               {showDone ? (
                 <div style={{ ...card, textAlign: "center", padding: 22 }}>
                   <div style={{ fontSize: 30, marginBottom: 4 }}>🎉</div>
-                  <div className="text-[15px] font-bold" style={{ color: "var(--w)" }}>{T("Arrived in Germany", "In Deutschland angekommen", "Arrivé en Allemagne")} 🇩🇪</div>
+                  <div className="text-[15px] font-bold" style={{ color: "var(--w)" }}>{T("Probation passed, part of the team", "Probezeit bestanden, fest im Team", "Période d'essai réussie, dans l'équipe")} 🇩🇪</div>
                   <div className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{T("Every milestone complete.", "Alle Etappen abgeschlossen.", "Toutes les étapes terminées.")}</div>
                 </div>
               ) : (

@@ -68,7 +68,7 @@ describe("canToggle", () => {
 describe("journeyItemLabel", () => {
   it("re-labels preset rows by key in the active language", () => {
     expect(journeyItemLabel({ preset_key: "arrived", text: "ignored EN" }, "de")).toBe("In Deutschland angekommen");
-    expect(journeyItemLabel({ preset_key: "arrived", text: "ignored" }, "fr")).toBe("Arrivé en Allemagne");
+    expect(journeyItemLabel({ preset_key: "arrived", text: "ignored" }, "fr")).toBe("Arrivée en Allemagne");
   });
   it("falls back to stored text for custom rows", () => {
     expect(journeyItemLabel({ preset_key: null, text: "Call the embassy" }, "de")).toBe("Call the embassy");

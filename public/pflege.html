@@ -775,6 +775,10 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
   .co-plot.years, .co-axis.years { --gap: 14px; gap: 14px; }
 }
 .legal a { color: inherit; text-decoration: none; transition: color .3s; } .legal a:hover { color: var(--fg); text-decoration: underline; }
+
+/* the Borivon wordmark, exactly as in the portal: Playfair italic + upright gold dot */
+.brand { font-family: var(--font-display); font-style: italic; font-weight: 400; font-size: clamp(1.15rem, 3.5vw, 1.4rem); letter-spacing: 0; }
+.brand span { font-style: normal; color: var(--gold); }
 </style>
 </head>
 <body>
@@ -831,8 +835,8 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       </div>
 
       <aside class="dossier h-card" aria-label="Profile">
-        <div class="dossier-top"><span class="tag" data-t="d_sample">Beispielprofil</span><span class="tag">ID 0427</span></div>
-        <div class="photo has-img"><img src="/pflege/assets/nurse.jpg" alt="" width="900" height="720" decoding="async"><p class="ph" data-th="d_photo"><b>Symbolbild</b></p></div>
+        <div class="dossier-top"><span class="tag" data-t="d_sample">Profil</span><span class="tag">ID 0427</span></div>
+        <div class="photo has-img"><img src="/pflege/assets/nurse.jpg" alt="" width="900" height="720" decoding="async"></div>
         <h3 data-t="d_name">Sara M.</h3>
         <p class="role" data-t="d_role">Pflegefachkraft · 6 Jahre Intensivpflege</p>
         <ul class="checks">
@@ -856,7 +860,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       <div class="sec-head">
         <p class="eyebrow" data-t="cost_eyebrow">Die falsche Frage</p>
         <h2 id="cost-h" data-t="cost_h">Was kostet eine Pflegefachkraft? Falsch gefragt. Was kostet Sie die leere Stelle?</h2>
-        <p data-t="cost_p">Tragen Sie Ihre eigenen Zahlen ein. Die Voreinstellung ist ein Beispiel.</p>
+        <p data-t="cost_p">Regler schieben. Ihre Zahlen, Ihr Ergebnis.</p>
       </div>
       <div class="calc">
         <div class="ci">
@@ -913,7 +917,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
           <div class="row"><div class="what"><span data-t="t6">Ihr Team trägt die Lücke</span><small data-t="t6s">Überstunden, Krankheitstage, Kündigungen im Stammteam</small></div><span class="val" data-t="t6v">unbezahlbar</span></div>
           <div class="total">
             <div class="line"><span data-t="t_total">Gesamt für eine Stelle</span><span class="now" id="t-total">105.400 €</span></div>
-            <p class="hint" data-t="t_hint">Beispielrechnung.</p>
+            <p class="hint" data-t="t_hint">Gerechnet mit Ihren Werten von oben.</p>
           </div>
         </div>
         <div class="trap-vs">
@@ -968,7 +972,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
         <ul class="pts" data-tl="rp_pts"></ul>
       </div>
       <article class="report">
-        <header class="report-top"><span class="tag" data-t="rp_tag">Beispielbericht</span><span class="report-when" data-t="rp_when">KW 42 · Woche 2 nach Ankunft</span></header>
+        <header class="report-top"><span class="tag" data-t="rp_tag">Wochenbericht</span><span class="report-when" data-t="rp_when">KW 42 · Woche 2 nach Ankunft</span></header>
         <h3 data-t="rp_title">Imane R. · Station 2A</h3>
         <ul class="report-list">
           <li class="done"><span data-t="rp1"></span><em data-t="done"></em></li>
@@ -1001,7 +1005,6 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       </div>
       <p class="pf-free" data-th="pf_free"></p>
       <div class="pf-more"><a class="btn btn-ghost" href="/pflege/plattform" data-t="pf_more">Die ganze Plattform ansehen →</a></div>
-      <p class="fn" data-t="pf_fn"></p>
     </div>
   </section>
 
@@ -1122,7 +1125,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
   var T = {
     de: {
       f_imp: "Impressum", f_priv: "Datenschutz",
-      draft: "ENTWURF · Bild ist ein Symbolbild · Stimmen sind Platzhalter · Zahlen vor dem Livegang final prüfen",
+      draft: "ENTWURF · Stimmen sind Platzhalter",
       nav_cost: "Rechner", nav_method: "Methode", nav_pf: "Plattform", nav_offer: "Angebot", nav_steps: "Ablauf", nav_voices: "Stimmen", nav_portal: "Portal", cta_short: "Erstgespräch",
       hero_eyebrow: "Für Kliniken und Pflegeheime · keine Agentur",
       h1_1: "Pflegefachkräfte,", h1_2: "die <em>bleiben.</em>", h1_3: "Oder die nächste ist kostenlos.",
@@ -1134,12 +1137,12 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       fi_get: "In 15 Minuten bekommen Sie: Ihre Kostenrechnung für die offene Stelle, passende anonyme Profile und Ihren Zeitplan bis zum ersten Dienst.",
       fi_show: "Wir rufen pünktlich an. Sie müssen nichts vorbereiten.", cta_cost: "Ihren Gewinn berechnen",
       proof_1: "Pflegefachkräfte vermittelt", proof_2: "Einrichtungen in Deutschland", proof_3v: "ab", proof_3: "Monaten bis zum ersten Dienst*", fn_time: "*bei regulären Bearbeitungszeiten von Botschaft und Behörden", cmp_b: "Borivon · die Quelle", proof_4: "Bewertung", rating_num: "4,8",
-      d_sample: "Beispielprofil", d_photo: "<b>Symbolbild</b>", d_name: "Sara M.", d_role: "Pflegefachkraft · 6 Jahre Intensivpflege",
+      d_sample: "Profil", d_name: "Sara M.", d_role: "Pflegefachkraft · 6 Jahre Intensivpflege",
       d_c1: "Diplom geprüft", d_c2: "Spricht mit Patienten auf Deutsch", d_c3: "Vorabzustimmung erteilt",
       m1: "Interview", m2: "Visum", m3: "Erster Dienst", m_open: "Erster Dienst auf Ihrer Station", stamp: "Bleibe-<br>Garantie",
       cost_eyebrow: "Ihre Rechnung", cost_h: "Was Sie gewinnen. Was Sie verlieren.", cost_p: "Regler schieben. Ihre Zahlen, Ihr Ergebnis.",
       c_months: "Monate, die die Stelle offen ist oder bleibt", c_hours: "Leasing + Überstunden pro Stelle / Monat", c_rate: "Stundensatz",
-      c_hint: "Vereinfacht: Leasing und Überstunden, die wegfallen, plus Umsatz aus wieder belegten Betten. Beispielwerte.", c_out: "Sie verlieren",
+      c_hint: "Vereinfacht: Leasing und Überstunden, die wegfallen, plus Umsatz aus wieder belegten Betten.", c_out: "Sie verlieren",
       c_beds: "Betten, die pro Stelle leer bleiben", c_rev: "Umsatz pro Bett / Monat", c_r1: "Leasing und Überstunden", c_r2: "Entgangener Umsatz", c_r3: "Jeden Tag", c_r4: "Verlorene Versorgungstage", c_gain: "Jedes Jahr, das eine Pflegefachkraft bleibt, holen Sie zurück", trap_col: "Ihr Verlust", t1v: "Ihre Zeit",
       c_line: "Im Erstgespräch rechnen wir Ihre Zahlen gemeinsam durch, kostenlos.",
       trap_eyebrow: "Die Billig-Falle", trap_h: "Die günstige Agentur ist die teuerste Entscheidung des Jahres.", trap_p: "Was eine gescheiterte Vermittlung kostet. Mit Ihren Zahlen.",
@@ -1156,7 +1159,6 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       tv2: "<b>Anerkennung und Visum</b> machen wir",
       tv3: "<b>Geht sie in 3 Monaten:</b> die nächste kostenlos",
       tv4: "<b>Ab dem ersten Dienst:</b> weniger Leasing, volle Betten",
-      t_save: "Sie sparen im Beispiel <b>{x}</b> gegenüber einer gescheiterten Billig-Vermittlung.",
       cmp_eyebrow: "Warum Häuser zu uns wechseln", cmp_h: "Andere verkaufen Lebensläufe. Wir liefern Pflegefachkräfte, die bleiben.", cmp_a: "Klassische Agentur",
       cmp: [["Woher sie kommt","Über Zwischenhändler","Direkt von der Quelle"],["Ergebnis","Ein Lebenslauf im Postfach","Eine Pflegefachkraft, die bleibt"],["Deutsch","Prüfungsdeutsch","Spricht mit Patienten und Angehörigen"],["Papiere","Sie jagen Behörden hinterher","Anerkennung + Visum: machen wir"],["Nach der Ankunft","Agentur weg","Begleitung bis Ende der Probezeit, in ihrer Sprache"],["Ihr Überblick","Sie rufen hinterher","Eigenes Portal, jeder Schritt live"],["Wenn sie geht","Pech gehabt","Die nächste kommt kostenlos"]],
       me_eyebrow: "Das Geheimnis hinter 498 Vermittlungen in 5 Jahren", me_h: "Die Borivon-Methode",
@@ -1179,7 +1181,6 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       pf_st: {"ok":"geprüft","tr":"übersetzt","rv":"in Prüfung","sg":"unterschrieben"},
       pf_points: [["Wissen statt nachfragen","Wo jede Kandidatin steht. Jederzeit."],["Dienstplan früh planen","Sie wissen Wochen vorher, wann sie startet."],["Alles an einem Ort","Jedes Dokument geprüft und übersetzt."]],
       pf_free: "Diese Plattform hat uns viel Geld gekostet. <b>Für Sie ist sie kostenlos. Für immer.</b>",
-      pf_fn: "Beispielansicht mit Beispieldaten.",
       lead_pts: ["Sie führen <b>ein Interview</b>. Wir machen den Rest.","Sie spricht <b>Deutsch mit Ihren Patienten</b>.","Sie bleibt: <b>3-Monats-Bleibegarantie</b>."],
       c_posts: "Offene Stellen",
       c_lose_l: "Sie verlieren ohne Pflegekraft · 12 Monate",
@@ -1230,7 +1231,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       c_cap_y: "Jahre · wenn sie bleibt",
       rp_eyebrow: "Ihr Überblick", rp_h: "Den Papierkram machen wir. Sie bekommen nur den Bericht.",
       rp_p: "Bankkonto, Steuern, Krankenkasse, Wohnung: Wir erklären es ihr in ihrer Muttersprache und erledigen es mit ihr. Sie lesen jede oder jede zweite Woche, was erledigt ist und was als Nächstes kommt.",
-      rp_tag: "Beispielbericht", rp_when: "KW 42 · Woche 2 nach Ankunft", rp_title: "Imane R. · Station 2A",
+      rp_tag: "Wochenbericht", rp_when: "KW 42 · Woche 2 nach Ankunft", rp_title: "Imane R. · Station 2A",
       rp1: "Bankkonto eröffnet", rp2: "Steuer-ID erhalten, Steuerklasse erklärt", rp3: "Krankenkasse angemeldet", rp4: "Erste Lohnabrechnung gemeinsam durchgegangen", rp5: "Wohnung: zwei Besichtigungen am Donnerstag", rp6: "Fachsprach-Coaching: Übergabe im Spätdienst",
       done: "erledigt", running: "läuft", wed: "Mittwoch", rp_note: "Für Sie zu tun: <b>nichts.</b>",
       of_eyebrow: "Das Angebot", of_h: "Ein Angebot, bei dem Sie nur verlieren, wenn Sie nein sagen.",
@@ -1293,7 +1294,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
     },
     en: {
       f_imp: "Imprint", f_priv: "Privacy",
-      draft: "DRAFT · Image is illustrative · Testimonials are placeholders · Final check of figures before launch",
+      draft: "DRAFT · Testimonials are placeholders",
       nav_cost: "Calculator", nav_method: "Method", nav_pf: "Platform", nav_offer: "Offer", nav_steps: "Process", nav_voices: "Voices", nav_portal: "Portal", cta_short: "Book a call",
       hero_eyebrow: "For hospitals and care homes · not an agency",
       h1_1: "Nurses", h1_2: "who <em>stay.</em>", h1_3: "Or the next one is free.",
@@ -1301,22 +1302,22 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       cta_call: "Free staffing analysis · 15 min",
       cta_micro: "Free · incl. your cost breakdown and anonymous profiles",
       m_open_v: "March 2027", cta_calc: "Go through this with us", tv_big: "One interview. Done.",
-      price_call: "What this means for your facility, we work out together on the call.",
+      price_call: "We work out together on the call what this means for your facility.",
       fi_get: "In 15 minutes you get: your cost calculation for the empty post, matching anonymous profiles and your timeline to her first shift.",
       fi_show: "We call on time. You don't need to prepare anything.", cta_cost: "Calculate your gain",
       proof_1: "nurses placed", proof_2: "facilities in Germany", proof_3v: "from", proof_3: "months to her first shift*", fn_time: "*with standard processing times at the embassy and authorities", cmp_b: "Borivon · the source", proof_4: "rating", rating_num: "4.8",
-      d_sample: "Sample profile", d_photo: "<b>Illustrative image</b>", d_name: "Sara M.", d_role: "Registered nurse · 6 years intensive care",
+      d_sample: "Profile", d_name: "Sara M.", d_role: "Registered nurse · 6 years intensive care",
       d_c1: "Diploma verified", d_c2: "Talks to patients in German", d_c3: "Vorabzustimmung issued",
       m1: "Interview", m2: "Visa", m3: "First shift", m_open: "First shift on your ward", stamp: "Stay<br>guarantee",
       cost_eyebrow: "Your numbers", cost_h: "What you win. What you lose.", cost_p: "Move the sliders. Your numbers, your result.",
       c_months: "Months the post is or will stay empty", c_hours: "Agency + overtime hours per post / month", c_rate: "Hourly rate",
-      c_hint: "Simplified: agency and overtime costs that stop, plus revenue from beds filled again. Sample values.", c_out: "You lose",
+      c_hint: "Simplified: agency and overtime costs that stop, plus revenue from beds filled again.", c_out: "You lose",
       c_beds: "Beds left empty per post", c_rev: "Revenue per bed / month", c_r1: "Agency staff and overtime", c_r2: "Lost revenue", c_r3: "Every day", c_r4: "Lost days of care", c_gain: "Every year a nurse stays, you win back", trap_col: "Your loss", t1v: "your time",
       c_line: "In the intro call we go through your numbers with you, free of charge.",
-      trap_eyebrow: "The cheap-agency trap", trap_h: "The cheap agency is the most expensive decision of your year.", trap_p: "What a failed placement costs. With your numbers.",
+      trap_eyebrow: "The cheap-agency trap", trap_h: "The cheap agency is your most expensive decision of the year.", trap_p: "What a failed placement costs. With your numbers.",
       trap_head: "Cheap agency · what really happens", cost_col: "Cost",
       t1: "Weeks of CVs that don't fit", t1s: "Interviews that cost your time and lead nowhere",
-      t2: "She fails the language, recognition stalls", t2s: "{m} more months of empty post, with every loss from above",
+      t2: "Her German isn't good enough, recognition stalls", t2s: "{m} more months of empty post, with every loss from above",
       t3: "Onboarding that goes to waste", t3s: "{h} hours of mentoring at €45, for someone who leaves",
       t4: "She quits during probation: back to square one", t4s: "{m} months until the next candidate",
       t5: "Waiting all over again", t5s: "{m} months until the next candidate",
@@ -1327,7 +1328,6 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       tv2: "<b>Recognition and visa:</b> we handle it",
       tv3: "<b>If she leaves within 3 months:</b> the next one is free",
       tv4: "<b>From her first shift:</b> less agency staff, full beds",
-      t_save: "In this example you save <b>{x}</b> versus a failed cheap placement.",
       cmp_eyebrow: "Why facilities switch to us", cmp_h: "Others sell CVs. We deliver nurses who stay.", cmp_a: "Typical agency",
       cmp: [["Where she comes from","Through middlemen","Straight from the source"],["Result","A CV in your inbox","A nurse who stays"],["German","Exam German","Talks with patients and relatives"],["Paperwork","You chase the authorities","Recognition + visa: we do it"],["After arrival","Agency gone","Support until probation ends, in her language"],["Your overview","You chase them by phone","Own portal, every step live"],["If she leaves","Bad luck","The next one is free"]],
       me_eyebrow: "The secret behind 498 placements in 5 years", me_h: "The Borivon Method",
@@ -1350,7 +1350,6 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       pf_st: {"ok":"verified","tr":"translated","rv":"in review","sg":"signed"},
       pf_points: [["Know instead of asking","Where every candidate stands. Any time."],["Plan the rota early","You know weeks ahead when she starts."],["Everything in one place","Every document verified and translated."]],
       pf_free: "This platform cost us a lot of money. <b>For you it's free. Forever.</b>",
-      pf_fn: "Sample view with sample data.",
       lead_pts: ["You do <b>one interview</b>. We do the rest.","She speaks <b>German with your patients</b>.","She stays: <b>3-month stay guarantee</b>."],
       c_posts: "Open posts",
       c_lose_l: "You lose without a nurse · 12 months",
@@ -1401,7 +1400,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       c_cap_y: "Years · if she stays",
       rp_eyebrow: "Your overview", rp_h: "We do the paperwork. You just get the report.",
       rp_p: "Bank account, taxes, health insurance, housing: we explain it in her mother tongue and get it done with her. Every week or two you read what's done and what comes next.",
-      rp_tag: "Sample report", rp_when: "Week 42 · week 2 after arrival", rp_title: "Imane R. · Ward 2A",
+      rp_tag: "Weekly report", rp_when: "Week 42 · week 2 after arrival", rp_title: "Imane R. · Ward 2A",
       rp1: "Bank account opened", rp2: "Tax ID received, tax class explained", rp3: "Health insurance registered", rp4: "First payslip reviewed together", rp5: "Housing: two viewings on Thursday", rp6: "Language coaching: late-shift handover",
       done: "done", running: "in progress", wed: "Wednesday", rp_note: "For you to do: <b>nothing.</b>",
       of_eyebrow: "The offer", of_h: "An offer you can only lose by saying no.",
@@ -1441,17 +1440,17 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       nurses: [["Salma B.","Nurse · ICU, Bavaria","I was afraid of the paperwork. Borivon did all of it with me, in my language."],["Hajar T.","Nurse · Internal medicine, Schleswig-Holstein","On my first day I could already talk to my patients. That gave me courage."],["Khadija E.","Nurse · Care home, Bavaria","Bank account, flat, health insurance: everything was done in two weeks."],["Meryem O.","Nurse · Elderly care, NRW","From day one I knew who to call. That's why I stayed."],["Nadia L.","Nurse · Surgery, NRW","They explained German work culture to me before I arrived. I was ready."],["Fatima-Zahra A.","Nurse · Geriatrics, Schleswig-Holstein","My team in Germany is my second family today."]],
       employers: [["Thomas K.","Managing Director · Care home in Bavaria","One interview, nothing else. Three months later she was on the ward talking to our residents as if she had always been here."],["Sabine W.","Head of HR · Hospital in NRW","We paid for agency staff for a whole year. Since she arrived, our beds are full again and the team can breathe."],["Michael H.","Director of Nursing · Senior centre in Schleswig-Holstein","The weekly reports are worth their weight in gold. I never had to chase anyone by phone."],["Andrea S.","Facility Manager · Care home in Bavaria","Agencies sent us CVs. Borivon sent us a nurse who stayed."],["Jörg B.","Managing Director · Home care service in NRW","Bank, registration, taxes: everything was done before I could even ask. I just ran my business."],["Claudia M.","HR Department · Hospital in Schleswig-Holstein","Probation passed, she stays. Exactly as promised."]],
       fit_eyebrow: "Not for every facility", fit_h: "We only work with employers who want to keep their nurse.",
-      yes_h: "We're a fit if you", y1: "pay the collective wage or similar", y2: "have structured onboarding on the ward", y3: "can help with the first flat", y4: "plan long term, not just for the next shift",
-      no_h: "We're not a fit if you", n1: "want the cheapest labour", n2: "cannot free anyone up for onboarding", n3: "want to think about staffing in two years",
+      yes_h: "We're a fit if you", y1: "pay the collective agreement rate or equivalent", y2: "have structured onboarding on the ward", y3: "can help with the first flat", y4: "plan long term, not just for the next shift",
+      no_h: "We're not a fit if you", n1: "want the cheapest labour", n2: "cannot free anyone up for onboarding", n3: "only want to think about staffing in two years' time",
       faq_eyebrow: "Questions", faq_h: "What HR teams ask us first.",
       faq: [
-        ["What does it cost?", "We calculate that with your numbers in the intro call. You see in black and white what the empty post costs you every month, and what a nurse who stays brings back to your facility."],
-        ["What if she quits in the first 3 months?", "Then an equivalent nurse comes, free of charge, provided the agreed pay and onboarding were kept."],
-        ["What qualifications do the nurses have?", "State-registered nurses with work experience. We verify diplomas and references, and our language institute tests their German. Only then do you see a profile."],
-        ["Who handles recognition and the visa?", "We do. With your power of attorney we apply for the fast-track procedure under §81a AufenthG. You see the status online at any time."],
-        ["Who helps her after arrival?", "We do, remotely and in her mother tongue: registration, bank account, taxes, health insurance and the flat search. You get a written report every week or two. The contact person stays the same until probation ends."],
-        ["Can I book just the placement, without integration?", "No. We only offer the full service. Nurses rarely leave because of the work; they leave when integration is missing. That is exactly what our guarantee covers."],
-        ["How fast is she here?", "From 3 months after your offer she can be on your ward, with standard processing times at the embassy and authorities. You get your exact timeline in the intro call."]
+        ["What does it cost?","We calculate that with your numbers in the intro call. You see in black and white what the empty post costs you every month, and what a nurse who stays brings back to your facility."],
+        ["What if she quits in the first 3 months?","Then an equivalent nurse replaces her, free of charge, provided the agreed pay and onboarding were in place."],
+        ["What qualifications do the nurses have?","State-registered nurses with work experience. We verify diplomas and references, and our language institute tests their German. Only then do you see a profile."],
+        ["Who handles recognition and the visa?","We do. With your power of attorney we apply for the fast-track procedure under §81a AufenthG. You see the status online at any time."],
+        ["Who helps her after arrival?","We do, remotely and in her mother tongue: registration, bank account, taxes, health insurance and the flat search. You get a written report every week or two. The contact person stays the same until probation ends."],
+        ["Can I book just the placement, without integration?","No. We only offer the full service. Nurses rarely leave because of the work; they leave when integration is missing. That is exactly what our guarantee covers."],
+        ["How soon can she start?","From 3 months after your offer she can be on your ward, with standard processing times at the embassy and authorities. You get your exact timeline in the intro call."]
       ],
       fi_eyebrow: "Your decision", fi_h: "You can keep paying for agency staff. Or you can talk to us for 15 minutes.",
       worst_h: "Worst case", worst_p: "15 minutes. Then you know <b>to the euro</b> what the empty post costs.",
@@ -1464,7 +1463,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
     },
     fr: {
       f_imp: "Mentions légales", f_priv: "Confidentialité",
-      draft: "BROUILLON · Image d'illustration · Témoignages provisoires · Vérification finale des chiffres avant la mise en ligne",
+      draft: "BROUILLON · Témoignages provisoires",
       nav_cost: "Calcul", nav_method: "Méthode", nav_pf: "Plateforme", nav_offer: "Offre", nav_steps: "Étapes", nav_voices: "Témoignages", nav_portal: "Portail", cta_short: "Premier échange",
       hero_eyebrow: "Pour cliniques et EHPAD · pas une agence",
       h1_1: "Des infirmières", h1_2: "qui <em>restent.</em>", h1_3: "Sinon, la suivante est gratuite.",
@@ -1473,15 +1472,15 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       cta_micro: "Gratuit · avec votre calcul de coûts et des profils anonymes",
       m_open_v: "mars 2027", cta_calc: "Revoir ce calcul avec nous", tv_big: "Un entretien. C'est tout.",
       price_call: "Ce que cela représente pour votre établissement, nous le calculons ensemble lors de l'appel.",
-      fi_get: "En 15 minutes, vous obtenez : le calcul du coût de votre poste vacant, des profils anonymes adaptés et votre calendrier jusqu'à sa première garde.",
+      fi_get: "En 15 minutes, vous obtenez : le calcul du coût de votre poste vacant, des profils anonymes adaptés et votre calendrier jusqu'à sa première garde.",
       fi_show: "Nous appelons à l'heure. Vous n'avez rien à préparer.", cta_cost: "Calculer votre gain",
-      proof_1: "infirmières placées", proof_2: "établissements en Allemagne", proof_3v: "dès", proof_3: "mois jusqu'à sa première garde*", fn_time: "*avec des délais de traitement habituels de l'ambassade et des autorités", cmp_b: "Borivon · la source", proof_4: "note", rating_num: "4,8",
-      d_sample: "Profil exemple", d_photo: "<b>Image d'illustration</b>", d_name: "Sara M.", d_role: "Infirmière · 6 ans en soins intensifs",
+      proof_1: "infirmières placées", proof_2: "établissements en Allemagne", proof_3v: "dès", proof_3: "mois jusqu'à sa prise de poste*", fn_time: "*avec des délais de traitement habituels de l'ambassade et des autorités", cmp_b: "Borivon · la source", proof_4: "note", rating_num: "4,8",
+      d_sample: "Profil", d_name: "Sara M.", d_role: "Infirmière · 6 ans en soins intensifs",
       d_c1: "Diplôme vérifié", d_c2: "Parle aux patients en allemand", d_c3: "Vorabzustimmung délivrée",
-      m1: "Entretien", m2: "Visa", m3: "Première garde", m_open: "Première garde dans votre service", stamp: "Garantie<br>de maintien",
+      m1: "Entretien", m2: "Visa", m3: "Prise de poste", m_open: "Prise de poste dans votre service", stamp: "Garantie<br>de maintien",
       cost_eyebrow: "Vos chiffres", cost_h: "Ce que vous gagnez. Ce que vous perdez.", cost_p: "Déplacez les curseurs. Vos chiffres, votre résultat.",
       c_months: "Mois pendant lesquels le poste reste vacant", c_hours: "Heures d'intérim + sup. par poste / mois", c_rate: "Taux horaire",
-      c_hint: "Simplifié : intérim et heures sup. qui disparaissent, plus le chiffre d'affaires des lits à nouveau occupés. Valeurs d'exemple.", c_out: "Vous perdez",
+      c_hint: "Simplifié : intérim et heures sup. qui disparaissent, plus le chiffre d'affaires des lits à nouveau occupés.", c_out: "Vous perdez",
       c_beds: "Lits vides par poste", c_rev: "Chiffre d'affaires par lit / mois", c_r1: "Intérim et heures sup.", c_r2: "Chiffre d'affaires perdu", c_r3: "Chaque jour", c_r4: "Journées de soins perdues", c_gain: "Chaque année où une infirmière reste, vous récupérez", trap_col: "Votre perte", t1v: "votre temps",
       c_line: "Lors du premier échange, nous passons vos chiffres en revue avec vous, gratuitement.",
       trap_eyebrow: "Le piège de l'agence bon marché", trap_h: "L'agence bon marché est la décision la plus chère de votre année.", trap_p: "Ce que coûte un recrutement raté. Avec vos chiffres.",
@@ -1489,18 +1488,17 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       t1: "Des semaines de CV qui ne conviennent pas", t1s: "Des entretiens qui vous coûtent du temps sans résultat",
       t2: "Elle échoue en langue, la reconnaissance bloque", t2s: "{m} mois de plus de poste vacant, avec toutes les pertes ci-dessus",
       t3: "Une intégration pour rien", t3s: "{h} heures de tutorat à 45 €, pour quelqu'un qui repart",
-      t4: "Démission pendant l'essai : tout recommencer", t4s: "{m} mois jusqu'à la prochaine candidate",
+      t4: "Démission pendant l'essai : tout recommencer", t4s: "{m} mois jusqu'à la prochaine candidate",
       t5: "Attendre encore", t5s: "{m} mois jusqu'à la prochaine candidate",
       t6: "Votre équipe comble le vide", t6s: "Heures sup., arrêts maladie, démissions dans l'équipe", t6v: "inestimable",
       t_total: "Total pour un poste", t_hint: "Calculé avec vos valeurs ci-dessus. Déplacez les curseurs.",
       tv_eyebrow: "Avec Borivon",
       tv1: "<b>Allemand vérifié</b> avant que vous la rencontriez",
-      tv2: "<b>Reconnaissance et visa :</b> on s'en charge",
-      tv3: "<b>Si elle part dans les 3 mois :</b> la suivante est gratuite",
-      tv4: "<b>Dès son premier service :</b> moins d'intérim, des lits pleins",
-      t_save: "Dans cet exemple, vous économisez <b>{x}</b> par rapport à un recrutement raté bon marché.",
+      tv2: "<b>Reconnaissance et visa :</b> on s'en charge",
+      tv3: "<b>Si elle part dans les 3 mois :</b> la suivante est gratuite",
+      tv4: "Dès sa prise de poste : moins d'intérim, des lits pleins",
       cmp_eyebrow: "Pourquoi les établissements nous rejoignent", cmp_h: "Les autres vendent des CV. Nous livrons des infirmières qui restent.", cmp_a: "Agence classique",
-      cmp: [["D'où elle vient","Par des intermédiaires","Directement à la source"],["Résultat","Un CV dans votre boîte mail","Une infirmière qui reste"],["Allemand","Allemand d'examen","Parle avec patients et familles"],["Papiers","Vous relancez les administrations","Reconnaissance + visa : on s'en charge"],["Après l'arrivée","L'agence disparaît","Accompagnement jusqu'à la fin de l'essai, dans sa langue"],["Votre suivi","Vous relancez par téléphone","Portail dédié, chaque étape en direct"],["Si elle part","Tant pis pour vous","La suivante est gratuite"]],
+      cmp: [["D'où elle vient","Par des intermédiaires","Directement à la source"],["Résultat","Un CV dans votre boîte mail","Une infirmière qui reste"],["Allemand","Allemand d'examen","Parle avec patients et familles"],["Papiers","Vous relancez les administrations","Reconnaissance + visa : on s'en charge"],["Après l'arrivée","L'agence disparaît","Accompagnement jusqu'à la fin de l'essai, dans sa langue"],["Votre suivi","Vous relancez par téléphone","Portail dédié, chaque étape en direct"],["Si elle part","Tant pis pour vous","La suivante est gratuite"]],
       me_eyebrow: "Le secret derrière 498 placements en 5 ans", me_h: "La méthode Borivon",
       me_q: "Nous ne sommes pas une agence. Nous sommes la source où les agences recrutent leurs infirmières. Vous les recevez directement.",
       p1h: "Évaluée avant que vous la voyiez", p1: "Diplôme, expérience, allemand.",
@@ -1514,15 +1512,14 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       pf_tabs: ["Aperçu","Parcours","Documents"],
       pf_cols: ["Candidate","Étape actuelle","Statut"],
       pf_rows: [["Lina R.","Soins intensifs",14,"Arrivée · janv. 2027",0],["Sara M.","Service 4B",10,"Arrivée · mars 2027",0],["Nora E.","Gériatrie",7,"Arrivée · mai 2027",0],["Imane R.","Service 2A",21,"En service",1]],
-      pf_steps: ["Candidature reçue","Allemand vérifié","Documents réunis","CV allemand finalisé","Premier entretien","Deuxième entretien (décision finale)","Contrat conclu","Reconnaissance demandée","Reconnaissance approuvée","Vorabzustimmung délivrée","Documents prêts pour l'ambassade","Rendez-vous visa pris","Visa approuvé","Vol réservé","Logement organisé","Arrivé en Allemagne","Domicile déclaré","Compte bancaire ouvert","Numéro fiscal reçu","Assurance maladie en place","Premier service","Coaching de langue médicale commencé","Période d'essai réussie"],
+      pf_steps: ["Candidature reçue","Allemand vérifié","Documents réunis","CV allemand finalisé","Premier entretien","Deuxième entretien (décision finale)","Contrat conclu","Reconnaissance demandée","Reconnaissance approuvée","Vorabzustimmung délivrée","Documents prêts pour l'ambassade","Rendez-vous visa pris","Visa approuvé","Vol réservé","Logement organisé","Arrivée en Allemagne","Domicile déclaré","Compte bancaire ouvert","Numéro fiscal reçu","Assurance maladie en place","Prise de poste","Coaching linguistique démarré","Période d'essai réussie"],
       pf_j: ["Sara M.","Service 4B",10],
       pf_now: "en cours",
       pf_docs: [["Passeport","ok"],["Diplôme d'infirmière","tr"],["Relevé des matières et des heures","tr"],["Certificats de travail","ok"],["Certificat d'allemand","ok"],["Carnet de vaccination","ok"],["Casier judiciaire","rv"],["Contrat de travail","sg"]],
       pf_st: {"ok":"vérifié","tr":"traduit","rv":"en examen","sg":"signé"},
       pf_points: [["Savoir au lieu de demander","Où en est chaque candidate. À tout moment."],["Planifier tôt","Vous savez des semaines à l'avance quand elle commence."],["Tout au même endroit","Chaque document vérifié et traduit."]],
       pf_free: "Cette plateforme nous a coûté cher. <b>Pour vous, elle est gratuite. Pour toujours.</b>",
-      pf_fn: "Vue d'exemple avec des données d'exemple.",
-      lead_pts: ["Vous menez <b>un entretien</b>. Nous faisons le reste.","Elle parle <b>allemand avec vos patients</b>.","Elle reste : <b>garantie de maintien 3 mois</b>."],
+      lead_pts: ["Vous menez <b>un entretien</b>. Nous faisons le reste.","Elle parle <b>allemand avec vos patients</b>.","Elle reste : <b>garantie de maintien 3 mois</b>."],
       c_posts: "Postes vacants",
       c_lose_l: "Vous perdez sans infirmière · 12 mois",
       c_keep_l: "Vous récupérez avec Borivon",
@@ -1531,27 +1528,27 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       c_lg_r: "Perte",
       c_lg_g0: "Perte",
       c_lg_g1: "Gain",
-      c_first: "Premier service*",
+      c_first: "Prise de poste*",
       c_mo: "Mois",
       c_tip_l: "perte",
       c_tip_k: "gain",
       c_day: "par jour sans infirmière",
       c_days: "journées patients récupérées",
       c_year: "chaque année de plus où elle reste",
-      rp_pts: ["<b>Banque, impôts, assurance maladie, logement :</b> on s'en occupe avec elle","<b>Dans sa langue maternelle</b>, à distance","<b>Votre rapport</b> chaque semaine ou toutes les deux semaines"],
-      of_pts: ["Une infirmière qui <b>parle avec vos patients</b>","Une équipe qui <b>respire à nouveau</b>","Des lits <b>à nouveau occupés</b>","Si elle part dans les 3 mois : <b>la suivante est gratuite</b>"],
+      rp_pts: ["<b>Banque, impôts, assurance maladie, logement :</b> on s'en occupe avec elle","<b>Dans sa langue maternelle</b>, à distance","<b>Votre rapport</b> chaque semaine ou toutes les deux semaines"],
+      of_pts: ["Une infirmière qui <b>parle avec vos patients</b>","Une équipe qui <b>respire à nouveau</b>","Des lits <b>à nouveau occupés</b>","Si elle part dans les 3 mois : <b>la suivante est gratuite</b>"],
       g1_pts: ["Même qualification, même processus","Vous menez seulement <b>un nouvel entretien</b>","Accompagnement <b>jusqu'à la fin de l'essai</b>"],
-      g1_c: "Condition : le salaire et l'intégration convenus.",
-      g3_pts: ["<b>69 %</b> restent 3 ans ou plus après un bon départ (étude : ClickBoarding)","Ce que nos partenaires font autrement les premiers mois","<b>Gratuit</b> pour vous"],
-      fi_get_h: "En 15 minutes, vous obtenez :",
-      fi_pts: ["Votre <b>calcul de coûts</b> pour le poste vacant","<b>Des profils anonymes adaptés</b>","Votre <b>calendrier</b> jusqu'au premier service"],
+      g1_c: "Condition : le salaire et l'intégration convenus.",
+      g3_pts: ["<b>69 %</b> restent 3 ans ou plus après un bon départ (étude : ClickBoarding)","Ce que nos partenaires font autrement les premiers mois","<b>Gratuit</b> pour vous"],
+      fi_get_h: "En 15 minutes, vous obtenez :",
+      fi_pts: ["Votre <b>calcul de coûts</b> pour le poste vacant","<b>Des profils anonymes adaptés</b>","Votre <b>calendrier</b> jusqu'à sa prise de poste"],
       vo_lane_e: "Employeurs",
       vo_lane_n: "Infirmières",
-      qo: "« ",
-      qc: " »",
+      qo: "« ",
+      qc: " »",
       st_hint: "Votre valeur, pièce par pièce",
       st_total: "Valeur totale pour votre établissement",
-      st_gain: ["Votre gain la première année","D'après vos chiffres : l'intérim qui s'arrête et les lits à nouveau occupés."],
+      st_gain: ["Votre gain la première année","D'après vos chiffres : l'intérim qui s'arrête et les lits à nouveau occupés."],
       st_gain_lbl: "Votre gain",
       st_adjust: "Ajuster le calcul",
       st_pay: "Vous ne payez pas {x}.",
@@ -1559,25 +1556,25 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       st_services: "Prestations", st_gain_short: "Votre gain",
       pf_phases: [["Sélection",7],["Papiers",6],["Arrivée",7],["En service",3]],
       c_keep_sub: "en 12 mois · puis chaque année",
-      c_pair_h: "Infirmière recrutée ou non ?",
+      c_pair_h: "Infirmière recrutée ou non ?",
       c_per_btn_m: "Par mois",
       c_per_btn_y: "Par an",
       c_per_m: "par mois",
       c_per_y: "par an",
       c_no: "Sans nouvelle infirmière",
       c_yes: "Avec une infirmière Borivon",
-      c_yes_note: "dès son premier service*",
+      c_yes_note: "dès sa prise de poste*",
       c_year_n: "Année {n}",
       c_cap_m: "Mois · première année",
       c_cap_y: "Années · si elle reste",
       rp_eyebrow: "Votre suivi", rp_h: "La paperasse, c'est nous. Vous recevez seulement le rapport.",
-      rp_p: "Compte bancaire, impôts, assurance maladie, logement : nous lui expliquons tout dans sa langue maternelle et le faisons avec elle. Chaque semaine ou toutes les deux semaines, vous lisez ce qui est fait et la suite.",
-      rp_tag: "Rapport exemple", rp_when: "Semaine 42 · 2e semaine après l'arrivée", rp_title: "Imane R. · Service 2A",
-      rp1: "Compte bancaire ouvert", rp2: "Numéro fiscal reçu, classe d'imposition expliquée", rp3: "Assurance maladie enregistrée", rp4: "Première fiche de paie passée en revue ensemble", rp5: "Logement : deux visites jeudi", rp6: "Coaching linguistique : transmission du soir",
-      done: "fait", running: "en cours", wed: "mercredi", rp_note: "À faire pour vous : <b>rien.</b>",
+      rp_p: "Compte bancaire, impôts, assurance maladie, logement : nous lui expliquons tout dans sa langue maternelle et le faisons avec elle. Chaque semaine ou toutes les deux semaines, vous lisez ce qui est fait et la suite.",
+      rp_tag: "Rapport hebdomadaire", rp_when: "Semaine 42 · 2e semaine après l'arrivée", rp_title: "Imane R. · Service 2A",
+      rp1: "Compte bancaire ouvert", rp2: "Numéro fiscal reçu, classe d'imposition expliquée", rp3: "Assurance maladie enregistrée", rp4: "Première fiche de paie passée en revue ensemble", rp5: "Logement : deux visites jeudi", rp6: "Coaching linguistique : transmission du soir",
+      done: "fait", running: "en cours", wed: "mercredi", rp_note: "À faire pour vous : <b>rien.</b>",
       of_eyebrow: "L'offre", of_h: "Une offre où vous ne perdez qu'en disant non.",
       of_p1: "Une infirmière qui parle avec vos patients. Une équipe qui respire à nouveau. Des lits de nouveau occupés. Et si elle part dans les 3 premiers mois, la suivante est gratuite.",
-      of_p2: "Une seule formule : le service complet.",
+      of_p2: "Une seule formule : le service complet.",
       lg_head: ["Prestation", "Valeur"], lg_bonus: "Bonus", lg_guar: "Garantie",
       lg: [
         ["Candidates présélectionnées en 14 jours", "Profil, diplômes vérifiés, présentation vidéo", 1500, ""],
@@ -1588,49 +1585,49 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
         ["Rapport d'avancement à vos RH", "Chaque semaine ou toutes les deux semaines, par écrit", 600, "b"],
         ["Coaching linguistique pendant l'essai", "En ligne, à côté du service, jusqu'à la fin de l'essai", 1500, "b"],
         ["Guide d'intégration pour votre service", "Ce qui rend les 90 premiers jours faciles pour vous et pour elle", 400, "b"],
-        ["Votre portail Borivon, gratuit pour toujours", "Notre propre plateforme et base de données : chaque candidate, chaque document, chaque étape, en direct", 2400, "b"],
+        ["Votre portail Borivon, gratuit pour toujours", "Notre propre plateforme et base de données : chaque candidate, chaque document, chaque étape, en direct", 2400, "b"],
         ["Le guide de fidélisation", "Les meilleures méthodes de nos employeurs partenaires qui gardent 80 à 90 % de leurs infirmières pendant des années", 2500, "b"],
         ["Garantie de maintien 3 mois", "Si elle part dans les 3 premiers mois, la suivante arrive gratuitement", 10000, "g"]
       ],
       total_value: "Valeur totale", your_price: "Votre prix fixe", rate1: "après votre accord à l'entretien", rate2: "à son arrivée en Allemagne", rate3: "après la période d'essai réussie",
       g_eyebrow: "Deux garanties et un guide", g_h: "Le risque, c'est nous. Pas vous.",
-      g1_seal: "Garantie de maintien 3 mois", g1_h: "Si elle part dans les 3 premiers mois, la suivante est gratuite.", g1_p: "Même qualification, même processus, vous faites seulement un nouvel entretien. Et nous continuons à l'accompagner jusqu'à la fin de l'essai. Condition : vous respectez le salaire et l'intégration convenus.",
+      g1_seal: "Garantie de maintien 3 mois", g1_h: "Si elle part dans les 3 premiers mois, la suivante est gratuite.", g1_p: "Même qualification, même processus, vous faites seulement un nouvel entretien. Et nous continuons à l'accompagner jusqu'à la fin de l'essai. Condition : vous respectez le salaire et l'intégration convenus.",
       g2_seal: "Garantie 14 jours", g2_h: "Premiers profils en 14 jours.", g2_p: "Des candidates présélectionnées sur votre bureau en 14 jours.",
-      g3_seal: "Bonus · Le guide de fidélisation", g3_h: "Comment nos meilleurs partenaires gardent 80 à 90 % de leurs infirmières.", g3_p: "Les premiers mois sont décisifs : selon une étude ClickBoarding, 69 % des nouveaux salariés bien accueillis restent au moins trois ans. Nous vous montrons ce que nos employeurs partenaires font autrement pendant cette période. Gratuitement.",
-      pr_eyebrow: "Étapes", pr_h: "Votre effort : un échange et un entretien.",
+      g3_seal: "Bonus · Le guide de fidélisation", g3_h: "Comment nos meilleurs partenaires gardent 80 à 90 % de leurs infirmières.", g3_p: "Les premiers mois sont décisifs : selon une étude ClickBoarding, 69 % des nouveaux salariés bien accueillis restent au moins trois ans. Nous vous montrons ce que nos employeurs partenaires font autrement pendant cette période. Gratuitement.",
+      pr_eyebrow: "Étapes", pr_h: "Votre effort : un échange et un entretien.",
       steps: [
-        ["Premier échange", "15 minutes : service, horaires, salaire, date de début.", "Jour 1", 1],
+        ["Premier échange", "15 minutes : service, horaires, salaire, date de début.", "Jour 1", 1],
         ["Profils sur votre bureau", "Infirmières présélectionnées avec diplômes vérifiés et présentation vidéo.", "d'ici le jour 14", 0],
         ["Entretien et accord", "Vous parlez aux candidates en vidéo et décidez.", "Votre choix", 2],
         ["Langue, reconnaissance, visa", "Certificat de langue, demande de reconnaissance, procédure accélérée. Vous suivez l'avancement en ligne à tout moment.", "nous", 0],
-        ["Arrivée en Allemagne", "Déclaration de domicile, compte bancaire, numéro fiscal, assurance maladie : nous la guidons à distance à chaque étape, dans sa langue maternelle. Vous recevez le rapport.", "dès le 3e mois", 3],
+        ["Arrivée en Allemagne", "Déclaration de domicile, compte bancaire, numéro fiscal, assurance maladie : nous la guidons à distance à chaque étape, dans sa langue maternelle. Vous recevez le rapport.", "dès le 3e mois", 3],
         ["Période d'essai accompagnée", "Coaching linguistique, un interlocuteur unique et un rapport chaque semaine ou toutes les deux semaines, jusqu'à ce qu'elle fasse partie de votre équipe.", "Elle reste", 3]
       ],
       vo_eyebrow: "Témoignages", vo_h: "498 infirmières, 24 établissements. Avec leurs propres mots.",
       vo_p: "Exemples provisoires · vrais témoignages avec accord à venir",
-      rating_label: "Note moyenne · [N] avis · [source]", lane_n: "Infirmières", lane_e: "Employeurs", verified: "Vérifié", qph: "Vrai témoignage : {x}.", vname: "Prénom N.",
-      nurses: [["Salma B.","Infirmière · Soins intensifs, Bavière","J'avais peur de la paperasse. Borivon a tout fait avec moi, dans ma langue."],["Hajar T.","Infirmière · Médecine interne, Schleswig-Holstein","Dès le premier jour, je pouvais parler à mes patients. Ça m'a donné du courage."],["Khadija E.","Infirmière · Maison de retraite, Bavière","Compte bancaire, logement, assurance maladie : tout était réglé en deux semaines."],["Meryem O.","Infirmière · Soins aux personnes âgées, Rhénanie-du-Nord-Westphalie","Dès le premier jour, je savais qui appeler. C'est pour ça que je suis restée."],["Nadia L.","Infirmière · Chirurgie, Rhénanie-du-Nord-Westphalie","Ils m'ont expliqué la culture du travail allemande avant mon arrivée. J'étais prête."],["Fatima-Zahra A.","Infirmière · Gériatrie, Schleswig-Holstein","Mon équipe en Allemagne est aujourd'hui ma deuxième famille."]],
-      employers: [["Thomas K.","Directeur général · Maison de retraite en Bavière","Un entretien, rien d'autre. Trois mois plus tard, elle était dans le service et parlait à nos résidents comme si elle avait toujours été là."],["Sabine W.","Responsable RH · Clinique en Rhénanie-du-Nord-Westphalie","Nous avons payé l'intérim pendant un an. Depuis son arrivée, nos lits sont de nouveau pleins et l'équipe respire."],["Michael H.","Directeur des soins · Résidence seniors au Schleswig-Holstein","Les rapports chaque semaine valent de l'or. Je n'ai jamais eu à relancer qui que ce soit."],["Andrea S.","Directrice d'établissement · EHPAD en Bavière","Les agences nous envoyaient des CV. Borivon nous a envoyé une infirmière qui est restée."],["Jörg B.","Directeur général · Soins à domicile en Rhénanie-du-Nord-Westphalie","Banque, déclaration, impôts : tout était fait avant même que je demande. Je me suis occupé de mon entreprise."],["Claudia M.","Service RH · Hôpital au Schleswig-Holstein","Période d'essai réussie, elle reste. Exactement comme promis."]],
+      rating_label: "Note moyenne · [N] avis · [source]", lane_n: "Infirmières", lane_e: "Employeurs", verified: "Vérifié", qph: "Vrai témoignage : {x}.", vname: "Prénom N.",
+      nurses: [["Salma B.","Infirmière · Soins intensifs, Bavière","J'avais peur de la paperasse. Borivon a tout fait avec moi, dans ma langue."],["Hajar T.","Infirmière · Médecine interne, Schleswig-Holstein","Dès le premier jour, je pouvais parler à mes patients. Ça m'a donné du courage."],["Khadija E.","Infirmière · Maison de retraite, Bavière","Compte bancaire, logement, assurance maladie : tout était réglé en deux semaines."],["Meryem O.","Infirmière · Soins aux personnes âgées, Rhénanie-du-Nord-Westphalie","Dès le premier jour, je savais qui appeler. C'est pour ça que je suis restée."],["Nadia L.","Infirmière · Chirurgie, Rhénanie-du-Nord-Westphalie","Ils m'ont expliqué la culture du travail allemande avant mon arrivée. J'étais prête."],["Fatima-Zahra A.","Infirmière · Gériatrie, Schleswig-Holstein","Mon équipe en Allemagne est aujourd'hui ma deuxième famille."]],
+      employers: [["Thomas K.","Directeur général · Maison de retraite en Bavière","Un entretien, rien d'autre. Trois mois plus tard, elle était dans le service et parlait à nos résidents comme si elle avait toujours été là."],["Sabine W.","Responsable RH · Clinique en Rhénanie-du-Nord-Westphalie","Nous avons payé l'intérim pendant un an. Depuis son arrivée, nos lits sont de nouveau pleins et l'équipe respire."],["Michael H.","Directeur des soins · Résidence seniors au Schleswig-Holstein","Les rapports chaque semaine valent de l'or. Je n'ai jamais eu à relancer qui que ce soit."],["Andrea S.","Directrice d'établissement · EHPAD en Bavière","Les agences nous envoyaient des CV. Borivon nous a envoyé une infirmière qui est restée."],["Jörg B.","Directeur général · Soins à domicile en Rhénanie-du-Nord-Westphalie","Banque, déclaration, impôts : tout était fait avant même que je demande. Je me suis occupé de mon entreprise."],["Claudia M.","Service RH · Hôpital au Schleswig-Holstein","Période d'essai réussie, elle reste. Exactement comme promis."]],
       fit_eyebrow: "Pas pour tous les établissements", fit_h: "Nous ne travaillons qu'avec des employeurs qui veulent garder leur infirmière.",
-      yes_h: "Nous sommes faits pour travailler ensemble si vous", y1: "payez selon la convention collective ou équivalent", y2: "avez une intégration structurée dans le service", y3: "pouvez aider pour le premier logement", y4: "planifiez à long terme, pas pour la prochaine garde",
-      no_h: "Nous ne sommes pas faits pour travailler ensemble si vous", n1: "cherchez la main-d'œuvre la moins chère", n2: "ne pouvez libérer personne pour l'intégration", n3: "voulez penser au personnel dans deux ans",
+      yes_h: "Nous sommes faits pour travailler ensemble si vous", y1: "payez selon la convention collective ou équivalent", y2: "avez une intégration structurée dans le service", y3: "pouvez aider à trouver le premier logement", y4: "planifiez à long terme, pas pour la prochaine garde",
+      no_h: "Nous ne sommes pas faits pour travailler ensemble si vous", n1: "cherchez la main-d'œuvre la moins chère", n2: "ne pouvez libérer personne pour l'intégration", n3: "ne voulez vous occuper du personnel que dans deux ans",
       faq_eyebrow: "Questions", faq_h: "Ce que les RH nous demandent en premier.",
       faq: [
-        ["Combien ça coûte ?", "Nous le calculons avec vos chiffres lors du premier échange. Vous voyez noir sur blanc ce que le poste vacant vous coûte chaque mois et ce qu'une infirmière qui reste rapporte à votre établissement."],
-        ["Et si elle démissionne dans les 3 premiers mois ?", "Une infirmière équivalente arrive alors gratuitement, à condition que le salaire et l'intégration convenus aient été respectés."],
-        ["Quelle est la qualification des infirmières ?", "Des infirmières diplômées d'État avec expérience. Nous vérifions diplômes et références, et notre institut de langue teste leur allemand. Ensuite seulement, vous voyez un profil."],
-        ["Qui s'occupe de la reconnaissance et du visa ?", "Nous. Avec votre procuration, nous lançons la procédure accélérée selon le §81a AufenthG. Vous suivez l'avancement en ligne à tout moment."],
-        ["Qui l'aide après son arrivée ?", "Nous, à distance et dans sa langue maternelle : déclaration de domicile, compte bancaire, impôts, assurance maladie et recherche de logement. Vous recevez un rapport écrit chaque semaine ou toutes les deux semaines. L'interlocuteur reste le même jusqu'à la fin de l'essai."],
-        ["Puis-je réserver seulement le placement, sans intégration ?", "Non. Nous ne proposons que le service complet. Les infirmières partent rarement à cause du travail, mais quand l'intégration manque. C'est précisément ce que couvre notre garantie."],
-        ["En combien de temps est-elle là ?", "Dès 3 mois après votre accord, elle peut être dans votre service, avec des délais de traitement habituels de l'ambassade et des autorités. Vous recevez votre calendrier exact lors du premier échange."]
+        ["Combien cela coûte-t-il ?","Nous le calculons avec vos chiffres lors du premier échange. Vous voyez noir sur blanc ce que le poste vacant vous coûte chaque mois et ce qu'une infirmière qui reste rapporte à votre établissement."],
+        ["Et si elle démissionne dans les 3 premiers mois ?","Une infirmière équivalente arrive alors gratuitement, à condition que le salaire et l'intégration convenus aient été respectés."],
+        ["Quelle est la qualification des infirmières ?","Des infirmières diplômées d'État avec expérience. Nous vérifions diplômes et références, et notre institut de langue teste leur allemand. Ensuite seulement, vous voyez un profil."],
+        ["Qui s'occupe de la reconnaissance et du visa ?","Nous. Avec votre procuration, nous lançons la procédure accélérée selon le §81a AufenthG. Vous suivez l'avancement en ligne à tout moment."],
+        ["Qui l'aide après son arrivée ?","Nous, à distance et dans sa langue maternelle : déclaration de domicile, compte bancaire, impôts, assurance maladie et recherche de logement. Vous recevez un rapport écrit chaque semaine ou toutes les deux semaines. L'interlocuteur reste le même jusqu'à la fin de l'essai."],
+        ["Puis-je réserver seulement le placement, sans intégration ?","Non. Nous ne proposons que le service complet. Les infirmières partent rarement à cause du travail, mais quand l'intégration manque. C'est précisément ce que couvre notre garantie."],
+        ["En combien de temps est-elle là ?","Dès 3 mois après votre accord, elle peut être dans votre service, avec des délais de traitement habituels de l'ambassade et des autorités. Vous recevez votre calendrier exact lors du premier échange."]
       ],
       fi_eyebrow: "Votre décision", fi_h: "Vous pouvez continuer à payer l'intérim. Ou nous parler 15 minutes.",
       worst_h: "Pire des cas", worst_p: "15 minutes. Ensuite, vous savez <b>à l'euro près</b> ce que coûte le poste vacant.",
-      best_h: "Meilleur des cas", best_p: "Dans quelques mois : une infirmière dans votre service, qui parle allemand <b>et qui reste</b>. Fini l'intérim.",
-      truth: "Oui, vraiment : un entretien, une infirmière qui reste. La garantie de maintien est écrite dans votre contrat.",
+      best_h: "Meilleur des cas", best_p: "Dans quelques mois : une infirmière dans votre service, qui parle allemand <b>et qui reste</b>. Fini l'intérim.",
+      truth: "Oui, vraiment : un entretien, une infirmière qui reste. La garantie de maintien est écrite dans votre contrat.",
       scarcity: "10 établissements max. par cohorte. Premiers arrivés, meilleures candidates.",
-      seat: "Promotion {m} · 10 établissements max.", months: ["janvier 2027", "avril 2027", "juin 2027"],
-      cta_book: "Réserver l'analyse gratuite · 15 min", contact: "Ou directement : contact@borivon.com",
+      seat: "Cohorte {m} · 10 établissements max.", months: ["janvier 2027", "avril 2027", "juin 2027"],
+      cta_book: "Réserver l'analyse gratuite · 15 min", contact: "Ou directement : contact@borivon.com",
       footer_l: "Borivon · Institut de langue · Infirmières pour l'Allemagne", footer_r: "Mentions légales · Confidentialité"
     }
   };

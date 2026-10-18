@@ -207,6 +207,10 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
 @media (prefers-reduced-motion: reduce) { .aurora { animation: none; } }
 html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip keeps sticky elements working */
 .legal a { color: inherit; text-decoration: none; transition: color .3s; } .legal a:hover { color: var(--fg); text-decoration: underline; }
+
+/* the Borivon wordmark, exactly as in the portal: Playfair italic + upright gold dot */
+.brand { font-family: var(--font-display); font-style: italic; font-weight: 400; font-size: clamp(1.15rem, 3.5vw, 1.4rem); letter-spacing: 0; }
+.brand span { font-style: normal; color: var(--gold); }
 </style>
 </head>
 <body>
@@ -260,7 +264,6 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
           <ul class="mini" id="mini"></ul>
           <div class="eta"><span data-t="eta_l">Ankunft geplant</span><b data-t="eta_v">März 2027</b></div>
           <div class="wait"><span data-t="wait_l">Gewartet</span><b>0 <span class="unit" data-t="secs">Sekunden</span></b></div>
-          <p class="sample" data-t="sample">Beispielansicht mit Beispieldaten.</p>
         </article>
       </div>
     </div>
@@ -327,7 +330,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       vs_eyebrow: "Der Unterschied", vs_h: "Sonst schreiben Sie und warten. Bei uns sehen Sie einfach nach.",
       old_k: "Sonst", new_k: "Mit Borivon", wait_l: "Gewartet", days: "Tage", secs: "Sekunden",
       chat: [["you", "Hallo, gibt es Neuigkeiten zum Visum von Frau B.?", "Sie · Mo 09:12"], ["seen", "Gelesen · keine Antwort"], ["you", "Kurze Nachfrage: Wann kommt sie denn jetzt?", "Sie · Mi 16:40"], ["them", "Wir melden uns, sobald wir mehr wissen.", "Agentur · Fr 11:05"]],
-      cand_unit: "Station 4B", eta_l: "Ankunft geplant", eta_v: "März 2027", sample: "Beispielansicht mit Beispieldaten.",
+      cand_unit: "Station 4B", eta_l: "Ankunft geplant", eta_v: "März 2027",
       mini: [["done","Vertrag abgeschlossen","erledigt"], ["done", "Anerkennung genehmigt", "erledigt"], ["done new-b", "Vorabzustimmung erteilt", "neu"], ["now","Unterlagen für Botschaft bereit","läuft"]],
       j_eyebrow: "Der ganze Weg", j_h: "23 Schritte. Jeder sichtbar. Rund um die Uhr.",
       j_p: "Von der Bewerbung bis zur bestandenen Probezeit. Das sehen Sie in Ihrem Zugang, ohne eine einzige Nachricht.",
@@ -378,7 +381,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       vs_eyebrow: "The difference", vs_h: "Elsewhere you write and wait. With us you just look.",
       old_k: "Elsewhere", new_k: "With Borivon", wait_l: "Waited", days: "days", secs: "seconds",
       chat: [["you", "Hi, any news on Ms B.'s visa?", "You · Mon 09:12"], ["seen", "Read · no reply"], ["you", "Quick follow-up: when is she arriving?", "You · Wed 16:40"], ["them", "We'll get back to you as soon as we know more.", "Agency · Fri 11:05"]],
-      cand_unit: "Ward 4B", eta_l: "Planned arrival", eta_v: "March 2027", sample: "Sample view with sample data.",
+      cand_unit: "Ward 4B", eta_l: "Planned arrival", eta_v: "March 2027",
       mini: [["done","Contract sealed","done"], ["done", "Recognition approved", "done"], ["done new-b", "Vorabzustimmung issued", "new"], ["now","Documents ready for embassy","in progress"]],
       j_eyebrow: "The whole journey", j_h: "23 steps. Every one visible. Around the clock.",
       j_p: "From application to passed probation. This is what you see in your access, without sending a single message.",
@@ -428,8 +431,8 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       h_more: "Voir tout le parcours",
       vs_eyebrow: "La différence", vs_h: "Ailleurs, vous écrivez et vous attendez. Chez nous, vous regardez.",
       old_k: "Ailleurs", new_k: "Avec Borivon", wait_l: "Attente", days: "jours", secs: "secondes",
-      chat: [["you", "Bonjour, des nouvelles du visa de Mme B. ?", "Vous · lun. 09:12"], ["seen", "Lu · pas de réponse"], ["you", "Petite relance : quand arrive-t-elle ?", "Vous · mer. 16:40"], ["them", "Nous revenons vers vous dès que nous en savons plus.", "Agence · ven. 11:05"]],
-      cand_unit: "Service 4B", eta_l: "Arrivée prévue", eta_v: "mars 2027", sample: "Vue d'exemple avec des données d'exemple.",
+      chat: [["you", "Bonjour, des nouvelles du visa de Mme B. ?", "Vous · lun. 09:12"], ["seen", "Lu · pas de réponse"], ["you", "Petite relance : quand arrive-t-elle ?", "Vous · mer. 16:40"], ["them", "Nous revenons vers vous dès que nous en savons plus.", "Agence · ven. 11:05"]],
+      cand_unit: "Service 4B", eta_l: "Arrivée prévue", eta_v: "mars 2027",
       mini: [["done","Contrat conclu","fait"], ["done", "Reconnaissance approuvée", "fait"], ["done new-b", "Vorabzustimmung délivrée", "nouveau"], ["now","Documents prêts pour l'ambassade","en cours"]],
       j_eyebrow: "Tout le parcours", j_h: "23 étapes. Toutes visibles. 24h/24.",
       j_p: "De la candidature à la fin de l'essai. Voici ce que vous voyez dans votre accès, sans envoyer un seul message.",
@@ -450,17 +453,17 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
           ["Documents prêts pour l'ambassade","Complet et vérifié"],
           ["Rendez-vous visa pris","Vous voyez la date tout de suite"],
           ["Visa approuvé","Vous savez maintenant quand elle arrive"]]],
-        ["Arrivée", "Logement, mairie, banque, assurance : réglés dans sa langue.", [
+        ["Arrivée", "Logement, mairie, banque, assurance : réglés dans sa langue.", [
           ["Vol réservé","Le jour d'arrivée est fixé"],
           ["Logement organisé","Avec vous, avant son arrivée"],
-          ["Arrivé en Allemagne","Bienvenue"],
+          ["Arrivée en Allemagne","Bienvenue"],
           ["Domicile déclaré","Rendez-vous à la mairie fait"],
           ["Compte bancaire ouvert","Prête pour son premier salaire"],
           ["Numéro fiscal reçu","Du fisc, sans effort de votre part"],
           ["Assurance maladie en place","Assurée dès le premier jour"]]],
         ["En service", "Votre service est complet. Et elle reste.", [
-          ["Premier service","Votre équipe est de nouveau au complet"],
-          ["Coaching de langue médicale commencé","En ligne, à côté du service"],
+          ["Prise de poste","Votre équipe est de nouveau au complet"],
+          ["Coaching linguistique démarré","En ligne, à côté du service"],
           ["Période d'essai réussie","Elle reste"]]]
       ],
       d_eyebrow: "Comparez donc", d_h: "Demandez à votre agence un accès comme celui-ci.",
