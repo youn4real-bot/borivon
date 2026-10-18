@@ -50,3 +50,15 @@
   Cache-Control: public, max-age=86400
 /favicon.png
   Cache-Control: public, max-age=86400
+
+# Employer landing pages (/pflege, built by scripts/build-pflege.mjs). Static files,
+# so next.config.ts headers never reach them. Everything they need is self-hosted
+# under /pflege/assets, so the policy can be strict: nothing loads from elsewhere.
+/pflege
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'
+/pflege.html
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'
+/pflege/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'
+/pflege/assets/*
+  Cache-Control: public, max-age=86400
