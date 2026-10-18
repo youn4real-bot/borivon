@@ -36,6 +36,18 @@ const playfair = Playfair_Display({
   preload: true,
 });
 
+// Headline serif — Playfair Display upright (500–700), the /pflege look carried
+// into the portal (see "RENOVATION 2026-10" in globals.css: h1, h2). Not
+// preloaded: headlines swap in, the wordmark above stays the LCP-critical file.
+const playfairUpright = Playfair_Display({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  style: ["normal"],
+  variable: "--font-serif-upright-v",
+  display: "swap",
+  preload: false,
+});
+
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://borivon.com"),
@@ -127,7 +139,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable}`}>
+    <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable} ${playfairUpright.variable}`}>
       <head>
         {/* Affiliate subdomain marker — runs synchronously before first paint so
             the global chrome (navbar/flag-strip/actions) is CSS-hidden on
