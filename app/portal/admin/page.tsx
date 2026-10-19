@@ -123,6 +123,9 @@ type Doc = {
 const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null } | null): boolean =>
   !!(d?.drive_file_id || d?.r2_key);
 type UserInfo = { email: string; name: string; createdAt?: string | null };
+/** "Salma Benali" → "SB" (the /pflege avatar). Falls back to the first character. */
+const initialsOf = (name: string): string =>
+  (name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0)).join("") || name.charAt(0)).toUpperCase();
 type CandidateProfile = {
   first_name: string | null; last_name: string | null;
   phone?: string | null;
@@ -4600,9 +4603,9 @@ export default function AdminPage() {
                   );
                 }
                 return (
-                  <div className="w-14 h-14 rounded-full flex items-center justify-center text-[18px] font-bold flex-shrink-0"
+                  <div className="w-14 h-14 rounded-full flex items-center justify-center text-[16px] font-medium tracking-[0.04em] flex-shrink-0"
                     style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {user.name.charAt(0).toUpperCase()}
+                    {initialsOf(user.name)}
                   </div>
                 );
               })()}
@@ -5582,8 +5585,8 @@ export default function AdminPage() {
             <div className="flex gap-4 sm:gap-6 items-start">
 
               {/* Sidebar — doc phases + journey stages */}
-              <aside className="shrink-0 w-[44px] sm:w-[52px]"
-                style={{ position: "sticky", top: "calc(61px + 1.5rem)" }}>
+              <aside className="shrink-0 w-[52px] sm:w-[62px]"
+                style={{ position: "sticky", top: "calc(61px + 1.5rem)", background: "var(--card)", borderRadius: "24px", padding: "10px 3px" }}>
 
                 {/* Doc phase circles — blue only on active, plain otherwise */}
                 {PHASE_ITEMS.map((ph, i) => {
@@ -5599,18 +5602,18 @@ export default function AdminPage() {
                       <button onClick={() => { setActivePhase(i); setActivePipelineStage(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                         title={ph.title}
                         className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer">
-                        <span className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
+                        <span className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none"
                           style={{
-                            background: "transparent",
-                            border: "none",
+                            background: isActive ? "var(--gdim)" : "transparent",
+                            border: isActive ? "1px solid var(--border-gold)" : "1px solid transparent",
+                            boxShadow: isActive ? "0 0 0 4px rgba(201,162,64,0.10), 0 8px 22px -10px rgba(201,162,64,0.55)" : "none",
                             color: isActive ? "var(--gold)" : "var(--w3)",
-                            transform: isActive ? "scale(1.08)" : "scale(1)",
-                            transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
+                            transition: "color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease)",
                           }}>
                           <PhaseIcon kind={ph.kind} size={14} />
                         </span>
-                        <span className="text-[8px] text-center leading-tight font-medium px-0.5 w-full"
-                          style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>{ph.shortTitle}</span>
+                        <span className="text-[8px] sm:text-[9.5px] text-center leading-tight sm:px-0.5 w-full"
+                          style={{ color: isActive ? "var(--gold)" : "var(--w3)", fontWeight: isActive ? 600 : 500 }}>{ph.shortTitle}</span>
                       </button>
                       <div className="w-px" style={{ height: 18, background: "var(--border)" }} />
                     </div>
@@ -5638,13 +5641,13 @@ export default function AdminPage() {
                         title={js.label}
                         className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
                         style={{ background: "transparent", border: "none" }}>
-                        <span className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
+                        <span className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none"
                           style={{
-                            background: "transparent",
-                            border: "none",
+                            background: isSel ? "var(--gdim)" : "transparent",
+                            border: isSel ? "1px solid var(--border-gold)" : "1px solid transparent",
+                            boxShadow: isSel ? "0 0 0 4px rgba(201,162,64,0.10), 0 8px 22px -10px rgba(201,162,64,0.55)" : "none",
                             color: isSel ? "var(--gold)" : "var(--w3)",
-                            transform: isSel ? "scale(1.08)" : "scale(1)",
-                            transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
+                            transition: "color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease)",
                           }}>
                           <PhaseIcon kind={js.kind} size={13} />
                           {!js.active && (
@@ -5798,12 +5801,12 @@ export default function AdminPage() {
                                           // so the same photo got dropped again and again.
                                           handleSlotDrop(e.dataTransfer.files?.[0], slot.id);
                                         }}
-                                        className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                        className={`px-3 py-[15px] transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                                         style={{ minHeight: 60, ...(dragOverKey === slot.id ? { background: "var(--gdim)" } : revokeMenu?.id === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
                                         <div className="flex items-center gap-3">
                                           <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-1.5 flex-wrap">
-                                              <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
+                                              <p className="text-[14px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
                                               {(slot.candidate_signs || slot.candidate_fills) && (
                                                 <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0"
                                                   style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
@@ -5944,7 +5947,7 @@ export default function AdminPage() {
                                         handleSlotDrop(e.dataTransfer.files?.[0], slot.id);
                                       }}>
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-[11.5px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
+                                        <p className="text-[14px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
                                           {slot.label}{slot.label_trans ? <span style={{ color: dualColor ? undefined : "var(--w3)" }}> / {slot.label_trans}</span> : null}
                                         </p>
                                         {allSlotDocs.length === 0 && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
@@ -6078,7 +6081,7 @@ export default function AdminPage() {
                                               style={{ background: "var(--bg2)", border: "1px solid var(--border)", minHeight: 60, ...(isSubMenuOpen ? { position: "relative", zIndex: 10 } : {}) }}>
                                               <div className="flex items-center gap-1.5">
                                                 <div className="flex-1 min-w-0">
-                                                  <p className="text-[11.5px] font-medium tracking-tight truncate" style={{ color: subColor ?? "var(--w2)" }}>{subLabel}</p>
+                                                  <p className="text-[13px] font-medium tracking-tight truncate" style={{ color: subColor ?? "var(--w2)" }}>{subLabel}</p>
                                                   {!subDoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
                                                   {subDoc?.status === "rejected" && subDoc.feedback && (
                                                     <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{subDoc.feedback}</p>
@@ -6443,11 +6446,11 @@ export default function AdminPage() {
                                 {pi > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                                 <div
                                   onClick={clickable ? openPreview : undefined}
-                                  className={`px-3 py-3 transition-colors${clickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                  className={`px-3 py-[15px] transition-colors${clickable ? " bv-row-hover cursor-pointer" : ""}`}
                                   style={{ minHeight: 60, ...(revokeMenu?.id === (pdoc?.id ?? emptyMenuId) ? { position: "relative", zIndex: 10 } : {}) }}>
                                   <div className="flex items-center gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{pb.label}</p>
+                                      <p className="text-[14px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{pb.label}</p>
                                       {!submitted && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
                                       {pdoc && pdoc.status === "rejected" && pdoc.feedback && (
                                         <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{pdoc.feedback}</p>
@@ -6600,7 +6603,7 @@ export default function AdminPage() {
                                   style={{ minHeight: 56, ...(dragOverKey === vb.key ? { background: "var(--gdim)" } : null) }}>
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1.5">
-                                      <p className="text-[11.5px] font-medium tracking-tight" style={{ color: vColor ?? "var(--w)" }}>{vb.label}</p>
+                                      <p className="text-[14px] font-medium tracking-tight" style={{ color: vColor ?? "var(--w)" }}>{vb.label}</p>
                                       {vb.optional && <span className="text-[10px] italic" style={{ color: "var(--w3)" }}>optional</span>}
                                     </div>
                                     {!vdoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
@@ -7120,7 +7123,7 @@ export default function AdminPage() {
                                 </div>
                                 {/* Content */}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-[11.5px] font-medium tracking-tight" style={{ color: "var(--w)" }}>{item.label}</p>
+                                  <p className="text-[14px] font-medium tracking-tight" style={{ color: "var(--w)" }}>{item.label}</p>
                                   {!hasData && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Non soumis" : lang === "de" ? "Nicht eingereicht" : "Not submitted yet"}</p>}
                                   {hasData && cSt === "rejected" && passportDataFeedback && (
                                     <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>"{passportDataFeedback}"</p>
@@ -7239,7 +7242,7 @@ export default function AdminPage() {
                               onClick={() => { if (subDoc) setPreviewDoc(subDoc); }}>
                               <div className="flex items-center gap-1.5">
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-[11.5px] font-medium tracking-tight" style={{ color: subDoc ? ssc.txt : "var(--w2)" }}>{subLabel}</p>
+                                  <p className="text-[13px] font-medium tracking-tight" style={{ color: subDoc ? ssc.txt : "var(--w2)" }}>{subLabel}</p>
                                   {!subDoc && <p className="text-[10px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : lang === "fr" ? "Non soumis" : "Not submitted"}</p>}
                                   {subDoc && sst === "rejected" && subDoc.feedback && (
                                     <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{subDoc.feedback}</p>
@@ -7345,7 +7348,7 @@ export default function AdminPage() {
                                 return n;
                               })}>
                               <div className="flex-1 min-w-0">
-                                <p className="text-[11.5px] font-medium tracking-tight" style={{ color: mPairColor ?? "var(--w)" }}>{item.label}</p>
+                                <p className="text-[14px] font-medium tracking-tight" style={{ color: mPairColor ?? "var(--w)" }}>{item.label}</p>
                                 {item.optional && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded"
                                     style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{t.pOptional}</span>
@@ -7477,13 +7480,13 @@ export default function AdminPage() {
                           {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                           <div
                             onClick={adminRowOnClick}
-                            className={`px-3 py-3 transition-colors${adminRowClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                            className={`px-3 py-[15px] transition-colors${adminRowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                             style={{ minHeight: 60 }}>
                             <div className="flex items-center gap-3">
                               {/* Content */}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
+                                  <p className="text-[14px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
                                   {"optional" in item && item.optional && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded"
                                       style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
@@ -8998,7 +9001,7 @@ export default function AdminPage() {
                         <span className="w-9 h-9 rounded-full flex items-center justify-center text-[11.5px] font-medium tracking-[0.04em] flex-shrink-0"
                           title={b2Title}
                           style={{ background: "var(--gdim)", color: "var(--gold)", ...b2Ring }}>
-                          {(user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0)).join("") || user.name.charAt(0)).toUpperCase()}
+                          {initialsOf(user.name)}
                         </span>
                       )}
 
@@ -9505,9 +9508,9 @@ export default function AdminPage() {
                             className="w-8 h-8 rounded-full object-cover flex-shrink-0"
                             style={{ border: "1px solid var(--border)" }} />
                         ) : (
-                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-[10.5px] font-medium tracking-[0.04em] flex-shrink-0"
                             style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-                            {user.name.charAt(0).toUpperCase()}
+                            {initialsOf(user.name)}
                           </span>
                         )}
                         <div className="flex-1 min-w-0">
