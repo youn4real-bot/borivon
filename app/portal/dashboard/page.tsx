@@ -3570,8 +3570,9 @@ export default function DashboardPage() {
           {/* ── Vertical sidebar — always visible, same pattern as the
               admin dashboard. No hamburger drawer on mobile; the rail just
               shrinks to 60px on phones so it stays inline with the content. */}
-          <aside className={`shrink-0 w-[44px] sm:w-[52px]`}
-            style={{ position: "sticky", top: "calc(61px + 1.5rem)" }}>
+          {/* Step rail as a glass pill, like the tab bar of the /pflege portal window. */}
+          <aside className={`shrink-0 w-[52px] sm:w-[62px]`}
+            style={{ position: "sticky", top: "calc(61px + 1.5rem)", background: "var(--card)", borderRadius: "24px", padding: "10px 3px" }}>
             {DOC_SIDEBAR_PHASES.map((ph, i) => {
               const isActive = i === phase && viewMode === "docs";
 
@@ -3605,13 +3606,15 @@ export default function DashboardPage() {
                     className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
                   >
                     <span
-                      className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
+                      className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
                       style={{
-                        background: "transparent",
-                        border: "none",
+                        // Active step: gold-tinted circle + soft gold ring (the /pflege active tab).
+                        background: isActive ? "var(--gdim)" : "transparent",
+                        border: isActive ? "1px solid var(--border-gold)" : "1px solid transparent",
+                        boxShadow: isActive ? "0 0 0 4px rgba(201,162,64,0.10), 0 8px 22px -10px rgba(201,162,64,0.55)" : "none",
                         color: circleText,
-                        transform: isActive ? "scale(1.08)" : "scale(1)",
-                        transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
+                        transform: isActive ? "scale(1.04)" : "scale(1)",
+                        transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease), background-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease)",
                       }}
                     >
                       <PhaseIcon kind={ph.kind} size={14} />
@@ -3623,8 +3626,8 @@ export default function DashboardPage() {
                       )}
                     </span>
                     <span
-                      className="text-[8px] text-center leading-tight font-medium px-0.5 w-full"
-                      style={{ color: circleText }}
+                      className="text-[8px] sm:text-[9.5px] text-center leading-tight sm:px-0.5 w-full"
+                      style={{ color: circleText, fontWeight: isActive ? 600 : 500 }}
                     >
                       {ph.shortTitle}
                     </span>
@@ -3900,7 +3903,7 @@ export default function DashboardPage() {
                     onClick={() => setExpandedPairs(prev => { const n = new Set(prev); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
+                        <p className="text-[14px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
                         {item.key === "workcert" && (
                           <button type="button"
                             onClick={(e) => { e.stopPropagation(); setShowWorkGuide(true); }}
@@ -3971,7 +3974,7 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-1.5">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <p className="text-[11.5px] font-medium tracking-tight" style={{ color: sub.subDoc ? ssc.txt : "var(--w2)" }}>{sub.subLabel}</p>
+                                  <p className="text-[13px] font-medium tracking-tight" style={{ color: sub.subDoc ? ssc.txt : "var(--w2)" }}>{sub.subLabel}</p>
                                   {sst !== "approved" && (
                                     <span className="text-[10px] font-mono tracking-wide" style={{ color: "var(--w3)" }}>PDF</span>
                                   )}
@@ -4161,7 +4164,7 @@ export default function DashboardPage() {
                   onDragLeave={() => setDragOverKey(null)}
                   onDrop={(e) => onDrop(e, item.key)}
                   onClick={rowOnClick}
-                  className={`px-2 py-3 transition-all duration-500${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                  className={`px-3 py-[15px] transition-all duration-500${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                   style={{
                     minHeight: 60,
                     ...(isDragOver ? { background: "var(--gdim)" } : null),
@@ -4171,7 +4174,7 @@ export default function DashboardPage() {
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
+                        <p className="text-[14px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
                         {/* Per-doc info button — workcert only */}
                         {item.key === "workcert" && (
                           <button

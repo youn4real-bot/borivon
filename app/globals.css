@@ -1468,3 +1468,18 @@ a[style*="background: var(--gold)"] { border-radius: 999px !important; }
 
 /* Column labels like the /pflege portal window: small, spaced, uppercase, quiet (Lexend). */
 th { font-size: 0.66rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--w3); }
+
+/* Panels like the /pflege portal window: a lit 1px rim + deep soft shadow.
+   Large card surfaces only (20px+ corners / rounded-2xl·3xl); LAW #36 popups
+   keep their own var(--shadow-lg) and are excluded. */
+:root:not(.light) :is([style*="background: var(--card)"][style*="border-radius: 20px"], [style*="background: var(--card)"][style*="border-radius: 22px"], [style*="background: var(--card)"][style*="border-radius: 24px"], [style*="background: var(--card)"].rounded-2xl, [style*="background: var(--card)"].rounded-3xl, .bv-card):not([style*="--shadow-lg"]) {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.065), inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 50px 120px -40px rgba(0, 0, 0, 0.85) !important;
+}
+:root.light :is([style*="background: var(--card)"][style*="border-radius: 20px"], [style*="background: var(--card)"][style*="border-radius: 22px"], [style*="background: var(--card)"][style*="border-radius: 24px"], [style*="background: var(--card)"].rounded-2xl, [style*="background: var(--card)"].rounded-3xl, .bv-card):not([style*="--shadow-lg"]) {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 24px 64px -28px rgba(0, 0, 0, 0.14) !important;
+}
+
+/* Founder rule: every text inside /portal is Lexend, including the small
+   monospace hints ("PDF / IMG / DOCX", IDs). The public site gets its mono back
+   through the site-zone style (lib/siteZone.ts). */
+.font-mono { font-family: var(--font-sans); }

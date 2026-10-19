@@ -1050,7 +1050,7 @@ export const translations: Record<Lang, Translation> = {
     pWizardPhase3: "Beglaubigte Übersetzungen", pWizardPhase3Desc: "Laden Sie Ihre Übersetzungen hoch, falls vorhanden — sonst kommen Sie einfach wieder.",
     pWizardPhase4: "Weitere Unterlagen", pWizardPhase4Desc: "Ihr Motivationsschreiben und Ihr B2 Sprachzertifikat.",
     pWizardNext: "Weiter →", pWizardSkip: "Ich komme später wieder", pWizardDone: "Meine Akte ansehen →", pWizardViewAll: "Gesamte Akte ansehen",
-    pSideID: "Essentielles", pSideNursing: "Unterlagen", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
+    pSideID: "Grundlagen", pSideNursing: "Unterlagen", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",
     pUploadSuccess: "✓ {label} erfolgreich hochgeladen.", pErrAllTypes: "Nur PDF, JPG, PNG oder DOCX.", pErrSize: "Datei zu groß. Max {size} MB.", pErrImageOnly: "Nur Bild (JPG, PNG) — kein PDF für Reisepass.",
     pErrIdTypes: "PDF oder Foto (JPG, PNG) für den Reisepass.",

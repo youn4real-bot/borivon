@@ -18,7 +18,8 @@ export const SITE_ZONE_CSS =
   "h1,h2,.bv-h1,.bv-h2{font-family:var(--font-heading);font-weight:500!important;letter-spacing:-0.02em}" +
   ".bv-eyebrow,.bv-label{font-family:var(--font-mono);font-weight:500}" +
   ".bv-eyebrow{letter-spacing:.2em}" +
-  ".bv-label{font-size:.66rem;letter-spacing:.14em}";
+  ".bv-label{font-size:.66rem;letter-spacing:.14em}" +
+  ".font-mono{font-family:var(--font-mono)}";
 
 export function isPortalPath(path: string): boolean {
   return path === "/portal" || path.startsWith("/portal/");
