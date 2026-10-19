@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Lexend, Playfair_Display } from "next/font/google";
+import { JetBrains_Mono, Lexend, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { GlobalChrome } from "@/components/GlobalChrome";
 import NextTopLoader from "nextjs-toploader";
@@ -44,6 +44,16 @@ const playfairUpright = Playfair_Display({
   weight: ["500", "600", "700"],
   style: ["normal"],
   variable: "--font-serif-upright-v",
+  display: "swap",
+  preload: false,
+});
+
+// Label mono — JetBrains Mono for eyebrows, uppercase field labels and small
+// meta, exactly like /pflege. Not preloaded: labels swap in after the text.
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono-v",
   display: "swap",
   preload: false,
 });
@@ -139,7 +149,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable} ${playfairUpright.variable}`}>
+    <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable} ${playfairUpright.variable} ${mono.variable}`}>
       <head>
         {/* Affiliate subdomain marker — runs synchronously before first paint so
             the global chrome (navbar/flag-strip/actions) is CSS-hidden on

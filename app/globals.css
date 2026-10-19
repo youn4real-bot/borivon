@@ -1353,7 +1353,14 @@ html.lenis, html.lenis body { height: auto; }
 :root.light { --nav-bg: rgba(252, 250, 247, 0.62); }
 
 /* Headlines in Playfair (upright), body stays Lexend. */
-:root { --font-heading: var(--font-serif-upright-v), "Playfair Display", "Times New Roman", Georgia, serif; }
+:root {
+  --font-heading: var(--font-serif-upright-v), "Playfair Display", "Times New Roman", Georgia, serif;
+  --font-mono: var(--font-mono-v), ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+/* Small gold eyebrows and uppercase field labels in mono, like /pflege. */
+.bv-eyebrow { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.2em; }
+.bv-label { font-family: var(--font-mono); font-weight: 500; font-size: 0.66rem; letter-spacing: 0.14em; }
 h1, h2,
 .bv-h1, .bv-h2 { font-family: var(--font-heading); font-weight: 500; letter-spacing: -0.02em; }
 /* Playfair reads heavy when bold: headlines stay medium like /pflege, whatever weight a page asked for. */
