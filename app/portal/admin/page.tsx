@@ -8930,7 +8930,15 @@ export default function AdminPage() {
             // page itself never grows. Applies to every admin (org + Borivon).
             // Row ≈ 71px → 8 rows ≈ 568px; clamp to viewport on short screens.
             <div className="bv-enter-stagger bv-cand-scroll"
-              style={{ borderTop: "1px solid var(--border)", maxHeight: "min(568px, 70vh)", overflowY: "auto", overflowX: "hidden" }}>
+              style={{ background: "var(--card)", borderRadius: "22px", maxHeight: "min(640px, 72vh)", overflowY: "auto", overflowX: "hidden" }}>
+              {/* Column labels, like the /pflege portal window. Widths match the row slots below. */}
+              <div className="hidden sm:flex items-center gap-3 px-4 pt-4 pb-3 text-[10.5px] font-medium uppercase tracking-[0.14em]"
+                style={{ color: "var(--w3)", borderBottom: "1px solid var(--border)" }}>
+                <span className="flex-1 min-w-0">{lang === "de" ? "Pflegekraft" : lang === "fr" ? "Candidat" : "Candidate"}</span>
+                <span className="w-[84px] text-right">{lang === "de" ? "Registriert" : lang === "fr" ? "Inscrit" : "Registered"}</span>
+                <span className="w-[150px]">Phase</span>
+                <span className="w-[68px]" />
+              </div>
               {visibleIds.map(uid => {
                 const allDocs    = grouped[uid] ?? [];
                 const pendingDocs = allDocs.filter(d => d.status === "pending");
@@ -8979,7 +8987,7 @@ export default function AdminPage() {
                     <div role="button" tabIndex={0}
                       onClick={openPanel}
                       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPanel(); } }}
-                      className="bv-row-hover px-3 py-3 flex items-center gap-3 cursor-pointer transition-colors outline-none">
+                      className="bv-row-hover px-4 py-[14px] flex items-center gap-3 cursor-pointer transition-colors outline-none">
 
                       {profiles[uid]?.profile_photo ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -8987,15 +8995,15 @@ export default function AdminPage() {
                           className="w-9 h-9 rounded-full object-cover flex-shrink-0"
                           style={b2Ring} />
                       ) : (
-                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-[11.5px] font-medium tracking-[0.04em] flex-shrink-0"
                           title={b2Title}
                           style={{ background: "var(--gdim)", color: "var(--gold)", ...b2Ring }}>
-                          {user.name.charAt(0).toUpperCase()}
+                          {(user.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0)).join("") || user.name.charAt(0)).toUpperCase()}
                         </span>
                       )}
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
+                        <p className="text-[14px] font-medium truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                           {user.name}
                           <VerifiedBadge verified={isVerified(profiles[uid])} size="xs" color="gold" />
                           {(dupByUser[uid]?.length ?? 0) > 0 && (() => {
@@ -9023,7 +9031,7 @@ export default function AdminPage() {
                             );
                           })()}
                         </p>
-                        <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
+                        <p className="text-[12px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
                           {user.email}
                           {(candidateOrgs[uid] ?? []).map(o => (
                             <span key={o.id}
@@ -9033,17 +9041,23 @@ export default function AdminPage() {
                             </span>
                           ))}
                         </p>
+                        {docPct !== null && (
+                          <span className="sm:hidden mt-2 block h-[3px] w-24 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                            <span className="block h-full rounded-full"
+                              style={{ width: `${docPct}%`, background: docPct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))" }} />
+                          </span>
+                        )}
                       </div>
 
                       {/* Registration date — when they signed up (the "who registered when" ask) */}
                       {(() => {
                         const c = users[uid]?.createdAt;
-                        if (!c) return null;
+                        if (!c) return <span className="hidden sm:block flex-shrink-0 w-[84px]" />;
                         const d = new Date(c);
                         const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
                         const label = d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
                         return (
-                          <span className="hidden sm:block flex-shrink-0 text-[10.5px] tabular-nums"
+                          <span className="hidden sm:block flex-shrink-0 w-[84px] text-right text-[11px] tabular-nums"
                             title={lang === "de" ? "Registriert am" : lang === "fr" ? "Inscrit le" : "Registered on"}
                             style={{ color: "var(--w3)" }}>
                             {label}
@@ -9053,19 +9067,27 @@ export default function AdminPage() {
 
                       {/* The phase they're in RIGHT NOW + how far through it. One
                           percentage at a time — it hands over to the next phase at 100%. */}
-                      {docPct !== null && (
-                        <span className="hidden sm:flex items-baseline gap-1.5 flex-shrink-0 text-[11px] font-semibold tabular-nums"
+                      {docPct !== null ? (
+                        <span className="hidden sm:grid gap-[7px] flex-shrink-0 w-[150px]"
                           title={jrn
                             ? `${phaseLabel} — ${jrn.done}/${jrn.total}${jrn.allDone ? (lang === "de" ? " · alle Phasen fertig" : lang === "fr" ? " · toutes les phases terminées" : " · all phases done") : ""}`
-                            : (lang === "de" ? "Dokumente vollständig" : lang === "fr" ? "documents complétés" : "documents complete")}
-                          style={{ color: docPct === 100 ? "#16a34a" : docPct >= 50 ? "var(--w2)" : "#f59e0b" }}>
-                          {phaseLabel && (
-                            <span className="text-[9.5px] font-medium uppercase tracking-wide" style={{ color: "var(--w3)" }}>
-                              {phaseLabel}
+                            : (lang === "de" ? "Dokumente vollständig" : lang === "fr" ? "documents complétés" : "documents complete")}>
+                          <span className="flex items-baseline justify-between gap-2 tabular-nums">
+                            <span className="text-[10px] font-medium uppercase tracking-[0.12em] truncate" style={{ color: "var(--w2)" }}>
+                              {phaseLabel ?? (lang === "de" ? "Dokumente" : "Documents")}
                             </span>
-                          )}
-                          {docPct}%
+                            <span className="text-[11px] font-medium" style={{ color: docPct === 100 ? "#16a34a" : docPct >= 50 ? "var(--w3)" : "#f59e0b" }}>
+                              {docPct}%
+                            </span>
+                          </span>
+                          {/* Thin gold thread, the /pflege progress bar. */}
+                          <span className="block h-[3px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                            <span className="block h-full rounded-full"
+                              style={{ width: `${docPct}%`, background: docPct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))", transition: "width 1.3s var(--ease)" }} />
+                          </span>
                         </span>
+                      ) : (
+                        <span className="hidden sm:block flex-shrink-0 w-[150px]" />
                       )}
 
                       {/* Pending tasks badge — COUNT AND AGE.
@@ -9075,7 +9097,7 @@ export default function AdminPage() {
                           oldest at 115 days) aged out invisibly that way. Past two
                           weeks the badge turns red and states the wait, so the
                           longest-ignored person is visible at a glance. */}
-                      {(() => {
+                      <span className="flex-shrink-0 min-w-[28px] flex justify-end">{(() => {
                         const taskCnt = pendingCnt + (profiles[uid]?.passport_status === "pending" ? 1 : 0);
                         if (!taskCnt) return null;
                         const oldestMs = pendingDocs.reduce<number | null>((oldest, d) => {
@@ -9099,7 +9121,7 @@ export default function AdminPage() {
                             )}
                           </span>
                         );
-                      })()}
+                      })()}</span>
 
                       {/* Match-with-org chevron — always shown; gold if already matched */}
                       {(() => {
