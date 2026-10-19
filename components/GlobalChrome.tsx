@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { syncSiteZone } from "@/lib/siteZone";
 import dynamic from "next/dynamic";
 import { ThemeProvider } from "@/components/ThemeContext";
 import { LangProvider } from "@/components/LangContext";
@@ -106,6 +108,9 @@ function SkipToMain() {
  */
 export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
+  // Typography zone: Lexend for all text inside /portal, /pflege headline type on
+  // the public site (lib/siteZone.ts). First paint is handled in app/layout.tsx.
+  useEffect(() => { syncSiteZone(pathname); }, [pathname]);
   // LAW #1: `/portal` exact-match is the login screen — NEVER render any
   // logged-in chrome (message icon, bell, profile, bug button, Dashboard /
   // Community tabs) there. The previous `pathname.startsWith("/portal")`

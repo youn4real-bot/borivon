@@ -3,6 +3,7 @@ import { JetBrains_Mono, Lexend, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { GlobalChrome } from "@/components/GlobalChrome";
 import NextTopLoader from "nextjs-toploader";
+import { SITE_ZONE_BOOT } from "@/lib/siteZone";
 
 // Primary font — Lexend everywhere (UI, body, headings, every surface).
 // Mercury-style discipline: one font for the entire system. Lexend has
@@ -166,6 +167,9 @@ export default function RootLayout({
             __html: "try{if((location.hostname||'').split('.')[0]==='affiliates'){var s=document.createElement('style');s.textContent='.bv-chrome{display:none!important}';(document.head||document.documentElement).appendChild(s);}}catch(e){}",
           }}
         />
+        {/* Typography zone before first paint: public pages get the /pflege headline
+            type, /portal stays Lexend (lib/siteZone.ts; GlobalChrome keeps it in sync). */}
+        <script dangerouslySetInnerHTML={{ __html: SITE_ZONE_BOOT }} />
         {/* Resource hints — let the browser open TCP+TLS to our hot origins
             during HTML parse, before any subresource is actually requested.
             Saves ~100-300ms on the first Supabase / Drive proxy call. */}
