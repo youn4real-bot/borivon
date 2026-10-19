@@ -4609,7 +4609,9 @@ export default function AdminPage() {
                   </div>
                 );
               })()}
-              <div className="flex-1 min-w-0">
+              {/* min-w floor: on a phone the name keeps its line and the buttons wrap
+                  below, instead of the name shrinking to one letter. */}
+              <div className="flex-1 min-w-[180px]">
                 <h1 className="text-[20px] font-semibold tracking-[-0.015em] inline-flex items-center gap-1.5 flex-wrap max-w-full" style={{ color: "var(--w)" }}>
                   <span className="truncate">{user.name}</span>
                   <VerifiedBadge verified={isVerified(profiles[selectedUser])} size="sm" color="gold" />
