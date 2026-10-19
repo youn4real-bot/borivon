@@ -18,6 +18,12 @@
   --color-gold2: var(--gold2);
   --color-gold-gradient: var(--gold-gradient);
   --color-gdim: var(--gdim);
+
+  /* Renovation 2026-10: the /pflege proportions. rounded-2xl (cards) 16 → 22px,
+     rounded-xl (buttons, fields, chips) 12 → 14px. LAW #36 popups use their own
+     explicit rounded-[20px] and are unaffected. */
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.375rem;
 }
 
 :root {
@@ -1350,6 +1356,8 @@ html.lenis, html.lenis body { height: auto; }
 :root { --font-heading: var(--font-serif-upright-v), "Playfair Display", "Times New Roman", Georgia, serif; }
 h1, h2,
 .bv-h1, .bv-h2 { font-family: var(--font-heading); font-weight: 500; letter-spacing: -0.02em; }
+/* Playfair reads heavy when bold: headlines stay medium like /pflege, whatever weight a page asked for. */
+h1, h2, .bv-h1, .bv-h2 { font-weight: 500 !important; }
 
 /* ── Ambient gold light behind every page (one compositor-only layer) ─────── */
 body::before {
