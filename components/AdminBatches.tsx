@@ -159,9 +159,11 @@ export function AdminBatches({
       )}
       {canCreate && (
         <button type="button" onClick={openCreate} aria-label={L("New batch", "Nouveau lot", "Neuer Batch")}
-          className="inline-flex items-center justify-center transition-colors"
-          style={{ width: 26, height: 26, borderRadius: 999, border: "1px solid var(--border)", color: "var(--w2)" }}>
+          className={`inline-flex items-center justify-center gap-1 transition-colors${batches.length === 0 ? " px-2.5 text-[11.5px] font-semibold" : ""}`}
+          style={{ minWidth: 26, height: 26, borderRadius: 999, border: "1px solid var(--border)", color: "var(--w2)" }}>
           <Plus size={14} strokeWidth={2.2} />
+          {/* A lone "+" says nothing; until the first batch exists, say what it makes. */}
+          {batches.length === 0 && L("New batch", "Nouveau lot", "Neuer Batch")}
         </button>
       )}
 

@@ -9163,18 +9163,21 @@ export default function AdminPage() {
             );
           })()}
 
+          {/* Shortcuts as ONE grouped glass list (iOS inset-grouped, like the /pflege
+              portal window): one surface, thin dividers, instead of five cards. */}
+          {roleResolved && (
+          <div className="bv-nav-group mt-4 overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
           {/* ── Bookings — calls from /book AND the "add by hand" button. Sat only
                  in the profile dropdown, where the founder could not find it:
                  he asked outright where to create one. A thing you use daily
                  belongs on the page you open daily. ── */}
           {roleResolved && (
             <button onClick={() => router.push("/portal/admin/bookings")}
-              className="mt-4 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
-              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors">
               <CalendarCheck size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
               <span className="flex-1 text-left min-w-0">
-                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Termine" : lang === "fr" ? "Rendez-vous" : "Bookings"}</span>
-                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Anstehende Anrufe · manuell eintragen · Zeiten festlegen" : lang === "fr" ? "Appels à venir · ajouter manuellement · définir vos horaires" : "Upcoming calls · add one by hand · set your hours"}</span>
+                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Termine" : lang === "fr" ? "Rendez-vous" : "Bookings"}</span>
+                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Anstehende Anrufe · manuell eintragen · Zeiten festlegen" : lang === "fr" ? "Appels à venir · ajouter manuellement · définir vos horaires" : "Upcoming calls · add one by hand · set your hours"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>
@@ -9183,12 +9186,12 @@ export default function AdminPage() {
           {/* ── Batch Tracker — the ritual board. All admins (scoped). ── */}
           {roleResolved && (
             <button onClick={() => router.push("/portal/admin/tracker")}
-              className="mt-4 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
-              style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-xl)" }}>
+              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
+              style={{ background: "var(--gdim)", borderTop: "1px solid var(--border)" }}>
               <ListChecks size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
               <span className="flex-1 text-left min-w-0">
-                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Batch-Tracker" : lang === "fr" ? "Suivi du lot" : "Batch Tracker"}</span>
-                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Fortschritt jedes Kandidaten in einem Batch verfolgen" : lang === "fr" ? "Suivre la progression de chaque candidat d'un lot" : "Track every candidate's progress in a batch"}</span>
+                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Batch-Tracker" : lang === "fr" ? "Suivi du lot" : "Batch Tracker"}</span>
+                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Fortschritt jedes Kandidaten in einem Batch verfolgen" : lang === "fr" ? "Suivre la progression de chaque candidat d'un lot" : "Track every candidate's progress in a batch"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>
@@ -9197,12 +9200,12 @@ export default function AdminPage() {
           {/* ── Analytics — the aggregate funnel view (read-only). All admins (scoped). ── */}
           {roleResolved && (
             <button onClick={() => router.push("/portal/admin/analytics")}
-              className="mt-3 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
-              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
+              style={{ borderTop: "1px solid var(--border)" }}>
               <BarChart3 size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
               <span className="flex-1 text-left min-w-0">
-                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Analytik" : lang === "fr" ? "Analytique" : "Analytics"}</span>
-                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Die gesamte Pipeline auf einen Blick" : lang === "fr" ? "Tout le pipeline en un coup d'œil" : "The whole pipeline at a glance"}</span>
+                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Analytik" : lang === "fr" ? "Analytique" : "Analytics"}</span>
+                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Die gesamte Pipeline auf einen Blick" : lang === "fr" ? "Tout le pipeline en un coup d'œil" : "The whole pipeline at a glance"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>
@@ -9211,12 +9214,12 @@ export default function AdminPage() {
           {/* ── Employer shortlists — curate candidates + share a read-only link. ── */}
           {roleResolved && (
             <button onClick={() => router.push("/portal/admin/shortlists")}
-              className="mt-3 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
-              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
+              style={{ borderTop: "1px solid var(--border)" }}>
               <ClipboardList size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
               <span className="flex-1 text-left min-w-0">
-                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Arbeitgeber-Listen" : lang === "fr" ? "Listes employeur" : "Employer shortlists"}</span>
-                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Kandidaten kuratieren + Link teilen" : lang === "fr" ? "Sélectionner des candidats + partager un lien" : "Curate candidates + share a link"}</span>
+                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Arbeitgeber-Listen" : lang === "fr" ? "Listes employeur" : "Employer shortlists"}</span>
+                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Kandidaten kuratieren + Link teilen" : lang === "fr" ? "Sélectionner des candidats + partager un lien" : "Curate candidates + share a link"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>
@@ -9226,27 +9229,30 @@ export default function AdminPage() {
                  admin only (touches real money, like the LAW #31 lock). ── */}
           {roleResolved && isSuperAdmin && (
             <button onClick={() => router.push("/portal/admin/affiliates")}
-              className="mt-3 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
-              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
+              style={{ borderTop: "1px solid var(--border)" }}>
               <UserPlus size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
               <span className="flex-1 text-left min-w-0">
-                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Affiliates" : lang === "fr" ? "Affiliés" : "Affiliates"}</span>
-                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Empfehlungspartner · Provision pro Vermittlung" : lang === "fr" ? "Partenaires de parrainage · commission par placement" : "Referral partners · commission per placement"}</span>
+                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Affiliates" : lang === "fr" ? "Affiliés" : "Affiliates"}</span>
+                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Empfehlungspartner · Provision pro Vermittlung" : lang === "fr" ? "Partenaires de parrainage · commission par placement" : "Referral partners · commission per placement"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>
+          )}
+
+          </div>
           )}
 
           {/* ── Tools strip — invite + agencies ──
               Candidate invite: ALL admins (supreme + sub-admins).
               Org-admin + sub-admin invites: supreme only. ── */}
           {roleResolved && (
-            <div className="mt-4 mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
+            <div className="mt-4 mb-5 space-y-px" style={{ borderRadius: "22px", border: "1px solid var(--border)" }}>
 
               {/* Candidate invite row — generates a /join link that lands on
                   /portal/dashboard after signup. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: isSuperAdmin ? "var(--r-xl) var(--r-xl) 0 0" : "var(--r-xl)" }}>
-                <span className="flex-1 flex items-center gap-2"><User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: isSuperAdmin ? "22px 22px 0 0" : "22px" }}>
+                <span className="flex-1 flex items-center gap-2"><User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[13px]" style={{ color: "var(--w2)" }}>{lang === "de" ? "Einladungslink · Kandidat" : lang === "fr" ? "Lien d'invitation · candidat" : "Invite link · candidate"}</span></span>
                 {inviteUrl ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
@@ -9292,7 +9298,7 @@ export default function AdminPage() {
                   /portal/org/dashboard after signup. Requires picking which
                   org the new admin will manage. */}
               <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
-                <span className="flex-1 flex items-center gap-2"><Building2 size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
+                <span className="flex-1 flex items-center gap-2"><Building2 size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[13px]" style={{ color: "var(--w2)" }}>{lang === "de" ? "Einladungslink · Organisation" : lang === "fr" ? "Lien d'invitation · organisation" : "Invite link · organisation"}</span></span>
                 {orgInviteUrl ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
@@ -9363,10 +9369,10 @@ export default function AdminPage() {
               </div>
 
               {/* Sub-admin invite row */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", borderRadius: "0 0 var(--r-xl) var(--r-xl)" }}>
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", borderRadius: "0 0 22px 22px" }}>
                 <span className="flex-1 flex items-center gap-2">
                   <User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
-                  <span className="text-[12px]" style={{ color: "var(--w3)" }}>Sub-admin Invitation Link</span>
+                  <span className="text-[13px]" style={{ color: "var(--w2)" }}>{lang === "de" ? "Einladungslink · Sub-Admin" : lang === "fr" ? "Lien d'invitation · sous-admin" : "Invite link · sub-admin"}</span>
                 </span>
                 {subAdminInviteUrl ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
