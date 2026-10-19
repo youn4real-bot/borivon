@@ -8749,7 +8749,9 @@ export default function AdminPage() {
               (The old inline search box + attribute-filter panel were removed; search
               + faceting live in the smart bar and Advanced Filters above.) */}
           {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
-            <div className="mb-3 flex items-center gap-1.5">
+            // iOS segmented control: one track, the picked segment lifts out of it.
+            <div role="tablist" className="mb-3 inline-flex items-center gap-[2px] p-[3px]"
+              style={{ borderRadius: 999, background: "var(--bg2)", border: "1px solid var(--border)" }}>
               {([
                 ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
                 ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
@@ -8757,9 +8759,9 @@ export default function AdminPage() {
               ] as const).map(([mode, label]) => {
                 const active = regView === mode;
                 return (
-                  <button key={mode} type="button" onClick={() => setRegView(mode)}
-                    className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
-                    style={{ borderRadius: "999px", border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`, background: active ? "var(--gdim)" : "transparent", color: active ? "var(--gold)" : "var(--w3)" }}>
+                  <button key={mode} type="button" role="tab" aria-selected={active} onClick={() => setRegView(mode)}
+                    className="px-3.5 py-[5px] text-[12px] font-medium transition-colors"
+                    style={{ borderRadius: 999, border: `1px solid ${active ? "var(--border-gold)" : "transparent"}`, background: active ? "var(--gdim)" : "transparent", color: active ? "var(--gold)" : "var(--w3)", boxShadow: active ? "0 4px 14px -6px rgba(201,162,64,0.45)" : "none" }}>
                     {label}
                   </button>
                 );
