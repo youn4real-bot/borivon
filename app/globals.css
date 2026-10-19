@@ -1441,3 +1441,29 @@ a[style*="background: var(--gold)"] { border-radius: 999px !important; }
 @media (prefers-reduced-motion: reduce) {
   body::before { animation: none; }
 }
+
+/* ── iOS glass (founder, 2026-10-19: "the glassy iPhone new iOS look", like the
+   portal window on /pflege). Real backdrop blur on cards, menus and popups.
+   A blurred element becomes the containing block for its absolute AND fixed
+   descendants, so the blur only goes where that changes nothing:
+     • no position:fixed descendant — an un-portaled popup opening inside a card
+       would be trapped in it; the moment one mounts, :has() drops the blur and
+       the popup escapes to the viewport again (the LAW #36 trap stays shut);
+     • the surface is already positioned (its absolute children already measure
+       from it) OR it has no absolute descendants at all.
+   Browsers without :has() skip the rule and keep the see-through cards. ─── */
+:root:not(.light) { --card: rgba(30, 30, 36, 0.58); --card2: rgba(38, 38, 44, 0.62); }
+:root.light { --card: rgba(255, 255, 255, 0.64); --card2: rgba(251, 250, 246, 0.7); }
+:is([style*="background: var(--card)"], .bv-card, .bv-surface):is(.relative, .absolute, .fixed, .sticky, [style*="position: relative"], [style*="position: absolute"], [style*="position: fixed"], [style*="position: sticky"], :not(:has(.absolute, [style*="position: absolute"]))):not(:has(.fixed, [style*="position: fixed"])) {
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: blur(24px) saturate(170%);
+}
+@media (max-width: 640px) {
+  :is([style*="background: var(--card)"], .bv-card, .bv-surface):is(.relative, .absolute, .fixed, .sticky, [style*="position: relative"], [style*="position: absolute"], [style*="position: fixed"], [style*="position: sticky"], :not(:has(.absolute, [style*="position: absolute"]))):not(:has(.fixed, [style*="position: fixed"])) {
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+  }
+}
+
+/* Column labels like the /pflege portal window: small, spaced, uppercase, quiet (Lexend). */
+th { font-size: 0.66rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--w3); }
