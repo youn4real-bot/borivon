@@ -62,17 +62,36 @@ export default function PublicShortlistPage() {
     cand.nationality || "",
     cand.city || "",
   ].filter(Boolean).join(" · ");
+  const initials = (n: string) => (n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w.charAt(0)).join("") || n.charAt(0)).toUpperCase();
+  const b2Count = c.candidates.filter((x) => x.b2Stage === "passed").length;
+  const docsReady = c.candidates.filter((x) => x.docCount > 0 && x.docsOk === x.docCount).length;
 
   return (
-    <main className="mx-auto px-5 py-10 sm:py-14" style={{ maxWidth: 920 }}>
+    <main className="mx-auto px-5 pt-24 pb-14 sm:pt-28" style={{ maxWidth: 920 }}>
+      {/* The employer's first look at the nurses: same language as borivon.com
+          (glass windows, initials, thin gold threads) and ONE next step. */}
       <header className="mb-7">
-        {c.agency && <p className="text-[12px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--gold)" }}>{c.agency}</p>}
-        <h1 className="text-[26px] font-bold leading-tight" style={{ color: "var(--w)" }}>{c.title}</h1>
-        {c.note && <p className="mt-2 text-[14px] whitespace-pre-wrap" style={{ color: "var(--w2)" }}>{c.note}</p>}
-        <p className="mt-3 text-[12.5px]" style={{ color: "var(--w3)" }}>
-          {c.candidates.length} {T("candidate(s) proposed for your review.", "Kandidat(en) zur Prüfung vorgeschlagen.", "candidat(s) proposé(s) pour votre examen.")}
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] mb-2" style={{ color: "var(--gold)" }}>
+          {c.agency || T("Your shortlist", "Ihre Auswahl", "Votre sélection")}
         </p>
+        <h1 className="text-[28px] sm:text-[32px] font-semibold leading-tight tracking-[-0.015em]" style={{ color: "var(--w)" }}>{c.title}</h1>
+        {c.note && <p className="mt-2 text-[14px] whitespace-pre-wrap" style={{ color: "var(--w2)" }}>{c.note}</p>}
       </header>
+
+      {c.candidates.length > 0 && (
+        <div className="mb-6 grid grid-cols-3 gap-px overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
+          {([
+            [String(c.candidates.length), T("nurses for you", "Pflegekräfte für Sie", "infirmières pour vous")],
+            [`${b2Count}/${c.candidates.length}`, T("German B2 passed", "Deutsch B2 bestanden", "allemand B2 réussi")],
+            [`${docsReady}/${c.candidates.length}`, T("papers complete", "Unterlagen komplett", "dossiers complets")],
+          ] as const).map(([v, l]) => (
+            <div key={l} className="px-4 py-4 text-center">
+              <p className="text-[22px] font-semibold tabular-nums" style={{ color: "var(--w)" }}>{v}</p>
+              <p className="mt-0.5 text-[11px] uppercase tracking-[0.1em]" style={{ color: "var(--w3)" }}>{l}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {c.candidates.length === 0 ? (
         <p className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>{T("No candidates on this list yet.", "Noch keine Kandidaten auf dieser Liste.", "Aucun candidat sur cette liste.")}</p>
@@ -80,14 +99,16 @@ export default function PublicShortlistPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           {c.candidates.map((cand, i) => {
             const b2Passed = cand.b2Stage === "passed";
+            const docPct = cand.docCount ? Math.round((cand.docsOk / cand.docCount) * 100) : 0;
             return (
-              <div key={i} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              <div key={i} className="p-5" style={{ background: "var(--card)", borderRadius: "22px" }}>
                 <div className="flex items-center gap-3">
                   {cand.photo
                     ? <img src={cand.photo} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
-                    : <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-[15px] font-bold" style={{ background: "var(--bg2)", color: "var(--w3)" }}>{cand.name.charAt(0).toUpperCase()}</div>}
+                    : <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-[13px] font-medium tracking-[0.04em]"
+                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{initials(cand.name)}</div>}
                   <div className="min-w-0">
-                    <p className="text-[15px] font-semibold truncate flex items-center gap-1.5" style={{ color: "var(--w)" }}>
+                    <p className="text-[15px] font-medium truncate flex items-center gap-1.5" style={{ color: "var(--w)" }}>
                       {cand.name}
                       {cand.verified && <ShieldCheck size={14} style={{ color: "#16a34a" }} />}
                     </p>
@@ -95,21 +116,56 @@ export default function PublicShortlistPage() {
                   </div>
                 </div>
 
-                {cand.adminNote && <p className="mt-2.5 text-[12px] italic" style={{ color: "var(--w2)" }}>“{cand.adminNote}”</p>}
+                {cand.adminNote && <p className="mt-3 text-[12.5px] italic" style={{ color: "var(--w2)" }}>“{cand.adminNote}”</p>}
 
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w2)" }}>
-                  {cand.yearsExperience != null && <span>{cand.yearsExperience} {T("yrs experience", "J. Erfahrung", "ans d'expérience")}</span>}
-                  {cand.b2Stage && (
-                    <span style={b2Passed ? { color: "#16a34a", fontWeight: 600 } : undefined}>
-                      B2: {b2StageLabel(normalizeB2Stage(cand.b2Stage), lang)}
-                    </span>
+                <div className="mt-4 grid gap-2.5" style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                  {cand.yearsExperience != null && (
+                    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+                      <span style={{ color: "var(--w3)" }}>{T("Experience", "Erfahrung", "Expérience")}</span>
+                      <span style={{ color: "var(--w)" }}>{cand.yearsExperience} {T("years", "Jahre", "ans")}</span>
+                    </div>
                   )}
-                  <span>{cand.docsOk}/{cand.docCount} {T("documents ready", "Dokumente bereit", "documents prêts")}</span>
-                  {cand.hasCvDraft && <span className="inline-flex items-center gap-1" style={{ color: "#16a34a" }}><Check size={11} strokeWidth={3} /> CV</span>}
+                  {cand.b2Stage && (
+                    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+                      <span style={{ color: "var(--w3)" }}>{T("German", "Deutsch", "Allemand")} B2</span>
+                      <span className="inline-flex items-center gap-1" style={{ color: b2Passed ? "#16a34a" : "var(--w)" }}>
+                        {b2Passed && <Check size={12} strokeWidth={3} />}{b2StageLabel(normalizeB2Stage(cand.b2Stage), lang)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="grid gap-1.5">
+                    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+                      <span style={{ color: "var(--w3)" }}>{T("Papers ready", "Unterlagen bereit", "Dossier prêt")}</span>
+                      <span className="tabular-nums" style={{ color: docPct === 100 ? "#16a34a" : "var(--w)" }}>{cand.docsOk}/{cand.docCount}</span>
+                    </div>
+                    <span className="block h-[3px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                      <span className="block h-full rounded-full"
+                        style={{ width: `${docPct}%`, background: docPct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))" }} />
+                    </span>
+                  </div>
+                  {cand.hasCvDraft && (
+                    <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+                      <span style={{ color: "var(--w3)" }}>{T("German CV", "Deutscher Lebenslauf", "CV allemand")}</span>
+                      <span className="inline-flex items-center gap-1" style={{ color: "#16a34a" }}><Check size={12} strokeWidth={3} /> {T("ready", "fertig", "prêt")}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* The one next step: talk to these nurses. */}
+      {c.candidates.length > 0 && (
+        <div className="mt-8 p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-4" style={{ background: "var(--card)", borderRadius: "22px" }}>
+          <div className="flex-1 min-w-0">
+            <p className="text-[16px] font-medium" style={{ color: "var(--w)" }}>{T("Want to meet them?", "Möchten Sie sie kennenlernen?", "Vous voulez les rencontrer ?")}</p>
+            <p className="mt-1 text-[13px]" style={{ color: "var(--w3)" }}>{T("Book a short call. We set up the video interviews for you.", "Buchen Sie ein kurzes Gespräch. Wir planen die Video-Interviews für Sie.", "Réservez un court appel. Nous organisons les entretiens vidéo pour vous.")}</p>
+          </div>
+          <a href="/book/clinic" className="bv-btn bv-btn-primary inline-flex justify-center flex-shrink-0">
+            {T("Plan interviews", "Interviews planen", "Planifier les entretiens")}
+          </a>
         </div>
       )}
 
