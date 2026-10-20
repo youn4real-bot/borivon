@@ -838,7 +838,9 @@ export function BookingFlow({
           {/* ── step 0 · who ── */}
           {step === 0 && (
             <div className="grid gap-3 bv-enter-soft">
-              {KINDS.map(({ v, Icon, en, de, fr, subEn, subDe, subFr }) => (
+              {/* Borivon is nurses only since 2026-10-20: the language-academy
+                  "company" option is no longer offered (the type still exists). */}
+              {KINDS.filter((k) => k.v !== "company").map(({ v, Icon, en, de, fr, subEn, subDe, subFr }) => (
                 <button
                   key={v}
                   type="button"

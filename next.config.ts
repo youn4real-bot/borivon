@@ -176,6 +176,13 @@ const nextConfig: NextConfig = {
       // The same slip for the per-audience links people are handed.
       { source: "/bookings/:type", destination: "/book/:type", permanent: true },
       { source: "/booking/:type", destination: "/book/:type", permanent: true },
+      // Borivon is nurses only (founder, 2026-10-20). The language-school pages and
+      // the old draft site point home. Temporary (307) on purpose: reversible, and
+      // browsers do not cache it forever.
+      { source: "/online-courses", destination: "/", permanent: false },
+      { source: "/v2", destination: "/", permanent: false },
+      { source: "/v2/:path*", destination: "/", permanent: false },
+      { source: "/book/company", destination: "/", permanent: false },
     ];
   },
 

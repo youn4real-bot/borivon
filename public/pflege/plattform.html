@@ -218,8 +218,8 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
 <header class="nav">
   <div class="wrap">
     <div class="nav-left">
-      <a class="brand" href="/pflege">Borivon<span>.</span></a>
-      <a class="back" href="/pflege" id="back"><span aria-hidden="true">&larr;</span> <span data-t="back">Zurück zum Angebot</span></a>
+      <a class="brand" href="/">Borivon<span>.</span></a>
+      <a class="back" href="/" id="back"><span aria-hidden="true">&larr;</span> <span data-t="back">Zurück zum Angebot</span></a>
     </div>
     <div class="nav-right">
       <div class="langs" role="group" aria-label="Sprache">
@@ -298,7 +298,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
         <h2 id="final-h" data-t="f_h">Im Gespräch zeigen wir Ihnen die Plattform live.</h2>
         <p data-t="f_p"></p>
         <a class="btn btn-gold" href="/book/clinic" data-t="cta_call">Kostenloses Gespräch · 15 Min.</a>
-        <a class="back" href="/pflege" data-back><span aria-hidden="true">&larr;</span> <span data-t="back">Zurück zum Angebot</span></a>
+        <a class="back" href="/" data-back><span aria-hidden="true">&larr;</span> <span data-t="back">Zurück zum Angebot</span></a>
       </div>
     </div>
   </section>
@@ -503,7 +503,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
   render();
 
   // back to the offer page: return to where they left it when they came from there
-  $$('a[href="/pflege"]').forEach(function (a) {
+  $$('a[href="/"]').forEach(function (a) {
     a.addEventListener("click", function (e) {
       try { if (document.referrer && new URL(document.referrer).origin === location.origin && history.length > 1) { e.preventDefault(); history.back(); } } catch (err) {}
     });

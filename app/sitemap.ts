@@ -3,48 +3,14 @@ import type { MetadataRoute } from "next";
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://borivon.com";
   const now = new Date();
-  const langs = {
-    fr: base,
-    en: `${base}?lang=en`,
-    de: `${base}?lang=de`,
-    ar: `${base}?lang=ar`,
-  };
-
+  // Borivon is nurses only (2026-10-20): home is the nurse-placement page.
   return [
-    {
-      url: base,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 1,
-      alternates: { languages: langs },
-    },
-    // The booking page — a conversion entry point, so it ranks just under home.
-    {
-      url: `${base}/book`,
-      lastModified: now,
-      changeFrequency: "weekly",
-      priority: 0.9,
-    },
-    // Static marketing / legal pages — all crawlable, low change frequency.
-    // These were missing from the sitemap → Google never linked them as
-    // sibling pages of the home, even though they exist and are stable.
-    {
-      url: `${base}/privacy-policy`,
-      lastModified: now,
-      changeFrequency: "yearly",
-      priority: 0.4,
-    },
-    {
-      url: `${base}/terms`,
-      lastModified: now,
-      changeFrequency: "yearly",
-      priority: 0.4,
-    },
-    {
-      url: `${base}/refund-policy`,
-      lastModified: now,
-      changeFrequency: "yearly",
-      priority: 0.4,
-    },
+    { url: base, lastModified: now, changeFrequency: "monthly", priority: 1 },
+    { url: `${base}/pflege/plattform`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/book/clinic`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
+    { url: `${base}/book/nurse`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/impressum`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/privacy-policy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ];
 }

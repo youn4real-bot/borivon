@@ -95,7 +95,7 @@ function head(title, description, canonical) {
   const doc = `<!doctype html>
 <html lang="de">
 <head>
-${head(META.title, META.description, "https://www.borivon.com/pflege")}${s.slice(0, cut).trim()}
+${head(META.title, META.description, "https://www.borivon.com/")}${s.slice(0, cut).trim()}
 </head>
 <body>
 ${s.slice(cut).trim()}
@@ -109,8 +109,9 @@ ${s.slice(cut).trim()}
 {
   let s = fs.readFileSync(path.join(SRC, "plattform.html"), "utf8");
   s = sharedLinks(s);
-  s = swap(s, 'href="index.html"', 'href="/pflege"', "back links", { all: true });
-  s = swap(s, `$$('a[href="index.html"]')`, `$$('a[href="/pflege"]')`, "back-link script", { optional: true });
+  // Home IS the offer page since 2026-10-20 (app/route.ts serves it at /).
+  s = swap(s, 'href="index.html"', 'href="/"', "back links", { all: true });
+  s = swap(s, `$('a[href="index.html"]')`, `$('a[href="/"]')`, "back-link script", { optional: true });
   s = s.replace(/<meta charset="utf-8">\n<meta name="viewport"[^>]*>\n<title>[^<]*<\/title>\n/, () => head("Borivon Plattform · jeder Schritt live", "Jeder Schritt Ihrer neuen Pflegefachkraft, von der Bewerbung bis zur bestandenen Probezeit. 24/7 online, für Sie kostenlos.", "https://www.borivon.com/pflege/plattform"));
   fs.mkdirSync(path.join(OUT, "pflege"), { recursive: true });
   fs.writeFileSync(path.join(OUT, "pflege", "plattform.html"), s);
