@@ -26,17 +26,19 @@ import type { NextConfig } from "next";
 //     reader) are server-side and not subject to browser connect-src.
 //     Stripe was dropped on 2026-09-20 with the paid plan: a payment origin
 //     left in the policy is standing permission for a script we no longer run.
+//   - static.cloudflareinsights.com (script) + cloudflareinsights.com (connect)
+//     are the Cloudflare Web Analytics beacon, auto-injected at the edge.
 //   - frame-src is the UNION of every embed actually used: Drive (iOS PDF),
 //     YouTube + Loom (feed videos), Cloudflare.
 //   - img-src drops `http:` (no mixed content).
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
   // wss/https *.borivon.com → the self-hosted LiveKit classroom server (signaling).
-  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com wss://*.borivon.com https://*.borivon.com",
+  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://cloudflareinsights.com wss://*.borivon.com https://*.borivon.com",
   "frame-src 'self' blob: https://drive.google.com https://www.youtube.com https://www.loom.com https://challenges.cloudflare.com",
   "media-src 'self' data: blob: https:",
   "worker-src 'self' blob:",
