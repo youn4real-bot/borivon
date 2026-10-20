@@ -189,15 +189,16 @@ export default function AdminShortlistsPage() {
             {T("No shortlists yet — create one to get started.", "Noch keine Listen — erstelle eine.", "Aucune liste — créez-en une.")}
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {items.map((s) => (
+          // One grouped glass list (the portal pattern), not a stack of cards.
+          <div className="overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
+            {items.map((s, i) => (
               <button key={s.id} onClick={() => openDetail(s.id)}
-                className="w-full text-left p-4 flex items-center gap-3 transition-colors hover:opacity-90"
-                style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-                <Users size={16} style={{ color: "var(--w3)" }} />
+                className="bv-row-hover w-full text-left px-4 py-[15px] flex items-center gap-3 transition-colors"
+                style={i ? { borderTop: "1px solid var(--border)" } : undefined}>
+                <Users size={16} style={{ color: "var(--gold)" }} />
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[14px] font-semibold truncate" style={{ color: "var(--w)" }}>{s.title}</span>
-                  <span className="block text-[11.5px] truncate" style={{ color: "var(--w3)" }}>
+                  <span className="block text-[14px] font-medium truncate" style={{ color: "var(--w)" }}>{s.title}</span>
+                  <span className="block text-[12px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
                     {[s.agency, s.employer].filter(Boolean).join(" → ") || T("No agency", "Keine Agentur", "Aucune agence")} · {s.count} {T("candidates", "Kandidaten", "candidats")}
                   </span>
                 </span>

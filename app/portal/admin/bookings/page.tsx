@@ -388,9 +388,9 @@ function UniversalLinkCard({ T }: { T: (en: string, de: string, fr: string) => s
         </button>
       </div>
       <p className="text-[12px] mt-2.5" style={{ color: "var(--w3)" }}>
-        {T("Share this with anyone — nurses, clinics or companies. It asks who they are, then shows your real availability.",
-           "Teilen Sie diesen mit allen — Pflegekräften, Kliniken oder Unternehmen. Er fragt, wer sie sind, und zeigt dann Ihre echte Verfügbarkeit.",
-           "Partagez-le avec tout le monde — infirmiers, cliniques ou entreprises. Il demande qui ils sont, puis affiche vos vraies disponibilités.")}
+        {T("Share this with anyone — clinics, care homes or nurses. It asks who they are, then shows your real availability.",
+           "Teilen Sie diesen mit allen — Kliniken, Pflegeheimen oder Pflegekräften. Er fragt, wer sie sind, und zeigt dann Ihre echte Verfügbarkeit.",
+           "Partagez-le avec tout le monde — cliniques, maisons de retraite ou infirmiers. Il demande qui ils sont, puis affiche vos vraies disponibilités.")}
       </p>
     </div>
   );
@@ -623,7 +623,7 @@ function LinkCard({
   const num = (v: string) => (v.trim() === "" ? null : Number(v.trim()));
 
   return (
-    <div className="bv-card" style={{ borderRadius: 14, overflow: "hidden" }}>
+    <div style={{ overflow: "hidden" }}>
       <div className="p-4 flex items-start gap-3 flex-wrap">
         {/* LAW #4 — the dot carries live / not live, never a word. */}
         <span
@@ -1072,7 +1072,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="mb-9">
       <p className="bv-eyebrow mb-3">{title}</p>
-      <div className="grid gap-2">{children}</div>
+      {/* One grouped glass list per section (the portal pattern): thin dividers, no card stack. */}
+      <div className="overflow-hidden [&>*+*]:border-t [&>*+*]:border-[var(--border)]" style={{ background: "var(--card)", borderRadius: "22px" }}>{children}</div>
     </section>
   );
 }
@@ -1095,7 +1096,7 @@ function Row({
   const past = Date.parse(b.starts_at) < Date.now();
 
   return (
-    <div className="bv-card" style={{ borderRadius: 14, overflow: "hidden" }}>
+    <div style={{ overflow: "hidden" }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
