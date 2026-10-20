@@ -8,7 +8,7 @@ import { loadEventType } from "@/lib/bookingEventTypes";
  *
  *     /book/nurse      hand this to a candidate
  *     /book/clinic     hand this to a hospital or care home
- *     /book/company    hand this to a company wanting German training
+ *     /book/company    retired 2026-10-20 (nurses only) — next.config redirects it to /
  *
  * Plain /book still works and still asks the visitor to classify themselves;
  * this route just answers that question in advance, so the person you sent it

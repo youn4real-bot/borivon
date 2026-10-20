@@ -60,6 +60,20 @@ function sharedLinks(s) {
   s = swap(s, '<meta name="claude:viewport-fit-sides" content="cover">\n', "", "artifact viewport tag", { optional: true });
   return s;
 }
+// Structured data for the home page (borivon.com/ since 2026-10-20). No price, ever.
+const HOME_LD = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "EmploymentAgency",
+  name: "Borivon",
+  legalName: "Borivon LLC",
+  url: "https://www.borivon.com/",
+  logo: "https://borivon.com/logo.png",
+  image: "https://www.borivon.com/pflege/assets/nurse.jpg",
+  description: "Borivon bringt geprüfte Pflegefachkräfte nach Deutschland: Deutsch, Anerkennung, Visum und Ankommen aus einer Hand. Mit Bleibegarantie.",
+  email: "contact@borivon.com",
+  areaServed: ["DE"],
+  availableLanguage: ["German", "French", "English", "Arabic"],
+});
 function head(title, description, canonical) {
   return `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -73,7 +87,8 @@ function head(title, description, canonical) {
 <meta property="og:url" content="${canonical}">
 <meta property="og:image" content="https://www.borivon.com/pflege/assets/nurse.jpg">
 <meta name="theme-color" content="#0e0e10">
-<style>${FONTS}</style>
+${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json">${HOME_LD}</script>
+` : ""}<style>${FONTS}</style>
 `;
 }
 

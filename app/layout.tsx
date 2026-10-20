@@ -170,13 +170,14 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",
-              "@type": "LanguageSchool",
+              // Borivon is nurse placement only since 2026-10-20 (no language school).
+              "@type": "EmploymentAgency",
               name: "Borivon",
               legalName: "Borivon LLC",
               url: "https://borivon.com",
               logo: "https://borivon.com/logo.png",
               description:
-                "École d'allemand à Casablanca. Cours A1-B2 en ligne et sur site pour particuliers et entreprises.",
+                "Borivon bringt geprüfte Pflegefachkräfte nach Deutschland: Deutsch, Anerkennung, Visum und Ankommen aus einer Hand. Mit Bleibegarantie.",
               address: {
                 "@type": "PostalAddress",
                 streetAddress: "77 Boulevard Mohamed Smiha",
@@ -202,8 +203,6 @@ export default function RootLayout({
               sameAs: [],
               areaServed: ["MA", "DE"],
               availableLanguage: ["French", "Arabic", "German", "English"],
-              priceRange: "$$",
-              courseMode: ["online", "onsite", "blended"],
             }),
           }}
         />
