@@ -517,10 +517,10 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
 
   // The booking page (/book/…) is the app and keeps its own language setting:
   // hand it the language this page is read in, so a German visitor books in German.
-  $('a[href^="/book/"], a[href*="borivon.com/book/"]').forEach(function (a) {
+  $$('a[href^="/book/"], a[href*="borivon.com/book/"]').forEach(function (a) {
     a.addEventListener("click", function () { try { localStorage.setItem("borivon-lang", lang); } catch (e) {} });
   });
-  $(".langs button").forEach(function (b) {
+  $$(".langs button").forEach(function (b) {
     b.addEventListener("click", function () {
       lang = b.getAttribute("data-lang");
       try { localStorage.setItem("bv-lang", lang); } catch (e) {}
