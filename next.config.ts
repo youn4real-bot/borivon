@@ -183,6 +183,11 @@ const nextConfig: NextConfig = {
       { source: "/v2", destination: "/", permanent: false },
       { source: "/v2/:path*", destination: "/", permanent: false },
       { source: "/book/company", destination: "/", permanent: false },
+      // borivon.com is the only address (founder, 2026-10-20): /pflege is gone,
+      // its cold-email links land on the home page; the tour lives at /plattform.
+      { source: "/pflege", destination: "/", permanent: true },
+      { source: "/pflege.html", destination: "/", permanent: true },
+      { source: "/pflege/plattform", destination: "/plattform", permanent: true },
     ];
   },
 

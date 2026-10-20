@@ -6,7 +6,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Borivon is nurses only (2026-10-20): home is the nurse-placement page.
   return [
     { url: base, lastModified: now, changeFrequency: "monthly", priority: 1 },
-    { url: `${base}/pflege/plattform`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/plattform`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/book/clinic`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
     { url: `${base}/book/nurse`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
     { url: `${base}/impressum`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
