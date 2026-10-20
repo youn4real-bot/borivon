@@ -134,14 +134,22 @@ async function checkAuth(): Promise<Probe> {
   // longer than 12 s while every check before and after answered in about a
   // second, and the founder got "nobody can log in" for nothing. A paused
   // project fails both tries fast, so a real outage still alerts this hour.
-  const attempt = async (): Promise<string | null> => {
+  const hit = async (path: string): Promise<string | null> => {
     try {
-      const res = await fetch(`${url}/auth/v1/health`, { headers: { apikey: key }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+      const res = await fetch(`${url}${path}`, { headers: { apikey: key }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
       await res.body?.cancel().catch(() => {});
       return res.ok ? null : `HTTP ${res.status}`;
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
+  };
+  // A try fails only when BOTH GoTrue endpoints fail: /health, then /settings
+  // (public, anon key, no user data). One slow endpoint is not "nobody can log in".
+  const attempt = async (): Promise<string | null> => {
+    const health = await hit("/auth/v1/health");
+    if (health === null) return null;
+    const settings = await hit("/auth/v1/settings");
+    return settings === null ? null : health;
   };
   const first = await attempt();
   if (first === null) return { name: "auth", ok: true };
@@ -154,6 +162,8 @@ async function checkAuth(): Promise<Probe> {
 
 /** Wait between the two auth tries. */
 export const AUTH_RETRY_MS = 15_000;
+/** One auth try: /health, then /settings if /health failed. */
+const AUTH_TRY_MS = 2 * PROBE_TIMEOUT_MS;
 
 /** Tables every one of whose rows is inserted through the journaled service client, with their insert time. */
 export const JOURNAL_WATCHED: readonly (readonly [table: string, column: string])[] = [
@@ -236,7 +246,14 @@ async function journalProbe(): Promise<Probe> {
 /** Run every probe concurrently. Never throws. */
 export async function runHealthProbes(): Promise<Probe[]> {
   const onD1 = process.env.DATA_BACKEND === "d1";
-  const [workspace, r2, database, auth, journal] = await Promise.all([
+  // Auth FIRST, alone. A Worker invocation gets six simultaneous outgoing
+  // connections; the Google check alone opens several, and withTimeout() does not
+  // abort them, so they keep their slots. An auth fetch launched beside them sat
+  // in that queue until its own timeout fired, on both tries: "logins DOWN" at
+  // 2026-10-20 06:01 while the 06:00 auth backup, in another invocation, read all
+  // 106 logins from the same Supabase. Costs about a second when healthy.
+  const auth = await guard("auth", checkAuth, 2 * AUTH_TRY_MS + AUTH_RETRY_MS + 1_000);
+  const [workspace, r2, database, journal] = await Promise.all([
     // A throw or a hang here must not lose the drive row: reporting one probe
     // where two are expected reads as "drive was fine", which is the opposite of
     // what a dead Workspace client means.
@@ -246,8 +263,6 @@ export async function runHealthProbes(): Promise<Probe[]> {
     }),
     guard("r2", checkR2),
     guard("database", checkDatabase),
-    // Two tries plus the wait between them (see checkAuth).
-    guard("auth", checkAuth, 2 * PROBE_TIMEOUT_MS + AUTH_RETRY_MS + 1_000),
     onD1 ? guard("journal", journalProbe) : Promise.resolve(null),
   ]);
   return [...workspace, r2, database, auth, ...(journal ? [journal] : []), checkEmail()];

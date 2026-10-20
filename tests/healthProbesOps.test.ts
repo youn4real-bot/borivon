@@ -9,7 +9,8 @@ import { hasSqlite, openDb, sqliteRunner, type SqliteDb } from "./helpers/sqlite
  * Supabase (the logins) pausing, and the rollback journal silently not recording.
  */
 
-vi.mock("@/lib/googleWorkspace", () => ({ testWorkspace: async () => ({ ok: true, gmail: true, calendar: true, drive: true }) }));
+const order = vi.hoisted(() => [] as string[]);
+vi.mock("@/lib/googleWorkspace", () => ({ testWorkspace: async () => { order.push("google"); return { ok: true, gmail: true, calendar: true, drive: true }; } }));
 vi.mock("@/lib/r2", () => ({ r2Configured: () => true, r2List: async () => [] }));
 vi.mock("@/lib/supabase", () => ({
   getServiceSupabase: () => ({ from: () => ({ select: () => Promise.resolve({ count: 1, error: null }) }) }),
@@ -36,7 +37,34 @@ describe("auth probe: the logins Supabase still runs", () => {
     const probes = await probesSkippingTheWait();
     expect(probes.find((p) => p.name === "database")!.ok).toBe(true);
     expect(probes.find((p) => p.name === "auth")).toMatchObject({ ok: false, detail: expect.stringContaining("540") });
-    expect(calls).toEqual(["https://p.supabase.co/auth/v1/health", "https://p.supabase.co/auth/v1/health"]);
+    expect(calls).toEqual([
+      "https://p.supabase.co/auth/v1/health", "https://p.supabase.co/auth/v1/settings",
+      "https://p.supabase.co/auth/v1/health", "https://p.supabase.co/auth/v1/settings",
+    ]);
+  });
+
+  it("stays green when /health hangs but /settings answers (the 2026-10-20 06:00 false alarm)", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => {
+      calls.push(String(u));
+      if (String(u).endsWith("/health")) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      return new Response("{}", { status: 200 });
+    }));
+    const probes = await probesSkippingTheWait();
+    expect(probes.find((p) => p.name === "auth")).toMatchObject({ ok: true });
+    expect(calls).toEqual(["https://p.supabase.co/auth/v1/health", "https://p.supabase.co/auth/v1/settings"]);
+  });
+
+  it("checks auth before any other probe opens a connection (Workers allow six at once)", async () => {
+    order.length = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      order.push("auth sent");
+      await new Promise((r) => setTimeout(r, 20));
+      order.push("auth answered");
+      return new Response("{}", { status: 200 });
+    }));
+    await runHealthProbes();
+    expect(order).toEqual(["auth sent", "auth answered", "google"]);
   });
 
   it("stays green when one slow answer is followed by a good one (the 2026-10-17 12:00 false alarm)", async () => {
