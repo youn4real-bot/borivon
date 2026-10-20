@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { checkJournal, runHealthProbes, JOURNAL_LAG_MS, AUTH_RETRY_MS } from "../lib/healthProbes";
+import { checkJournal, runHealthProbes, confirmAuthDown, JOURNAL_LAG_MS, AUTH_RETRY_MS, AUTH_CONFIRM_DELAYS_MS } from "../lib/healthProbes";
 import { JOURNAL_DDL } from "@/lib/d1/writeJournal";
 import { hasSqlite, openDb, sqliteRunner, type SqliteDb } from "./helpers/sqliteD1";
 
@@ -76,6 +76,23 @@ describe("auth probe: the logins Supabase still runs", () => {
     const probes = await probesSkippingTheWait();
     expect(probes.find((p) => p.name === "auth")).toMatchObject({ ok: true });
     expect(n).toBe(2);
+  });
+
+  it("confirmAuthDown: one answer during the re-checks cancels the alarm", async () => {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (n++ < 2 ? new Response("x", { status: 503 }) : new Response("{}", { status: 200 }))));
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const run = confirmAuthDown();
+    await vi.advanceTimersByTimeAsync(AUTH_CONFIRM_DELAYS_MS.reduce((a, b) => a + b, 0));
+    expect(await run).toBe(false);
+  });
+
+  it("confirmAuthDown: down only when every re-check fails (a paused project)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("paused", { status: 540 })));
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const run = confirmAuthDown();
+    await vi.advanceTimersByTimeAsync(AUTH_CONFIRM_DELAYS_MS.reduce((a, b) => a + b, 0));
+    expect(await run).toBe(true);
   });
 
   it("is green when it answers", async () => {

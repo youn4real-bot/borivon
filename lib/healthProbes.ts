@@ -126,14 +126,15 @@ async function checkDatabase(): Promise<Probe> {
  * left every hourly probe green. Only the 06:00 keep-alive would notice, up to a
  * day later. GoTrue's health endpoint answers only while the project is up.
  */
-async function checkAuth(): Promise<Probe> {
+/**
+ * One auth try. Null = logins answer. A try fails only when BOTH GoTrue endpoints
+ * fail: /health, then /settings (public, anon key, no user data). One slow
+ * endpoint is not "nobody can log in".
+ */
+async function authTry(): Promise<string | null> {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !key) return { name: "auth", ok: false, detail: "Supabase URL or anon key missing — nobody can log in" };
-  // Two tries, AUTH_RETRY_MS apart. On 2026-10-17 12:00 one health call took
-  // longer than 12 s while every check before and after answered in about a
-  // second, and the founder got "nobody can log in" for nothing. A paused
-  // project fails both tries fast, so a real outage still alerts this hour.
+  if (!url || !key) return "Supabase URL or anon key missing";
   const hit = async (path: string): Promise<string | null> => {
     try {
       const res = await fetch(`${url}${path}`, { headers: { apikey: key }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
@@ -143,14 +144,39 @@ async function checkAuth(): Promise<Probe> {
       return e instanceof Error ? e.message : String(e);
     }
   };
-  // A try fails only when BOTH GoTrue endpoints fail: /health, then /settings
-  // (public, anon key, no user data). One slow endpoint is not "nobody can log in".
-  const attempt = async (): Promise<string | null> => {
-    const health = await hit("/auth/v1/health");
-    if (health === null) return null;
-    const settings = await hit("/auth/v1/settings");
-    return settings === null ? null : health;
-  };
+  const health = await hit("/auth/v1/health");
+  if (health === null) return null;
+  const settings = await hit("/auth/v1/settings");
+  return settings === null ? null : health;
+}
+
+/** Extra re-checks the hourly watchdog makes before it may say "logins DOWN". */
+export const AUTH_CONFIRM_DELAYS_MS: readonly number[] = [60_000, 180_000];
+
+/**
+ * True only if logins STAY unreachable through every re-check (about 4 more
+ * minutes). The founder got "logins DOWN" for nothing on 2026-10-17 and
+ * 2026-10-20 — both times Supabase was up. A paused project stays down for days,
+ * so waiting four minutes costs nothing real and kills every blip.
+ */
+export async function confirmAuthDown(delays: readonly number[] = AUTH_CONFIRM_DELAYS_MS): Promise<boolean> {
+  for (const ms of delays) {
+    await new Promise((r) => setTimeout(r, ms));
+    if ((await authTry()) === null) return false;
+  }
+  return true;
+}
+
+async function checkAuth(): Promise<Probe> {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  if (!url || !key) return { name: "auth", ok: false, detail: "Supabase URL or anon key missing — nobody can log in" };
+  // Two tries, AUTH_RETRY_MS apart. On 2026-10-17 12:00 one health call took
+  // longer than 12 s while every check before and after answered in about a
+  // second, and the founder got "nobody can log in" for nothing. A paused
+  // project fails both tries fast. The hourly watchdog then re-checks for
+  // minutes more (confirmAuthDown) before it alerts.
+  const attempt = authTry;
   const first = await attempt();
   if (first === null) return { name: "auth", ok: true };
   await new Promise((r) => setTimeout(r, AUTH_RETRY_MS));

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runHealthProbes, driveOnlyDocCount, publicSummary, type Probe } from "@/lib/healthProbes";
+import { runHealthProbes, confirmAuthDown, driveOnlyDocCount, publicSummary, type Probe } from "@/lib/healthProbes";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
 import { sendAdminAlertEmail } from "@/lib/email";
@@ -37,7 +37,7 @@ import { sendAdminAlertEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // the auth re-check (confirmAuthDown) can take ~4 min; hourly Cloudflare crons allow 15
 
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -46,6 +46,14 @@ export async function GET(req: NextRequest) {
   }
 
   const probes = await runHealthProbes();
+  // "logins DOWN" goes to the founder's inbox as an emergency, so it must never
+  // be a blip: re-check for a few more minutes and drop it if logins come back.
+  const authProbe = probes.find((p) => p.name === "auth");
+  if (authProbe && !authProbe.ok && !(await confirmAuthDown())) {
+    console.warn("[health-watch] auth failed once, then answered on re-check — not alerting:", authProbe.detail);
+    authProbe.ok = true;
+    authProbe.detail = undefined;
+  }
   const broken = probes.filter((p) => !p.ok);
 
   if (broken.length) {
