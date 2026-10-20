@@ -63,23 +63,18 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://borivon.com"),
   title: {
-    default: "Borivon — German Language Institute",
+    default: "Borivon — Pflegefachkräfte, die bleiben",
     template: "%s | Borivon",
   },
   description:
-    "Borivon est une école d'allemand basée à Casablanca offrant des cours A1-B2 en ligne, en présentiel et en entreprise. Formation pour l'Ausbildung, le Studium, l'Arbeit et les organisations.",
+    "Borivon bringt geprüfte Pflegefachkräfte nach Deutschland. Sie führen ein Interview, wir machen den Rest: Deutsch, Anerkennung, Visum, Ankommen. Und sie bleibt.",
   keywords: [
-    "cours allemand Casablanca",
-    "école allemand Maroc",
-    "apprendre allemand",
-    "Deutschkurs Marokko",
-    "cours allemand entreprise",
-    "A1 B2 allemand",
-    "Ausbildung allemand",
+    "Pflegefachkräfte",
+    "Pflegekräfte aus dem Ausland",
+    "Pflegekräfte Marokko",
+    "Anerkennung Pflege",
+    "Fachkräfteeinwanderung Pflege",
     "Borivon",
-    "formation allemand en ligne",
-    "interprétation allemand",
-    "traduction allemand",
   ],
   authors: [{ name: "Borivon LLC", url: "https://borivon.com" }],
   creator: "Borivon LLC",
@@ -91,27 +86,19 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    locale: "fr_FR",
-    alternateLocale: ["en_US", "de_DE", "ar_MA"],
+    locale: "de_DE",
+    alternateLocale: ["en_US", "fr_FR"],
     url: "https://borivon.com",
     siteName: "Borivon",
-    title: "Borivon — École d'Allemand à Casablanca",
-    description:
-      "Cours d'allemand A1-B2 pour particuliers et entreprises. En ligne, en présentiel, ou dans vos locaux à Casablanca.",
-    images: [
-      {
-        url: "/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "Borivon — École d'Allemand",
-      },
-    ],
+    title: "Borivon — Pflegefachkräfte, die bleiben",
+    description: "Ein Interview. Wir machen den Rest. Und sie bleibt.",
+    images: [{ url: "/pflege/assets/nurse.jpg", alt: "Borivon — Pflegefachkräfte, die bleiben" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Borivon — École d'Allemand à Casablanca",
-    description: "Cours d'allemand A1-B2 pour particuliers et entreprises.",
-    images: ["/og-image.png"],
+    title: "Borivon — Pflegefachkräfte, die bleiben",
+    description: "Ein Interview. Wir machen den Rest. Und sie bleibt.",
+    images: ["/pflege/assets/nurse.jpg"],
   },
   // NOTE: no `alternates.canonical` here on purpose.
   //
