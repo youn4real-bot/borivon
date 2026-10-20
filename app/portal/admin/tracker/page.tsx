@@ -458,12 +458,16 @@ export default function AdminTrackerPage() {
     const t = TONE[tone];
     return (
       <button onClick={onClick}
-        className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl transition-colors"
+        className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-1 sm:px-2 py-3 rounded-xl transition-colors"
         style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>
-        {tone === "done" ? <Check size={15} strokeWidth={2.6} />
-          : tone === "fail" ? <X size={15} strokeWidth={2.6} />
-          : <span aria-hidden style={{ width: 9, height: 9, borderRadius: 99, border: `2px solid ${t.fg}` }} />}
-        <span className="text-[12.5px] font-semibold truncate">{label}</span>
+        {/* On a phone the three blocks are ~100px wide: the icon goes, the colour
+            still says the state (LAW #4), and the whole word fits. */}
+        <span className="hidden sm:inline-flex">
+          {tone === "done" ? <Check size={15} strokeWidth={2.6} />
+            : tone === "fail" ? <X size={15} strokeWidth={2.6} />
+            : <span aria-hidden style={{ width: 9, height: 9, borderRadius: 99, border: `2px solid ${t.fg}` }} />}
+        </span>
+        <span className="text-[11px] sm:text-[12.5px] font-semibold truncate">{label}</span>
       </button>
     );
   };
@@ -535,7 +539,7 @@ export default function AdminTrackerPage() {
       ) : (
         <>
           {/* Batch header + summary */}
-          <div className="p-4 sm:p-5 mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+          <div className="p-4 sm:p-5 mb-5" style={{ background: "var(--card)", borderRadius: "22px" }}>
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold" style={{ color: "var(--w)" }}>{batch.name}</p>
@@ -545,7 +549,7 @@ export default function AdminTrackerPage() {
                   <span className="inline-flex items-center gap-1"><Users size={12} /> {members.length}/{batch.seats}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* Batch note — every admin (supreme + sub-admins) can write it. */}
                 <button onClick={openNotes} className="bv-btn bv-btn-ghost inline-flex"
                   title={T("Batch note", "Batch-Notiz", "Note du lot")}>
@@ -557,19 +561,38 @@ export default function AdminTrackerPage() {
                     <Pencil size={14} strokeWidth={2} /> {T("Edit", "Bearbeiten", "Modifier")}
                   </button>
                 )}
-                <button onClick={() => setAddOpen((v) => !v)} className="bv-btn bv-btn-gold inline-flex">
+                <button onClick={() => setAddOpen((v) => !v)} className="bv-btn bv-btn-primary inline-flex">
                   <Plus size={15} strokeWidth={2} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}
                 </button>
               </div>
             </div>
-            {/* progress chips — lead with the beginning */}
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w2)" }}>
-              <span>{T("B2 passed", "B2 bestanden", "B2 réussi")}: <b style={{ color: "var(--w)" }}>{summary.b2}/{members.length}</b></span>
+            {/* Progress at a glance, like the /pflege portal window: one tile per step,
+                the count, and a thin thread that fills. Lead with the beginning. */}
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-x-5 gap-y-3.5">
+              {([
+                [T("B2 passed", "B2 bestanden", "B2 réussi"), summary.b2],
+                [T("Interview 1", "Interview 1", "Entretien 1"), summary.i1],
+                [T("Agreement", "Vereinbarung", "Accord"), summary.agreement],
+                [T("Interview 2", "Interview 2", "Entretien 2"), summary.i2],
+              ] as const).map(([label, n]) => {
+                const pct = members.length ? Math.round((n / members.length) * 100) : 0;
+                return (
+                  <div key={label} className="min-w-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[10px] font-medium uppercase tracking-[0.12em] truncate" style={{ color: "var(--w3)" }}>{label}</span>
+                      <span className="text-[12.5px] font-semibold tabular-nums" style={{ color: pct === 100 ? "#16a34a" : "var(--w)" }}>{n}/{members.length}</span>
+                    </div>
+                    <span className="mt-1.5 block h-[3px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                      <span className="block h-full rounded-full"
+                        style={{ width: `${pct}%`, background: pct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))", transition: "width 1.3s var(--ease)" }} />
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w3)" }}>
               {summary.b2late > 0 && <span style={{ color: "#ef4444", fontWeight: 600 }}>{T("B2 too late", "B2 zu spät", "B2 trop tard")}: {summary.b2late}</span>}
-              <span>{T("Interview 1", "Interview 1", "Entretien 1")}: <b style={{ color: "var(--w)" }}>{summary.i1}/{members.length}</b></span>
-              <span>{T("Agreement", "Vereinbarung", "Accord")}: <b style={{ color: "var(--w)" }}>{summary.agreement}/{members.length}</b></span>
-              <span>{T("Interview 2", "Interview 2", "Entretien 2")}: <b style={{ color: "var(--w)" }}>{summary.i2}/{members.length}</b></span>
-              <span className="opacity-70">{T("Contract", "Vertrag", "Contrat")} {summary.contract} · {T("Visa", "Visum", "Visa")} {summary.visa} · {T("Arrived", "Angekommen", "Arrivés")} {summary.arrived}</span>
+              <span>{T("Contract", "Vertrag", "Contrat")} {summary.contract} · {T("Visa", "Visum", "Visa")} {summary.visa} · {T("Arrived", "Angekommen", "Arrivés")} {summary.arrived}</span>
             </div>
             {/* The batch note, shown inline so it's visible at a glance */}
             {batch.notes && (
@@ -581,7 +604,7 @@ export default function AdminTrackerPage() {
 
           {/* Add-candidate picker */}
           {addOpen && (
-            <div className="mb-5 p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+            <div className="mb-5 p-4" style={{ background: "var(--card)", borderRadius: "22px" }}>
               <div className="relative mb-2">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--w3)" }} />
                 <input value={addQuery} onChange={(e) => setAddQuery(e.target.value)} autoFocus

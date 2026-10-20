@@ -179,7 +179,7 @@ export default function AdminShortlistsPage() {
             <h1 className="bv-h1">{T("Employer shortlists", "Arbeitgeber-Listen", "Listes employeur")}</h1>
             <p className="bv-body mt-1">{T("Curate candidates for an employer and share a read-only link.", "Kandidaten für einen Arbeitgeber kuratieren und einen schreibgeschützten Link teilen.", "Sélectionnez des candidats pour un employeur et partagez un lien en lecture seule.")}</p>
           </div>
-          <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-gold inline-flex">
+          <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-primary inline-flex">
             <Plus size={15} strokeWidth={2} /> {T("New shortlist", "Neue Liste", "Nouvelle liste")}
           </button>
         </div>
@@ -309,7 +309,7 @@ export default function AdminShortlistsPage() {
           {/* Candidates */}
           <div className="flex items-center justify-between mb-2.5">
             <span className="text-[12px] font-semibold" style={{ color: "var(--w2)" }}>{detail.candidates.length} {T("candidates", "Kandidaten", "candidats")}</span>
-            <button onClick={openPicker} className="bv-btn bv-btn-gold inline-flex"><Plus size={14} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter")}</button>
+            <button onClick={openPicker} className="bv-btn bv-btn-primary inline-flex"><Plus size={14} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter")}</button>
           </div>
 
           {detail.candidates.length === 0 ? (

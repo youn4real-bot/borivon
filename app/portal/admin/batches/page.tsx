@@ -163,7 +163,7 @@ export default function AdminBatchesPage() {
           <h1 className="bv-h1">{T("Batches", "Batches", "Lots")}</h1>
           <p className="bv-body mt-1">{T("Employer intakes + where each candidate sits on the funnel.", "Arbeitgeber-Intakes + wo jeder Kandidat im Funnel steht.", "Recrutements employeur + position de chaque candidat dans le funnel.")}</p>
         </div>
-        <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-gold inline-flex"><Plus size={15} strokeWidth={2} /> {T("New batch", "Neuer Batch", "Nouveau lot")}</button>
+        <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-primary inline-flex"><Plus size={15} strokeWidth={2} /> {T("New batch", "Neuer Batch", "Nouveau lot")}</button>
       </div>
 
       {saveFailed && (
