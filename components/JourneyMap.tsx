@@ -62,6 +62,25 @@ function trans(reduce: boolean, extra?: Record<string, number>) {
 const AV = 48;            // avatar diameter (was 30 — bumped for the spacious look)
 const DOT_GRID = "radial-gradient(circle, var(--border) 1.1px, transparent 1.1px)";
 
+// Flags as SVG: Windows has no flag emoji and prints 🇲🇦 / 🇩🇪 as the letters "MA" / "DE".
+function FlagMA() {
+  return (
+    <svg width="18" height="12" viewBox="0 0 18 12" aria-label="Morocco" role="img" style={{ borderRadius: 2, display: "block" }}>
+      <rect width="18" height="12" fill="#C1272D" />
+      <path d="M9 3.2 L10.1 6.6 L7.2 4.5 L10.8 4.5 L7.9 6.6 Z" fill="none" stroke="#006233" strokeWidth="0.7" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function FlagDE() {
+  return (
+    <svg width="18" height="12" viewBox="0 0 18 12" aria-label="Germany" role="img" style={{ borderRadius: 2, display: "block" }}>
+      <rect width="18" height="4" fill="#000" />
+      <rect y="4" width="18" height="4" fill="#DD0000" />
+      <rect y="8" width="18" height="4" fill="#FFCE00" />
+    </svg>
+  );
+}
+
 // Shared per-render state for the avatar primitives (kept out of props so the
 // many Dot call-sites stay clean). Changing this re-renders consumers but never
 // remounts them — Dot/Count keep stable identity at module scope.
@@ -615,7 +634,7 @@ export function JourneyMap({
               return (
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                    <span style={{ fontSize: 15, marginTop: -2 }}>🇲🇦</span>
+                    <span style={{ marginTop: 2 }}><FlagMA /></span>
                     <span style={{ flex: 1, width: 2, minHeight: 30, background: "var(--border)" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
@@ -658,7 +677,7 @@ export function JourneyMap({
             {/* Finish line — every station done, probation included */}
             <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22, flexShrink: 0 }}>
-                <span style={{ fontSize: 15, marginTop: -2 }}>🇩🇪</span>
+                <span style={{ marginTop: 2 }}><FlagDE /></span>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneRows.length ? 8 : 0 }}>
