@@ -46,6 +46,8 @@ const CRON_ROUTES = {
   // someone who needs to move tomorrow's call still can. The route's window is
   // 36h, so a booking falling between two runs is never skipped.
   "0 9 * * *": "/api/cron/booking-reminders",
+  // Pflege-Fahrplan follow-ups (only double-opt-in leads), morning in Germany.
+  "30 9 * * *": "/api/cron/roadmap-followups",
   // Automatic document reminders TO CANDIDATES, 11:00 Casablanca. Off until the
   // founder flips the switch on the Chase page; the route sends nothing then.
   "0 10 * * *": "/api/cron/doc-reminders",

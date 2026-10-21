@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="de">
+<head>
+<!--HEAD-->
+<style>
+:root {
+  --bg: #0e0e10; --card: #18181c; --card2: #1f1f24; --line: rgba(238,236,234,0.08); --line-gold: rgba(201,162,64,0.34);
+  --fg: #eeecea; --muted: #9a978f; --gold: #c9a240; --gold-soft: rgba(201,162,64,0.12); --ok: #7fb58c; --warn: #e07a5f;
+  --font-display: "Playfair Display", Georgia, serif; --font-body: "Lexend", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(.2,.7,.1,1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow-x: clip; }
+body::before { content: ""; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+  background: radial-gradient(40% 35% at 85% 10%, rgba(201,162,64,0.14), transparent 70%), radial-gradient(35% 30% at 5% 90%, rgba(201,162,64,0.08), transparent 70%); }
+a { color: inherit; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px clamp(16px, 4vw, 40px); }
+.brand { font-family: var(--font-display); font-style: italic; font-size: 1.45rem; text-decoration: none; }
+.brand span { color: var(--gold); font-style: normal; }
+.langs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); }
+.langs button { background: none; border: 0; padding: 6px 10px; border-radius: 999px; font-size: 0.72rem; letter-spacing: 0.08em; color: var(--muted); }
+.langs button[aria-pressed="true"] { background: var(--gold-soft); color: var(--gold); }
+.wrap { max-width: 640px; margin: 0 auto; padding: 8px 16px 64px; }
+.bar { height: 3px; border-radius: 3px; background: rgba(238,236,234,0.08); overflow: hidden; margin: 6px 0 34px; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold)); transition: width .5s var(--ease); }
+.card { background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015)), var(--card); border: 1px solid var(--line); border-radius: 22px; padding: clamp(24px, 5vw, 40px); box-shadow: 0 50px 120px -40px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.05); }
+.step { animation: in .45s var(--ease) both; }
+@keyframes in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.eyebrow { font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); margin: 0 0 12px; }
+h1, h2 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 12px; }
+h1 { font-size: clamp(2rem, 1.4rem + 3vw, 3rem); }
+h2 { font-size: clamp(1.6rem, 1.2rem + 2vw, 2.2rem); }
+p { line-height: 1.6; color: var(--muted); margin: 0 0 18px; }
+.lead { font-size: 1.05rem; color: var(--fg); }
+ul.gets { list-style: none; padding: 0; margin: 0 0 26px; display: grid; gap: 10px; }
+ul.gets li { display: flex; gap: 10px; align-items: baseline; line-height: 1.5; }
+ul.gets li::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); transform: translateY(-1px); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 26px; border-radius: 999px; border: 0; background: var(--gold); color: #131312; font-weight: 600; text-decoration: none; box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 12px 30px -14px rgba(201,162,64,0.6); transition: transform .2s var(--ease); }
+.btn:hover { transform: translateY(-1px); }
+.btn[disabled] { opacity: .5; cursor: default; transform: none; }
+.ghost { background: none; border: 0; color: var(--muted); font-size: 0.9rem; padding: 10px 0; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 24px; }
+.opts { display: grid; gap: 10px; }
+.opt { text-align: left; padding: 16px 18px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); font-size: 1rem; transition: border-color .2s, background .2s; }
+.opt:hover { border-color: var(--line-gold); }
+.opt[aria-pressed="true"] { border-color: var(--gold); background: var(--gold-soft); color: var(--fg); }
+.num { display: flex; align-items: center; gap: 12px; }
+.num button { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--line); background: rgba(255,255,255,0.04); font-size: 1.4rem; flex: none; }
+.num input { flex: 1; min-width: 0; text-align: center; font: 600 2.2rem var(--font-body); color: var(--fg); background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 16px; padding: 10px; -moz-appearance: textfield; }
+.num input::-webkit-outer-spin-button, .num input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="text"], input[type="email"], input[type="tel"] { width: 100%; font: 1rem var(--font-body); color: var(--fg); background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 14px; padding: 15px 16px; }
+input:focus { outline: none; border-color: var(--line-gold); box-shadow: 0 0 0 4px rgba(201,162,64,0.12); }
+label.f { display: grid; gap: 7px; font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; }
+label.chk { display: flex; gap: 12px; align-items: flex-start; font-size: 0.9rem; line-height: 1.5; color: var(--fg); margin: 6px 0 10px; cursor: pointer; }
+label.chk input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--gold); flex: none; }
+.small { font-size: 0.8rem; color: var(--muted); }
+.err { color: var(--warn); font-size: 0.9rem; min-height: 1.2em; margin: 8px 0 0; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+/* result */
+.lvl { border: 1px solid var(--line-gold); background: var(--gold-soft); border-radius: 18px; padding: 22px; margin-bottom: 16px; }
+.lvl .k { font-size: 0.72rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+.lvl b { display: block; font-family: var(--font-display); font-weight: 500; font-size: clamp(2rem, 1.5rem + 2.5vw, 2.8rem); margin: 6px 0 4px; }
+.seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 16px; }
+.seg i { height: 6px; border-radius: 3px; background: rgba(238,236,234,0.1); }
+.seg i.on { background: var(--gold); }
+.mm { display: grid; gap: 4px; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 10px; }
+.mm.neg { border-color: rgba(224,122,95,0.35); background: rgba(224,122,95,0.07); }
+.mm.pos { border-color: rgba(127,181,140,0.4); background: rgba(127,181,140,0.08); }
+.mm span { font-size: 0.9rem; color: var(--muted); }
+.mm strong { font-family: var(--font-display); font-weight: 600; font-size: clamp(1.7rem, 1.3rem + 1.8vw, 2.3rem); line-height: 1.1; }
+.mm.neg strong { color: var(--warn); } .mm.pos strong { color: var(--ok); }
+.sent { display: flex; gap: 12px; align-items: flex-start; padding: 16px 18px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); margin: 16px 0 22px; }
+.sent::before { content: ""; flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(127,181,140,0.18); }
+footer { text-align: center; font-size: 0.8rem; color: var(--muted); padding: 20px 16px 40px; }
+footer a { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .step { animation: none; } .bar i { transition: none; } }
+.banner { display: block; text-align: center; text-decoration: none; padding: 11px 16px; font-size: 0.86rem; background: linear-gradient(90deg, rgba(201,162,64,0.18), rgba(201,162,64,0.08)); border-bottom: 1px solid var(--line-gold); color: var(--fg); }
+.banner b { color: var(--gold); font-weight: 600; }
+.two { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 480px) { .two { grid-template-columns: 1fr; } }
+.congrats { text-align: center; margin-bottom: 18px; }
+.congrats h2 { margin-bottom: 4px; }
+.ladder { display: grid; grid-template-columns: 0.85fr 1.2fr 0.85fr; gap: 8px; align-items: center; margin: 0 0 18px; }
+.ladder.two-col { grid-template-columns: 1.2fr 0.85fr; }
+.ladder .lc { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: rgba(255,255,255,0.03); opacity: 0.6; min-width: 0; }
+.ladder .lc.cur { opacity: 1; border-color: var(--gold); background: var(--gold-soft); padding: 18px 16px; box-shadow: 0 18px 40px -20px rgba(201,162,64,0.55); }
+.ladder .k { font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); }
+.ladder b { display: block; font-family: var(--font-display); font-weight: 500; font-size: 1.05rem; margin: 4px 0 2px; overflow-wrap: anywhere; }
+.ladder .lc.cur b { font-size: clamp(1.4rem, 1.1rem + 1.4vw, 1.9rem); }
+.ladder small { display: block; font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+.ladder .lc.cur small { color: var(--fg); font-size: 0.85rem; }
+@media (max-width: 520px) { .ladder, .ladder.two-col { grid-template-columns: 1fr; } .ladder .lc:not(.cur) { display: none; } }
+.bl { margin: -4px 0 18px; padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); font-size: 0.95rem; line-height: 1.5; }
+.bl span { display: block; font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; }
+.bl em { display: block; font-style: normal; color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
+.read { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+.read h3 { font-family: var(--font-display); font-weight: 500; font-size: 1.35rem; margin: 0 0 6px; }
+.steps { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; counter-increment: s; }
+.steps li::before { content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--gold); color: #131312; font-weight: 700; font-size: 0.85rem; }
+.steps b { display: block; margin-bottom: 2px; }
+.steps span { color: var(--muted); line-height: 1.55; font-size: 0.94rem; }
+.trap { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: rgba(224,122,95,0.08); border: 1px solid rgba(224,122,95,0.3); color: var(--fg); font-size: 0.9rem; line-height: 1.5; }
+details { margin-top: 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,0.02); }
+details summary { cursor: pointer; list-style: none; padding: 16px 18px; font-weight: 500; display: flex; justify-content: space-between; gap: 12px; }
+details summary::-webkit-details-marker { display: none; }
+details summary::after { content: "+"; color: var(--gold); font-size: 1.2rem; line-height: 1; }
+details[open] summary::after { content: "\2212"; }
+details .in { padding: 0 18px 16px; }
+.p90 h4 { font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin: 14px 0 6px; font-weight: 600; }
+.p90 ul, .rs { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.p90 li { display: flex; gap: 10px; line-height: 1.5; font-size: 0.94rem; }
+.p90 li::before { content: ""; flex: none; width: 12px; height: 12px; margin-top: 5px; border-radius: 3px; border: 1.5px solid var(--muted); }
+.rs li { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.92rem; line-height: 1.5; }
+.rs li b { font-weight: 500; }
+.rs li span { color: var(--muted); }
+.fit { margin-top: 26px; padding: 22px; border-radius: 18px; border: 1px solid var(--line-gold); background: linear-gradient(160deg, rgba(201,162,64,0.14), rgba(255,255,255,0.02) 60%); }
+.fit p { color: var(--fg); margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<a class="banner" href="/book/clinic" data-book id="banner"></a>
+<header class="top">
+  <a class="brand" href="/">Borivon<span>.</span></a>
+  <div class="langs" role="group" aria-label="Sprache"><button type="button" data-lang="de">DE</button><button type="button" data-lang="en">EN</button><button type="button" data-lang="fr">FR</button></div>
+</header>
+<main class="wrap">
+  <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+  <div class="card" id="card" aria-live="polite"></div>
+</main>
+<footer><a href="/impressum">Impressum</a> · <a href="/privacy-policy">Datenschutz</a> · contact@borivon.com</footer>
+
+<script>
+(function () {
+  var T = {
+    de: {
+      banner: "<b>Neue Runde 2027:</b> Prüfen Sie, ob Ihr Haus passt →",
+      eyebrow: "Kostenlos · 60 Sekunden", h: "Ihr Pflege-Fahrplan",
+      lead: "Beantworten Sie ein paar kurze Fragen. Sie bekommen einen Fahrplan als PDF, nur für Ihr Haus.",
+      gets: ["Ihre Stufe von 1 bis 5", "Was leere Stellen und Kündigungen Sie kosten, pro Monat und pro Jahr", "Ihren Plan für die nächste Stufe", "Den 90-Tage-Plan, damit neue Pflegekräfte bleiben"],
+      start: "Los geht's", sample: "Beispiel ansehen", next: "Weiter", back: "Zurück", skip: "Überspringen",
+      qName: "Wie heißen Sie?", phFirst: "Vorname", phLast: "Nachname",
+      qEmail: "Wie lautet Ihre berufliche E-Mail?", hEmail: "Dorthin schicken wir Ihren Fahrplan.",
+      qPhone: "Ihre Telefonnummer?", hPhone: "Freiwillig. Nur für Rückfragen zu Ihrem Fahrplan.",
+      qFacility: "Wie heißt Ihr Haus, und wo ist es?", phFacility: "Name Ihres Hauses", phCity: "Ort",
+      qType: "Was für ein Haus führen Sie?", types: { hospital: "Krankenhaus", care_home: "Pflegeheim", home_care: "Ambulanter Pflegedienst", rehab: "Reha-Klinik", other: "Etwas anderes" },
+      qStaff: "Wie viele Pflegefachkräfte arbeiten bei Ihnen?", qOpen: "Wie viele Stellen für Pflegefachkräfte sind gerade offen?", qLeft: "Wie viele Pflegefachkräfte sind in den letzten 12 Monaten gegangen?",
+      hintNum: "Eine Schätzung reicht.",
+      qAgency: "Wie viele Stunden Leihkräfte kaufen Sie im Monat?", agency: { none: "Keine", low: "Unter 100 Stunden", mid: "100 bis 500 Stunden", high: "500 bis 1.500 Stunden", very_high: "Mehr als 1.500 Stunden" },
+      qForeign: "Haben Sie schon Pflegekräfte aus dem Ausland eingestellt?", foreign: { never: "Nein, noch nie", tried_left: "Ja, aber sie sind wieder gegangen", some_stayed: "Ja, einige sind geblieben", most_stayed: "Ja, die meisten sind geblieben" },
+      qOnb: "Was bekommt eine neue Pflegekraft in den ersten 90 Tagen?", hintMulti: "Mehrere möglich.", onb: { mentor: "Eine feste Patin", german: "Deutsch-Training für die Arbeit", housing: "Hilfe bei der Wohnung", plan: "Einen schriftlichen Einarbeitungsplan", checkins: "Regelmäßige Gespräche" }, none: "Nichts davon",
+      qPain: "Was tut am meisten weh?", pain: { open_posts: "Stellen bleiben leer", leaving: "Pflegekräfte gehen wieder", agency: "Leihkräfte sind zu teuer", paperwork: "Papiere und Ämter dauern ewig", german: "Das Deutsch reicht nicht" },
+      qHeard: "Woher kennen Sie Borivon?", heard: { google: "Google", linkedin: "LinkedIn", referral: "Empfehlung", email: "E-Mail von Borivon", event: "Messe oder Veranstaltung", other: "Anders" },
+      qFinish: "Fast fertig.", pFinish: "Wir erstellen jetzt Ihren Fahrplan und schicken ihn an",
+      tips: "Ja, schicken Sie mir ein paar kurze Tipps per E-Mail. Jederzeit abbestellbar.",
+      privacy: "Wir nutzen Ihre Angaben nur, um Ihren Fahrplan zu erstellen und zu senden.", privacyLink: "Datenschutz",
+      submit: "Fahrplan erstellen", sending: "Wird erstellt …",
+      errMail: "Bitte prüfen Sie die E-Mail-Adresse.", errFacility: "Bitte geben Sie den Namen Ihres Hauses an.", errSend: "Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.", errMany: "Zu viele Versuche. Bitte versuchen Sie es später noch einmal.",
+      congrats: "Glückwunsch, {n}: Ihr Haus ist auf", level: "Stufe", of5: "von 5",
+      lose: "Leere Stellen kosten Sie", loseYear: "Zusammen mit Kündigungen, pro Jahr", win: "Jede Pflegekraft, die bleibt, bringt Ihnen", perMonth: "pro Monat",
+      sentTo: "Ihr Fahrplan als PDF ist unterwegs an", spam: "Nichts da? Schauen Sie im Spam-Ordner nach.", notSent: "Wir haben Ihre Antworten. Ihr PDF schicken wir Ihnen in Kürze.",
+      tipsNote: "Bitte bestätigen Sie die Tipps mit dem Knopf in der E-Mail.",
+      bottomL: "Unterm Strich", gradByL: "Aufsteigen durch",
+      readH: "Ihr Plan, schon jetzt", readP: "Während das PDF unterwegs ist, können Sie hier sofort anfangen.",
+      plan90: "Der 90-Tage-Bleibe-Plan", reasons: "7 Gründe, warum Pflegekräfte gehen", why: "Warum", fix: "Was hilft",
+      fitP: "Wir arbeiten pro Runde mit höchstens 10 Häusern, und nicht jedes Haus passt. In 15 Minuten finden wir es gemeinsam heraus.", fitBtn: "Prüfen, ob mein Haus passt"
+    },
+    en: {
+      banner: "<b>New 2027 group:</b> find out if your facility is a fit →",
+      eyebrow: "Free · 60 seconds", h: "Your nurse staffing roadmap",
+      lead: "Answer a few short questions. You get a roadmap as a PDF, just for your facility.",
+      gets: ["Your level from 1 to 5", "What empty posts and resignations cost you, per month and per year", "Your plan for the next level", "The 90-day plan so new nurses stay"],
+      start: "Let's go", sample: "See an example", next: "Next", back: "Back", skip: "Skip",
+      qName: "What is your name?", phFirst: "First name", phLast: "Last name",
+      qEmail: "What is your work email?", hEmail: "We send your roadmap there.",
+      qPhone: "Your phone number?", hPhone: "Optional. Only for questions about your roadmap.",
+      qFacility: "What is your facility called, and where is it?", phFacility: "Name of your facility", phCity: "City",
+      qType: "What kind of facility do you run?", types: { hospital: "Hospital", care_home: "Care home", home_care: "Home care service", rehab: "Rehab clinic", other: "Something else" },
+      qStaff: "How many registered nurses work for you?", qOpen: "How many nurse posts are open right now?", qLeft: "How many nurses left in the last 12 months?",
+      hintNum: "A guess is fine.",
+      qAgency: "How many agency hours do you buy each month?", agency: { none: "None", low: "Under 100 hours", mid: "100 to 500 hours", high: "500 to 1,500 hours", very_high: "More than 1,500 hours" },
+      qForeign: "Have you hired nurses from abroad before?", foreign: { never: "No, never", tried_left: "Yes, but they left again", some_stayed: "Yes, some stayed", most_stayed: "Yes, most stayed" },
+      qOnb: "What does a new nurse get in her first 90 days?", hintMulti: "Pick all that apply.", onb: { mentor: "A fixed mentor", german: "German training for work", housing: "Help with a flat", plan: "A written onboarding plan", checkins: "Regular talks" }, none: "None of these",
+      qPain: "What hurts the most?", pain: { open_posts: "Posts stay empty", leaving: "Nurses leave again", agency: "Agency staff cost too much", paperwork: "Paperwork and offices take forever", german: "Their German is not enough" },
+      qHeard: "How did you hear about Borivon?", heard: { google: "Google", linkedin: "LinkedIn", referral: "Someone recommended us", email: "An email from Borivon", event: "A fair or event", other: "Other" },
+      qFinish: "Almost done.", pFinish: "We are making your roadmap now and sending it to",
+      tips: "Yes, send me a few short tips by email. Unsubscribe any time.",
+      privacy: "We only use your answers to make your roadmap and send it to you.", privacyLink: "Privacy",
+      submit: "Make my roadmap", sending: "Making it …",
+      errMail: "Please check the email address.", errFacility: "Please enter the name of your facility.", errSend: "That did not work. Please try again.", errMany: "Too many tries. Please try again later.",
+      congrats: "Congratulations, {n}: your facility is at", level: "Level", of5: "of 5",
+      lose: "Empty posts cost you", loseYear: "Together with resignations, per year", win: "Every nurse who stays brings you", perMonth: "per month",
+      sentTo: "Your roadmap PDF is on its way to", spam: "Nothing there? Check your spam folder.", notSent: "We have your answers. We will send your PDF shortly.",
+      tipsNote: "Please confirm the tips with the button in the email.",
+      bottomL: "Bottom line", gradByL: "Move up by",
+      readH: "Your plan, right now", readP: "While the PDF is on its way, you can start right here.",
+      plan90: "The 90-day stay plan", reasons: "7 reasons nurses leave", why: "Why", fix: "What helps",
+      fitP: "We work with at most 10 employers per group, and not every facility is a fit. In 15 minutes we find out together.", fitBtn: "Check if we are a fit"
+    },
+    fr: {
+      banner: "<b>Nouveau groupe 2027 :</b> vérifiez si votre établissement correspond →",
+      eyebrow: "Gratuit · 60 secondes", h: "Votre plan infirmier",
+      lead: "Répondez à quelques questions courtes. Vous recevez un plan en PDF, rien que pour votre établissement.",
+      gets: ["Votre niveau de 1 à 5", "Ce que les postes vides et les départs vous coûtent, par mois et par an", "Votre plan pour le niveau suivant", "Le plan de 90 jours pour que les nouvelles restent"],
+      start: "C'est parti", sample: "Voir un exemple", next: "Suivant", back: "Retour", skip: "Passer",
+      qName: "Comment vous appelez-vous ?", phFirst: "Prénom", phLast: "Nom",
+      qEmail: "Quelle est votre adresse e-mail professionnelle ?", hEmail: "Nous y envoyons votre plan.",
+      qPhone: "Votre numéro de téléphone ?", hPhone: "Facultatif. Seulement pour des questions sur votre plan.",
+      qFacility: "Comment s'appelle votre établissement, et où est-il ?", phFacility: "Nom de votre établissement", phCity: "Ville",
+      qType: "Quel type d'établissement dirigez-vous ?", types: { hospital: "Hôpital", care_home: "Maison de retraite", home_care: "Soins à domicile", rehab: "Clinique de rééducation", other: "Autre chose" },
+      qStaff: "Combien d'infirmières diplômées travaillent chez vous ?", qOpen: "Combien de postes d'infirmière sont vides en ce moment ?", qLeft: "Combien d'infirmières sont parties ces 12 derniers mois ?",
+      hintNum: "Une estimation suffit.",
+      qAgency: "Combien d'heures d'intérim achetez-vous par mois ?", agency: { none: "Aucune", low: "Moins de 100 heures", mid: "100 à 500 heures", high: "500 à 1 500 heures", very_high: "Plus de 1 500 heures" },
+      qForeign: "Avez-vous déjà recruté des infirmières de l'étranger ?", foreign: { never: "Non, jamais", tried_left: "Oui, mais elles sont reparties", some_stayed: "Oui, certaines sont restées", most_stayed: "Oui, la plupart sont restées" },
+      qOnb: "Que reçoit une nouvelle infirmière pendant ses 90 premiers jours ?", hintMulti: "Plusieurs choix possibles.", onb: { mentor: "Une marraine fixe", german: "Allemand pour le travail", housing: "Aide pour le logement", plan: "Un plan d'intégration écrit", checkins: "Des entretiens réguliers" }, none: "Rien de tout ça",
+      qPain: "Qu'est-ce qui fait le plus mal ?", pain: { open_posts: "Les postes restent vides", leaving: "Les infirmières repartent", agency: "L'intérim coûte trop cher", paperwork: "Les papiers prennent une éternité", german: "Leur allemand ne suffit pas" },
+      qHeard: "Comment avez-vous connu Borivon ?", heard: { google: "Google", linkedin: "LinkedIn", referral: "Une recommandation", email: "Un e-mail de Borivon", event: "Un salon ou un événement", other: "Autre" },
+      qFinish: "Presque fini.", pFinish: "Nous créons votre plan et l'envoyons à",
+      tips: "Oui, envoyez-moi quelques conseils courts par e-mail. Désabonnement à tout moment.",
+      privacy: "Nous utilisons vos réponses uniquement pour créer et envoyer votre plan.", privacyLink: "Confidentialité",
+      submit: "Créer mon plan", sending: "Création …",
+      errMail: "Merci de vérifier l'adresse e-mail.", errFacility: "Merci d'indiquer le nom de votre établissement.", errSend: "Ça n'a pas marché. Merci de réessayer.", errMany: "Trop d'essais. Merci de réessayer plus tard.",
+      congrats: "Félicitations, {n} : votre établissement est au", level: "Niveau", of5: "sur 5",
+      lose: "Les postes vides vous coûtent", loseYear: "Avec les départs, par an", win: "Chaque infirmière qui reste vous rapporte", perMonth: "par mois",
+      sentTo: "Votre plan en PDF est en route vers", spam: "Rien reçu ? Regardez dans les spams.", notSent: "Nous avons vos réponses. Nous vous envoyons le PDF très vite.",
+      tipsNote: "Merci de confirmer les conseils avec le bouton dans l'e-mail.",
+      bottomL: "En résumé", gradByL: "Monter en",
+      readH: "Votre plan, dès maintenant", readP: "Pendant que le PDF arrive, vous pouvez commencer ici.",
+      plan90: "Le plan de 90 jours", reasons: "7 raisons pour lesquelles elles partent", why: "Pourquoi", fix: "Ce qui aide",
+      fitP: "Nous travaillons avec 10 employeurs au maximum par groupe, et tous ne correspondent pas. En 15 minutes, nous le découvrons ensemble.", fitBtn: "Vérifier si nous correspondons"
+    }
+  };
+
+  var lang = "de";
+  try { var s0 = localStorage.getItem("bv-lang"); if (T[s0]) lang = s0; } catch (e) {}
+  var A = { firstName: "", lastName: "", email: "", phone: "", facility: "", city: "", facilityType: "", staff: 40, openPosts: 3, leftLastYear: 4, agency: "", foreign: "", onboarding: [], pain: "", heardFrom: "", tips: false, website: "" };
+  // Contact first, then the house (founder's Hormozi breakdown): one thing per screen.
+  var STEPS = ["intro", "name", "email", "phone", "facility", "type", "staff", "open", "left", "agency", "foreign", "onb", "pain", "heard", "finish", "result"];
+  var at = 0, R = null, emailed = false, busy = false, err = "";
+
+  var card = document.getElementById("card"), bar = document.getElementById("bar");
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function eur(n) {
+    var v = Math.round(n);
+    if (lang === "en") return "€" + v.toLocaleString("en-GB");
+    return v.toLocaleString(lang === "de" ? "de-DE" : "fr-FR").replace(/[  ]/g, " ") + " €";
+  }
+  function go(i) { at = Math.max(0, Math.min(STEPS.length - 1, i)); err = ""; render(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function nav(showNext, extra) {
+    return '<p class="err" id="err">' + esc(err) + '</p><div class="row">' +
+      (at > 1 && at < STEPS.length - 1 ? '<button type="button" class="ghost" data-act="back">← ' + esc(T[lang].back) + '</button>' : '<span></span>') +
+      '<span style="display:flex;gap:14px;align-items:center">' + (extra || "") +
+      (showNext ? '<button type="button" class="btn" data-act="next">' + esc(T[lang].next) + ' →</button>' : "") + '</span></div>';
+  }
+  function choice(key, map) {
+    return '<div class="opts">' + Object.keys(map).map(function (k) {
+      return '<button type="button" class="opt" data-set="' + key + '" data-val="' + k + '" aria-pressed="' + (A[key] === k) + '">' + esc(map[k]) + '</button>';
+    }).join("") + '</div>';
+  }
+  function field(id, type, ph, val, ac, max) {
+    return '<input type="' + type + '" id="' + id + '" autocomplete="' + ac + '" placeholder="' + esc(ph) + '" value="' + esc(val) + '" maxlength="' + max + '">';
+  }
+  function numStep(q, key) {
+    return '<h2>' + esc(q) + '</h2><p>' + esc(T[lang].hintNum) + '</p>' +
+      '<div class="num"><button type="button" data-inc="' + key + '" data-d="-1" aria-label="-">−</button>' +
+      '<input id="numIn" type="number" inputmode="numeric" min="0" max="5000" value="' + A[key] + '" data-key="' + key + '">' +
+      '<button type="button" data-inc="' + key + '" data-d="1" aria-label="+">+</button></div>' + nav(true);
+  }
+
+  function render() {
+    var t = T[lang], s = STEPS[at], h = "";
+    document.documentElement.lang = lang;
+    document.getElementById("banner").innerHTML = t.banner;
+    document.querySelectorAll(".langs button").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-lang") === lang ? "true" : "false"); });
+    bar.style.width = (at / (STEPS.length - 1) * 100) + "%";
+    if (s === "intro") {
+      h = '<p class="eyebrow">' + esc(t.eyebrow) + '</p><h1>' + esc(t.h) + '</h1><p class="lead">' + esc(t.lead) + '</p>' +
+        '<ul class="gets">' + t.gets.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join("") + '</ul>' +
+        '<div class="row"><a class="ghost" href="/api/roadmap/sample?lang=' + lang + '" target="_blank" rel="noopener">' + esc(t.sample) + '</a><button type="button" class="btn" data-act="next">' + esc(t.start) + ' →</button></div>';
+    } else if (s === "name") {
+      h = '<h2>' + esc(t.qName) + '</h2><div class="two">' + field("fFirst", "text", t.phFirst, A.firstName, "given-name", 60) + field("fLast", "text", t.phLast, A.lastName, "family-name", 80) + '</div>' + nav(true);
+    } else if (s === "email") {
+      h = '<h2>' + esc(t.qEmail) + '</h2><p>' + esc(t.hEmail) + '</p>' + field("fEmail", "email", "name@haus.de", A.email, "email", 254) + nav(true);
+    } else if (s === "phone") {
+      h = '<h2>' + esc(t.qPhone) + '</h2><p>' + esc(t.hPhone) + '</p>' + field("fPhone", "tel", "+49 …", A.phone, "tel", 40) + nav(true, '<button type="button" class="ghost" data-act="skip">' + esc(t.skip) + '</button>');
+    } else if (s === "facility") {
+      h = '<h2>' + esc(t.qFacility) + '</h2>' + field("fFacility", "text", t.phFacility, A.facility, "organization", 120) + '<div style="height:10px"></div>' + field("fCity", "text", t.phCity, A.city, "address-level2", 80) + nav(true);
+    } else if (s === "type") { h = '<h2>' + esc(t.qType) + '</h2>' + choice("facilityType", t.types) + nav(false); }
+    else if (s === "staff") { h = numStep(t.qStaff, "staff"); }
+    else if (s === "open") { h = numStep(t.qOpen, "openPosts"); }
+    else if (s === "left") { h = numStep(t.qLeft, "leftLastYear"); }
+    else if (s === "agency") { h = '<h2>' + esc(t.qAgency) + '</h2>' + choice("agency", t.agency) + nav(false); }
+    else if (s === "foreign") { h = '<h2>' + esc(t.qForeign) + '</h2>' + choice("foreign", t.foreign) + nav(false); }
+    else if (s === "onb") {
+      h = '<h2>' + esc(t.qOnb) + '</h2><p>' + esc(t.hintMulti) + '</p><div class="opts">' +
+        Object.keys(t.onb).map(function (k) { return '<button type="button" class="opt" data-multi="' + k + '" aria-pressed="' + (A.onboarding.indexOf(k) >= 0) + '">' + esc(t.onb[k]) + '</button>'; }).join("") +
+        '<button type="button" class="opt" data-multi="__none" aria-pressed="false">' + esc(t.none) + '</button></div>' + nav(true);
+    }
+    else if (s === "pain") { h = '<h2>' + esc(t.qPain) + '</h2>' + choice("pain", t.pain) + nav(false); }
+    else if (s === "heard") { h = '<h2>' + esc(t.qHeard) + '</h2>' + choice("heardFrom", t.heard) + nav(false); }
+    else if (s === "finish") {
+      h = '<h2>' + esc(t.qFinish) + '</h2><p class="lead">' + esc(t.pFinish) + ' <b>' + esc(A.email) + '</b>.</p>' +
+        '<label class="hp" aria-hidden="true">Website<input type="text" id="fWeb" tabindex="-1" autocomplete="off"></label>' +
+        '<label class="chk"><input type="checkbox" id="fTips"' + (A.tips ? " checked" : "") + '><span>' + esc(t.tips) + '</span></label>' +
+        '<p class="small">' + esc(t.privacy) + ' <a href="/privacy-policy" target="_blank" rel="noopener">' + esc(t.privacyLink) + '</a></p>' +
+        '<p class="err" id="err">' + esc(err) + '</p>' +
+        '<div class="row"><button type="button" class="ghost" data-act="back">← ' + esc(t.back) + '</button><button type="button" class="btn" data-act="submit"' + (busy ? " disabled" : "") + '>' + esc(busy ? t.sending : t.submit) + '</button></div>';
+    } else if (s === "result" && R) {
+      var r = R.result, segs = "";
+      for (var i = 1; i <= 5; i++) segs += '<i class="' + (i <= r.level ? "on" : "") + '"></i>';
+      var lad = (R.ladder || []).map(function (c) {
+        return '<div class="lc' + (c.current ? " cur" : "") + '"><span class="k">' + esc(t.level) + ' ' + c.level + '</span><b>' + esc(c.name) + '</b><small>' + esc(c.line) + '</small></div>';
+      }).join("");
+      var p = R.plan || { steps: [] };
+      h = '<div class="congrats"><p class="eyebrow">' + esc(t.congrats.replace("{n}", A.firstName || "").replace(/, :/, ":").replace(/,\s*:/, ":")) + '</p><h2>' + esc(t.level) + ' ' + r.level + ' ' + esc(t.of5) + '</h2></div>' +
+        '<div class="ladder' + ((R.ladder || []).length === 2 ? " two-col" : "") + '">' + lad + '</div>' +
+        (R.stage ? '<p class="bl"><span>' + esc(t.bottomL) + '</span>' + esc(R.stage.bottom) + '<em>' + esc(t.gradByL) + ': ' + esc(R.stage.gradBy) + '</em></p>' : "") +
+        (r.openCostMonth ? '<div class="mm neg"><span>' + esc(t.lose) + '</span><strong>−' + eur(r.openCostMonth) + ' ' + esc(t.perMonth) + '</strong></div>' : "") +
+        (r.totalYear ? '<div class="mm neg"><span>' + esc(t.loseYear) + '</span><strong>−' + eur(r.totalYear) + '</strong></div>' : "") +
+        '<div class="mm pos"><span>' + esc(t.win) + '</span><strong>+' + eur(r.perNurseMonth) + ' ' + esc(t.perMonth) + '</strong></div>' +
+        '<div class="sent"><div>' + (emailed ? esc(t.sentTo) + ' <b>' + esc(A.email) + '</b>.<br><span class="small">' + esc(t.spam) + (A.tips ? " " + esc(t.tipsNote) : "") + '</span>' : esc(t.notSent)) + '</div></div>' +
+        '<div class="read"><p class="eyebrow">' + esc(p.bottleneckTitle || "") + '</p><h3>' + esc(t.readH) + '</h3><p>' + esc(t.readP) + '</p>' +
+          '<p style="color:var(--fg)">' + esc(p.bottleneckText || "") + '</p>' +
+          '<p style="color:var(--fg);font-weight:500;margin:18px 0 0">' + esc(p.goal || "") + '</p>' +
+          '<ol class="steps">' + p.steps.map(function (st) { return '<li><div><b>' + esc(st.t) + '</b><span>' + esc(st.d) + '</span></div></li>'; }).join("") + '</ol>' +
+          (p.trap ? '<p class="trap">' + esc(p.trap) + '</p>' : "") +
+          '<details><summary>' + esc(t.plan90) + '</summary><div class="in p90">' + (R.plan90 || []).map(function (b) {
+            return '<h4>' + esc(b.when) + '</h4><ul>' + b.items.map(function (it) { return '<li>' + esc(it) + '</li>'; }).join("") + '</ul>';
+          }).join("") + '</div></details>' +
+          '<details><summary>' + esc(t.reasons) + '</summary><div class="in"><ul class="rs">' + (R.reasons || []).map(function (x, i) {
+            return '<li><b>' + (i + 1) + '. ' + esc(x.why) + '</b><span>' + esc(x.fix) + '</span></li>';
+          }).join("") + '</ul></div></details>' +
+        '</div>' +
+        '<div class="fit"><p>' + esc(t.fitP) + '</p><a class="btn" href="/book/clinic" data-book>' + esc(t.fitBtn) + ' →</a></div>';
+    }
+    card.innerHTML = '<div class="step">' + h + '</div>';
+    var first = card.querySelector("input:not([type=checkbox]):not(#fWeb)"); if (first && s !== "finish") { first.focus(); if (first.select) first.select(); }
+  }
+
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : null; }
+  function readCurrent() {
+    var v;
+    if ((v = val("fFirst")) !== null) A.firstName = v;
+    if ((v = val("fLast")) !== null) A.lastName = v;
+    if ((v = val("fEmail")) !== null) A.email = v;
+    if ((v = val("fPhone")) !== null) A.phone = v;
+    if ((v = val("fFacility")) !== null) A.facility = v;
+    if ((v = val("fCity")) !== null) A.city = v;
+    if ((v = val("fWeb")) !== null) A.website = v;
+    var tp = document.getElementById("fTips"); if (tp) A.tips = !!tp.checked;
+    var nu = document.getElementById("numIn"); if (nu) { var n = parseInt(nu.value, 10); A[nu.getAttribute("data-key")] = isNaN(n) ? 0 : Math.max(0, Math.min(5000, n)); }
+  }
+  /** Can we leave this step forward? Sets err and re-renders if not. */
+  function okToLeave() {
+    var t = T[lang], s = STEPS[at];
+    if (s === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(A.email)) { err = t.errMail; render(); return false; }
+    if (s === "facility" && !A.facility) { err = t.errFacility; render(); return false; }
+    return true;
+  }
+  function submit() {
+    var t = T[lang];
+    readCurrent();
+    busy = true; err = ""; render();
+    fetch("/api/roadmap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      lang: lang, firstName: A.firstName, lastName: A.lastName, email: A.email, phone: A.phone, facility: A.facility, city: A.city,
+      heardFrom: A.heardFrom, tips: A.tips, website: A.website,
+      answers: { facilityType: A.facilityType, staff: A.staff, openPosts: A.openPosts, leftLastYear: A.leftLastYear, agency: A.agency, foreign: A.foreign, onboarding: A.onboarding, pain: A.pain }
+    }) }).then(function (res) {
+      if (res.status === 429) throw new Error("many");
+      if (!res.ok) throw new Error("fail");
+      return res.json();
+    }).then(function (j) {
+      busy = false;
+      if (!j || !j.result) throw new Error("fail");
+      R = j; emailed = !!j.emailed; go(STEPS.length - 1);
+    }).catch(function (e) {
+      busy = false; err = e && e.message === "many" ? t.errMany : t.errSend; render();
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-book]"); if (b) { try { localStorage.setItem("borivon-lang", lang); } catch (x) {} }
+  });
+  card.addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    var act = b.getAttribute("data-act");
+    if (act === "next") { readCurrent(); if (okToLeave()) go(at + 1); return; }
+    if (act === "skip") { var el = document.getElementById("fPhone"); if (el) el.value = ""; A.phone = ""; go(at + 1); return; }
+    if (act === "back") { readCurrent(); go(at - 1); return; }
+    if (act === "submit") { submit(); return; }
+    if (b.hasAttribute("data-set")) { A[b.getAttribute("data-set")] = b.getAttribute("data-val"); render(); setTimeout(function () { go(at + 1); }, 220); return; }
+    if (b.hasAttribute("data-multi")) {
+      var k = b.getAttribute("data-multi");
+      if (k === "__none") { A.onboarding = []; render(); setTimeout(function () { go(at + 1); }, 220); return; }
+      var i = A.onboarding.indexOf(k); if (i >= 0) A.onboarding.splice(i, 1); else A.onboarding.push(k);
+      render(); return;
+    }
+    if (b.hasAttribute("data-inc")) {
+      var key = b.getAttribute("data-inc"); readCurrent();
+      A[key] = Math.max(0, Math.min(5000, (A[key] || 0) + parseInt(b.getAttribute("data-d"), 10)));
+      render(); return;
+    }
+  });
+  card.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.target.type === "checkbox") return;
+    e.preventDefault();
+    readCurrent();
+    if (STEPS[at] === "finish") submit(); else if (okToLeave()) go(at + 1);
+  });
+  document.querySelectorAll(".langs button").forEach(function (b) {
+    b.addEventListener("click", function () { readCurrent(); lang = b.getAttribute("data-lang"); try { localStorage.setItem("bv-lang", lang); } catch (e) {} render(); });
+  });
+  render();
+})();
+</script>
+</body>
+</html>

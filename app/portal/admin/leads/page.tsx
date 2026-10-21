@@ -34,6 +34,8 @@ const KIND_LABEL: Record<string, { en: string; de: string; fr: string }> = {
   nurse:       { en: "Nurse — booked",  de: "Pflegekraft — Termin", fr: "Infirmier — RDV" },
   clinic:      { en: "Clinic — booked", de: "Einrichtung — Termin", fr: "Établissement — RDV" },
   company:     { en: "Company — booked", de: "Unternehmen — Termin", fr: "Entreprise — RDV" },
+  // The free Pflege-Fahrplan (borivon.com/fahrplan): answers, Stufe, consent in `details`.
+  roadmap:     { en: "Roadmap (PDF)",   de: "Fahrplan (PDF)",  fr: "Plan (PDF)" },
 };
 
 export default function AdminLeadsPage() {

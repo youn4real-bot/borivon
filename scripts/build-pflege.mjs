@@ -57,6 +57,7 @@ function sharedLinks(s) {
   s = swap(s, 'href="https://www.borivon.com/book/clinic" target="_blank" rel="noopener"', 'href="/book/clinic"', "booking links", { all: true });
   s = swap(s, "'<a class=\"btn btn-gold\" href=\"https://www.borivon.com/book/clinic\" target=\"_blank\" rel=\"noopener\"", "'<a class=\"btn btn-gold\" href=\"/book/clinic\"", "booking link in script", { optional: true });
   s = swap(s, 'href="https://www.borivon.com/portal" target="_blank" rel="noopener"', 'href="/portal"', "portal link", { all: true });
+  s = swap(s, 'href="https://www.borivon.com/fahrplan" target="_blank" rel="noopener"', 'href="/fahrplan"', "roadmap links", { all: true, optional: true });
   s = swap(s, 'href="https://www.borivon.com/impressum" target="_blank" rel="noopener"', 'href="/impressum"', "imprint link", { all: true });
   s = swap(s, 'href="https://www.borivon.com/privacy-policy" target="_blank" rel="noopener"', 'href="/privacy-policy"', "privacy link", { all: true });
   s = swap(s, '<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>', '<script src="/pflege/assets/gsap.min.js"></script>', "gsap");
@@ -139,6 +140,15 @@ ${s.slice(cut).trim()}
   pages.PLATTFORM_HTML = s;
 }
 
+// ── Pflege-Fahrplan (free roadmap → personal PDF by email, app/api/roadmap) ──
+{
+  let s = fs.readFileSync(path.join(SRC, "fahrplan.html"), "utf8");
+  const i = s.indexOf("<!--HEAD-->");
+  if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in fahrplan.html"); }
+  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in 60 Sekunden: Ihre Stufe, was leere Stellen und Kündigungen Sie kosten, und Ihr Plan, damit Pflegekräfte bleiben. Als PDF per E-Mail.", "https://www.borivon.com/fahrplan") + s.slice(i + "<!--HEAD-->".length);
+  pages.FAHRPLAN_HTML = s;
+}
+
 // sanity: nothing may still reach outside servers
 for (const [name, s] of Object.entries(pages)) {
   const f = name;
@@ -155,6 +165,7 @@ if (problems) { console.error(problems + " problem(s)"); process.exit(1); }
 // second address for the same page.
 fs.writeFileSync(path.join(OUT, "index.html"), pages.HOME_HTML);
 fs.writeFileSync(path.join(OUT, "plattform.html"), pages.PLATTFORM_HTML);
+fs.writeFileSync(path.join(OUT, "fahrplan.html"), pages.FAHRPLAN_HTML);
 for (const old of [path.join(OUT, "pflege.html"), path.join(OUT, "pflege", "plattform.html")]) fs.rmSync(old, { force: true });
-console.log("public/index.html, public/plattform.html");
+console.log("public/index.html, public/plattform.html, public/fahrplan.html");
 console.log("ok" + (withVoices ? " (with testimonials)" : ""));

@@ -188,6 +188,8 @@ const nextConfig: NextConfig = {
       { source: "/pflege", destination: "/", permanent: true },
       { source: "/pflege.html", destination: "/", permanent: true },
       { source: "/pflege/plattform", destination: "/plattform", permanent: true },
+      // The free roadmap lives at /fahrplan (German audience); the English word works too.
+      { source: "/roadmap", destination: "/fahrplan", permanent: true },
     ];
   },
 

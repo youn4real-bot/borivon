@@ -594,3 +594,37 @@ export async function sendBookingChangedEmail(opts: {
     });
   } catch (e) { console.warn("[email] sendBookingChangedEmail failed:", e); }
 }
+
+// ── Pflege-Fahrplan (lib/roadmap) ────────────────────────────────────────────
+/** The personal roadmap PDF, attached. Returns true only if Resend accepted it. */
+export async function sendRoadmapDeliveryEmail(o: {
+  to: string; subject: string; html: string; text: string; pdf: Uint8Array; filename: string;
+}): Promise<boolean> {
+  return deliver({
+    from: FROM,
+    to: o.to,
+    replyTo: REPLY_TO,
+    subject: o.subject,
+    html: o.html,
+    text: o.text,
+    attachments: [{ filename: o.filename, content: Buffer.from(o.pdf) }],
+  });
+}
+
+/** One follow-up of the opted-in series, with a one-click unsubscribe header. */
+export async function sendRoadmapFollowupEmail(o: {
+  to: string; subject: string; html: string; text: string; unsubscribeUrl: string;
+}): Promise<boolean> {
+  return deliver({
+    from: FROM,
+    to: o.to,
+    replyTo: REPLY_TO,
+    subject: o.subject,
+    html: o.html,
+    text: o.text,
+    headers: {
+      "List-Unsubscribe": `<${o.unsubscribeUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  });
+}
