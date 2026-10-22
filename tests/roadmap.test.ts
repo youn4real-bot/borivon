@@ -141,3 +141,16 @@ describe("level copy", () => {
     }
   });
 });
+
+describe("pictograms", () => {
+  it("every icon renders as inline SVG for the page, one per reason", async () => {
+    const { ICONS, iconSvg, REASON_ICONS } = await import("../lib/roadmap/icons");
+    for (const n of Object.keys(ICONS) as (keyof typeof ICONS)[]) {
+      const svg = iconSvg(n);
+      expect(svg.startsWith("<svg")).toBe(true);
+      expect(svg).toContain("<path");
+    }
+    const { REASONS } = await import("../lib/roadmap/content");
+    expect(REASON_ICONS.length).toBe(REASONS.length);
+  });
+});

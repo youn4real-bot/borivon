@@ -9,6 +9,7 @@ import { renderRoadmapPdf, formatEuro } from "@/lib/roadmap/pdf";
 import { deliveryMail } from "@/lib/roadmap/emails";
 import { LEVELS, BOTTLENECK, CLIMB, PLAN_90, REASONS, pick, LANGS, type Lang } from "@/lib/roadmap/content";
 import { STAGES } from "@/lib/roadmap/stages";
+import { iconSvg, REASON_ICONS, type IconName } from "@/lib/roadmap/icons";
 import type { Level } from "@/lib/roadmap/score";
 import { signLeadToken, tokensEnabled } from "@/lib/roadmap/token";
 
@@ -140,6 +141,8 @@ export async function POST(req: NextRequest) {
     },
     stage: { bottom: pick(STAGES[result.level].bottom, lang), gradBy: pick(STAGES[result.level].gradBy, lang) },
     plan90: PLAN_90.map((b) => ({ when: pick(b.when, lang), items: b.items.map((it) => pick(it, lang)) })),
-    reasons: REASONS.map((r) => ({ why: pick(r.why, lang), fix: pick(r.fix, lang) })),
+    reasons: REASONS.map((r, i) => ({ why: pick(r.why, lang), fix: pick(r.fix, lang), icon: REASON_ICONS[i] })),
+    // the same drawings as the PDF (lib/roadmap/icons.ts), as inline SVG
+    icons: Object.fromEntries((["bed", "door", "heart", "target", "warning", "calendar", "chat", ...REASON_ICONS] as IconName[]).map((n) => [n, iconSvg(n)])),
   });
 }

@@ -8,7 +8,7 @@
  * 5th-grade language, no price anywhere (founder rules).
  */
 import type { Lang } from "./content";
-import { LEVELS, pick } from "./content";
+import { LEVELS, UI, pick } from "./content";
 import { STAGES } from "./stages";
 import type { RoadmapResult } from "./score";
 import { formatEuro } from "./pdf";
@@ -25,7 +25,7 @@ function shell(lang: Lang, bodyHtml: string, footerExtra = ""): string {
   const foot = lang === "de" ? "Borivon · Pflegefachkräfte für Deutschland" : lang === "fr" ? "Borivon · Infirmières pour l'Allemagne" : "Borivon · Nurses for Germany";
   return `<!doctype html><html lang="${lang}"><body style="margin:0;background:#f6f4ef;padding:24px 12px;font-family:Helvetica,Arial,sans-serif;color:#1c1c1e">
 <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:32px 28px;border:1px solid #ebe6da">
-<div style="font-family:Georgia,serif;font-style:italic;font-size:22px;margin-bottom:22px">Borivon<span style="color:#b08a35">.</span></div>
+<div style="font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:24px;margin-bottom:22px">Borivon<span style="color:#c9a240;font-style:normal">.</span></div>
 ${bodyHtml}
 </div>
 <p style="max-width:560px;margin:14px auto 0;font-size:11px;line-height:1.6;color:#8a8a8a;text-align:center">${foot} · <a href="https://borivon.com" style="color:#8a8a8a">borivon.com</a> · contact@borivon.com${footerExtra}</p>
@@ -33,7 +33,7 @@ ${bodyHtml}
 }
 const p = (s: string) => `<p style="font-size:15px;line-height:1.6;margin:0 0 14px">${s}</p>`;
 const btn = (href: string, label: string) =>
-  `<p style="margin:22px 0"><a href="${esc(href)}" style="display:inline-block;background:#b08a35;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:12px 22px;border-radius:999px">${esc(label)}</a></p>`;
+  `<p style="margin:22px 0"><a href="${esc(href)}" style="display:inline-block;background:#c9a240;color:#131312;text-decoration:none;font-weight:bold;font-size:15px;padding:14px 26px;border-radius:999px">${esc(label)}</a></p>`;
 
 /**
  * The delivery mail, shaped like the founder's reference (acquisition.com
@@ -112,13 +112,20 @@ export function deliveryMail(o: { lang: Lang; firstName: string; facility: strin
   }[lang];
   const story = pick(St.story, lang);
   const bottom = pick(St.bottom, lang);
+  const U = UI[lang];
+  const segs = [1, 2, 3, 4, 5].map((i) => `<td style="height:5px;line-height:5px;font-size:0;background:${i <= result.level ? "#c9a240" : "#2b2b30"};border-radius:3px">&nbsp;</td>`).join('<td width="6" style="font-size:0">&nbsp;</td>');
+  const card = `<div style="background:#0e0e10;border-radius:16px;padding:22px 24px;margin:0 0 24px">` +
+    `<div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#c9a240;font-weight:bold">${esc(U.level)} ${result.level} ${esc(U.of5)}</div>` +
+    `<div style="font-family:'Playfair Display',Georgia,serif;font-size:30px;line-height:1.15;color:#eeecea;margin:8px 0 6px">${esc(lvl)}</div>` +
+    `<div style="font-size:14px;line-height:1.5;color:#9a978f">${esc(pick(LEVELS[result.level].line, lang))}</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;border-collapse:separate"><tr>${segs}</tr></table></div>`;
   const list = `<ul style="font-size:15px;line-height:1.6;margin:0 0 18px;padding-left:20px">${T.inside.map((x) => `<li>${x}</li>`).join("")}</ul>`;
-  const body = p(T.hello) + p(T.promised) + p(`<b>${T.insideH}</b>`) + list +
+  const body = card + p(T.hello) + p(T.promised) + p(`<b>${T.insideH}</b>`) + list +
     p(`<b>${T.level}</b> ${esc(story)}`) +
     p(`${T.loss ? T.loss + " " : ""}${T.bottom} <b>${esc(bottom)}</b>`) + p(T.start) +
     (o.confirmUrl ? p(T.confirm) + btn(o.confirmUrl, T.confirmBtn) : "") +
     p(T.bye) +
-    `<p style="font-size:14px;line-height:1.6;margin:22px 0 0;padding-top:16px;border-top:1px solid #ebe6da;color:#4a4a4a">${T.ps} <a href="${BOOK_URL}" style="color:#b08a35;font-weight:bold">${T.psLink}</a></p>`;
+    `<p style="font-size:14px;line-height:1.6;margin:22px 0 0;padding-top:16px;border-top:1px solid #ebe6da;color:#4a4a4a">${T.ps} <a href="${BOOK_URL}" style="color:#9c7a27;font-weight:bold">${T.psLink}</a></p>`;
   const strip = (x: string) => x.replace(/<br>/g, "\n").replace(/<[^>]+>/g, "");
   const text = [
     strip(T.hello), strip(T.promised),

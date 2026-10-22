@@ -89,3 +89,21 @@ export function drawIcon(page: PDFPage, pageHeight: number, name: IconName, x: n
     }
   }
 }
+
+/** One pictogram per REASONS entry (lib/roadmap/content.ts), same order. */
+export const REASON_ICONS: IconName[] = ["house", "team", "speech", "money", "family", "star", "chat"];
+
+/**
+ * The same pictogram as inline SVG for the web page, so the result screen and
+ * the PDF share one drawing. Colours come from CSS variables on the container:
+ * --ic-base, --ic-accent and --ic-hole (= the badge background).
+ */
+export function iconSvg(name: IconName): string {
+  const fill = (t: Tone) => (t === "base" ? "var(--ic-base,#eeecea)" : t === "accent" ? "var(--ic-accent,#c9a240)" : "var(--ic-hole,#232328)");
+  const parts = (ICONS[name] as Shape[]).map((s) =>
+    s.stroke
+      ? `<path d="${s.d}" fill="none" stroke="${fill(s.tone)}" stroke-width="${s.stroke}" stroke-linecap="${s.cap ?? "round"}" stroke-linejoin="round"/>`
+      : `<path d="${s.d}" fill="${fill(s.tone)}"/>`,
+  ).join("");
+  return `<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">${parts}</svg>`;
+}

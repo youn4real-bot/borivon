@@ -84,7 +84,14 @@ label.chk input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(
 .seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 16px; }
 .seg i { height: 6px; border-radius: 3px; background: rgba(238,236,234,0.1); }
 .seg i.on { background: var(--gold); }
-.mm { display: grid; gap: 4px; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 10px; }
+.mm { display: grid; grid-template-columns: 52px 1fr; column-gap: 16px; align-items: center; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 10px; }
+.mm > div { display: grid; gap: 4px; min-width: 0; }
+.ic { display: grid; place-items: center; flex: none; width: 52px; height: 52px; border-radius: 50%; background: #232328; --ic-hole: #232328; --ic-base: var(--fg); --ic-accent: var(--gold); }
+.ic svg { width: 56%; height: 56%; display: block; }
+.ic.sm { width: 38px; height: 38px; }
+.rh { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+.rh .eyebrow { margin: 0 0 4px; } .rh h3 { margin: 0; }
+.sh { display: flex; align-items: center; gap: 12px; }
 .mm.neg { border-color: rgba(224,122,95,0.35); background: rgba(224,122,95,0.07); }
 .mm.pos { border-color: rgba(127,181,140,0.4); background: rgba(127,181,140,0.08); }
 .mm span { font-size: 0.9rem; color: var(--muted); }
@@ -121,7 +128,7 @@ footer a { color: var(--muted); }
 .steps li::before { content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--gold); color: #131312; font-weight: 700; font-size: 0.85rem; }
 .steps b { display: block; margin-bottom: 2px; }
 .steps span { color: var(--muted); line-height: 1.55; font-size: 0.94rem; }
-.trap { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: rgba(224,122,95,0.08); border: 1px solid rgba(224,122,95,0.3); color: var(--fg); font-size: 0.9rem; line-height: 1.5; }
+.trap { display: flex; gap: 12px; align-items: center; margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: rgba(224,122,95,0.08); border: 1px solid rgba(224,122,95,0.3); color: var(--fg); font-size: 0.9rem; line-height: 1.5; }
 details { margin-top: 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,0.02); }
 details summary { cursor: pointer; list-style: none; padding: 16px 18px; font-weight: 500; display: flex; justify-content: space-between; gap: 12px; }
 details summary::-webkit-details-marker { display: none; }
@@ -132,9 +139,10 @@ details .in { padding: 0 18px 16px; }
 .p90 ul, .rs { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .p90 li { display: flex; gap: 10px; line-height: 1.5; font-size: 0.94rem; }
 .p90 li::before { content: ""; flex: none; width: 12px; height: 12px; margin-top: 5px; border-radius: 3px; border: 1.5px solid var(--muted); }
-.rs li { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.92rem; line-height: 1.5; }
+.rs li { display: grid; grid-template-columns: 38px 1fr 1fr; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.92rem; line-height: 1.5; }
 .rs li b { font-weight: 500; }
 .rs li span { color: var(--muted); }
+@media (max-width: 480px) { .rs li { grid-template-columns: 38px 1fr; } .rs li span { grid-column: 2; } }
 .fit { margin-top: 26px; padding: 22px; border-radius: 18px; border: 1px solid var(--line-gold); background: linear-gradient(160deg, rgba(201,162,64,0.14), rgba(255,255,255,0.02) 60%); }
 .fit p { color: var(--fg); margin-bottom: 14px; }
 </style>
@@ -333,23 +341,24 @@ details .in { padding: 0 18px 16px; }
         return '<div class="lc' + (c.current ? " cur" : "") + '"><span class="k">' + esc(t.level) + ' ' + c.level + '</span><b>' + esc(c.name) + '</b><small>' + esc(c.line) + '</small></div>';
       }).join("");
       var p = R.plan || { steps: [] };
+      var ic = function (n, c) { return '<i class="ic' + (c ? " " + c : "") + '">' + ((R.icons && R.icons[n]) || "") + '</i>'; };
       h = '<div class="congrats"><p class="eyebrow">' + esc(t.congrats.replace("{n}", A.firstName || "").replace(/, :/, ":").replace(/,\s*:/, ":")) + '</p><h2>' + esc(t.level) + ' ' + r.level + ' ' + esc(t.of5) + '</h2></div>' +
         '<div class="ladder' + ((R.ladder || []).length === 2 ? " two-col" : "") + '">' + lad + '</div>' +
         (R.stage ? '<p class="bl"><span>' + esc(t.bottomL) + '</span>' + esc(R.stage.bottom) + '<em>' + esc(t.gradByL) + ': ' + esc(R.stage.gradBy) + '</em></p>' : "") +
-        (r.openCostMonth ? '<div class="mm neg"><span>' + esc(t.lose) + '</span><strong>−' + eur(r.openCostMonth) + ' ' + esc(t.perMonth) + '</strong></div>' : "") +
-        (r.totalYear ? '<div class="mm neg"><span>' + esc(t.loseYear) + '</span><strong>−' + eur(r.totalYear) + '</strong></div>' : "") +
-        '<div class="mm pos"><span>' + esc(t.win) + '</span><strong>+' + eur(r.perNurseMonth) + ' ' + esc(t.perMonth) + '</strong></div>' +
+        (r.openCostMonth ? '<div class="mm neg">' + ic("bed") + '<div><span>' + esc(t.lose) + '</span><strong>−' + eur(r.openCostMonth) + ' ' + esc(t.perMonth) + '</strong></div></div>' : "") +
+        (r.totalYear ? '<div class="mm neg">' + ic("door") + '<div><span>' + esc(t.loseYear) + '</span><strong>−' + eur(r.totalYear) + '</strong></div></div>' : "") +
+        '<div class="mm pos">' + ic("heart") + '<div><span>' + esc(t.win) + '</span><strong>+' + eur(r.perNurseMonth) + ' ' + esc(t.perMonth) + '</strong></div></div>' +
         '<div class="sent"><div>' + (emailed ? esc(t.sentTo) + ' <b>' + esc(A.email) + '</b>.<br><span class="small">' + esc(t.spam) + (A.tips ? " " + esc(t.tipsNote) : "") + '</span>' : esc(t.notSent)) + '</div></div>' +
-        '<div class="read"><p class="eyebrow">' + esc(p.bottleneckTitle || "") + '</p><h3>' + esc(t.readH) + '</h3><p>' + esc(t.readP) + '</p>' +
+        '<div class="read"><div class="rh">' + ic("target") + '<div><p class="eyebrow">' + esc(p.bottleneckTitle || "") + '</p><h3>' + esc(t.readH) + '</h3></div></div><p>' + esc(t.readP) + '</p>' +
           '<p style="color:var(--fg)">' + esc(p.bottleneckText || "") + '</p>' +
           '<p style="color:var(--fg);font-weight:500;margin:18px 0 0">' + esc(p.goal || "") + '</p>' +
           '<ol class="steps">' + p.steps.map(function (st) { return '<li><div><b>' + esc(st.t) + '</b><span>' + esc(st.d) + '</span></div></li>'; }).join("") + '</ol>' +
-          (p.trap ? '<p class="trap">' + esc(p.trap) + '</p>' : "") +
-          '<details><summary>' + esc(t.plan90) + '</summary><div class="in p90">' + (R.plan90 || []).map(function (b) {
+          (p.trap ? '<p class="trap">' + ic("warning", "sm") + '<span>' + esc(p.trap) + '</span></p>' : "") +
+          '<details><summary><span class="sh">' + ic("calendar", "sm") + esc(t.plan90) + '</span></summary><div class="in p90">' + (R.plan90 || []).map(function (b) {
             return '<h4>' + esc(b.when) + '</h4><ul>' + b.items.map(function (it) { return '<li>' + esc(it) + '</li>'; }).join("") + '</ul>';
           }).join("") + '</div></details>' +
-          '<details><summary>' + esc(t.reasons) + '</summary><div class="in"><ul class="rs">' + (R.reasons || []).map(function (x, i) {
-            return '<li><b>' + (i + 1) + '. ' + esc(x.why) + '</b><span>' + esc(x.fix) + '</span></li>';
+          '<details><summary><span class="sh">' + ic("chat", "sm") + esc(t.reasons) + '</span></summary><div class="in"><ul class="rs">' + (R.reasons || []).map(function (x, i) {
+            return '<li>' + ic(x.icon, "sm") + '<b>' + esc(x.why) + '</b><span>' + esc(x.fix) + '</span></li>';
           }).join("") + '</ul></div></details>' +
         '</div>' +
         '<div class="fit"><p>' + esc(t.fitP) + '</p><a class="btn" href="/book/clinic" data-book>' + esc(t.fitBtn) + ' →</a></div>';
