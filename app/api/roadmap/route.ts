@@ -12,6 +12,7 @@ import { STAGES } from "@/lib/roadmap/stages";
 import { iconSvg, REASON_ICONS, type IconName } from "@/lib/roadmap/icons";
 import type { Level } from "@/lib/roadmap/score";
 import { signLeadToken, tokensEnabled } from "@/lib/roadmap/token";
+import { keepAlive } from "@/lib/keepAlive";
 
 /**
  * POST /api/roadmap — the free Pflege-Fahrplan (borivon.com/fahrplan).
@@ -20,6 +21,11 @@ import { signLeadToken, tokensEnabled } from "@/lib/roadmap/token";
  * portal (kind "roadmap", everything else in `details`) → founder pinged on
  * Telegram. The visitor sees the Stufe and the numbers right away; the PDF goes
  * to the inbox (that is also what proves the address is real).
+ *
+ * The PDF + mail + Telegram run AFTER the response (keepAlive → waitUntil):
+ * measured on Workers, rendering the PDF took 4-10 s per request, and the
+ * visitor was staring at "sending…" for all of it. The lead is saved first, so
+ * a failed mail is never a lost lead, and Telegram says when the mail failed.
  *
  * The follow-up series needs BOTH the ticked box AND a click on the confirm link
  * in this mail (double opt-in) — see /api/roadmap/confirm and the cron.
@@ -79,44 +85,45 @@ export async function POST(req: NextRequest) {
     else leadId = (data as { id: string } | null)?.id ?? null;
   } catch (e) { console.error("[roadmap] lead insert threw:", e instanceof Error ? e.message : e); }
 
-  // 2 · the PDF, by email
-  let emailed = false;
-  try {
-    const pdf = await renderRoadmapPdf({ result, lang, firstName, facility, date: new Date() });
-    const confirmUrl = wantsTips && leadId && tokensEnabled()
-      ? `https://borivon.com/api/roadmap/confirm?id=${encodeURIComponent(leadId)}&t=${await signLeadToken("confirm", leadId)}`
-      : undefined;
-    const m = deliveryMail({ lang, firstName, facility, result, confirmUrl });
-    const fname = (lang === "de" ? "Pflege-Fahrplan" : lang === "fr" ? "Plan-infirmier" : "Nurse-staffing-roadmap") + "-Borivon.pdf";
-    emailed = await sendRoadmapDeliveryEmail({ to: email, subject: m.subject, html: m.html, text: m.text, pdf, filename: fname });
-  } catch (e) { console.error("[roadmap] pdf/email failed:", e instanceof Error ? e.message : e); }
+  // 2 · the PDF by email, then 3 · tell the founder — both after the response
+  keepAlive(async () => {
+    let emailed = false;
+    try {
+      const pdf = await renderRoadmapPdf({ result, lang, firstName, facility, date: new Date() });
+      const confirmUrl = wantsTips && leadId && tokensEnabled()
+        ? `https://borivon.com/api/roadmap/confirm?id=${encodeURIComponent(leadId)}&t=${await signLeadToken("confirm", leadId)}`
+        : undefined;
+      const m = deliveryMail({ lang, firstName, facility, result, confirmUrl });
+      const fname = (lang === "de" ? "Pflege-Fahrplan" : lang === "fr" ? "Plan-infirmier" : "Nurse-staffing-roadmap") + "-Borivon.pdf";
+      emailed = await sendRoadmapDeliveryEmail({ to: email, subject: m.subject, html: m.html, text: m.text, pdf, filename: fname });
+    } catch (e) { console.error("[roadmap] pdf/email failed:", e instanceof Error ? e.message : e); }
 
-  // 3 · tell the founder (awaited: Workers cancel unawaited work)
-  const tgChat = (process.env.TELEGRAM_CHAT_ID || "").trim();
-  if (tgChat) {
-    const lines = [
-      `🧭 Neuer Fahrplan-Lead — Stufe ${result.level} (${pick(LEVELS[result.level].name, "de")})`,
-      "",
-      facility ? `Haus    : ${facility}${city ? ` · ${city}` : ""}` : null,
-      `Name    : ${[firstName, lastName].filter(Boolean).join(" ")}${role ? ` · ${role}` : ""}`,
-      heardFrom ? `Quelle  : ${heardFrom}` : null,
-      `E-Mail  : ${email}`,
-      phone ? `Telefon : ${phone}` : null,
-      `Zahlen  : ${answers.staff} Pflegekräfte · ${answers.openPosts} offen · ${answers.leftLastYear} gegangen`,
-      `Verlust : ${formatEuro(result.totalYear, "de")} pro Jahr`,
-      `Engpass : ${pick(BOTTLENECK[result.bottleneck].t, "de")}`,
-      `Tipps   : ${wantsTips ? "ja (wartet auf Bestätigung)" : "nein"}`,
-      emailed ? null : "⚠️ PDF-Mail NICHT versendet",
-      leadId ? null : "⚠️ Nicht im Portal gespeichert",
-      "",
-      "→ /portal/admin/leads",
-    ].filter((l) => l !== null).join("\n");
-    try { await tgSend(tgChat, lines); } catch (e) { console.error("[roadmap] telegram failed:", e instanceof Error ? e.message : e); }
-  }
+    const tgChat = (process.env.TELEGRAM_CHAT_ID || "").trim();
+    if (tgChat) {
+      const lines = [
+        `🧭 Neuer Fahrplan-Lead — Stufe ${result.level} (${pick(LEVELS[result.level].name, "de")})`,
+        "",
+        facility ? `Haus    : ${facility}${city ? ` · ${city}` : ""}` : null,
+        `Name    : ${[firstName, lastName].filter(Boolean).join(" ")}${role ? ` · ${role}` : ""}`,
+        heardFrom ? `Quelle  : ${heardFrom}` : null,
+        `E-Mail  : ${email}`,
+        phone ? `Telefon : ${phone}` : null,
+        `Zahlen  : ${answers.staff} Pflegekräfte · ${answers.openPosts} offen · ${answers.leftLastYear} gegangen`,
+        `Verlust : ${formatEuro(result.totalYear, "de")} pro Jahr`,
+        `Engpass : ${pick(BOTTLENECK[result.bottleneck].t, "de")}`,
+        `Tipps   : ${wantsTips ? "ja (wartet auf Bestätigung)" : "nein"}`,
+        emailed ? null : "⚠️ PDF-Mail NICHT versendet",
+        leadId ? null : "⚠️ Nicht im Portal gespeichert",
+        "",
+        "→ /portal/admin/leads",
+      ].filter((l) => l !== null).join("\n");
+      try { await tgSend(tgChat, lines); } catch (e) { console.error("[roadmap] telegram failed:", e instanceof Error ? e.message : e); }
+    }
+  });
 
   return NextResponse.json({
     ok: true,
-    emailed,
+    emailed: true, // queued; a failure shows up on Telegram
     result: {
       level: result.level,
       score: result.score,
