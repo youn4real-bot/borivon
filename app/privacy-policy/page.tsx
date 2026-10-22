@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useLang } from "@/components/LangContext";
 
-const LAST_UPDATED = "28 April 2026";
+const LAST_UPDATED = "22 October 2026";
 
 const content = {
   fr: {
@@ -51,6 +51,10 @@ const content = {
       {
         heading: "10. Contact et réclamations",
         body: `Pour toute question ou pour exercer vos droits :\nE-mail : contact@borivon.com\n\nSi vous estimez que vos droits ne sont pas respectés, vous avez le droit d'introduire une réclamation auprès de l'autorité de protection des données compétente dans votre pays de résidence.`,
+      },
+      {
+        heading: "11. Plan infirmier gratuit (borivon.com/fahrplan)",
+        body: `Lorsque vous demandez le plan infirmier gratuit pour votre établissement, nous traitons : prénom et nom, adresse e-mail professionnelle, numéro de téléphone (facultatif), nom et ville de l'établissement, vos réponses sur le personnel, les postes vacants, les départs et l'intérim, ainsi que la façon dont vous nous avez connus.\n\nFinalité et base légale : nous créons votre plan personnel en PDF et vous l'envoyons par e-mail (art. 6, par. 1, point b du RGPD, à votre demande). Nous conservons la demande pour pouvoir vous recontacter à son sujet (art. 6, par. 1, point f du RGPD).\n\nNous n'envoyons d'autres conseils par e-mail que si vous avez coché la case ET cliqué sur le lien de l'e-mail de confirmation (double opt-in, art. 6, par. 1, point a du RGPD). Chacun de ces e-mails contient un lien de désinscription ; vous pouvez retirer votre consentement à tout moment.\n\nDestinataires : Cloudflare (hébergement et base de données), Resend (envoi des e-mails) et Telegram (notification interne de notre équipe pour chaque nouvelle demande).\n\nDurée de conservation : comme les données de contact (section 5), ou jusqu'au retrait de votre consentement ou à votre demande d'effacement.`,
       },
     ],
   },
@@ -100,6 +104,10 @@ const content = {
         heading: "10. Contact and Complaints",
         body: `For any questions or to exercise your rights:\nEmail: contact@borivon.com\n\nIf you believe your rights are not being respected, you have the right to lodge a complaint with the data protection authority in your country of residence.`,
       },
+      {
+        heading: "11. Free nurse staffing roadmap (borivon.com/fahrplan)",
+        body: `When you request the free roadmap for your facility, we process: first and last name, business email address, phone number (optional), name and city of the facility, your answers about staff, open posts, resignations and agency staff, and how you heard about us.\n\nPurpose and legal basis: we create your personal roadmap as a PDF and send it to your email address (Art. 6(1)(b) GDPR, at your request). We keep the request so that we can contact you about it (Art. 6(1)(f) GDPR).\n\nWe only send further tips by email if you ticked the box AND clicked the link in the confirmation email (double opt-in, Art. 6(1)(a) GDPR). Every one of these emails contains an unsubscribe link; you can withdraw your consent at any time.\n\nRecipients: Cloudflare (hosting and database), Resend (email delivery) and Telegram (internal notification to our team about each new request).\n\nRetention: like contact form data (section 5), or until you withdraw your consent or ask us to delete it.`,
+      },
     ],
   },
   de: {
@@ -147,6 +155,10 @@ const content = {
       {
         heading: "10. Kontakt und Beschwerden",
         body: `Für Fragen oder zur Ausübung Ihrer Rechte:\nE-Mail: contact@borivon.com\n\nWenn Sie der Meinung sind, dass Ihre Rechte nicht gewahrt werden, haben Sie das Recht, eine Beschwerde bei der für Sie zuständigen Datenschutzbehörde einzureichen.`,
+      },
+      {
+        heading: "11. Kostenloser Pflege-Fahrplan (borivon.com/fahrplan)",
+        body: `Wenn Sie den kostenlosen Pflege-Fahrplan für Ihre Einrichtung anfordern, verarbeiten wir: Vor- und Nachname, berufliche E-Mail-Adresse, Telefonnummer (freiwillig), Name und Ort der Einrichtung, Ihre Antworten zu Personal, offenen Stellen, Kündigungen und Leihkräften sowie, woher Sie uns kennen.\n\nZweck und Rechtsgrundlage: Wir erstellen daraus Ihren persönlichen Fahrplan als PDF und senden ihn an Ihre E-Mail-Adresse (Art. 6 Abs. 1 lit. b DSGVO, auf Ihre Anfrage). Wir speichern die Anfrage, um Sie dazu kontaktieren zu können (Art. 6 Abs. 1 lit. f DSGVO).\n\nWeitere Tipps per E-Mail senden wir nur, wenn Sie das Kästchen angekreuzt UND den Link in der Bestätigungs-E-Mail angeklickt haben (Double-Opt-in, Art. 6 Abs. 1 lit. a DSGVO, § 7 UWG). Jede dieser E-Mails enthält einen Abmeldelink; Sie können Ihre Einwilligung jederzeit widerrufen.\n\nEmpfänger: Cloudflare (Hosting und Datenbank), Resend (E-Mail-Versand) und Telegram (interne Benachrichtigung unseres Teams über jede neue Anfrage).\n\nSpeicherdauer: wie Kontaktformulardaten (Abschnitt 5), oder bis zum Widerruf Ihrer Einwilligung bzw. Ihrer Löschanfrage.`,
       },
     ],
   },

@@ -12,10 +12,11 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { ArrowLeft, Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2, Check, Archive, RotateCcw } from "lucide-react";
 import { isPlaceableLead } from "@/lib/leadKinds";
+import { roadmapLeadChips, plainDetailChips } from "@/lib/roadmap/leadSummary";
 
 type Lead = {
   id: string; kind: string; email: string; name: string; phone: string;
-  message: string; details: Record<string, string> | null; created_at: string;
+  message: string; details: Record<string, unknown> | null; created_at: string;
   /** Set once the lead has been turned into a Pool candidate. */
   candidate_user_id?: string | null;
   /** new | contacted | closed. Present since the table was created; nothing
@@ -184,7 +185,10 @@ export default function AdminLeadsPage() {
             <p className="text-[13px] pb-1" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
           )}
           {shown.map((l) => {
-            const extras = Object.entries(l.details ?? {}).filter(([, v]) => !!v);
+            // Fahrplan leads keep nested objects in details; plain chips only for the rest.
+            const extras = l.kind === "roadmap"
+              ? roadmapLeadChips(l.details, lang === "de" || lang === "fr" ? lang : "en")
+              : plainDetailChips(l.details);
             return (
               <div key={l.id} className="p-4 sm:p-5"
                 style={{
@@ -299,7 +303,7 @@ export default function AdminLeadsPage() {
                 </div>
                 {extras.length > 0 && (
                   <div className="mt-3 pt-3 flex flex-wrap gap-1.5" style={{ borderTop: "1px solid var(--border)" }}>
-                    {extras.map(([k, v]) => (
+                    {extras.map(({ k, v }) => (
                       <span key={k} className="bv-chip" style={{ fontSize: 11 }}>
                         <span style={{ color: "var(--w3)" }}>{k}:</span>&nbsp;{v}
                       </span>

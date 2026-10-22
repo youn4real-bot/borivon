@@ -154,3 +154,27 @@ describe("pictograms", () => {
     expect(REASON_ICONS.length).toBe(REASONS.length);
   });
 });
+
+describe("admin lead summary", () => {
+  it("turns a roadmap lead's nested details into plain text chips", async () => {
+    const { roadmapLeadChips, plainDetailChips } = await import("../lib/roadmap/leadSummary");
+    const details = {
+      source: "roadmap", lang: "de", facility: "Haus", city: "Köln", role: "PDL", heardFrom: "linkedin",
+      answers: { facilityType: "care_home", staff: 60, openPosts: 6, leftLastYear: 9, agency: "high", foreign: "never", onboarding: ["mentor", "german"], pain: "agency" },
+      result: { level: 2, score: 41, bottleneck: "agency", totalYear: 1683000 },
+      consent: { tipsAsked: true, confirmedAt: "2026-10-22T10:00:00Z" }, seq: { step: 1 }, unsubscribedAt: null,
+    };
+    const chips = roadmapLeadChips(details, "de");
+    for (const c of chips) { expect(typeof c.k).toBe("string"); expect(typeof c.v).toBe("string"); }
+    const v = Object.fromEntries(chips.map((c) => [c.k, c.v]));
+    expect(v.Stufe).toBe("2 · Lückenfüller");
+    expect(v["Verlust/Jahr"]).toBe("1.683.000 €");
+    expect(v.Personal).toBe("60 · 6 offen · 9 gegangen");
+    expect(v.Tipps).toBe("bestätigt · 1/4 Mails");
+    expect(roadmapLeadChips(null, "en").length).toBeGreaterThan(0);
+    expect(roadmapLeadChips(JSON.stringify(details), "de")).toEqual(chips);
+    expect(roadmapLeadChips({ answers: "garbage", result: 5 }, "fr").every((c) => typeof c.v === "string")).toBe(true);
+    // generic leads never pass an object through to React
+    expect(plainDetailChips({ a: "x", b: { c: 1 }, d: "", e: 3 })).toEqual([{ k: "a", v: "x" }, { k: "e", v: "3" }]);
+  });
+});
