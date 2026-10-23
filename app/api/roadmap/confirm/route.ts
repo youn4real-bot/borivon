@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { verifyLeadToken } from "@/lib/roadmap/token";
 import { parseDetails } from "@/lib/roadmap/leadState";
 import { linkPage } from "@/lib/roadmap/linkPage";
+import { setListSubscribed } from "@/lib/roadmap/resendList";
 
 /**
  * /api/roadmap/confirm?id=&t= — the double opt-in from the delivery mail.
@@ -27,11 +28,11 @@ async function load(req: NextRequest) {
   const t = req.nextUrl.searchParams.get("t") ?? "";
   if (!(await verifyLeadToken("confirm", id, t))) return null;
   const db = getServiceSupabase();
-  const { data, error } = await db.from("leads").select("id,details").eq("id", id).eq("kind", "roadmap").maybeSingle();
+  const { data, error } = await db.from("leads").select("id,email,details").eq("id", id).eq("kind", "roadmap").maybeSingle();
   if (error || !data) return null;
   const d = parseDetails((data as { details: unknown }).details);
   const lang = (d.lang === "fr" || d.lang === "en" ? d.lang : "de") as keyof typeof TXT;
-  return { id, d, lang, db };
+  return { id, d, lang, db, email: String((data as { email?: unknown }).email ?? "") };
 }
 
 export async function GET(req: NextRequest) {
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest) {
     const next = { ...x.d, consent: { ...(x.d.consent ?? {}), tipsAsked: true, confirmedAt: new Date().toISOString() } };
     const { error } = await x.db.from("leads").update({ details: next }).eq("id", x.id);
     if (error) return linkPage(x.lang, "…", x.lang === "de" ? "Kurzer Fehler. Bitte noch einmal klicken." : x.lang === "fr" ? "Petite erreur. Merci de réessayer." : "Small error. Please click again.", 500, { label: T.btn });
+    // double opt-in done: now (and only now) subscribed on the Resend list
+    if (x.email) { const r = await setListSubscribed(x.email, true); if (!r.ok) console.error("[roadmap] list subscribe failed:", r.status ?? "no key/network"); }
   }
   return linkPage(x.lang, T.done[0], T.done[1]);
 }

@@ -178,3 +178,53 @@ describe("admin lead summary", () => {
     expect(plainDetailChips({ a: "x", b: { c: 1 }, d: "", e: 3 })).toEqual([{ k: "a", v: "x" }, { k: "e", v: "3" }]);
   });
 });
+
+describe("business email only", () => {
+  it("refuses free mailbox providers, accepts company domains", async () => {
+    const { isFreeMail } = await import("../lib/roadmap/freeMail");
+    for (const m of ["youness@gmail.com", "A@GMX.DE", "x@web.de", "x@t-online.de", "x@outlook.fr", "x@orange.fr", "x@icloud.com", " x@yahoo.com "]) expect(isFreeMail(m)).toBe(true);
+    for (const m of ["pdl@seniorenzentrum-am-park.de", "hr@charite.de", "contact@borivon.com", "not-an-email"]) expect(isFreeMail(m)).toBe(false);
+  });
+  it("the page uses the very same list as the server", async () => {
+    const { readFileSync } = await import("fs");
+    const { FREE_MAIL_DOMAINS } = await import("../lib/roadmap/freeMail");
+    const page = readFileSync("content/pflege/fahrplan.html", "utf8");
+    const m = page.match(/var FREE = (\[[^\]]*\]);/);
+    expect(m).toBeTruthy();
+    expect(JSON.parse(m![1])).toEqual([...FREE_MAIL_DOMAINS]);
+  });
+});
+
+describe("email list (Resend contacts)", () => {
+  const calls: { url: string; method: string; body: Record<string, unknown> }[] = [];
+  const fake = (statuses: number[]) => (async (url: string, init: RequestInit) => {
+    calls.push({ url, method: String(init.method), body: JSON.parse(String(init.body)) });
+    return new Response("{}", { status: statuses.shift() ?? 200 });
+  }) as unknown as typeof fetch;
+  it("adds every lead as NOT subscribed and never re-unsubscribes an existing contact", async () => {
+    process.env.RESEND_API_KEY = "re_test_key";
+    const { addLeadToList } = await import("../lib/roadmap/resendList");
+    calls.length = 0;
+    expect((await addLeadToList({ email: "pdl@haus.de", firstName: "Anna" }, fake([200]))).ok).toBe(true);
+    expect(calls[0]).toMatchObject({ url: "https://api.resend.com/contacts", method: "POST", body: { email: "pdl@haus.de", first_name: "Anna", unsubscribed: true } });
+    calls.length = 0;
+    await addLeadToList({ email: "pdl@haus.de", firstName: "Anna" }, fake([409, 200]));
+    expect(calls[1].method).toBe("PATCH");
+    expect(calls[1].body).toEqual({ first_name: "Anna" }); // subscription untouched
+  });
+  it("confirm subscribes, unsubscribe unsubscribes, a missing contact is created in the right state", async () => {
+    const { setListSubscribed } = await import("../lib/roadmap/resendList");
+    calls.length = 0;
+    await setListSubscribed("pdl@haus.de", true, fake([200]));
+    expect(calls[0]).toMatchObject({ method: "PATCH", url: "https://api.resend.com/contacts/pdl%40haus.de", body: { unsubscribed: false } });
+    calls.length = 0;
+    await setListSubscribed("pdl@haus.de", false, fake([404, 200]));
+    expect(calls.map((c) => c.method)).toEqual(["PATCH", "POST"]);
+    expect(calls[1].body).toEqual({ email: "pdl@haus.de", unsubscribed: true });
+  });
+  it("does nothing without a key and never throws", async () => {
+    delete process.env.RESEND_API_KEY;
+    const { addLeadToList } = await import("../lib/roadmap/resendList");
+    expect((await addLeadToList({ email: "x@haus.de" }, fake([500]))).ok).toBe(false);
+  });
+});

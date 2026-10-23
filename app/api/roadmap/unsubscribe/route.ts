@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { verifyLeadToken } from "@/lib/roadmap/token";
 import { parseDetails } from "@/lib/roadmap/leadState";
 import { linkPage } from "@/lib/roadmap/linkPage";
+import { setListSubscribed } from "@/lib/roadmap/resendList";
 
 /**
  * Unsubscribe from the Fahrplan tips. GET = the link in the mail; POST = the
@@ -17,7 +18,7 @@ async function unsubscribe(req: NextRequest): Promise<{ ok: boolean; lang: strin
   const t = req.nextUrl.searchParams.get("t") ?? "";
   if (!(await verifyLeadToken("unsub", id, t))) return { ok: false, lang: "de" };
   const db = getServiceSupabase();
-  const { data } = await db.from("leads").select("id,details").eq("id", id).eq("kind", "roadmap").maybeSingle();
+  const { data } = await db.from("leads").select("id,email,details").eq("id", id).eq("kind", "roadmap").maybeSingle();
   if (!data) return { ok: false, lang: "de" };
   const d = parseDetails((data as { details: unknown }).details);
   const lang = d.lang === "fr" || d.lang === "en" ? d.lang : "de";
@@ -25,6 +26,9 @@ async function unsubscribe(req: NextRequest): Promise<{ ok: boolean; lang: strin
     const { error } = await db.from("leads").update({ details: { ...d, unsubscribedAt: new Date().toISOString() } }).eq("id", id);
     if (error) return { ok: false, lang };
   }
+  // also off the Resend list (idempotent: safe on a second click)
+  const email = String((data as { email?: unknown }).email ?? "");
+  if (email) { const r = await setListSubscribed(email, false); if (!r.ok) console.error("[roadmap] list unsubscribe failed:", r.status ?? "no key/network"); }
   return { ok: true, lang };
 }
 

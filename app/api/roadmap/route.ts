@@ -7,9 +7,9 @@ import { sendRoadmapDeliveryEmail } from "@/lib/email";
 import { scoreRoadmap, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
 import { renderRoadmapPdf, formatEuro } from "@/lib/roadmap/pdf";
 import { deliveryMail } from "@/lib/roadmap/emails";
-import { LEVELS, BOTTLENECK, CLIMB, PLAN_90, REASONS, pick, LANGS, type Lang } from "@/lib/roadmap/content";
-import { STAGES } from "@/lib/roadmap/stages";
-import { iconSvg, REASON_ICONS, type IconName } from "@/lib/roadmap/icons";
+import { LEVELS, BOTTLENECK, pick, LANGS, type Lang } from "@/lib/roadmap/content";
+import { isFreeMail } from "@/lib/roadmap/freeMail";
+import { addLeadToList } from "@/lib/roadmap/resendList";
 import type { Level } from "@/lib/roadmap/score";
 import { signLeadToken, tokensEnabled } from "@/lib/roadmap/token";
 import { keepAlive } from "@/lib/keepAlive";
@@ -26,6 +26,12 @@ import { keepAlive } from "@/lib/keepAlive";
  * measured on Workers, rendering the PDF took 4-10 s per request, and the
  * visitor was staring at "sending…" for all of it. The lead is saved first, so
  * a failed mail is never a lost lead, and Telegram says when the mail failed.
+ *
+ * The plan itself is ONLY delivered by email (founder, 2026-10-23): the
+ * response carries the level and the ladder for the "you are at" screen, never
+ * the plan, the numbers or the PDF. Business emails only (lib/roadmap/
+ * freeMail.ts), and the privacy box must be ticked (consent: true); both are
+ * checked here as well as in the page.
  *
  * The follow-up series needs BOTH the ticked box AND a click on the confirm link
  * in this mail (double opt-in) — see /api/roadmap/confirm and the cron.
@@ -51,6 +57,8 @@ export async function POST(req: NextRequest) {
   const lang: Lang = LANGS.includes(body.lang as Lang) ? (body.lang as Lang) : "de";
   const email = S(body.email, 254).toLowerCase();
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "invalid_email" }, { status: 400 });
+  if (isFreeMail(email)) return NextResponse.json({ error: "business_email" }, { status: 400 });
+  if (body.consent !== true) return NextResponse.json({ error: "consent_required" }, { status: 400 });
   const firstName = S(body.firstName, 60);
   const lastName = S(body.lastName, 80);
   const city = S(body.city, 80);
@@ -70,7 +78,8 @@ export async function POST(req: NextRequest) {
     lang, facility, city, role, firstName, lastName, heardFrom,
     answers,
     result: { level: result.level, score: result.score, bottleneck: result.bottleneck, openCostMonth: result.openCostMonth, turnoverCostYear: result.turnoverCostYear, totalYear: result.totalYear },
-    consent: { tipsAsked: wantsTips, askedAt: new Date().toISOString(), confirmedAt: null as string | null },
+    // privacyAcceptedAt = proof the required box was ticked (Art. 7(1) GDPR)
+    consent: { privacyAcceptedAt: new Date().toISOString(), tipsAsked: wantsTips, askedAt: new Date().toISOString(), confirmedAt: null as string | null },
     seq: { step: 0, lastSentAt: null as string | null },
     unsubscribedAt: null as string | null,
   };
@@ -97,6 +106,10 @@ export async function POST(req: NextRequest) {
       const fname = (lang === "de" ? "Pflege-Fahrplan" : lang === "fr" ? "Plan-infirmier" : "Nurse-staffing-roadmap") + "-Borivon.pdf";
       emailed = await sendRoadmapDeliveryEmail({ to: email, subject: m.subject, html: m.html, text: m.text, pdf, filename: fname });
     } catch (e) { console.error("[roadmap] pdf/email failed:", e instanceof Error ? e.message : e); }
+
+    // the email list (Resend contacts): on the list, not subscribed until double opt-in
+    const listed = await addLeadToList({ email, firstName, lastName });
+    if (!listed.ok) console.error("[roadmap] email list add failed:", listed.status ?? "no key/network");
 
     const tgChat = (process.env.TELEGRAM_CHAT_ID || "").trim();
     if (tgChat) {
@@ -126,30 +139,11 @@ export async function POST(req: NextRequest) {
     emailed: true, // queued; a failure shows up on Telegram
     result: {
       level: result.level,
-      score: result.score,
       levelName: pick(LEVELS[result.level].name, lang),
       levelLine: pick(LEVELS[result.level].line, lang),
-      bottleneck: pick(BOTTLENECK[result.bottleneck].t, lang),
-      openCostMonth: result.openCostMonth,
-      openCostYear: result.openCostYear,
-      turnoverCostYear: result.turnoverCostYear,
-      totalYear: result.totalYear,
-      perNurseMonth: result.perNurseMonth,
     },
     ladder: ([result.level - 1, result.level, result.level + 1] as number[])
       .filter((l) => l >= 1 && l <= 5)
       .map((l) => ({ level: l, name: pick(LEVELS[l as Level].name, lang), line: pick(LEVELS[l as Level].line, lang), current: l === result.level })),
-    plan: {
-      goal: pick(CLIMB[result.level].goal, lang),
-      steps: CLIMB[result.level].steps.map((st) => ({ t: pick(st.t, lang), d: pick(st.d, lang) })),
-      trap: pick(LEVELS[result.level].trap, lang),
-      bottleneckTitle: pick(BOTTLENECK[result.bottleneck].t, lang),
-      bottleneckText: pick(BOTTLENECK[result.bottleneck].d, lang),
-    },
-    stage: { bottom: pick(STAGES[result.level].bottom, lang), gradBy: pick(STAGES[result.level].gradBy, lang) },
-    plan90: PLAN_90.map((b) => ({ when: pick(b.when, lang), items: b.items.map((it) => pick(it, lang)) })),
-    reasons: REASONS.map((r, i) => ({ why: pick(r.why, lang), fix: pick(r.fix, lang), icon: REASON_ICONS[i] })),
-    // the same drawings as the PDF (lib/roadmap/icons.ts), as inline SVG
-    icons: Object.fromEntries((["bed", "door", "heart", "target", "warning", "calendar", "chat", ...REASON_ICONS] as IconName[]).map((n) => [n, iconSvg(n)])),
   });
 }
