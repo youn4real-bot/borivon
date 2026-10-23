@@ -200,5 +200,14 @@ export function pdfLoadOptions(src: string) {
     wasmUrl: `${origin}/pdfjs/wasm/`,
     useSystemFonts: false,
     isOffscreenCanvasSupported: false,
+    // Hardening against malicious uploads (CVE-2026-16633, pdf.js 5.6.83 to
+    // 6.2.107: a crafted PDF runs JavaScript on our origin through PDF scripting
+    // or the XFA form layer). We render pages to canvas + a text layer only and
+    // never load the scripting sandbox, so neither path is reachable here; these
+    // keep it that way if a viewer feature is ever added, and stop pdf.js from
+    // compiling font code with eval. The real fix is pdf.js >= 6.2.108, which
+    // needs an iPhone test pass (this file's legacy-build rescues).
+    enableXfa: false,
+    isEvalSupported: false,
   };
 }

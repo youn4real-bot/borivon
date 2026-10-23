@@ -43,8 +43,16 @@ export function middleware(req: NextRequest) {
       !pathname.startsWith("/_next") &&
       !pathname.startsWith("/r/")
     ) {
+      // Only "/" and "/<dashboard token>" exist here (lib/affiliates.ts:
+      // 43-char base64url). Everything else used to be rewritten to the
+      // dashboard too and answered 200, so scanners asking for /.env or
+      // /phpinfo.php looked like hits in the logs. Now they get a plain 404.
+      const seg = pathname.replace(/^\/+|\/+$/g, "");
+      if (seg && !/^[A-Za-z0-9_-]{40,64}$/.test(seg)) {
+        return new NextResponse("Not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+      }
       const url = req.nextUrl.clone();
-      url.pathname = pathname === "/" ? "/affiliate" : `/affiliate${pathname}`;
+      url.pathname = seg ? `/affiliate/${seg}` : "/affiliate";
       return NextResponse.rewrite(url);
     }
     return NextResponse.next();
