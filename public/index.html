@@ -309,6 +309,10 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
 .contact { font-family: var(--font-mono); font-size: var(--step--1); color: var(--muted); user-select: all; }
 
 .micro { margin-top: 12px; font-size: 0.8rem; color: var(--muted); }
+/* Hormozi-style announcement: the free Fahrplan, one tap from the headline */
+.announce { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; margin: 0 0 18px; padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--line-gold); background: rgba(201,162,64,0.08); color: var(--fg); font-size: 0.84rem; line-height: 1.35; text-decoration: none; transition: border-color .2s, background .2s; }
+.announce:hover { border-color: var(--gold); background: rgba(201,162,64,0.14); }
+.announce b { flex: none; padding: 3px 10px; border-radius: 999px; background: var(--gold); color: #131312; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .price-call { font-size: var(--step-0); color: var(--fg); max-width: 38em; }
 .get { font-size: var(--step-0); max-width: 44em; }
 footer { padding-block: 40px 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
@@ -840,6 +844,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
     <div class="hero-glow" id="hero-glow" aria-hidden="true"></div>
     <div class="wrap hero-grid">
       <div>
+        <a class="announce h-in" href="/fahrplan" data-th="announce"><b>Neu</b> Kostenloser Pflege-Fahrplan: Wo steht Ihr Haus? →</a>
         <p class="eyebrow h-in" data-t="hero_eyebrow">Für Kliniken, Altenheime und ambulante Pflegedienste</p>
         <h1>
           <span class="mask"><span class="line" data-t="h1_1">Pflegefachkräfte,</span></span>
@@ -1158,6 +1163,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       nav_voices: "Stimmen",
       nav_portal: "Portal",
       nav_roadmap: "Gratis-Fahrplan",
+      announce: "<b>Neu</b> Kostenloser Pflege-Fahrplan: Wo steht Ihr Haus? →",
       cta_roadmap: "Wo steht Ihr Haus? Kostenloser Fahrplan in 60 Sekunden →",
       cta_short: "Gespräch buchen",
       hero_eyebrow: "Für Kliniken und Pflegeheime · keine Agentur",
@@ -1410,6 +1416,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       nav_voices: "Voices",
       nav_portal: "Portal",
       nav_roadmap: "Free roadmap",
+      announce: "<b>New</b> Free nurse staffing roadmap: where does your facility stand? →",
       cta_roadmap: "Where does your facility stand? Free roadmap in 60 seconds →",
       cta_short: "Book a call",
       hero_eyebrow: "For hospitals and care homes · not an agency",
@@ -1662,6 +1669,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
       nav_voices: "Témoignages",
       nav_portal: "Portail",
       nav_roadmap: "Plan gratuit",
+      announce: "<b>Nouveau</b> Plan infirmier gratuit : où en est votre établissement ? →",
       cta_roadmap: "Où en est votre établissement ? Plan gratuit en 60 secondes →",
       cta_short: "Appel gratuit",
       hero_eyebrow: "Pour cliniques et EHPAD · pas une agence",

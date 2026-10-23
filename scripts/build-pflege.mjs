@@ -82,7 +82,7 @@ const HOME_LD = JSON.stringify({
   areaServed: ["DE"],
   availableLanguage: ["German", "French", "English", "Arabic"],
 });
-function head(title, description, canonical) {
+function head(title, description, canonical, image = "https://www.borivon.com/pflege/assets/nurse.jpg") {
   return `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${title}</title>
@@ -93,7 +93,11 @@ function head(title, description, canonical) {
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
 <meta property="og:url" content="${canonical}">
-<meta property="og:image" content="https://www.borivon.com/pflege/assets/nurse.jpg">
+<meta property="og:image" content="${image}">${image.endsWith("fahrplan-og.png") ? `
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${image}">` : ""}
 <meta name="theme-color" content="#0e0e10">
 ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json">${HOME_LD}</script>
 ` : ""}<style>${FONTS}</style>
@@ -145,7 +149,7 @@ ${s.slice(cut).trim()}
   let s = fs.readFileSync(path.join(SRC, "fahrplan.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in fahrplan.html"); }
-  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in 60 Sekunden: Ihre Stufe, was leere Stellen und Kündigungen Sie kosten, und Ihr Plan, damit Pflegekräfte bleiben. Als PDF per E-Mail.", "https://www.borivon.com/fahrplan") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in 60 Sekunden: Ihre Stufe, was leere Stellen und Kündigungen Sie kosten, und Ihr Plan, damit Pflegekräfte bleiben. Als PDF per E-Mail.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/fahrplan-og.png") + s.slice(i + "<!--HEAD-->".length);
   pages.FAHRPLAN_HTML = s;
 }
 
