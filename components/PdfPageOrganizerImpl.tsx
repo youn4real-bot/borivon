@@ -51,7 +51,7 @@ import { SortableContext, arrayMove, useSortable, rectSortingStrategy } from "@d
 import { CSS } from "@dnd-kit/utilities";
 import { RotateCw, Trash2, Undo2, X as XIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
-import { currentPdfEngine, loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
+import { currentPdfEngine, destroyPdfDocument, loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
 import { isIOSDevice } from "@/lib/platform";
 import { isPassportFileType } from "@/lib/passportFile";
 import {
@@ -223,6 +223,10 @@ export function PdfPageOrganizer({
       let url = "";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let pdf: any = null;
+      // The loading task owns teardown in pdf.js 6 (doc.destroy() is gone).
+      // Kept separately so a document that never opened — a locked scan, a
+      // broken file — still releases its worker instead of leaking it.
+      let task: { destroy(): Promise<void> } | null = null;
       try {
         // Was `if (!res.ok) throw …` followed by a bare `res.blob()`. The status
         // check was there, but nothing looked at the BODY — so a route that
@@ -236,12 +240,14 @@ export function PdfPageOrganizer({
         const pdfjsLib = await loadPdfjs();
 
         stage = "read";
-        pdf = await pdfjsLib.getDocument(pdfLoadOptions(url)).promise;
+        const loading = pdfjsLib.getDocument(pdfLoadOptions(url));
+        task = loading;
+        pdf = await loading.promise;
         // Was a bare `return`, which left this document and its blob URL alive:
         // docRef had not been assigned yet, so the cleanup below had nothing to
         // destroy and a closed window leaked the whole decoded PDF.
         if (cancelled.current) {
-          try { pdf?.destroy?.(); } catch { /* already gone */ }
+          destroyPdfDocument(pdf);
           URL.revokeObjectURL(url);
           return;
         }
@@ -286,7 +292,7 @@ export function PdfPageOrganizer({
           setLoading(false); setScanning(0);
         }
         // Nothing to keep open: the document never got far enough to be read.
-        try { pdf?.destroy?.(); } catch { /* already gone */ }
+        try { task?.destroy().catch(() => { /* already gone */ }); } catch { /* already gone */ }
         if (url) URL.revokeObjectURL(url);
       }
     })();
@@ -295,7 +301,7 @@ export function PdfPageOrganizer({
       // Destroy the document (this is also what frees pdf.js's worker-global
       // image cache — page.cleanup() never touches that one), then the canvas
       // backing store, then the blob.
-      try { docRef.current?.destroy?.(); } catch { /* already gone */ }
+      destroyPdfDocument(docRef.current);
       docRef.current = null;
       const c = canvasRef.current;
       if (c) { c.width = 0; c.height = 0; canvasRef.current = null; }

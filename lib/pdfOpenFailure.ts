@@ -21,7 +21,8 @@ export type PdfOpenStage = "fetch" | "engine" | "read";
 export type PdfOpenFailure = "fetch" | "engine" | "memory" | "locked" | "read";
 
 /**
- * Error names read out of the INSTALLED pdfjs-dist 5.7.284, not remembered.
+ * Error names read out of the INSTALLED pdfjs-dist (5.7.284, re-checked
+ * unchanged in 6.4.299), not remembered.
  * `BaseException` is `function BaseException(message, name) { this.message =
  * message; this.name = name; }`, and each subclass passes its own class name —
  * so `err.name` is reliable even after the bundle is minified.

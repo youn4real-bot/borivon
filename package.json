@@ -78,7 +78,7 @@
     "nextjs-toploader": "^3.9.17",
     "nodemailer": "^10.2.1",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.4.299",
     "postcss": "^8.5.31",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
