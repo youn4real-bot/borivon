@@ -15,6 +15,10 @@ export type RoadmapDetails = {
   consent?: { tipsAsked?: boolean; confirmedAt?: string | null };
   seq?: { step?: number; lastSentAt?: string | null };
   unsubscribedAt?: string | null;
+  /** last state written to the Resend list (daily job) */
+  list?: { state?: "subscribed" | "unsubscribed"; at?: string };
+  /** set when the 12-month retention wiped the personal data */
+  anonymizedAt?: string;
   [k: string]: unknown;
 };
 
@@ -38,4 +42,49 @@ export function dueFollowup(d: RoadmapDetails, now: Date): number | null {
   const last = d.seq?.lastSentAt ? Date.parse(d.seq.lastSentAt) : NaN;
   if (Number.isFinite(last) && now.getTime() - last < 20 * 3_600_000) return null;
   return step;
+}
+
+// ── the Resend email list (lib/roadmap/resendList.ts) ────────────────────────
+export type ListState = "subscribed" | "unsubscribed";
+
+/** Where this lead SHOULD be on the list: subscribed only after the double opt-in. */
+export function wantedListState(d: RoadmapDetails): ListState {
+  return d.consent?.tipsAsked && d.consent?.confirmedAt && !d.unsubscribedAt ? "subscribed" : "unsubscribed";
+}
+
+/** True when the list does not (provably) match the lead yet: the daily job then syncs it. */
+export function needsListSync(d: RoadmapDetails): boolean {
+  if (d.anonymizedAt) return false;
+  const list = d.list as { state?: string } | undefined;
+  return list?.state !== wantedListState(d);
+}
+
+// ── retention (privacy policy section 11: like contact-form data, 12 months) ─
+export const RETENTION_DAYS = 365;
+
+/** Last time this lead did anything: submitted, confirmed, got a mail, unsubscribed. */
+export function lastActivity(d: RoadmapDetails, createdAt: string): number {
+  const ts = [createdAt, d.consent?.confirmedAt, d.seq?.lastSentAt, d.unsubscribedAt]
+    .map((x) => (x ? Date.parse(String(x)) : NaN))
+    .filter(Number.isFinite);
+  return ts.length ? Math.max(...ts) : NaN;
+}
+
+/** Older than RETENTION_DAYS since the last activity, and not anonymized yet. */
+export function isExpired(d: RoadmapDetails, createdAt: string, now: Date): boolean {
+  if (d.anonymizedAt) return false;
+  const last = lastActivity(d, createdAt);
+  return Number.isFinite(last) && now.getTime() - last > RETENTION_DAYS * 86_400_000;
+}
+
+/**
+ * What stays after anonymizing: the numbers (level, answers) for statistics,
+ * nothing that points to a person or a house.
+ */
+export function anonymizedDetails(d: RoadmapDetails, now: Date): RoadmapDetails {
+  return {
+    source: d.source, lang: d.lang,
+    answers: d.answers, result: d.result,
+    anonymizedAt: now.toISOString(),
+  };
 }

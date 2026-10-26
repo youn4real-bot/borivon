@@ -52,3 +52,30 @@ export async function setListSubscribed(email: string, subscribed: boolean, fetc
   // not on the list yet (e.g. a lead from before the list existed): add them in the right state
   return call(API, "POST", { email, unsubscribed: !subscribed }, fetchImpl);
 }
+
+/** Retention: take an anonymized lead off the list for good (404 = already gone = fine). */
+export async function removeFromList(email: string, fetchImpl: typeof fetch = fetch): Promise<Result> {
+  const h = headers();
+  if (!h) return { ok: false };
+  try {
+    const r = await fetchImpl(`${API}/${encodeURIComponent(email)}`, { method: "DELETE", headers: h, signal: AbortSignal.timeout(8_000) });
+    return { ok: r.ok || r.status === 404, status: r.status };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Can this key manage contacts at all? (A "sending access" Resend key cannot:
+ * 401/403.) Read-only: lists at most one contact.
+ */
+export async function listAccess(fetchImpl: typeof fetch = fetch): Promise<Result> {
+  const h = headers();
+  if (!h) return { ok: false };
+  try {
+    const r = await fetchImpl(`${API}?limit=1`, { method: "GET", headers: h, signal: AbortSignal.timeout(8_000) });
+    return { ok: r.ok, status: r.status };
+  } catch {
+    return { ok: false };
+  }
+}

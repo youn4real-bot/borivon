@@ -228,3 +228,29 @@ describe("email list (Resend contacts)", () => {
     expect((await addLeadToList({ email: "x@haus.de" }, fake([500]))).ok).toBe(false);
   });
 });
+
+describe("list sync + 12-month retention", () => {
+  it("subscribes only after ticked tips + confirm, and never after an unsubscribe", async () => {
+    const { wantedListState, needsListSync } = await import("../lib/roadmap/leadState");
+    expect(wantedListState({})).toBe("unsubscribed");
+    expect(wantedListState({ consent: { tipsAsked: true, confirmedAt: null } })).toBe("unsubscribed");
+    expect(wantedListState({ consent: { tipsAsked: true, confirmedAt: "2026-10-01T00:00:00Z" } })).toBe("subscribed");
+    expect(wantedListState({ consent: { tipsAsked: true, confirmedAt: "2026-10-01T00:00:00Z" }, unsubscribedAt: "2026-10-05T00:00:00Z" })).toBe("unsubscribed");
+    expect(needsListSync({})).toBe(true);
+    expect(needsListSync({ list: { state: "unsubscribed" } })).toBe(false);
+    expect(needsListSync({ list: { state: "unsubscribed" }, consent: { tipsAsked: true, confirmedAt: "2026-10-01T00:00:00Z" } })).toBe(true);
+    expect(needsListSync({ anonymizedAt: "2027-11-01T00:00:00Z" })).toBe(false);
+  });
+  it("anonymizes only after 12 months without ANY activity, and keeps just the numbers", async () => {
+    const { isExpired, anonymizedDetails } = await import("../lib/roadmap/leadState");
+    const created = "2026-10-26T10:00:00Z";
+    const d = { source: "roadmap", lang: "de", firstName: "Anna", facility: "Haus", answers: { staff: 40 }, result: { level: 2 }, consent: { tipsAsked: true, confirmedAt: "2026-10-27T10:00:00Z" }, seq: { step: 4, lastSentAt: "2026-11-10T10:00:00Z" } };
+    expect(isExpired(d, created, new Date("2027-10-01T00:00:00Z"))).toBe(false);
+    expect(isExpired(d, created, new Date("2027-11-09T00:00:00Z"))).toBe(false); // last mail 2026-11-10
+    expect(isExpired(d, created, new Date("2027-11-12T00:00:00Z"))).toBe(true);
+    expect(isExpired({ ...d, anonymizedAt: "2027-11-12T00:00:00Z" }, created, new Date("2028-01-01T00:00:00Z"))).toBe(false);
+    const a = anonymizedDetails(d, new Date("2027-11-12T00:00:00Z"));
+    expect(a).toEqual({ source: "roadmap", lang: "de", answers: { staff: 40 }, result: { level: 2 }, anonymizedAt: "2027-11-12T00:00:00.000Z" });
+    expect(JSON.stringify(a)).not.toMatch(/Anna|Haus/);
+  });
+});
