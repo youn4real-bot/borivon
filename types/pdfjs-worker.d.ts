@@ -1,6 +1,6 @@
 /**
  * The pdf.js WORKER bundle ships no type declarations beside it — pdfjs-dist
- * 5.7.284 has `legacy/build/pdf.d.mts` for the library and nothing at all for
+ * (5.7.284 and 6.4.299 alike) has `legacy/build/pdf.d.mts` for the library and nothing at all for
  * `legacy/build/pdf.worker.min.mjs`.
  *
  * lib/pdfjs.ts imports that worker as a MODULE on purpose: on browsers where

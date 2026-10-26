@@ -19,7 +19,7 @@
  *    not a memory lever, and nobody should shrink them further expecting one.
  *
  *  • Those bytes hang off the PAGE, in `page.objs`. Read in the installed
- *    pdfjs-dist 5.7.284: `PDFPageProxy.cleanup()` clears `_intentStates` and
+ *    pdfjs-dist (5.7.284, unchanged in 6.4.299): `PDFPageProxy.cleanup()` clears `_intentStates` and
  *    `objs`, which is where the decoded images land. Hold every page proxy and
  *    the cost SUMS down the document; release each page the moment its
  *    thumbnail is drawn and the peak becomes the worst SINGLE page instead.

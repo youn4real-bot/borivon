@@ -32,39 +32,71 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // WHICH BUILD — always `legacy/`, never `pdfjs-dist` (the default entry).
 //
-// This is the fix for "Could not open this PDF." on an iPhone. Read out of the
-// INSTALLED pdfjs-dist 5.7.284 source on 2026-09-19, not remembered:
-//
-//   build/pdf.mjs          uses `Promise.withResolvers()` 26 times and
-//                          polyfills none of them.
-//   legacy/build/pdf.mjs   uses it 30 times and compiles in core-js's
-//                          `es.promise.with-resolvers`.
-//
-// The first use on the open path is a CLASS FIELD:
+// This was the fix for "Could not open this PDF." on an iPhone (2026-09-19).
+// The first use of `Promise.withResolvers()` on the open path is a CLASS FIELD:
 //
 //     class PDFDocumentLoadingTask {
 //       _capability = Promise.withResolvers();   // runs in the constructor
 //
 // `getDocument()` constructs that task before it touches a single byte of the
 // PDF. `Promise.withResolvers` landed in Safari 17.4, so on any iPhone below
-// iOS 17.4 the default build throws `TypeError: Promise.withResolvers is not a
-// function` immediately — one throw, no detail, nothing in the network log.
-// That is exactly the report: a file that opens on every desktop and answers
-// "Could not open this PDF." on a phone.
+// iOS 17.4 it throws `TypeError: Promise.withResolvers is not a function`
+// immediately — one throw, no detail, nothing in the network log.
 //
-// Nothing else in the portal caught it, because THE PAGE ORGANISER IS THE ONLY
-// SURFACE THAT RUNS pdf.js ON A PHONE — every other PDF view sends iOS to the
-// native engine (isIOSDevice -> IosPdfFrame) and never loads this library there.
+// pdfjs-dist 5.7.284's legacy build compiled in core-js's polyfill for it.
+// pdfjs-dist 6 DOES NOT: 6.0 raised the legacy build's floor from Safari 16.4
+// to Safari 18 (PR #21152), and every API Safari 18 has natively left the
+// bundle — `Promise.withResolvers` and `ArrayBuffer.transferToFixedLength`
+// among them. Read out of the INSTALLED 6.4.299 source, not remembered. The
+// legacy build is still the right one (it keeps the other 30-odd core-js
+// polyfills — Iterator helpers, Uint8Array base64, Map.getOrInsert…), but it
+// is no longer enough on its own: lib/pdfjsPolyfills.ts puts the missing two
+// back, and planPdfWorker below keeps any browser that needs them off a real
+// Worker, where those polyfills cannot reach.
+//
+// It is NOT only the page organiser that runs pdf.js on a phone. Most PDF
+// views send iOS to the native engine (isIOSDevice -> IosPdfFrame), but
+// PdfSignModal, PdfZonePicker, PdfFieldFill, PdfNativeFieldFill and
+// AutoFillReviewModal mount PdfViewer with no iOS gate — a candidate signing a
+// form on her iPhone runs this library.
 //
 // The worker code MUST come from the same build: a legacy main thread paired
-// with the default worker puts the un-polyfilled APIs straight back into the
+// with the default worker puts un-polyfilled APIs straight back into the
 // worker, where the failure is even harder to see.
-//
-// Cost: ~60 KB more on a chunk that is lazily loaded anyway.
 // ─────────────────────────────────────────────────────────────────────────────
+
+import { installPdfjsPolyfills, type PdfjsPolyfilledApi } from "@/lib/pdfjsPolyfills";
 
 /** Where the pdf.js worker code runs in this browser. */
 export type PdfWorkerPlan = "module-worker" | "main-thread";
+
+/**
+ * What this browser has NATIVELY. Read BEFORE installPdfjsPolyfills runs (and
+ * before pdf.js is imported, whose core-js defines more globals), because the
+ * polyfills define the very functions being asked about. Afterwards "native or
+ * polyfilled?" cannot be told apart. `readPdfPlatform()` is the only reader.
+ */
+export type PdfPlatform = {
+  /** `typeof Worker === "function"`. */
+  hasWorker: boolean;
+  /** `Promise.withResolvers` — Safari 17.4+, Chrome 119+, Firefox 121+. */
+  withResolvers: boolean;
+  /** `ArrayBuffer.prototype.transferToFixedLength` — Safari 17.4+, Chrome 114+. */
+  transferToFixedLength: boolean;
+};
+
+/** Read the native platform facts. Call it before anything polyfills. */
+export function readPdfPlatform(): PdfPlatform {
+  const P = (typeof Promise !== "undefined" ? Promise : undefined) as
+    (PromiseConstructor & { withResolvers?: unknown }) | undefined;
+  const AB = (typeof ArrayBuffer !== "undefined" ? ArrayBuffer.prototype : undefined) as
+    (ArrayBuffer & { transferToFixedLength?: unknown }) | undefined;
+  return {
+    hasWorker: typeof Worker === "function",
+    withResolvers: typeof P?.withResolvers === "function",
+    transferToFixedLength: typeof AB?.transferToFixedLength === "function",
+  };
+}
 
 /**
  * Decide where pdf.js parses the document. Pure on purpose — the case that
@@ -77,11 +109,17 @@ export type PdfWorkerPlan = "module-worker" | "main-thread";
  * resolved, fetched or MIME-checked. Parsing happens on the UI thread instead:
  * slower, never broken.
  *
- * WHY `URL.parse` DECIDES IT. From the installed source, pdf.js's own worker
- * setup is:
+ * WHY THE TWO POLYFILLED APIS DECIDE IT (pdf.js 6). The worker bundle calls
+ * `Promise.withResolvers()` and `transferToFixedLength()` and polyfills
+ * neither (lib/pdfjsPolyfills.ts). We can only polyfill THIS thread. On the
+ * main-thread plan the worker code runs here, in globals we fixed; in a real
+ * Worker it would run in globals we cannot touch and die on its first font.
+ *
+ * WHY `URL.parse` NO LONGER DECIDES IT (it did until 2026-10). pdf.js's worker
+ * bring-up starts with
  *
  *     this._isSameOrigin = (baseUrl, otherUrl) => {
- *       const base = URL.parse(baseUrl);          // static URL.parse
+ *       const base = URL.parse(baseUrl);          // static URL.parse, Safari 18
  *       ...
  *     };
  *     try {
@@ -91,17 +129,21 @@ export type PdfWorkerPlan = "module-worker" | "main-thread";
  *     } catch { info("The worker has been disabled."); }
  *     this.#setupFakeWorker();
  *
- * `URL.parse` shipped in Safari 18. On iOS 17 it is undefined, so that call
- * THROWS inside the try and pdf.js drops to the main thread by itself — we are
- * not overriding its judgement, we are taking the same branch deliberately.
+ * An earlier version of this rule sent every browser without `URL.parse` to the
+ * main thread, on the belief that this call throws on iOS 17. It does not: the
+ * legacy build bundles core-js's `URL.parse` and runs it at import, in the main
+ * bundle AND the worker bundle (tests/pdfjsWorkerPlan pins that). The old rule
+ * was also read AFTER the import, so it never fired — iOS 16.4–17.x has been
+ * getting a real module worker in production all along. Measured on a WebKit
+ * 17.4 engine (2026-10-23): plain pdf.js 6 with a module worker opens and
+ * draws. Keeping the rule would have pushed iOS 17.4–17.7 onto the slower main
+ * thread, where ICC colour profiles cannot load (pdf.js fetches them with a
+ * synchronous XHR, which browsers allow only inside a Worker), for nothing.
  *
- * The reason to take it deliberately: pdf.js's own recovery is
- * `await import(this.workerSrc)` on the bundler-emitted asset URL, and it
- * stores that promise through `shadow()`. If that import fails once (404, MIME,
- * CSP — none of which is reproducible off an iPhone) the REJECTED promise is
- * cached for the whole page load and every later attempt fails identically.
- * Importing the module ourselves goes through the app's own chunk loader, which
- * that phone has already used to render the page it is looking at.
+ * The main thread does keep one advantage, and it is why "no Worker" still
+ * goes there: pdf.js's own fallback is `await import(workerSrc)` stored through
+ * `shadow()`, so one failed import is cached for the page. Importing the module
+ * ourselves goes through the app's chunk loader instead.
  *
  * ONE THING THE MAIN THREAD NEEDS THAT A WORKER DOES NOT: `structuredClone`.
  * With no real worker there is no `postMessage`, so pdf.js copies every message
@@ -112,15 +154,10 @@ export type PdfWorkerPlan = "module-worker" | "main-thread";
  * same LoopbackPort), so this is never a choice between working and broken; it
  * is recorded in the console diagnostic instead of pretending otherwise.
  */
-export function planPdfWorker(env: {
-  /** `typeof Worker === "function"` in this browser. */
-  hasWorker: boolean;
-  /** `typeof URL.parse === "function"` — Safari 18+, Chrome 126+. */
-  urlParse: boolean;
-}): PdfWorkerPlan {
+export function planPdfWorker(env: PdfPlatform): PdfWorkerPlan {
   if (!env.hasWorker) return "main-thread";
-  // pdf.js would throw in its own same-origin check and fake-worker anyway.
-  if (!env.urlParse) return "main-thread";
+  // A real Worker would not have the polyfills (lib/pdfjsPolyfills.ts).
+  if (!env.withResolvers || !env.transferToFixedLength) return "main-thread";
   return "module-worker";
 }
 
@@ -129,9 +166,15 @@ export type PdfEngineDiagnostic = {
   plan: PdfWorkerPlan;
   /** False on Safari below 15.4, where the main-thread plan cannot work. */
   structuredClone: boolean;
+  /** APIs this page had to polyfill — empty on any current browser. */
+  polyfilled: PdfjsPolyfilledApi[];
 };
 
 let lastDiagnostic: PdfEngineDiagnostic | null = null;
+
+/** The native facts, read once — on the first loadPdfjs(), before any import. */
+let nativePlatform: PdfPlatform | null = null;
+const polyfilledSoFar: PdfjsPolyfilledApi[] = [];
 
 /**
  * The engine decision the last `loadPdfjs()` took. Printed with any organiser
@@ -162,13 +205,22 @@ export function currentPdfEngine(): PdfEngineDiagnostic | null {
  * corrupt PDF.
  */
 export async function loadPdfjs() {
+  // THE ORDER IS THE FIX — read, then polyfill, then import. Our polyfills
+  // define exactly the functions the plan asks about (and pdf.js's core-js
+  // defines more at import), so a platform read taken afterwards would describe
+  // a browser that does not exist — and hand an iOS 16 phone a real Worker
+  // without the polyfills. Read once; every later call reuses it.
+  const native = (nativePlatform ??= readPdfPlatform());
+  for (const name of installPdfjsPolyfills()) polyfilledSoFar.push(name);
+
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-  const plan = planPdfWorker({
-    hasWorker: typeof Worker === "function",
-    urlParse: typeof URL !== "undefined" && typeof URL.parse === "function",
-  });
-  lastDiagnostic = { plan, structuredClone: typeof structuredClone === "function" };
+  const plan = planPdfWorker(native);
+  lastDiagnostic = {
+    plan,
+    structuredClone: typeof structuredClone === "function",
+    polyfilled: [...polyfilledSoFar],
+  };
 
   if (plan === "main-thread") {
     // `globalThis.pdfjsWorker` is the hook pdf.js checks FIRST, so setting it
@@ -200,14 +252,34 @@ export function pdfLoadOptions(src: string) {
     wasmUrl: `${origin}/pdfjs/wasm/`,
     useSystemFonts: false,
     isOffscreenCanvasSupported: false,
-    // Hardening against malicious uploads (CVE-2026-16633, pdf.js 5.6.83 to
-    // 6.2.107: a crafted PDF runs JavaScript on our origin through PDF scripting
-    // or the XFA form layer). We render pages to canvas + a text layer only and
-    // never load the scripting sandbox, so neither path is reachable here; these
-    // keep it that way if a viewer feature is ever added, and stop pdf.js from
-    // compiling font code with eval. The real fix is pdf.js >= 6.2.108, which
-    // needs an iPhone test pass (this file's legacy-build rescues).
+    // Defence in depth against malicious uploads. CVE-2026-16633 (pdf.js
+    // 5.6.83 to 6.2.107: a crafted PDF runs JavaScript on our origin through
+    // PDF scripting) is fixed by the installed 6.4.x. We never reached it
+    // anyway — the hole needs the viewer's `enableScripting` sandbox, and we
+    // only render canvas + a text layer — and these two keep the neighbouring
+    // doors shut: no XFA form layer, and no font code compiled with eval.
     enableXfa: false,
     isEvalSupported: false,
   };
+}
+
+/**
+ * Tear a document down. pdf.js 6 REMOVED `PDFDocumentProxy.destroy()`; the
+ * loading task owns teardown now (`doc.loadingTask.destroy()`), and destroying
+ * it is still what frees the worker-side document and its 50 MB global image
+ * cache (lib/pdfThumbBudget).
+ *
+ * Why a helper and not the one-liner at each call site: the old call shapes
+ * fail in two different silent ways on 6.x. `doc.destroy()` throws a TypeError,
+ * which the viewer's catch classified as "this browser cannot open PDFs";
+ * `doc?.destroy?.()` does nothing at all and leaks every document plus its
+ * worker. This never throws and never leaves a rejection unhandled.
+ */
+export function destroyPdfDocument(
+  doc: { loadingTask?: { destroy(): Promise<void> } } | null | undefined,
+): void {
+  if (!doc) return;
+  try {
+    doc.loadingTask?.destroy().catch(() => { /* already gone */ });
+  } catch { /* the getter can throw once the transport is gone */ }
 }

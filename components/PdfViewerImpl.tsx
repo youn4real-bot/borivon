@@ -32,7 +32,7 @@ import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
 import { getCachedRotation, bumpCachedRotation } from "@/lib/rotationStore";
-import { loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
+import { destroyPdfDocument, loadPdfjs, pdfLoadOptions } from "@/lib/pdfjs";
 import { useLang } from "@/components/LangContext";
 import { classifyOpenError, docFailureMessage, type DocFailureLayer } from "@/lib/documentFetch";
 
@@ -219,8 +219,11 @@ export function PdfViewer({
 
       task.promise
         .then(async (doc: PdfDoc) => {
-          if (cancelled) { doc.destroy(); return; }
-          pdfRef.current?.destroy();
+          // pdf.js 6 has no doc.destroy() — calling it threw a TypeError here,
+          // which the catch below reported as "this browser cannot open PDFs"
+          // on the second document opened in the same modal.
+          if (cancelled) { destroyPdfDocument(doc); return; }
+          destroyPdfDocument(pdfRef.current);
           pdfRef.current = doc;
 
           const sizes: NaturalSize[] = [];
@@ -272,7 +275,7 @@ export function PdfViewer({
     return () => { cancelled = true; destroy?.(); };
   }, [src]);
 
-  useEffect(() => () => { pdfRef.current?.destroy(); }, []);
+  useEffect(() => () => { destroyPdfDocument(pdfRef.current); }, []);
 
   // ── Trackpad pinch / ctrl-scroll zoom ──────────────────────────────────────
   useEffect(() => {

@@ -181,7 +181,10 @@ export function verifyDocumentResponse(
 /**
  * Turn whatever the PDF engine threw into a layer.
  *
- * Error names read out of pdfjs-dist 5.7.284: `BaseException` is
+ * Error names read out of pdfjs-dist 5.7.284 and re-checked in 6.4.299 (where
+ * MissingPDFException and UnexpectedResponseException no longer exist — both
+ * became ResponseException; the old names stay below as harmless spares):
+ * `BaseException` is
  * `function BaseException(message, name) { … }` and each subclass passes its own
  * class name, so `err.name` stays reliable after minification.
  *
