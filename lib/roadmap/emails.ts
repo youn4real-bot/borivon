@@ -10,7 +10,8 @@
 import type { Lang } from "./content";
 import { LEVELS, UI, pick } from "./content";
 import { STAGES } from "./stages";
-import type { RoadmapResult } from "./score";
+import type { RoadmapResult, FacilityType } from "./score";
+import { FACILITY } from "./types";
 import { formatEuro } from "./pdf";
 
 export const BOOK_URL = "https://borivon.com/book/clinic";
@@ -52,12 +53,13 @@ export function deliveryMail(o: { lang: Lang; firstName: string; facility: strin
     de: {
       subject: `Ihr Pflege-Fahrplan (Stufe ${result.level}: ${lvl})`,
       hello: `Hallo ${hi},`,
-      promised: `wie versprochen: Hier ist Ihr persönlicher Pflege-Fahrplan${fac ? ` für ${fac}` : ""}. Das PDF ist im Anhang.`,
+      promised: `wie versprochen: Hier ist Ihr persönlicher Pflege-Fahrplan${fac ? ` für ${fac}` : ""}. Ihr Fahrplan und ein Bonus sind als PDF im Anhang.`,
       insideH: "Darin finden Sie:",
       inside: [
-        "auf welcher der 5 Stufen Ihr Haus steht, und was Sie das im Jahr kostet",
+        "auf welcher der 5 Stufen Ihre Einrichtung steht, und was Sie das im Jahr kostet",
         "was Sie bremst, Bereich für Bereich",
         "Ihren Plan für die nächste Stufe, mit einer 90-Tage-Liste zum Abhaken",
+        "<b>Bonus:</b> den Agentur-Check. 10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen",
       ],
       level: `Sie sind auf Stufe ${result.level} von 5: ${esc(lvl)}.`,
       loss: result.totalYear > 0 ? `Leere Stellen und Kündigungen kosten Sie etwa <b>${loss} im Jahr</b>.` : "",
@@ -66,18 +68,19 @@ export function deliveryMail(o: { lang: Lang; firstName: string; facility: strin
       bye: "Viele Grüße<br>Ihr Borivon-Team",
       confirm: "Sie wollten weitere Tipps per E-Mail. Bitte bestätigen Sie das mit einem Klick:",
       confirmBtn: "Ja, Tipps senden",
-      ps: "P.S. Viele Häuser bleiben auf ihrer Stufe hängen, weil zu viel auf einmal brennt. Wir arbeiten pro Runde mit höchstens 10 Häusern.",
-      psLink: "Prüfen Sie hier, ob Ihr Haus passt.",
+      ps: "P.S. Viele Einrichtungen bleiben auf ihrer Stufe hängen, weil zu viel auf einmal brennt. Wir arbeiten pro Runde mit höchstens 10 Einrichtungen.",
+      psLink: "Prüfen Sie hier, ob Ihre Einrichtung passt.",
     },
     en: {
       subject: `Your nurse staffing roadmap (level ${result.level}: ${lvl})`,
       hello: `Hello ${hi},`,
-      promised: `as promised: here is your personal roadmap${fac ? ` for ${fac}` : ""}. The PDF is attached.`,
+      promised: `as promised: here is your personal roadmap${fac ? ` for ${fac}` : ""}. Your roadmap and a bonus are attached as PDFs.`,
       insideH: "Inside you will find:",
       inside: [
         "which of the 5 levels your facility is on, and what that costs you a year",
         "what holds you back, area by area",
         "your plan for the next level, with a 90-day checklist",
+        "<b>Bonus:</b> the agency check. 10 questions before you bring nurses from abroad",
       ],
       level: `You are on level ${result.level} of 5: ${esc(lvl)}.`,
       loss: result.totalYear > 0 ? `Empty posts and resignations cost you about <b>${loss} a year</b>.` : "",
@@ -92,12 +95,13 @@ export function deliveryMail(o: { lang: Lang; firstName: string; facility: strin
     fr: {
       subject: `Votre plan infirmier (niveau ${result.level} : ${lvl})`,
       hello: `Bonjour ${hi},`,
-      promised: `comme promis : voici votre plan personnel${fac ? ` pour ${fac}` : ""}. Le PDF est en pièce jointe.`,
+      promised: `comme promis : voici votre plan personnel${fac ? ` pour ${fac}` : ""}. Votre plan et un bonus sont en pièces jointes (PDF).`,
       insideH: "Vous y trouverez :",
       inside: [
         "à quel niveau sur 5 se trouve votre établissement, et ce que cela vous coûte par an",
         "ce qui vous freine, domaine par domaine",
         "votre plan pour le niveau suivant, avec une liste de 90 jours à cocher",
+        "<b>Bonus :</b> le check agence. 10 questions avant de faire venir des infirmières de l'étranger",
       ],
       level: `Vous êtes au niveau ${result.level} sur 5 : ${esc(lvl)}.`,
       loss: result.totalYear > 0 ? `Les postes vides et les départs vous coûtent environ <b>${loss} par an</b>.` : "",
@@ -129,7 +133,7 @@ export function deliveryMail(o: { lang: Lang; firstName: string; facility: strin
   const strip = (x: string) => x.replace(/<br>/g, "\n").replace(/<[^>]+>/g, "");
   const text = [
     strip(T.hello), strip(T.promised),
-    T.insideH + "\n" + T.inside.map((x) => "- " + x).join("\n"),
+    T.insideH + "\n" + T.inside.map((x) => "- " + strip(x)).join("\n"),
     `${T.level} ${story}`,
     `${T.loss ? strip(T.loss) + " " : ""}${T.bottom} ${bottom}`,
     T.start,
@@ -141,8 +145,9 @@ export function deliveryMail(o: { lang: Lang; firstName: string; facility: strin
 }
 
 /** Follow-up #n (0-based), sent FOLLOWUP_DAYS[n] days after the confirm click. */
-export function followupMail(n: number, o: { lang: Lang; firstName: string; result: RoadmapResult; unsubscribeUrl: string }): Mail | null {
+export function followupMail(n: number, o: { lang: Lang; firstName: string; result: RoadmapResult; unsubscribeUrl: string; facilityType?: FacilityType }): Mail | null {
   const { lang } = o;
+  const firstWeek = esc(pick(FACILITY[o.facilityType ?? "care_home"].firstWeek, lang));
   const hi = esc(o.firstName || "");
   const per = formatEuro(o.result.perNurseMonth, lang);
   const three = formatEuro(o.result.perNurseMonth * 3, lang);
@@ -152,12 +157,13 @@ export function followupMail(n: number, o: { lang: Lang; firstName: string; resu
         `Hallo ${hi},`,
         "der teuerste Fehler ist nicht ein zu hoher Preis. Es ist die Pflegekraft, die in der Probezeit wieder geht. Dann zahlen Sie alles doppelt: Leihkräfte, Einarbeitung, die Suche.",
         "Stellen Sie jeder Vermittlung drei Fragen: <b>1.</b> Wer prüft ihr Deutsch, und wie? <b>2.</b> Wer macht Anerkennung und Visum? <b>3.</b> Was passiert, wenn sie in der Probezeit geht?",
-        "Wenn die Antworten unklar sind: Finger weg.",
-      ], cta: "Prüfen, ob mein Haus passt" },
+        "Wenn die Antworten unklar sind: Finger weg. Alle 10 Fragen stehen im Agentur-Check aus unserer ersten E-Mail.",
+      ], cta: "Prüfen, ob meine Einrichtung passt" },
       { subject: "Die erste Woche entscheidet", lines: [
         `Hallo ${hi},`,
         "ob eine Pflegekraft bleibt, entscheidet sich oft in der ersten Woche. Drei Dinge machen den Unterschied:",
         "<b>1.</b> Jemand holt sie ab. <b>2.</b> Die Wohnung ist fertig, bevor sie kommt. <b>3.</b> Jeden Tag 10 Minuten: Wie war es heute?",
+        firstWeek,
         "Den ganzen 90-Tage-Plan finden Sie auf Seite 7 Ihres Fahrplans.",
       ], cta: "Fragen? Kurz sprechen" },
       { subject: "So rechnet sich eine Pflegekraft, die bleibt", lines: [
@@ -166,23 +172,24 @@ export function followupMail(n: number, o: { lang: Lang; firstName: string; resu
         `Bei drei Pflegekräften sind das etwa <b>${three} pro Monat</b>. Jeder Monat, den Sie warten, ist Geld, das nicht zurückkommt.`,
         "In 15 Minuten rechnen wir Ihre echten Zahlen aus. Kostenlos.",
       ], cta: "Meine Zahlen ausrechnen" },
-      { subject: "Passt Ihr Haus in die nächste Runde?", lines: [
+      { subject: "Passt Ihre Einrichtung in die nächste Runde?", lines: [
         `Hallo ${hi},`,
         "Sie haben jetzt Ihren Fahrplan. Sie können ihn allein umsetzen, oder mit uns: Sie führen ein Interview, wir machen den Rest, bis die Pflegekraft die Probezeit geschafft hat.",
-        "Wir nehmen pro Runde höchstens 10 Häuser auf, und nicht jedes Haus passt. In 15 Minuten finden wir es gemeinsam heraus.",
-      ], cta: "Prüfen, ob mein Haus passt" },
+        "Wir nehmen pro Runde höchstens 10 Einrichtungen auf, und nicht jede passt. In 15 Minuten finden wir es gemeinsam heraus.",
+      ], cta: "Prüfen, ob meine Einrichtung passt" },
     ],
     en: [
       { subject: "The most expensive mistake with nurses from abroad", lines: [
         `Hello ${hi},`,
         "the most expensive mistake is not a high price. It is the nurse who leaves during probation. Then you pay for everything twice: agency staff, onboarding, the search.",
         "Ask every agency three questions: <b>1.</b> Who checks her German, and how? <b>2.</b> Who does recognition and the visa? <b>3.</b> What happens if she leaves during probation?",
-        "If the answers are unclear: walk away.",
+        "If the answers are unclear: walk away. All 10 questions are in the agency check from our first email.",
       ], cta: "Check if we are a fit" },
       { subject: "The first week decides", lines: [
         `Hello ${hi},`,
         "whether a nurse stays is often decided in the first week. Three things make the difference:",
         "<b>1.</b> Someone picks her up. <b>2.</b> The flat is ready before she arrives. <b>3.</b> 10 minutes every day: how was today?",
+        firstWeek,
         "The full 90-day plan is on page 7 of your roadmap.",
       ], cta: "Questions? Let's talk" },
       { subject: "What a nurse who stays is worth", lines: [
@@ -202,12 +209,13 @@ export function followupMail(n: number, o: { lang: Lang; firstName: string; resu
         `Bonjour ${hi},`,
         "l'erreur la plus chère n'est pas un prix trop élevé. C'est l'infirmière qui part pendant la période d'essai. Vous payez alors tout deux fois : intérim, intégration, recherche.",
         "Posez trois questions à chaque agence : <b>1.</b> Qui vérifie son allemand, et comment ? <b>2.</b> Qui gère la reconnaissance et le visa ? <b>3.</b> Que se passe-t-il si elle part pendant l'essai ?",
-        "Si les réponses sont floues : passez votre chemin.",
+        "Si les réponses sont floues : passez votre chemin. Les 10 questions sont dans le check agence de notre premier e-mail.",
       ], cta: "Vérifier si nous correspondons" },
       { subject: "La première semaine décide", lines: [
         `Bonjour ${hi},`,
         "qu'une infirmière reste se décide souvent la première semaine. Trois choses font la différence :",
         "<b>1.</b> Quelqu'un vient la chercher. <b>2.</b> Le logement est prêt avant son arrivée. <b>3.</b> 10 minutes chaque jour : comment ça s'est passé ?",
+        firstWeek,
         "Le plan complet de 90 jours est à la page 7 de votre plan.",
       ], cta: "Des questions ? Parlons-en" },
       { subject: "Ce que vaut une infirmière qui reste", lines: [

@@ -67,6 +67,10 @@ export const ICONS = {
   star: [b(circle(24, 25, 21)), a("M 24 10 L 27.78 19.8 L 38.27 20.36 L 30.11 26.99 L 32.82 37.14 L 24 31.43 L 15.18 37.14 L 17.89 26.99 L 9.73 20.36 L 20.22 19.8 Z")],
   /** a chat bubble: somebody listens */
   chat: [b(rr(4, 6, 40, 29, 8.5)), b("M 12 33 L 10 43 L 22 34 Z"), a(circle(15, 20.5, 3)), a(circle(24, 20.5, 3)), a(circle(33, 20.5, 3))],
+  /** a hospital with a cross: Krankenhaus / Klinik */
+  hospital: [b(rr(5, 15, 38, 29, 3)), a(rr(16, 2, 16, 16, 3.5)), h(rr(22.5, 4.8, 3, 10.4, 1)), h(rr(18.8, 8.5, 10.4, 3, 1)), h(rr(10, 21, 6, 5, 1)), h(rr(32, 21, 6, 5, 1)), h(rr(10, 30, 6, 5, 1)), h(rr(32, 30, 6, 5, 1)), a(rr(20, 29, 8, 15, 1.5))],
+  /** a care car: ambulanter Pflegedienst */
+  car: [b("M 10 22 L 14.5 11 H 33.5 L 38 22 Z"), b(rr(3, 20, 42, 15, 4.5)), h("M 16.5 20 L 19.2 13.5 H 23 V 20 Z"), h("M 25 13.5 H 28.8 L 31.5 20 H 25 Z"), a(rr(22.5, 22.5, 3, 10, 1)), a(rr(19, 26, 10, 3, 1)), h(circle(13, 35, 7)), b(circle(13, 35, 5.2)), a(circle(13, 35, 2)), h(circle(35, 35, 7)), b(circle(35, 35, 5.2)), a(circle(35, 35, 2))],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;

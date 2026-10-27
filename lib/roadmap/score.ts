@@ -8,11 +8,15 @@
  *   • its own money numbers: what the open posts and the nurses who left cost.
  * Pure on purpose: the page, the PDF, the emails and the tests all use it.
  *
- * The money model is the same as the calculator on borivon.com (one open post =
- * agency/overtime hours + empty beds), so the PDF never contradicts the site.
+ * Only three kinds of Einrichtung (founder, 2026-10-27): Krankenhaus/Klinik,
+ * Altenheim, ambulanter Pflegedienst. Each loses money differently when a nurse
+ * is missing, so each has its own money model (COST_MODEL, sources in
+ * lib/roadmap/types.ts). The borivon.com calculator keeps the generic model
+ * below (COST_PER_OPEN_POST_MONTH).
  */
 
-export type FacilityType = "hospital" | "care_home" | "home_care" | "rehab" | "other";
+export type FacilityType = "hospital" | "care_home" | "home_care";
+export const FACILITY_TYPES: FacilityType[] = ["hospital", "care_home", "home_care"];
 export type AgencyBand = "none" | "low" | "mid" | "high" | "very_high";
 export type ForeignHistory = "never" | "tried_left" | "some_stayed" | "most_stayed";
 export type Pain = "open_posts" | "leaving" | "agency" | "paperwork" | "german";
@@ -50,11 +54,13 @@ export type RoadmapResult = {
   totalYear: number;
   /** € per month ONE nurse who stays brings back (= one open post closed). */
   perNurseMonth: number;
-  /** The one thing holding this house back most — drives the plan. */
+  /** The one thing holding this Einrichtung back most — drives the plan. */
   bottleneck: "fill" | "keep" | "agency" | "process" | "language";
+  /** The kind of Einrichtung the money model was built for. */
+  facilityType: FacilityType;
 };
 
-// Same per-post model as the borivon.com calculator.
+// The generic per-post model of the borivon.com calculator.
 export const AGENCY_HOURS_PER_POST = 160;
 export const AGENCY_RATE = 55;
 export const EMPTY_BEDS_PER_POST = 3;
@@ -76,6 +82,30 @@ export const COST_PER_DEPARTURE =
   ONBOARDING_HOURS * ONBOARDING_RATE +
   REPLACEMENT_COST; // 39.800 €
 
+/**
+ * What ONE open nurse post costs per month, per kind of Einrichtung: half the
+ * shifts covered by agency staff, plus the capacity that cannot be used.
+ *   hospital  : 1 closed bed, ≈ 650 € a day (Bundesbasisfallwert 2026
+ *               4.570,64 € ÷ ≈ 7 days stay) × 30 days × 80 % occupancy
+ *   care_home : 2 empty places, ≈ 4.600 € a month each (vdek: own share Ø
+ *               3.364 €, 07/2026, + Pflegekasse at Pflegegrad 3: 1.319 €)
+ *   home_care : 4 refused patients, ≈ 1.300 € a month each (sector average)
+ * A nurse who leaves leaves an open post: DEPARTURE_GAP_MONTHS of it, plus the
+ * lost onboarding and the search for the next one.
+ */
+export const COST_MODEL: Record<FacilityType, { agencyHours: number; lossUnits: number; lossPerUnit: number }> = {
+  hospital: { agencyHours: 80, lossUnits: 1, lossPerUnit: 15_600 },
+  care_home: { agencyHours: 80, lossUnits: 2, lossPerUnit: 4_600 },
+  home_care: { agencyHours: 80, lossUnits: 4, lossPerUnit: 1_300 },
+};
+export function costPerOpenPost(t: FacilityType): number {
+  const m = COST_MODEL[t] ?? COST_MODEL.care_home;
+  return m.agencyHours * AGENCY_RATE + m.lossUnits * m.lossPerUnit;
+}
+export function costPerDeparture(t: FacilityType): number {
+  return DEPARTURE_GAP_MONTHS * costPerOpenPost(t) + ONBOARDING_HOURS * ONBOARDING_RATE + REPLACEMENT_COST;
+}
+
 const AGENCY_PENALTY: Record<AgencyBand, number> = { none: 0, low: 6, mid: 14, high: 22, very_high: 30 };
 const FOREIGN_POINTS: Record<ForeignHistory, number> = { never: 0, tried_left: -6, some_stayed: 4, most_stayed: 10 };
 
@@ -86,13 +116,13 @@ const clampInt = (n: unknown, lo: number, hi: number): number => {
 
 /** Defensive: whatever the form sends, the numbers stay sane. */
 export function normalizeAnswers(a: Partial<RoadmapAnswers>): RoadmapAnswers {
-  const types: FacilityType[] = ["hospital", "care_home", "home_care", "rehab", "other"];
   const bands: AgencyBand[] = ["none", "low", "mid", "high", "very_high"];
   const hist: ForeignHistory[] = ["never", "tried_left", "some_stayed", "most_stayed"];
   const pains: Pain[] = ["open_posts", "leaving", "agency", "paperwork", "german"];
   const onb: Onboarding[] = ["mentor", "german", "housing", "plan", "checkins"];
   return {
-    facilityType: types.includes(a.facilityType as FacilityType) ? (a.facilityType as FacilityType) : "other",
+    // Reha-Kliniken count as Klinik; anything unknown is treated like an Altenheim.
+    facilityType: (a.facilityType as string) === "rehab" ? "hospital" : FACILITY_TYPES.includes(a.facilityType as FacilityType) ? (a.facilityType as FacilityType) : "care_home",
     staff: clampInt(a.staff, 1, 5000),
     openPosts: clampInt(a.openPosts, 0, 1000),
     leftLastYear: clampInt(a.leftLastYear, 0, 2000),
@@ -120,9 +150,10 @@ export function scoreRoadmap(input: Partial<RoadmapAnswers>): RoadmapResult {
 
   const level: Level = score >= 82 ? 5 : score >= 66 ? 4 : score >= 48 ? 3 : score >= 30 ? 2 : 1;
 
-  const openCostMonth = a.openPosts * COST_PER_OPEN_POST_MONTH;
+  const perPost = costPerOpenPost(a.facilityType);
+  const openCostMonth = a.openPosts * perPost;
   const openCostYear = openCostMonth * 12;
-  const turnoverCostYear = a.leftLastYear * COST_PER_DEPARTURE;
+  const turnoverCostYear = a.leftLastYear * costPerDeparture(a.facilityType);
 
   // Biggest lever first: what the numbers say, then what they told us hurts.
   const fillWeight = vacancyRate * 220;
@@ -139,7 +170,8 @@ export function scoreRoadmap(input: Partial<RoadmapAnswers>): RoadmapResult {
     level, score, vacancyRate, turnoverRate,
     openCostMonth, openCostYear, turnoverCostYear,
     totalYear: openCostYear + turnoverCostYear,
-    perNurseMonth: COST_PER_OPEN_POST_MONTH,
+    perNurseMonth: perPost,
     bottleneck,
+    facilityType: a.facilityType,
   };
 }

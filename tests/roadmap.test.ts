@@ -17,14 +17,32 @@ describe("Pflege-Fahrplan scoring", () => {
     expect(scoreRoadmap(struggling).level).toBe(1);
   });
 
-  it("uses the same money model as the borivon.com calculator", () => {
+  it("keeps the generic calculator model for borivon.com", () => {
     expect(COST_PER_OPEN_POST_MONTH).toBe(18_400);
     expect(COST_PER_DEPARTURE).toBe(39_800);
-    const r = scoreRoadmap(struggling);
-    expect(r.openCostMonth).toBe(9 * 18_400);
-    expect(r.openCostYear).toBe(9 * 18_400 * 12);
-    expect(r.turnoverCostYear).toBe(12 * 39_800);
+  });
+
+  it("counts money per kind of Einrichtung (beds / places / patients)", async () => {
+    const { costPerOpenPost, costPerDeparture } = await import("../lib/roadmap/score");
+    expect(costPerOpenPost("hospital")).toBe(20_000);
+    expect(costPerOpenPost("care_home")).toBe(13_600);
+    expect(costPerOpenPost("home_care")).toBe(9_600);
+    expect(costPerDeparture("hospital")).toBe(73_400);
+    expect(costPerDeparture("care_home")).toBe(54_200);
+    expect(costPerDeparture("home_care")).toBe(42_200);
+    const r = scoreRoadmap(struggling); // care_home
+    expect(r.facilityType).toBe("care_home");
+    expect(r.openCostMonth).toBe(9 * 13_600);
+    expect(r.openCostYear).toBe(9 * 13_600 * 12);
+    expect(r.turnoverCostYear).toBe(12 * 54_200);
     expect(r.totalYear).toBe(r.openCostYear + r.turnoverCostYear);
+    expect(r.perNurseMonth).toBe(13_600);
+  });
+
+  it("only knows Krankenhaus/Klinik, Altenheim and ambulanter Pflegedienst", () => {
+    expect(normalizeAnswers({ facilityType: "rehab" as never }).facilityType).toBe("hospital");
+    expect(normalizeAnswers({ facilityType: "other" as never }).facilityType).toBe("care_home");
+    expect(normalizeAnswers({ facilityType: "home_care" }).facilityType).toBe("home_care");
   });
 
   it("names the right bottleneck", () => {
@@ -100,7 +118,7 @@ describe("content + emails", () => {
   it("delivery mail: level in subject, fit P.S., confirm button only when asked", () => {
     const m = deliveryMail({ lang: "de", firstName: "Anna", facility: "Haus", result: scoreRoadmap(struggling) });
     expect(m.subject).toContain("Stufe 1");
-    expect(m.html).toContain("Prüfen Sie hier, ob Ihr Haus passt");
+    expect(m.html).toContain("Prüfen Sie hier, ob Ihre Einrichtung passt");
     expect(m.text).not.toMatch(/<[a-z]/);
     const r = scoreRoadmap(struggling);
     expect(deliveryMail({ lang: "de", firstName: "Anna", facility: "Haus", result: r }).html).not.toContain("Tipps senden");
@@ -125,11 +143,11 @@ describe("content + emails", () => {
 
 describe("the PDF", () => {
   for (const lang of LANGS) {
-    it(`renders 10 A4 pages in ${lang}`, async () => {
+    it(`renders 11 A4 pages in ${lang}`, async () => {
       const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang, firstName: "Anna", facility: "Seniorenzentrum Am Park", date: new Date("2026-10-21") });
       expect(bytes.length).toBeGreaterThan(20_000);
       const doc = await PDFDocument.load(bytes);
-      expect(doc.getPageCount()).toBe(10);
+      expect(doc.getPageCount()).toBe(11);
     }, 30_000);
   }
 });
@@ -252,5 +270,41 @@ describe("list sync + 12-month retention", () => {
     const a = anonymizedDetails(d, new Date("2027-11-12T00:00:00Z"));
     expect(a).toEqual({ source: "roadmap", lang: "de", answers: { staff: 40 }, result: { level: 2 }, anonymizedAt: "2027-11-12T00:00:00.000Z" });
     expect(JSON.stringify(a)).not.toMatch(/Anna|Haus/);
+  });
+});
+
+describe("per type + bonus", () => {
+  it("has a full set of type texts in every language", async () => {
+    const { FACILITY } = await import("../lib/roadmap/types");
+    for (const t of ["hospital", "care_home", "home_care"] as const) {
+      const F = FACILITY[t];
+      for (const l of LANGS) {
+        for (const k of ["name", "forTitle", "openModel", "source", "firstWeek"] as const) expect(F[k][l]).toBeTruthy();
+        expect(F.tips.length).toBe(5);
+        for (const tip of F.tips) { expect(tip.t[l]).toBeTruthy(); expect(tip.d[l]).toBeTruthy(); }
+      }
+    }
+  });
+  it("the 'So rechnen wir' line matches the numbers", async () => {
+    const { FACILITY } = await import("../lib/roadmap/types");
+    expect(FACILITY.hospital.openModel.de).toContain("20.000 €");
+    expect(FACILITY.care_home.openModel.de).toContain("13.600 €");
+    expect(FACILITY.home_care.openModel.de).toContain("9.600 €");
+  });
+  it("renders the 2-page agency check in every language", async () => {
+    const { renderAgencyCheckPdf, AGENCY_CHECK } = await import("../lib/roadmap/bonusPdf");
+    expect(AGENCY_CHECK.length).toBe(10);
+    for (const l of LANGS) {
+      const doc = await PDFDocument.load(await renderAgencyCheckPdf(l));
+      expect(doc.getPageCount()).toBe(2);
+    }
+  }, 30_000);
+  it("follow-up #2 speaks to the kind of Einrichtung", () => {
+    const r = scoreRoadmap(struggling);
+    const m = followupMail(1, { lang: "de", firstName: "A", result: r, unsubscribeUrl: "u", facilityType: "home_care" });
+    expect(m?.html).toContain("Touren");
+    const d = deliveryMail({ lang: "de", firstName: "A", facility: "Haus", result: r });
+    expect(d.html).toContain("Agentur-Check");
+    expect(d.text).not.toMatch(/<[a-z]/);
   });
 });

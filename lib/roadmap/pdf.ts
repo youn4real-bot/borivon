@@ -12,7 +12,8 @@
  *
  * Page order is fixed (the delivery mail points at pages 6 and 7):
  *  1 cover · 2 you are here · 3 your level · 4 numbers · 5 area by area ·
- *  6 plan · 7 90 days · 8 7 reasons · 9 before/after · 10 see if you fit
+ *  6 plan · 7 90 days · 8 just for your kind of Einrichtung · 9 7 reasons ·
+ *  10 before/after · 11 see if you fit
  */
 import { PDFDocument, PageSizes, PDFName, PDFString, type PDFPage, type RGB } from "pdf-lib";
 import { embedFonts, hexColor, Surface, wrapText, measure, type DocFont } from "@/lib/pdflib/render";
@@ -20,6 +21,8 @@ import type { RoadmapResult, Level } from "./score";
 import { LEVELS, CLIMB, BOTTLENECK, PLAN_90, REASONS, UI, pick, type Lang } from "./content";
 import { STAGES, AREAS, PROFILE_ROWS, STAGE_UI } from "./stages";
 import { drawIcon, REASON_ICONS, type IconName, type IconColors } from "./icons";
+import { FACILITY, leaveModel } from "./types";
+import { costPerDeparture } from "./score";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
@@ -144,7 +147,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     eyebrow(s, input.firstName ? `${t.for} ${input.firstName}` : t.title, M, y, GOLD);
     y = disp(page, H, t.title, M, y + 20, W, 48, FG, 1.08);
     if (input.facility) y = disp(page, HI, input.facility, M, y + 4, W, 26, GOLD, 1.2, 0);
-    s.text(input.date.toLocaleDateString(lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE"), M, y + 12, F.reg, 10.5, MUTED_NIGHT);
+    s.text(`${pick(FACILITY[result.facilityType].name, lang)}  ·  ${input.date.toLocaleDateString(lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE")}`, M, y + 12, F.reg, 10.5, MUTED_NIGHT);
 
     const cy = 548, ch = 176;
     s.roundedRect(M, cy, W, ch, 22, { fill: NIGHT_CARD, border: NIGHT_LINE, borderWidth: 0.8 });
@@ -255,7 +258,13 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     y += 12;
     eyebrow(s, t.howCounted, M, y, MUTED);
     y += 22;
-    for (const [ic, txt] of [["bed", t.openModel], ["door", t.leaveModel]] as [IconName, string][]) {
+    const FT = FACILITY[result.facilityType];
+    const lines: [IconName, string][] = [
+      [FT.icon, pick(FT.openModel, lang)],
+      ["door", leaveModel(result.facilityType, lang, (n) => formatEuro(n, lang), result.perNurseMonth, costPerDeparture(result.facilityType))],
+      ["target", pick(FT.source, lang)],
+    ];
+    for (const [ic, txt] of lines) {
       icon(page, ic, M, y - 1, 18, on(PAPER));
       y = para(s, txt, M + 30, y, W - 30, F.reg, 10, MUTED, 1.55) + 10;
     }
@@ -357,7 +366,27 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     }
   }
 
-  // ── 8 · 7 reasons nurses leave ────────────────────────────────────────────
+  // ── 8 · just for this kind of Einrichtung ─────────────────────────────────
+  {
+    const { page, s } = newPage();
+    const FT = FACILITY[result.facilityType];
+    let y = 96;
+    eyebrow(s, pick(FT.name, lang), M, y);
+    icon(page, FT.icon, M + W - 56, 92, 56, on(PAPER));
+    // leave room for the icon on the right
+    y = disp(page, H, pick(FT.forTitle, lang), M, y + 20, W - 80, 36, INK) + 34;
+    FT.tips.forEach((tip, i) => {
+      const n = String(i + 1);
+      s.roundedRect(M, y, 36, 36, 18, { fill: GOLD });
+      s.text(n, M + 18 - measure(n, F.semi, 13) / 2, y + 11, F.semi, 13, hexColor("#131312"));
+      s.text(pick(tip.t, lang), M + 58, y + 4, F.semi, 14, INK);
+      const after = para(s, pick(tip.d, lang), M + 58, y + 26, W - 58, F.reg, 12, MUTED, 1.55);
+      y = Math.max(y + 36, after) + 22;
+      if (i < FT.tips.length - 1) s.hline(M + 58, M + W, y - 11, LINE, 0.8);
+    });
+  }
+
+  // ── 9 · 7 reasons nurses leave ────────────────────────────────────────────
   {
     const { page, s } = newPage();
     let y = 96;
@@ -377,7 +406,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     s.hline(M, M + W, y, LINE, 0.8);
   }
 
-  // ── 9 · the level behind you, the level ahead ─────────────────────────────
+  // ── 10 · the level behind you, the level ahead ────────────────────────────
   {
     const { page, s } = newPage();
     let y = 96;
@@ -417,7 +446,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     if (lv < 5) card((lv + 1) as Level, true);
   }
 
-  // ── 10 · next step, framed as "see if you fit" ────────────────────────────
+  // ── 11 · next step, framed as "see if you fit" ────────────────────────────
   {
     const { page, s } = newPage(true);
     let y = 112;

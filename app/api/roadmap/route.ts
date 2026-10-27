@@ -6,6 +6,8 @@ import { clipText } from "@/lib/clipText";
 import { sendRoadmapDeliveryEmail } from "@/lib/email";
 import { scoreRoadmap, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
 import { renderRoadmapPdf, formatEuro } from "@/lib/roadmap/pdf";
+import { renderAgencyCheckPdf } from "@/lib/roadmap/bonusPdf";
+import { FACILITY } from "@/lib/roadmap/types";
 import { deliveryMail } from "@/lib/roadmap/emails";
 import { LEVELS, BOTTLENECK, pick, LANGS, type Lang } from "@/lib/roadmap/content";
 import { isFreeMail } from "@/lib/roadmap/freeMail";
@@ -98,13 +100,14 @@ export async function POST(req: NextRequest) {
   keepAlive(async () => {
     let emailed = false;
     try {
-      const pdf = await renderRoadmapPdf({ result, lang, firstName, facility, date: new Date() });
+      const [pdf, bonus] = await Promise.all([renderRoadmapPdf({ result, lang, firstName, facility, date: new Date() }), renderAgencyCheckPdf(lang)]);
       const confirmUrl = wantsTips && leadId && tokensEnabled()
         ? `https://borivon.com/api/roadmap/confirm?id=${encodeURIComponent(leadId)}&t=${await signLeadToken("confirm", leadId)}`
         : undefined;
       const m = deliveryMail({ lang, firstName, facility, result, confirmUrl });
       const fname = (lang === "de" ? "Pflege-Fahrplan" : lang === "fr" ? "Plan-infirmier" : "Nurse-staffing-roadmap") + "-Borivon.pdf";
-      emailed = await sendRoadmapDeliveryEmail({ to: email, subject: m.subject, html: m.html, text: m.text, pdf, filename: fname });
+      const bonusName = (lang === "de" ? "Agentur-Check" : lang === "fr" ? "Check-agence" : "Agency-check") + "-Borivon.pdf";
+      emailed = await sendRoadmapDeliveryEmail({ to: email, subject: m.subject, html: m.html, text: m.text, pdf, filename: fname, extra: [{ filename: bonusName, pdf: bonus }] });
     } catch (e) { console.error("[roadmap] pdf/email failed:", e instanceof Error ? e.message : e); }
 
     // the email list (Resend contacts): on the list, not subscribed until double opt-in
@@ -116,12 +119,13 @@ export async function POST(req: NextRequest) {
       const lines = [
         `🧭 Neuer Fahrplan-Lead — Stufe ${result.level} (${pick(LEVELS[result.level].name, "de")})`,
         "",
-        facility ? `Haus    : ${facility}${city ? ` · ${city}` : ""}` : null,
+        facility ? `Einrichtung: ${facility}${city ? ` · ${city}` : ""}` : null,
         `Name    : ${[firstName, lastName].filter(Boolean).join(" ")}${role ? ` · ${role}` : ""}`,
         heardFrom ? `Quelle  : ${heardFrom}` : null,
         `E-Mail  : ${email}`,
         phone ? `Telefon : ${phone}` : null,
-        `Zahlen  : ${answers.staff} Pflegekräfte · ${answers.openPosts} offen · ${answers.leftLastYear} gegangen`,
+        `Art     : ${pick(FACILITY[result.facilityType].name, "de")}`,
+      `Zahlen  : ${answers.staff} Pflegekräfte · ${answers.openPosts} offen · ${answers.leftLastYear} gegangen`,
         `Verlust : ${formatEuro(result.totalYear, "de")} pro Jahr`,
         `Engpass : ${pick(BOTTLENECK[result.bottleneck].t, "de")}`,
         `Tipps   : ${wantsTips ? "ja (wartet auf Bestätigung)" : "nein"}`,

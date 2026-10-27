@@ -13,9 +13,9 @@ import type { Level, RoadmapResult } from "./score";
 
 type L3 = Record<Lang, string>;
 const TYPE: Record<string, L3> = {
-  hospital: { de: "Krankenhaus", en: "Hospital", fr: "Hôpital" },
-  care_home: { de: "Pflegeheim", en: "Care home", fr: "Maison de retraite" },
-  home_care: { de: "Ambulanter Dienst", en: "Home care", fr: "Soins à domicile" },
+  hospital: { de: "Krankenhaus / Klinik", en: "Hospital / clinic", fr: "Hôpital / clinique" },
+  care_home: { de: "Altenheim", en: "Care home", fr: "Maison de retraite" },
+  home_care: { de: "Ambulanter Pflegedienst", en: "Home care", fr: "Soins à domicile" },
   rehab: { de: "Reha-Klinik", en: "Rehab clinic", fr: "Rééducation" },
   other: { de: "Andere", en: "Other", fr: "Autre" },
 };
@@ -49,7 +49,7 @@ const PAIN: Record<string, L3> = {
 const LBL: Record<string, L3> = {
   level: { de: "Stufe", en: "Level", fr: "Niveau" },
   loss: { de: "Verlust/Jahr", en: "Loss/year", fr: "Perte/an" },
-  house: { de: "Haus", en: "Facility", fr: "Établissement" },
+  house: { de: "Einrichtung", en: "Facility", fr: "Établissement" },
   staff: { de: "Personal", en: "Staff", fr: "Personnel" },
   open: { de: "offen", en: "open", fr: "vides" },
   left: { de: "gegangen", en: "left", fr: "partis" },

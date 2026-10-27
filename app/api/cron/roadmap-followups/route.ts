@@ -11,7 +11,7 @@ import { addLeadToList, setListSubscribed, removeFromList, listAccess } from "@/
 import { signLeadToken, tokensEnabled } from "@/lib/roadmap/token";
 import { LANGS, type Lang } from "@/lib/roadmap/content";
 import type { RoadmapResult } from "@/lib/roadmap/score";
-import { COST_PER_OPEN_POST_MONTH } from "@/lib/roadmap/score";
+import { costPerOpenPost, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
 
 /**
  * Daily 09:30 UTC (morning in Germany), three jobs for the Fahrplan leads:
@@ -72,8 +72,9 @@ export async function GET(req: NextRequest) {
       if (n === null) continue;
       const lang: Lang = LANGS.includes(d.lang as Lang) ? (d.lang as Lang) : "de";
       const unsubscribeUrl = `https://borivon.com/api/roadmap/unsubscribe?id=${encodeURIComponent(row.id)}&t=${await signLeadToken("unsub", row.id)}`;
-      const result = { perNurseMonth: COST_PER_OPEN_POST_MONTH } as RoadmapResult;
-      const m = followupMail(n, { lang, firstName: d.firstName || row.name || "", result, unsubscribeUrl });
+      const facilityType = normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>).facilityType;
+      const result = { perNurseMonth: costPerOpenPost(facilityType) } as RoadmapResult;
+      const m = followupMail(n, { lang, firstName: d.firstName || row.name || "", result, unsubscribeUrl, facilityType });
       if (!m) continue;
       const ok = await sendRoadmapFollowupEmail({ to: row.email, subject: m.subject, html: m.html, text: m.text, unsubscribeUrl });
       if (!ok) { failed++; continue; }

@@ -140,8 +140,8 @@ export const STAGE_UI: Record<"de" | "en" | "fr", Record<string, string>> = {
     remember: "Merken", rememberTxt: "Nicht alles auf einmal. Fangen Sie mit dem an, was am meisten weh tut.",
     prev: "Geschafft", next: "Als Nächstes", aroundTitle: "Davor und danach.",
     wantNext: "Wollen Sie auf die nächste Stufe?", wantStay: "Wollen Sie oben bleiben?",
-    stuck: "Viele Häuser bleiben auf ihrer Stufe stecken. Nicht, weil sie es nicht können. Sondern weil zu viel auf einmal brennt.",
-    fitLine: "Wir arbeiten pro Runde mit höchstens 10 Häusern. In 15 Minuten prüfen wir, ob Ihr Haus passt.",
+    stuck: "Viele Einrichtungen bleiben auf ihrer Stufe stecken. Nicht, weil sie es nicht können. Sondern weil zu viel auf einmal brennt.",
+    fitLine: "Wir arbeiten pro Runde mit höchstens 10 Einrichtungen. In 15 Minuten prüfen wir, ob Ihre Einrichtung passt.",
   },
   en: {
     whenYou: "This is level {n}.", typical: "What level {n} often looks like",

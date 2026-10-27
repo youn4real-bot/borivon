@@ -599,6 +599,8 @@ export async function sendBookingChangedEmail(opts: {
 /** The personal roadmap PDF, attached. Returns true only if Resend accepted it. */
 export async function sendRoadmapDeliveryEmail(o: {
   to: string; subject: string; html: string; text: string; pdf: Uint8Array; filename: string;
+  /** more PDFs in the same mail (the Fahrplan bonus) */
+  extra?: { filename: string; pdf: Uint8Array }[];
 }): Promise<boolean> {
   return deliver({
     from: FROM,
@@ -607,7 +609,7 @@ export async function sendRoadmapDeliveryEmail(o: {
     subject: o.subject,
     html: o.html,
     text: o.text,
-    attachments: [{ filename: o.filename, content: Buffer.from(o.pdf) }],
+    attachments: [{ filename: o.filename, content: Buffer.from(o.pdf) }, ...(o.extra ?? []).map((x) => ({ filename: x.filename, content: Buffer.from(x.pdf) }))],
   });
 }
 

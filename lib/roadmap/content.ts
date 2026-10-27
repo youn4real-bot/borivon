@@ -179,7 +179,7 @@ export const UI: Record<Lang, Record<string, string>> = {
     plan90: "Der 90-Tage-Plan", plan90sub: "Für jede neue Pflegekraft. Ausdrucken. Abhaken.",
     reasons: "7 Gründe, warum Pflegekräfte gehen", reasonsSub: "Und was hilft.", why: "Warum", fix: "Was hilft",
     next: "Ihr nächster Schritt", nextBody: "Sie schaffen das allein. Mit uns geht es schneller: Sie führen ein Gespräch. Wir machen den Rest. Bis die Probezeit geschafft ist.",
-    book: "Prüfen, ob mein Haus passt", contact: "Oder schreiben Sie uns", page: "Seite",
+    book: "Prüfen, ob meine Einrichtung passt", contact: "Oder schreiben Sie uns", page: "Seite",
     disclaimer: "Alle Zahlen sind Schätzungen. Sie kommen aus Ihren Antworten.",
     lossYear: "Leere Stellen und Kündigungen kosten Sie etwa",
     e90: "Zum Abhaken", eReasons: "Warum Leute gehen", eNext: "Kostenlos",
