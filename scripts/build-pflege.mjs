@@ -43,7 +43,7 @@ const FONTS = `
 
 const META = {
   title: "Pflegefachkräfte, die bleiben · Borivon",
-  description: "Pflegefachkräfte für Kliniken und Pflegeheime, direkt vom Sprachinstitut. Ein Interview, wir machen den Rest. 3-Monats-Bleibegarantie, eigenes Portal mit jedem Schritt live.",
+  description: "Pflegefachkräfte für Altenheime und Pflegeheime, direkt vom Sprachinstitut. Ein Interview, wir machen den Rest. 3-Monats-Bleibegarantie, eigenes Portal mit jedem Schritt live.",
 };
 
 let problems = 0;
@@ -77,7 +77,7 @@ const HOME_LD = JSON.stringify({
   url: "https://www.borivon.com/",
   logo: "https://borivon.com/logo.png",
   image: "https://www.borivon.com/pflege/assets/nurse.jpg",
-  description: "Borivon bringt geprüfte Pflegefachkräfte nach Deutschland: Deutsch, Anerkennung, Visum und Ankommen aus einer Hand. Mit Bleibegarantie.",
+  description: "Borivon bringt geprüfte Pflegefachkräfte in deutsche Altenheime: Deutsch, Anerkennung, Visum und Ankommen aus einer Hand. Mit Bleibegarantie.",
   email: "contact@borivon.com",
   areaServed: ["DE"],
   availableLanguage: ["German", "French", "English", "Arabic"],

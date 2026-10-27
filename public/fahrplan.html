@@ -168,7 +168,7 @@ details .in { padding: 0 18px 16px; }
   var T = {
     de: {
       banner: "<b>Neue Runde 2027:</b> Prüfen Sie, ob Ihre Einrichtung passt →",
-      eyebrow: "Kostenlos · 60 Sekunden", h: "Ihr Pflege-Fahrplan",
+      eyebrow: "Für Altenheime · kostenlos · 60 Sekunden", h: "Ihr Pflege-Fahrplan",
       lead: "Beantworten Sie ein paar kurze Fragen. Sie bekommen einen Fahrplan als PDF, nur für Ihre Einrichtung.",
       gets: ["Ihre Stufe von 1 bis 5", "Was leere Stellen und Kündigungen Sie kosten, pro Monat und pro Jahr", "Ihren Plan für die nächste Stufe", "Den 90-Tage-Plan, damit neue Pflegekräfte bleiben"],
       start: "Los geht's", sample: "Beispiel ansehen", next: "Weiter", back: "Zurück", skip: "Überspringen",
@@ -201,7 +201,7 @@ details .in { padding: 0 18px 16px; }
     },
     en: {
       banner: "<b>New 2027 group:</b> find out if your facility is a fit →",
-      eyebrow: "Free · 60 seconds", h: "Your nurse staffing roadmap",
+      eyebrow: "For care homes · free · 60 seconds", h: "Your nurse staffing roadmap",
       lead: "Answer a few short questions. You get a roadmap as a PDF, just for your facility.",
       gets: ["Your level from 1 to 5", "What empty posts and resignations cost you, per month and per year", "Your plan for the next level", "The 90-day plan so new nurses stay"],
       start: "Let's go", sample: "See an example", next: "Next", back: "Back", skip: "Skip",
@@ -234,7 +234,7 @@ details .in { padding: 0 18px 16px; }
     },
     fr: {
       banner: "<b>Nouveau groupe 2027 :</b> vérifiez si votre établissement correspond →",
-      eyebrow: "Gratuit · 60 secondes", h: "Votre plan infirmier",
+      eyebrow: "Pour maisons de retraite · gratuit · 60 secondes", h: "Votre plan infirmier",
       lead: "Répondez à quelques questions courtes. Vous recevez un plan en PDF, rien que pour votre établissement.",
       gets: ["Votre niveau de 1 à 5", "Ce que les postes vides et les départs vous coûtent, par mois et par an", "Votre plan pour le niveau suivant", "Le plan de 90 jours pour que les nouvelles restent"],
       start: "C'est parti", sample: "Voir un exemple", next: "Suivant", back: "Retour", skip: "Passer",
@@ -269,9 +269,10 @@ details .in { padding: 0 18px 16px; }
 
   var lang = "de";
   try { var s0 = localStorage.getItem("bv-lang"); if (T[s0]) lang = s0; } catch (e) {}
-  var A = { firstName: "", lastName: "", email: "", phone: "", facility: "", city: "", facilityType: "", staff: 40, openPosts: 3, leftLastYear: 4, agency: "", foreign: "", onboarding: [], pain: "", heardFrom: "", tips: false, consent: false, website: "" };
+  var A = { firstName: "", lastName: "", email: "", phone: "", facility: "", city: "", facilityType: "care_home", staff: 40, openPosts: 3, leftLastYear: 4, agency: "", foreign: "", onboarding: [], pain: "", heardFrom: "", tips: false, consent: false, website: "" };
   // Contact first, then the house (founder's Hormozi breakdown): one thing per screen.
-  var STEPS = ["intro", "name", "email", "phone", "facility", "type", "staff", "open", "left", "agency", "foreign", "onb", "pain", "heard", "finish", "result"];
+  // Altenheime only for now (founder 2026-10-27): no type question; facilityType stays "care_home".
+  var STEPS = ["intro", "name", "email", "phone", "facility", "staff", "open", "left", "agency", "foreign", "onb", "pain", "heard", "finish", "result"];
   var at = 0, R = null, emailed = false, busy = false, err = "";
 
   // Business emails only (founder rule). Same list as lib/roadmap/freeMail.ts.
