@@ -59,7 +59,7 @@ function sharedLinks(s) {
   s = swap(s, 'href="https://www.borivon.com/portal" target="_blank" rel="noopener"', 'href="/portal"', "portal link", { all: true });
   s = swap(s, 'href="https://www.borivon.com/fahrplan" target="_blank" rel="noopener"', 'href="/fahrplan"', "roadmap links", { all: true, optional: true });
   s = swap(s, 'href="https://www.borivon.com/impressum" target="_blank" rel="noopener"', 'href="/impressum"', "imprint link", { all: true });
-  s = swap(s, 'href="https://www.borivon.com/privacy-policy" target="_blank" rel="noopener"', 'href="/privacy-policy"', "privacy link", { all: true });
+  s = swap(s, 'href="https://www.borivon.com/datenschutz" target="_blank" rel="noopener"', 'href="/datenschutz"', "privacy link", { all: true });
   s = swap(s, '<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>', '<script src="/pflege/assets/gsap.min.js"></script>', "gsap");
   s = swap(s, '<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>', '<script src="/pflege/assets/ScrollTrigger.min.js"></script>', "ScrollTrigger");
   s = swap(s, '<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>', '<script src="/pflege/assets/lenis.min.js"></script>', "lenis");

@@ -596,9 +596,18 @@ export async function sendBookingChangedEmail(opts: {
 }
 
 // ── Pflege-Fahrplan (lib/roadmap) ────────────────────────────────────────────
-/** The personal roadmap PDF, attached. Returns true only if Resend accepted it. */
+/** The double opt-in mail: only the confirm link. Returns true only if Resend accepted it. */
+export async function sendRoadmapConfirmEmail(o: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+  return deliver({ from: FROM, to: o.to, replyTo: REPLY_TO, subject: o.subject, html: o.html, text: o.text });
+}
+
+/**
+ * The personal roadmap PDF, attached, after the confirm click. It carries the
+ * P.S. offer, so it gets the one-click unsubscribe header like the follow-ups.
+ * Returns true only if Resend accepted it.
+ */
 export async function sendRoadmapDeliveryEmail(o: {
-  to: string; subject: string; html: string; text: string; pdf: Uint8Array; filename: string;
+  to: string; subject: string; html: string; text: string; pdf: Uint8Array; filename: string; unsubscribeUrl: string;
   /** more PDFs in the same mail (the Fahrplan bonus) */
   extra?: { filename: string; pdf: Uint8Array }[];
 }): Promise<boolean> {
@@ -609,6 +618,10 @@ export async function sendRoadmapDeliveryEmail(o: {
     subject: o.subject,
     html: o.html,
     text: o.text,
+    headers: {
+      "List-Unsubscribe": `<${o.unsubscribeUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
     attachments: [{ filename: o.filename, content: Buffer.from(o.pdf) }, ...(o.extra ?? []).map((x) => ({ filename: x.filename, content: Buffer.from(x.pdf) }))],
   });
 }

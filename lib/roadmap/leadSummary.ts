@@ -59,10 +59,11 @@ const LBL: Record<string, L3> = {
   nothing: { de: "nichts", en: "nothing", fr: "rien" },
   pain: { de: "Schmerz", en: "Pain", fr: "Douleur" },
   neck: { de: "Engpass", en: "Bottleneck", fr: "Blocage" },
-  tips: { de: "Tipps", en: "Tips", fr: "Conseils" },
-  no: { de: "nein", en: "no", fr: "non" },
-  waiting: { de: "ja, nicht bestätigt", en: "yes, not confirmed", fr: "oui, non confirmé" },
+  status: { de: "Status", en: "Status", fr: "Statut" },
+  waiting: { de: "nicht bestätigt", en: "not confirmed", fr: "non confirmé" },
   confirmed: { de: "bestätigt", en: "confirmed", fr: "confirmé" },
+  pdfSent: { de: "PDF gesendet", en: "PDF sent", fr: "PDF envoyé" },
+  pdfOpen: { de: "PDF offen", en: "PDF pending", fr: "PDF en attente" },
   unsub: { de: "abgemeldet", en: "unsubscribed", fr: "désinscrit" },
   mails: { de: "Mails", en: "emails", fr: "e-mails" },
   source: { de: "Quelle", en: "Source", fr: "Source" },
@@ -110,11 +111,11 @@ export function roadmapLeadChips(details: unknown, lang: Lang): Chip[] {
   }
   if (PAIN[str(a.pain)]) out.push({ k: t("pain"), v: pick(PAIN[str(a.pain)], lang) });
   const sent = num(seq.step) ?? 0;
-  const tips = str(d.unsubscribedAt) ? t("unsub")
-    : c.tipsAsked !== true ? t("no")
-    : str(c.confirmedAt) ? `${t("confirmed")} · ${sent}/4 ${t("mails")}`
+  const pdf = str(obj(d.delivery).sentAt) ? t("pdfSent") : t("pdfOpen");
+  const status = str(d.unsubscribedAt) ? t("unsub")
+    : str(c.confirmedAt) ? `${t("confirmed")} · ${pdf} · ${sent}/4 ${t("mails")}`
     : t("waiting");
-  out.push({ k: t("tips"), v: tips });
+  out.push({ k: t("status"), v: status });
   if (str(d.heardFrom)) out.push({ k: t("source"), v: str(d.heardFrom) });
   if (str(d.role)) out.push({ k: t("role"), v: str(d.role) });
   if (str(d.lang)) out.push({ k: t("lang"), v: str(d.lang).toUpperCase() });

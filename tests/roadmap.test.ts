@@ -4,7 +4,7 @@ import { scoreRoadmap, normalizeAnswers, COST_PER_OPEN_POST_MONTH, COST_PER_DEPA
 import { dueFollowup } from "../lib/roadmap/leadState";
 import { signLeadToken, verifyLeadToken } from "../lib/roadmap/token";
 import { renderRoadmapPdf, formatEuro } from "../lib/roadmap/pdf";
-import { deliveryMail, followupMail, FOLLOWUP_DAYS } from "../lib/roadmap/emails";
+import { deliveryMail, followupMail, confirmMail, FOLLOWUP_DAYS, BOOK_URL } from "../lib/roadmap/emails";
 import { LEVELS, CLIMB, UI, LANGS } from "../lib/roadmap/content";
 import { STAGES, AREAS, STAGE_UI } from "../lib/roadmap/stages";
 
@@ -65,23 +65,80 @@ describe("Pflege-Fahrplan scoring", () => {
 
 describe("follow-up timing (double opt-in)", () => {
   const confirmed = "2026-10-01T09:00:00.000Z";
+  const sentAt = "2026-10-01T09:01:00.000Z";
   const at = (days: number) => new Date(Date.parse(confirmed) + days * 86_400_000 + 3_600_000);
-  it("sends nothing without a ticked box AND a confirm click", () => {
-    expect(dueFollowup({ consent: { tipsAsked: true, confirmedAt: null } }, at(30))).toBeNull();
-    expect(dueFollowup({ consent: { tipsAsked: false, confirmedAt: confirmed } }, at(30))).toBeNull();
+  it("sends nothing without the confirm click AND the PDF out", () => {
+    expect(dueFollowup({ consent: { confirmedAt: null }, delivery: { sentAt } }, at(30))).toBeNull();
+    expect(dueFollowup({ consent: { confirmedAt: confirmed }, delivery: { sentAt: null } }, at(30))).toBeNull();
+    expect(dueFollowup({ consent: { confirmedAt: confirmed }, delivery: { sentAt } }, at(30))).toBe(0);
   });
   it("follows FOLLOWUP_DAYS and stops after the last one", () => {
-    const base = { consent: { tipsAsked: true, confirmedAt: confirmed } };
+    const base = { consent: { confirmedAt: confirmed }, delivery: { sentAt } };
     expect(dueFollowup({ ...base, seq: { step: 0 } }, at(FOLLOWUP_DAYS[0] - 1))).toBeNull();
     expect(dueFollowup({ ...base, seq: { step: 0 } }, at(FOLLOWUP_DAYS[0]))).toBe(0);
     expect(dueFollowup({ ...base, seq: { step: 2 } }, at(FOLLOWUP_DAYS[2]))).toBe(2);
     expect(dueFollowup({ ...base, seq: { step: FOLLOWUP_DAYS.length } }, at(60))).toBeNull();
   });
   it("never after an unsubscribe, never two within a day", () => {
-    const base = { consent: { tipsAsked: true, confirmedAt: confirmed } };
+    const base = { consent: { confirmedAt: confirmed }, delivery: { sentAt } };
     expect(dueFollowup({ ...base, unsubscribedAt: confirmed }, at(30))).toBeNull();
     const now = at(20);
     expect(dueFollowup({ ...base, seq: { step: 1, lastSentAt: new Date(now.getTime() - 3_600_000).toISOString() } }, now)).toBeNull();
+  });
+});
+
+describe("the PDF goes out only after the confirm click", () => {
+  it("is due once confirmed, retried at most 3 times, never twice within 30 minutes", async () => {
+    const { deliveryDue, MAX_DELIVERY_ATTEMPTS } = await import("../lib/roadmap/leadState");
+    const now = new Date("2026-11-07T10:00:00Z");
+    const c = { consent: { confirmedAt: "2026-11-07T09:00:00Z" } };
+    expect(deliveryDue({}, now)).toBe(false);
+    expect(deliveryDue({ consent: { confirmedAt: null } }, now)).toBe(false);
+    expect(deliveryDue(c, now)).toBe(true);
+    expect(deliveryDue({ ...c, delivery: { sentAt: "2026-11-07T09:01:00Z" } }, now)).toBe(false);
+    expect(deliveryDue({ ...c, delivery: { attempts: 1, lastAttemptAt: "2026-11-07T09:50:00Z" } }, now)).toBe(false);
+    expect(deliveryDue({ ...c, delivery: { attempts: 1, lastAttemptAt: "2026-11-07T09:00:00Z" } }, now)).toBe(true);
+    expect(deliveryDue({ ...c, delivery: { attempts: MAX_DELIVERY_ATTEMPTS } }, now)).toBe(false);
+    expect(deliveryDue({ ...c, unsubscribedAt: "2026-11-07T09:30:00Z" }, now)).toBe(false);
+  });
+});
+
+describe("consent box + Anrede", () => {
+  it("the page shows exactly the stored consent text, in every language", async () => {
+    const { readFileSync } = await import("fs");
+    const { CONSENT_TEXT } = await import("../lib/roadmap/consent");
+    const page = readFileSync("content/pflege/fahrplan.html", "utf8");
+    const shown = [...page.matchAll(/consent: "([^"]+)", privacyLink: "([^"]+)"/g)].map((m) => `${m[1]} ${m[2]}`);
+    expect(shown).toEqual([CONSENT_TEXT.de, CONSENT_TEXT.en, CONSENT_TEXT.fr]);
+    expect(CONSENT_TEXT.de).toBe("Ich möchte meinen Fahrplan sowie Tipps und Angebote von Borivon per E-Mail erhalten. Abmeldung jederzeit möglich. Datenschutzerklärung");
+  });
+  it("the box is never pre-ticked and links to /datenschutz", async () => {
+    const { readFileSync } = await import("fs");
+    const page = readFileSync("content/pflege/fahrplan.html", "utf8");
+    expect(page).toMatch(/consent: false/);
+    expect(page).not.toContain("/privacy-policy");
+    expect(page).toContain('href="/datenschutz"');
+    expect(page).toContain("Ihre Angaben nutzen wir nur, um Ihren Fahrplan zu erstellen. Kein Verkauf, keine Weitergabe an Dritte. Verantwortlich: Borivon LLC.");
+    for (const gone of ["fPhone", "fCity", "fFirst", "fTips"]) expect(page).not.toContain(gone);
+  });
+  it("addresses people by Anrede + Nachname", async () => {
+    const { greeting, addressName, leadName, asSalutation } = await import("../lib/roadmap/consent");
+    expect(greeting("de", "frau", "Müller")).toBe("Hallo Frau Müller,");
+    expect(greeting("de", "herr", "Kaya")).toBe("Hallo Herr Kaya,");
+    expect(greeting("de", "none", "Kaya")).toBe("Hallo,");
+    expect(greeting("en", "frau", "Smith")).toBe("Hello Ms Smith,");
+    expect(greeting("fr", "herr", "Martin")).toBe("Bonjour Monsieur Martin,");
+    expect(addressName("de", "none", "X")).toBe("");
+    expect(leadName("none", "Kaya")).toBe("Kaya");
+    expect(leadName("frau", "Müller")).toBe("Frau Müller");
+    expect(asSalutation("hack")).toBe("none");
+  });
+  it("German browsers go to /datenschutz", async () => {
+    const { prefersGerman } = await import("../lib/prefersGerman");
+    expect(prefersGerman("de-DE,de;q=0.9,en;q=0.8")).toBe(true);
+    expect(prefersGerman("de")).toBe(true);
+    expect(prefersGerman("en-US,de;q=0.9")).toBe(false);
+    expect(prefersGerman(null)).toBe(false);
   });
 });
 
@@ -115,23 +172,39 @@ describe("content + emails", () => {
       }
     }
   });
-  it("delivery mail: level in subject, fit P.S., confirm button only when asked", () => {
-    const m = deliveryMail({ lang: "de", firstName: "Anna", facility: "Haus", result: scoreRoadmap(struggling) });
+  it("confirm mail: only the confirm link, no offer", () => {
+    for (const l of LANGS) {
+      const m = confirmMail({ lang: l, salutation: "frau", lastName: "Müller", facility: "Haus", confirmUrl: "https://x/c" });
+      expect(m.html).toContain("https://x/c");
+      expect(m.text).toContain("https://x/c");
+      expect(m.html).not.toContain(BOOK_URL);
+      expect(m.text).not.toMatch(/<[a-z]/);
+    }
+    expect(confirmMail({ lang: "de", salutation: "frau", lastName: "Müller", facility: "Haus", confirmUrl: "u" }).html).toContain("Hallo Frau Müller,");
+  });
+  it("delivery mail: level in subject, fit P.S., unsubscribe link, Anrede", () => {
+    const r = scoreRoadmap(struggling);
+    for (const l of LANGS) {
+      const m = deliveryMail({ lang: l, salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u" });
+      expect(m.html).toContain("https://x/u");
+      expect(m.text).toContain("https://x/u");
+      expect(m.text).not.toMatch(/<[a-z]/);
+    }
+    const m = deliveryMail({ lang: "de", salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u" });
     expect(m.subject).toContain("Stufe 1");
     expect(m.html).toContain("Prüfen Sie hier, ob Ihre Einrichtung passt");
-    expect(m.text).not.toMatch(/<[a-z]/);
-    const r = scoreRoadmap(struggling);
-    expect(deliveryMail({ lang: "de", firstName: "Anna", facility: "Haus", result: r }).html).not.toContain("Tipps senden");
-    expect(deliveryMail({ lang: "de", firstName: "Anna", facility: "Haus", result: r, confirmUrl: "https://x/c" }).html).toContain("https://x/c");
+    expect(m.html).toContain("Hallo Herr Kaya,");
+    expect(m.html).not.toContain("Tipps senden");
   });
   it("has exactly one follow-up per scheduled day, each with an unsubscribe link", () => {
     const r = scoreRoadmap(struggling);
     for (const l of LANGS) {
       for (let n = 0; n < FOLLOWUP_DAYS.length; n++) {
-        const m = followupMail(n, { lang: l, firstName: "A", result: r, unsubscribeUrl: "https://x/u" });
+        const m = followupMail(n, { lang: l, salutation: "frau", lastName: "A", result: r, unsubscribeUrl: "https://x/u" });
         expect(m?.html).toContain("https://x/u");
+        expect(m?.text).toContain("https://x/u");
       }
-      expect(followupMail(FOLLOWUP_DAYS.length, { lang: l, firstName: "A", result: r, unsubscribeUrl: "u" })).toBeNull();
+      expect(followupMail(FOLLOWUP_DAYS.length, { lang: l, salutation: "none", lastName: "", result: r, unsubscribeUrl: "u" })).toBeNull();
     }
   });
   it("formats euros per language", () => {
@@ -144,7 +217,7 @@ describe("content + emails", () => {
 describe("the PDF", () => {
   for (const lang of LANGS) {
     it(`renders 11 A4 pages in ${lang}`, async () => {
-      const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang, firstName: "Anna", facility: "Seniorenzentrum Am Park", date: new Date("2026-10-21") });
+      const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang, name: "Frau Müller", facility: "Seniorenzentrum Am Park", date: new Date("2026-10-21") });
       expect(bytes.length).toBeGreaterThan(20_000);
       const doc = await PDFDocument.load(bytes);
       expect(doc.getPageCount()).toBe(11);
@@ -177,10 +250,11 @@ describe("admin lead summary", () => {
   it("turns a roadmap lead's nested details into plain text chips", async () => {
     const { roadmapLeadChips, plainDetailChips } = await import("../lib/roadmap/leadSummary");
     const details = {
-      source: "roadmap", lang: "de", facility: "Haus", city: "Köln", role: "PDL", heardFrom: "linkedin",
+      source: "roadmap", lang: "de", facility: "Haus", salutation: "frau", lastName: "Müller", heardFrom: "linkedin",
       answers: { facilityType: "care_home", staff: 60, openPosts: 6, leftLastYear: 9, agency: "high", foreign: "never", onboarding: ["mentor", "german"], pain: "agency" },
       result: { level: 2, score: 41, bottleneck: "agency", totalYear: 1683000 },
-      consent: { tipsAsked: true, confirmedAt: "2026-10-22T10:00:00Z" }, seq: { step: 1 }, unsubscribedAt: null,
+      consent: { text: "x", givenAt: "2026-10-22T09:59:00Z", ip: "1.2.3.4", confirmedAt: "2026-10-22T10:00:00Z" },
+      delivery: { sentAt: "2026-10-22T10:00:09Z", attempts: 1 }, seq: { step: 1 }, unsubscribedAt: null,
     };
     const chips = roadmapLeadChips(details, "de");
     for (const c of chips) { expect(typeof c.k).toBe("string"); expect(typeof c.v).toBe("string"); }
@@ -188,7 +262,8 @@ describe("admin lead summary", () => {
     expect(v.Stufe).toBe("2 · Lückenfüller");
     expect(v["Verlust/Jahr"]).toBe("1.683.000 €");
     expect(v.Personal).toBe("60 · 6 offen · 9 gegangen");
-    expect(v.Tipps).toBe("bestätigt · 1/4 Mails");
+    expect(v.Status).toBe("bestätigt · PDF gesendet · 1/4 Mails");
+    expect(Object.fromEntries(roadmapLeadChips({ consent: { confirmedAt: null } }, "de").map((c) => [c.k, c.v])).Status).toBe("nicht bestätigt");
     expect(roadmapLeadChips(null, "en").length).toBeGreaterThan(0);
     expect(roadmapLeadChips(JSON.stringify(details), "de")).toEqual(chips);
     expect(roadmapLeadChips({ answers: "garbage", result: 5 }, "fr").every((c) => typeof c.v === "string")).toBe(true);
@@ -219,57 +294,59 @@ describe("email list (Resend contacts)", () => {
     calls.push({ url, method: String(init.method), body: JSON.parse(String(init.body)) });
     return new Response("{}", { status: statuses.shift() ?? 200 });
   }) as unknown as typeof fetch;
-  it("adds every lead as NOT subscribed and never re-unsubscribes an existing contact", async () => {
+  it("confirm creates the contact SUBSCRIBED (with the last name), unsubscribe flips it", async () => {
     process.env.RESEND_API_KEY = "re_test_key";
-    const { addLeadToList } = await import("../lib/roadmap/resendList");
-    calls.length = 0;
-    expect((await addLeadToList({ email: "pdl@haus.de", firstName: "Anna" }, fake([200]))).ok).toBe(true);
-    expect(calls[0]).toMatchObject({ url: "https://api.resend.com/contacts", method: "POST", body: { email: "pdl@haus.de", first_name: "Anna", unsubscribed: true } });
-    calls.length = 0;
-    await addLeadToList({ email: "pdl@haus.de", firstName: "Anna" }, fake([409, 200]));
-    expect(calls[1].method).toBe("PATCH");
-    expect(calls[1].body).toEqual({ first_name: "Anna" }); // subscription untouched
-  });
-  it("confirm subscribes, unsubscribe unsubscribes, a missing contact is created in the right state", async () => {
     const { setListSubscribed } = await import("../lib/roadmap/resendList");
+    calls.length = 0;
+    await setListSubscribed("pdl@haus.de", true, fake([404, 200]), { lastName: "Müller" });
+    expect(calls.map((c) => c.method)).toEqual(["PATCH", "POST"]);
+    expect(calls[1]).toMatchObject({ url: "https://api.resend.com/contacts", body: { email: "pdl@haus.de", last_name: "Müller", unsubscribed: false } });
     calls.length = 0;
     await setListSubscribed("pdl@haus.de", true, fake([200]));
     expect(calls[0]).toMatchObject({ method: "PATCH", url: "https://api.resend.com/contacts/pdl%40haus.de", body: { unsubscribed: false } });
     calls.length = 0;
-    await setListSubscribed("pdl@haus.de", false, fake([404, 200]));
-    expect(calls.map((c) => c.method)).toEqual(["PATCH", "POST"]);
-    expect(calls[1].body).toEqual({ email: "pdl@haus.de", unsubscribed: true });
+    await setListSubscribed("pdl@haus.de", false, fake([200]));
+    expect(calls[0].body).toEqual({ unsubscribed: true });
   });
   it("does nothing without a key and never throws", async () => {
     delete process.env.RESEND_API_KEY;
-    const { addLeadToList } = await import("../lib/roadmap/resendList");
-    expect((await addLeadToList({ email: "x@haus.de" }, fake([500]))).ok).toBe(false);
+    const { setListSubscribed } = await import("../lib/roadmap/resendList");
+    expect((await setListSubscribed("x@haus.de", true, fake([500]))).ok).toBe(false);
   });
 });
 
-describe("list sync + 12-month retention", () => {
-  it("subscribes only after ticked tips + confirm, and never after an unsubscribe", async () => {
+describe("list sync + retention", () => {
+  it("nobody is on the list before the confirm click; after it, subscribed until they unsubscribe", async () => {
     const { wantedListState, needsListSync } = await import("../lib/roadmap/leadState");
-    expect(wantedListState({})).toBe("unsubscribed");
-    expect(wantedListState({ consent: { tipsAsked: true, confirmedAt: null } })).toBe("unsubscribed");
-    expect(wantedListState({ consent: { tipsAsked: true, confirmedAt: "2026-10-01T00:00:00Z" } })).toBe("subscribed");
-    expect(wantedListState({ consent: { tipsAsked: true, confirmedAt: "2026-10-01T00:00:00Z" }, unsubscribedAt: "2026-10-05T00:00:00Z" })).toBe("unsubscribed");
-    expect(needsListSync({})).toBe(true);
-    expect(needsListSync({ list: { state: "unsubscribed" } })).toBe(false);
-    expect(needsListSync({ list: { state: "unsubscribed" }, consent: { tipsAsked: true, confirmedAt: "2026-10-01T00:00:00Z" } })).toBe(true);
-    expect(needsListSync({ anonymizedAt: "2027-11-01T00:00:00Z" })).toBe(false);
+    const c = { confirmedAt: "2026-10-01T00:00:00Z" };
+    expect(wantedListState({})).toBeNull();
+    expect(wantedListState({ consent: { confirmedAt: null } })).toBeNull();
+    expect(wantedListState({ consent: c })).toBe("subscribed");
+    expect(wantedListState({ consent: c, unsubscribedAt: "2026-10-05T00:00:00Z" })).toBe("unsubscribed");
+    expect(needsListSync({})).toBe(false);
+    expect(needsListSync({ consent: c })).toBe(true);
+    expect(needsListSync({ consent: c, list: { state: "subscribed" } })).toBe(false);
+    expect(needsListSync({ consent: c, list: { state: "subscribed" }, unsubscribedAt: "2026-10-05T00:00:00Z" })).toBe(true);
+    expect(needsListSync({ consent: c, anonymizedAt: "2027-11-01T00:00:00Z" })).toBe(false);
+  });
+  it("wipes a never-confirmed request after 30 days", async () => {
+    const { isExpired } = await import("../lib/roadmap/leadState");
+    const created = "2026-11-07T10:00:00Z";
+    const d = { lastName: "Müller", consent: { givenAt: created, ip: "1.2.3.4", confirmedAt: null } };
+    expect(isExpired(d, created, new Date("2026-12-06T00:00:00Z"))).toBe(false);
+    expect(isExpired(d, created, new Date("2026-12-08T00:00:00Z"))).toBe(true);
   });
   it("anonymizes only after 12 months without ANY activity, and keeps just the numbers", async () => {
     const { isExpired, anonymizedDetails } = await import("../lib/roadmap/leadState");
     const created = "2026-10-26T10:00:00Z";
-    const d = { source: "roadmap", lang: "de", firstName: "Anna", facility: "Haus", answers: { staff: 40 }, result: { level: 2 }, consent: { tipsAsked: true, confirmedAt: "2026-10-27T10:00:00Z" }, seq: { step: 4, lastSentAt: "2026-11-10T10:00:00Z" } };
+    const d = { source: "roadmap", lang: "de", salutation: "frau", lastName: "Anna", facility: "Haus", answers: { staff: 40 }, result: { level: 2 }, consent: { text: "x", ip: "9.9.9.9", confirmedAt: "2026-10-27T10:00:00Z" }, delivery: { sentAt: "2026-10-27T10:00:05Z" }, seq: { step: 4, lastSentAt: "2026-11-10T10:00:00Z" } };
     expect(isExpired(d, created, new Date("2027-10-01T00:00:00Z"))).toBe(false);
     expect(isExpired(d, created, new Date("2027-11-09T00:00:00Z"))).toBe(false); // last mail 2026-11-10
     expect(isExpired(d, created, new Date("2027-11-12T00:00:00Z"))).toBe(true);
     expect(isExpired({ ...d, anonymizedAt: "2027-11-12T00:00:00Z" }, created, new Date("2028-01-01T00:00:00Z"))).toBe(false);
     const a = anonymizedDetails(d, new Date("2027-11-12T00:00:00Z"));
     expect(a).toEqual({ source: "roadmap", lang: "de", answers: { staff: 40 }, result: { level: 2 }, anonymizedAt: "2027-11-12T00:00:00.000Z" });
-    expect(JSON.stringify(a)).not.toMatch(/Anna|Haus/);
+    expect(JSON.stringify(a)).not.toMatch(/Anna|Haus|9\.9\.9\.9/);
   });
 });
 
@@ -301,9 +378,9 @@ describe("per type + bonus", () => {
   }, 30_000);
   it("follow-up #2 speaks to the kind of Einrichtung", () => {
     const r = scoreRoadmap(struggling);
-    const m = followupMail(1, { lang: "de", firstName: "A", result: r, unsubscribeUrl: "u", facilityType: "home_care" });
+    const m = followupMail(1, { lang: "de", salutation: "frau", lastName: "A", result: r, unsubscribeUrl: "u", facilityType: "home_care" });
     expect(m?.html).toContain("Touren");
-    const d = deliveryMail({ lang: "de", firstName: "A", facility: "Haus", result: r });
+    const d = deliveryMail({ lang: "de", salutation: "frau", lastName: "A", facility: "Haus", result: r, unsubscribeUrl: "u" });
     expect(d.html).toContain("Agentur-Check");
     expect(d.text).not.toMatch(/<[a-z]/);
   });

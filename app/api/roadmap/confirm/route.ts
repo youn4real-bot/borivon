@@ -1,26 +1,51 @@
 import { NextRequest } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { verifyLeadToken } from "@/lib/roadmap/token";
-import { parseDetails } from "@/lib/roadmap/leadState";
+import { parseDetails, deliveryDue } from "@/lib/roadmap/leadState";
 import { linkPage } from "@/lib/roadmap/linkPage";
 import { setListSubscribed } from "@/lib/roadmap/resendList";
+import { clientIp } from "@/lib/roadmap/consent";
+import { deliverRoadmap, leadLang } from "@/lib/roadmap/delivery";
+import { keepAlive } from "@/lib/keepAlive";
 
 /**
- * /api/roadmap/confirm?id=&t= — the double opt-in from the delivery mail.
+ * /api/roadmap/confirm?id=&t= — the double opt-in link from the first mail.
  *
  * GET only SHOWS a button; the POST from that button confirms. Mail security
  * scanners (Outlook Safe Links and friends) open every link in a mail by
  * themselves; a GET that confirmed would sign people up who never clicked —
- * worthless as proof of consent under §7 UWG. Only after the POST does the
- * follow-up series start (cron /api/cron/roadmap-followups).
+ * worthless as proof of consent under §7 UWG.
+ *
+ * After the POST, and only then (founder, 2026-11-07): the contact is
+ * subscribed on the Resend list and the Fahrplan PDF goes out. Rendering takes
+ * 4-10 s on Workers, so it runs after the answer page (keepAlive); a failed
+ * send is retried by the daily job.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TXT = {
-  de: { ask: ["Tipps bestätigen", "Ein Klick, und Sie bekommen in den nächsten Tagen ein paar kurze Tipps zu Pflegekräften, die bleiben."], btn: "Ja, Tipps senden", done: ["Bestätigt", "Sie bekommen in den nächsten Tagen ein paar kurze Tipps. Sie können sie jederzeit abbestellen."] },
-  en: { ask: ["Confirm tips", "One click and you get a few short tips on nurses who stay over the next days."], btn: "Yes, send tips", done: ["Confirmed", "You will get a few short tips over the next days. You can unsubscribe at any time."] },
-  fr: { ask: ["Confirmer les conseils", "Un clic, et vous recevrez quelques conseils courts sur les infirmières qui restent."], btn: "Oui, envoyer les conseils", done: ["C'est confirmé", "Vous recevrez quelques conseils courts dans les prochains jours. Vous pouvez vous désabonner à tout moment."] },
+  de: {
+    ask: ["Fahrplan anfordern", "Ein Klick, und wir schicken Ihnen Ihren Fahrplan als PDF."], btn: "Ja, Fahrplan senden",
+    done: ["Bestätigt", "Danke! Ihr Fahrplan ist unterwegs. In ein paar Minuten ist er in Ihrem Postfach."],
+    sent: ["Schon bestätigt", "Ihr Fahrplan ist schon in Ihrem Postfach. Nichts da? Schauen Sie im Spam-Ordner nach."],
+    off: ["Abgemeldet", "Sie haben sich abgemeldet. Wir schicken Ihnen nichts mehr."],
+    err: "Kurzer Fehler. Bitte noch einmal klicken.",
+  },
+  en: {
+    ask: ["Get your roadmap", "One click and we send you your roadmap as a PDF."], btn: "Yes, send my roadmap",
+    done: ["Confirmed", "Thank you! Your roadmap is on its way. It will be in your inbox in a few minutes."],
+    sent: ["Already confirmed", "Your roadmap is already in your inbox. Nothing there? Check your spam folder."],
+    off: ["Unsubscribed", "You unsubscribed. We will not send you anything else."],
+    err: "Small error. Please click again.",
+  },
+  fr: {
+    ask: ["Recevoir votre plan", "Un clic, et nous vous envoyons votre plan en PDF."], btn: "Oui, envoyer mon plan",
+    done: ["C'est confirmé", "Merci ! Votre plan est en route. Il sera dans votre boîte mail dans quelques minutes."],
+    sent: ["Déjà confirmé", "Votre plan est déjà dans votre boîte mail. Rien reçu ? Regardez dans les spams."],
+    off: ["Désabonné", "Vous vous êtes désabonné. Nous ne vous enverrons plus rien."],
+    err: "Petite erreur. Merci de réessayer.",
+  },
 } as const;
 
 async function load(req: NextRequest) {
@@ -31,28 +56,46 @@ async function load(req: NextRequest) {
   const { data, error } = await db.from("leads").select("id,email,details").eq("id", id).eq("kind", "roadmap").maybeSingle();
   if (error || !data) return null;
   const d = parseDetails((data as { details: unknown }).details);
-  const lang = (d.lang === "fr" || d.lang === "en" ? d.lang : "de") as keyof typeof TXT;
-  return { id, d, lang, db, email: String((data as { email?: unknown }).email ?? "") };
+  if (d.anonymizedAt) return null;
+  return { id, d, lang: leadLang(d), db, email: String((data as { email?: unknown }).email ?? "") };
 }
+
+const invalid = () => linkPage("de", "Link ungültig", "Dieser Link ist ungültig oder abgelaufen. Fordern Sie den Fahrplan einfach neu an: borivon.com/fahrplan", 400);
 
 export async function GET(req: NextRequest) {
   const x = await load(req);
-  if (!x) return linkPage("de", "Link ungültig", "Dieser Link ist ungültig oder abgelaufen.", 400);
+  if (!x) return invalid();
   const T = TXT[x.lang];
-  if (x.d.consent?.confirmedAt) return linkPage(x.lang, T.done[0], T.done[1]);
+  if (x.d.unsubscribedAt) return linkPage(x.lang, T.off[0], T.off[1]);
+  if (x.d.consent?.confirmedAt) { const m = x.d.delivery?.sentAt ? T.sent : T.done; return linkPage(x.lang, m[0], m[1]); }
   return linkPage(x.lang, T.ask[0], T.ask[1], 200, { label: T.btn });
 }
 
 export async function POST(req: NextRequest) {
   const x = await load(req);
-  if (!x) return linkPage("de", "Link ungültig", "Dieser Link ist ungültig oder abgelaufen.", 400);
+  if (!x) return invalid();
   const T = TXT[x.lang];
-  if (!x.d.unsubscribedAt && !x.d.consent?.confirmedAt) {
-    const next = { ...x.d, consent: { ...(x.d.consent ?? {}), tipsAsked: true, confirmedAt: new Date().toISOString() } };
-    const { error } = await x.db.from("leads").update({ details: next }).eq("id", x.id);
-    if (error) return linkPage(x.lang, "…", x.lang === "de" ? "Kurzer Fehler. Bitte noch einmal klicken." : x.lang === "fr" ? "Petite erreur. Merci de réessayer." : "Small error. Please click again.", 500, { label: T.btn });
-    // double opt-in done: now (and only now) subscribed on the Resend list
-    if (x.email) { const r = await setListSubscribed(x.email, true); if (!r.ok) console.error("[roadmap] list subscribe failed:", r.status ?? "no key/network"); }
+  if (x.d.unsubscribedAt) return linkPage(x.lang, T.off[0], T.off[1]);
+  let d = x.d;
+  if (!d.consent?.confirmedAt) {
+    const at = new Date().toISOString();
+    d = { ...d, consent: { ...(d.consent ?? {}), confirmedAt: at, confirmIp: clientIp(req.headers) } };
+    const { error } = await x.db.from("leads").update({ details: d }).eq("id", x.id);
+    if (error) return linkPage(x.lang, "…", T.err, 500, { label: T.btn });
+    // double opt-in done: now (and only now) on the Resend list, subscribed
+    if (x.email) {
+      const r = await setListSubscribed(x.email, true, fetch, { lastName: String(d.lastName ?? "") });
+      if (r.ok) {
+        d = { ...d, list: { state: "subscribed", at } };
+        await x.db.from("leads").update({ details: d }).eq("id", x.id);
+      } else console.error("[roadmap] list subscribe failed:", r.status ?? "no key/network");
+    }
+  }
+  if (d.delivery?.sentAt) return linkPage(x.lang, T.sent[0], T.sent[1]);
+  // the PDF: first click, or a retry after a failed send (not twice in 30 min)
+  if (deliveryDue(d, new Date())) {
+    const lead = { id: x.id, email: x.email, details: d };
+    keepAlive(async () => { await deliverRoadmap(x.db, lead); });
   }
   return linkPage(x.lang, T.done[0], T.done[1]);
 }

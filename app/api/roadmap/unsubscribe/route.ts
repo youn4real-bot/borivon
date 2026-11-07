@@ -6,9 +6,9 @@ import { linkPage } from "@/lib/roadmap/linkPage";
 import { setListSubscribed } from "@/lib/roadmap/resendList";
 
 /**
- * Unsubscribe from the Fahrplan tips. GET = the link in the mail; POST = the
- * mail client's one-click button (List-Unsubscribe-Post). Either way the series
- * stops for good.
+ * Unsubscribe from all Fahrplan mails (tips and offers). GET = the link in the
+ * mail; POST = the mail client's one-click button (List-Unsubscribe-Post).
+ * Either way the series stops for good and the Resend contact is unsubscribed.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,9 +35,9 @@ async function unsubscribe(req: NextRequest): Promise<{ ok: boolean; lang: strin
 export async function GET(req: NextRequest) {
   const r = await unsubscribe(req);
   if (!r.ok) return linkPage(r.lang, "Link ungültig", "Dieser Link ist ungültig. Schreiben Sie uns: contact@borivon.com", 400);
-  const T = r.lang === "fr" ? ["Désabonné", "Vous ne recevrez plus de conseils de notre part."]
-    : r.lang === "en" ? ["Unsubscribed", "You will not get any more tips from us."]
-    : ["Abbestellt", "Sie bekommen keine Tipps mehr von uns."];
+  const T = r.lang === "fr" ? ["Désabonné", "Vous ne recevrez plus d'e-mails de notre part."]
+    : r.lang === "en" ? ["Unsubscribed", "You will not get any more emails from us."]
+    : ["Abgemeldet", "Sie bekommen keine E-Mails mehr von uns."];
   return linkPage(r.lang, T[0], T[1]);
 }
 

@@ -3,11 +3,11 @@
  * their email and build an email list"). Resend Contacts are global, so no
  * audience id is needed: https://resend.com/docs/api-reference/contacts
  *
- * Law first (§7 UWG, Art. 6/7 GDPR): EVERY Fahrplan lead becomes a contact,
- * but as `unsubscribed: true`, so a Broadcast from the Resend dashboard never
- * reaches them. Only the double opt-in (ticked "tips" box + POST on the confirm
- * page) flips them to subscribed, and the unsubscribe link flips them back.
- * A new submission never re-unsubscribes someone who already confirmed.
+ * Law first (§7 UWG, Art. 6/7 GDPR), founder 2026-11-07: a Fahrplan lead
+ * becomes a contact ONLY after the double opt-in (ticked box + POST on the
+ * confirm page), and then as subscribed. The unsubscribe link flips them to
+ * `unsubscribed: true`, so a Broadcast from the Resend dashboard never reaches
+ * them again. Unconfirmed requests never touch the list.
  *
  * Never throws: the list is a side channel; a Resend hiccup must not cost a
  * lead, a PDF or a confirmation. Needs RESEND_API_KEY with contact access
@@ -34,23 +34,14 @@ async function call(url: string, method: "POST" | "PATCH", body: Record<string, 
 }
 
 /**
- * New Fahrplan lead: add to the list, NOT subscribed. If the contact already
- * exists, only refresh the name (leave their subscription exactly as it is).
+ * Confirm click (subscribed = true) or unsubscribe link (false). Creates the
+ * contact when it is not on the list yet (the confirm click, the first time).
  */
-export async function addLeadToList(c: { email: string; firstName?: string; lastName?: string }, fetchImpl: typeof fetch = fetch): Promise<Result> {
-  const names = { ...(c.firstName ? { first_name: c.firstName } : {}), ...(c.lastName ? { last_name: c.lastName } : {}) };
-  const created = await call(API, "POST", { email: c.email, ...names, unsubscribed: true }, fetchImpl);
-  if (created.ok || !created.status || created.status === 401 || created.status === 403) return created;
-  if (!Object.keys(names).length) return { ok: true, status: created.status };
-  return call(`${API}/${encodeURIComponent(c.email)}`, "PATCH", names, fetchImpl);
-}
-
-/** Confirm click (subscribed = true) or unsubscribe link (false). */
-export async function setListSubscribed(email: string, subscribed: boolean, fetchImpl: typeof fetch = fetch): Promise<Result> {
-  const r = await call(`${API}/${encodeURIComponent(email)}`, "PATCH", { unsubscribed: !subscribed }, fetchImpl);
+export async function setListSubscribed(email: string, subscribed: boolean, fetchImpl: typeof fetch = fetch, names: { lastName?: string } = {}): Promise<Result> {
+  const n = names.lastName ? { last_name: names.lastName } : {};
+  const r = await call(`${API}/${encodeURIComponent(email)}`, "PATCH", { unsubscribed: !subscribed, ...n }, fetchImpl);
   if (r.ok || r.status !== 404) return r;
-  // not on the list yet (e.g. a lead from before the list existed): add them in the right state
-  return call(API, "POST", { email, unsubscribed: !subscribed }, fetchImpl);
+  return call(API, "POST", { email, ...n, unsubscribed: !subscribed }, fetchImpl);
 }
 
 /** Retention: take an anonymized lead off the list for good (404 = already gone = fine). */

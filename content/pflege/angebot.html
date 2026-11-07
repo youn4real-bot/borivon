@@ -1139,7 +1139,7 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
 <footer>
   <div class="wrap">
     <span data-t="footer_l">Borivon · Pflegefachkräfte für Deutschland</span>
-    <span class="legal"><a href="https://www.borivon.com/impressum" target="_blank" rel="noopener" data-t="f_imp">Impressum</a> · <a href="https://www.borivon.com/privacy-policy" target="_blank" rel="noopener" data-t="f_priv">Datenschutz</a></span>
+    <span class="legal"><a href="https://www.borivon.com/impressum" target="_blank" rel="noopener" data-t="f_imp">Impressum</a> · <a href="https://www.borivon.com/datenschutz" target="_blank" rel="noopener" data-t="f_priv" data-priv>Datenschutz</a></span>
   </div>
 </footer>
 
@@ -1922,6 +1922,8 @@ html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip ke
   function renderStatic() {
     var t = T[lang];
     $$("[data-t]").forEach(function (el) { var v = t[el.getAttribute("data-t")]; if (typeof v === "string") el.textContent = v; });
+    // German privacy policy lives at /datenschutz (founder 2026-11-07)
+    $$("[data-priv]").forEach(function (el) { el.setAttribute("href", lang === "de" ? "/datenschutz" : "/privacy-policy"); });
     $$("[data-th]").forEach(function (el) { var v = t[el.getAttribute("data-th")]; if (typeof v === "string") el.innerHTML = v; });
     $$("[data-tl]").forEach(function (el) { var v = t[el.getAttribute("data-tl")]; if (Array.isArray(v)) el.innerHTML = v.map(function (x) { return "<li>" + x + "</li>"; }).join(""); });
     $$("[data-eur]").forEach(function (el) { el.textContent = eur(+el.getAttribute("data-eur")); });

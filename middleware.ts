@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writesFrozen, freezeDecision, maintenanceResponse, cronSkipResponse } from "@/lib/maintenance";
+import { prefersGerman } from "@/lib/prefersGerman";
 
 /**
  * The affiliate portal is a SEPARATE surface, reachable ONLY at
@@ -67,6 +68,15 @@ export function middleware(req: NextRequest) {
   if (pathname === "/api/affiliate" || pathname.startsWith("/api/affiliate/")) {
     // The affiliate API is only for the subdomain dashboard (same-origin there).
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // German visitors read the German privacy policy at /datenschutz (founder,
+  // 2026-11-07). Browser language decides: the first Accept-Language tag.
+  if (pathname === "/privacy-policy" && prefersGerman(req.headers.get("accept-language"))) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/datenschutz";
+    url.search = "";
+    return NextResponse.redirect(url, 307);
   }
 
   return NextResponse.next();

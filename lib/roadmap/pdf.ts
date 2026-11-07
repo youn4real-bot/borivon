@@ -52,7 +52,8 @@ const PLAYFAIR_ITALIC = "pflege/assets/playfair-italic-latin.woff2";
 export type RoadmapPdfInput = {
   result: RoadmapResult;
   lang: Lang;
-  firstName: string;
+  /** who it is for, as addressed: "Frau Müller" ("" = no name on the cover) */
+  name: string;
   facility: string;
   date: Date;
 };
@@ -144,7 +145,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     const { page, s } = newPage(true);
     icon(page, "stairs", M, 150, 84, ON_NIGHT);
     let y = 280;
-    eyebrow(s, input.firstName ? `${t.for} ${input.firstName}` : t.title, M, y, GOLD);
+    eyebrow(s, input.name ? `${t.for} ${input.name}` : t.title, M, y, GOLD);
     y = disp(page, H, t.title, M, y + 20, W, 48, FG, 1.08);
     if (input.facility) y = disp(page, HI, input.facility, M, y + 4, W, 26, GOLD, 1.2, 0);
     s.text(`${pick(FACILITY[result.facilityType].name, lang)}  ·  ${input.date.toLocaleDateString(lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE")}`, M, y + 12, F.reg, 10.5, MUTED_NIGHT);

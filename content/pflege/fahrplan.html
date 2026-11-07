@@ -79,6 +79,13 @@ label.chk input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(
 .mm.neg strong { color: var(--warn); } .mm.pos strong { color: var(--ok); }
 .sent { display: flex; gap: 12px; align-items: flex-start; padding: 16px 18px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); margin: 16px 0 22px; }
 .sent::before { content: ""; flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(127,181,140,0.18); }
+.sent.wait::before { background: var(--gold); box-shadow: 0 0 0 4px rgba(201,162,64,0.18); }
+.sent b { color: var(--fg); }
+.three { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); margin-bottom: 12px; }
+.three .opt { text-align: center; padding: 14px 8px; font-size: 0.95rem; }
+.note { margin: 14px 0 0; line-height: 1.55; }
+.note a, label.chk a { color: var(--gold); }
+label.chk.consent { margin-top: 16px; }
 footer { text-align: center; font-size: 0.8rem; color: var(--muted); padding: 20px 16px 40px; }
 footer a { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .step { animation: none; } .bar i { transition: none; } }
@@ -137,7 +144,7 @@ details .in { padding: 0 18px 16px; }
   <div class="bar" aria-hidden="true"><i id="bar"></i></div>
   <div class="card" id="card" aria-live="polite"></div>
 </main>
-<footer><a href="/impressum">Impressum</a> · <a href="/privacy-policy">Datenschutz</a> · contact@borivon.com</footer>
+<footer><a href="/impressum">Impressum</a> · <a href="/datenschutz">Datenschutz</a> · contact@borivon.com</footer>
 
 <script>
 (function () {
@@ -148,10 +155,10 @@ details .in { padding: 0 18px 16px; }
       lead: "Beantworten Sie ein paar kurze Fragen. Sie bekommen einen Fahrplan als PDF, nur für Ihre Einrichtung.",
       gets: ["Ihre Stufe von 1 bis 5", "Was leere Stellen und Kündigungen Sie kosten, pro Monat und pro Jahr", "Ihren Plan für die nächste Stufe", "Den 90-Tage-Plan, damit neue Pflegekräfte bleiben"],
       start: "Los geht's", sample: "Beispiel ansehen", next: "Weiter", back: "Zurück", skip: "Überspringen",
-      qName: "Wie heißen Sie?", phFirst: "Vorname", phLast: "Nachname",
-      qEmail: "Wie lautet Ihre berufliche E-Mail?", hEmail: "Dorthin schicken wir Ihren Fahrplan.",
-      qPhone: "Ihre Telefonnummer?", hPhone: "Freiwillig. Nur für Rückfragen zu Ihrem Fahrplan.",
-      qFacility: "Wie heißt Ihre Einrichtung, und wo ist sie?", phFacility: "Name Ihrer Einrichtung", phCity: "Ort",
+      qName: "Wie dürfen wir Sie ansprechen?", sal: { frau: "Frau", herr: "Herr", none: "Keine Angabe" }, phLast: "Nachname",
+      note: "Ihre Angaben nutzen wir nur, um Ihren Fahrplan zu erstellen. Kein Verkauf, keine Weitergabe an Dritte. Verantwortlich: Borivon LLC.", noteLink: "Datenschutzerklärung", errName: "Bitte wählen Sie eine Anrede und schreiben Sie Ihren Nachnamen.",
+      qEmail: "Wohin dürfen wir Ihren Fahrplan schicken?", hEmail: "Ihre geschäftliche E-Mail-Adresse.",
+      qFacility: "Wie heißt Ihre Einrichtung?", phFacility: "Name Ihrer Einrichtung",
       qType: "Was für eine Einrichtung führen Sie?", types: { hospital: "Krankenhaus / Klinik", care_home: "Altenheim / Pflegeheim", home_care: "Ambulanter Pflegedienst" },
       qStaff: "Wie viele Pflegefachkräfte arbeiten bei Ihnen?", qOpen: "Wie viele Stellen für Pflegefachkräfte sind gerade offen?", qLeft: "Wie viele Pflegefachkräfte sind in den letzten 12 Monaten gegangen?",
       hintNum: "Eine Schätzung reicht.",
@@ -160,16 +167,13 @@ details .in { padding: 0 18px 16px; }
       qOnb: "Was bekommt eine neue Pflegekraft in den ersten 90 Tagen?", hintMulti: "Mehrere möglich.", onb: { mentor: "Eine feste Patin", german: "Deutsch-Training für die Arbeit", housing: "Hilfe bei der Wohnung", plan: "Einen schriftlichen Einarbeitungsplan", checkins: "Regelmäßige Gespräche" }, none: "Nichts davon",
       qPain: "Was tut am meisten weh?", pain: { open_posts: "Stellen bleiben leer", leaving: "Pflegekräfte gehen wieder", agency: "Leihkräfte sind zu teuer", paperwork: "Papiere und Ämter dauern ewig", german: "Das Deutsch reicht nicht" },
       qHeard: "Woher kennen Sie Borivon?", heard: { google: "Google", youtube: "YouTube", linkedin: "LinkedIn", referral: "Empfehlung", email: "E-Mail von Borivon", event: "Messe oder Veranstaltung", other: "Anders" },
-      qFinish: "Fast fertig.", pFinish: "Wir erstellen jetzt Ihren Fahrplan und schicken ihn an",
-      tips: "Ja, schicken Sie mir ein paar kurze Tipps per E-Mail. Jederzeit abbestellbar.",
-      consent: "Ich bin einverstanden, dass Borivon meine Angaben nutzt, um meinen Fahrplan zu erstellen und per E-Mail zu senden.", privacyLink: "Datenschutz",
-      errBiz: "Bitte nutzen Sie Ihre geschäftliche E-Mail-Adresse.", errConsent: "Bitte setzen Sie das Häkchen beim Datenschutz.",
-      submit: "Fahrplan erstellen", sending: "Wird erstellt …",
+      consent: "Ich möchte meinen Fahrplan sowie Tipps und Angebote von Borivon per E-Mail erhalten. Abmeldung jederzeit möglich.", privacyLink: "Datenschutzerklärung",
+      errBiz: "Bitte nutzen Sie Ihre geschäftliche E-Mail-Adresse.", errConsent: "Bitte setzen Sie das Häkchen. Sonst können wir Ihnen den Fahrplan nicht schicken.",
+      submit: "Fahrplan anfordern", sending: "Wird gesendet …",
       errMail: "Bitte prüfen Sie die E-Mail-Adresse.", errFacility: "Bitte geben Sie den Namen Ihrer Einrichtung an.", errSend: "Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.", errMany: "Zu viele Versuche. Bitte versuchen Sie es später noch einmal.",
       congrats: "Glückwunsch, {n}: Ihre Einrichtung ist auf", level: "Stufe", of5: "von 5",
       lose: "Leere Stellen kosten Sie", loseYear: "Zusammen mit Kündigungen, pro Jahr", win: "Jede Pflegekraft, die bleibt, bringt Ihnen", perMonth: "pro Monat",
-      sentTo: "Ihr Fahrplan als PDF ist unterwegs an", spam: "Nichts da? Schauen Sie im Spam-Ordner nach.", bonus: "Bonus in derselben E-Mail: der Agentur-Check, 10 Fragen an jede Vermittlung.", notSent: "Wir haben Ihre Antworten. Ihr PDF schicken wir Ihnen in Kürze.",
-      tipsNote: "Bitte bestätigen Sie die Tipps mit dem Knopf in der E-Mail.",
+      sentH: "Fast geschafft: Bitte bestätigen Sie Ihre E-Mail.", sentTo: "Wir haben einen Link an {e} geschickt. Nach Ihrem Klick schicken wir Ihnen den Fahrplan als PDF.", bonus: "Als Bonus dabei: der Agentur-Check, 10 Fragen an jede Vermittlung.", spam: "Nichts da? Schauen Sie im Spam-Ordner nach.",
       bottomL: "Unterm Strich", gradByL: "Aufsteigen durch",
       readH: "Ihr Plan, schon jetzt", readP: "Während das PDF unterwegs ist, können Sie hier sofort anfangen.",
       plan90: "Der 90-Tage-Bleibe-Plan", reasons: "7 Gründe, warum Pflegekräfte gehen", why: "Warum", fix: "Was hilft",
@@ -181,10 +185,10 @@ details .in { padding: 0 18px 16px; }
       lead: "Answer a few short questions. You get a roadmap as a PDF, just for your facility.",
       gets: ["Your level from 1 to 5", "What empty posts and resignations cost you, per month and per year", "Your plan for the next level", "The 90-day plan so new nurses stay"],
       start: "Let's go", sample: "See an example", next: "Next", back: "Back", skip: "Skip",
-      qName: "What is your name?", phFirst: "First name", phLast: "Last name",
-      qEmail: "What is your work email?", hEmail: "We send your roadmap there.",
-      qPhone: "Your phone number?", hPhone: "Optional. Only for questions about your roadmap.",
-      qFacility: "What is your facility called, and where is it?", phFacility: "Name of your facility", phCity: "City",
+      qName: "How should we address you?", sal: { frau: "Ms", herr: "Mr", none: "Prefer not to say" }, phLast: "Last name",
+      note: "We only use your details to make your roadmap. No selling, no passing on to others. Responsible: Borivon LLC.", noteLink: "Privacy policy", errName: "Please choose a title and enter your last name.",
+      qEmail: "Where should we send your roadmap?", hEmail: "Your business email address.",
+      qFacility: "What is your facility called?", phFacility: "Name of your facility",
       qType: "What kind of facility do you run?", types: { hospital: "Hospital / clinic", care_home: "Care home", home_care: "Home care service" },
       qStaff: "How many registered nurses work for you?", qOpen: "How many nurse posts are open right now?", qLeft: "How many nurses left in the last 12 months?",
       hintNum: "A guess is fine.",
@@ -193,16 +197,13 @@ details .in { padding: 0 18px 16px; }
       qOnb: "What does a new nurse get in her first 90 days?", hintMulti: "Pick all that apply.", onb: { mentor: "A fixed mentor", german: "German training for work", housing: "Help with a flat", plan: "A written onboarding plan", checkins: "Regular talks" }, none: "None of these",
       qPain: "What hurts the most?", pain: { open_posts: "Posts stay empty", leaving: "Nurses leave again", agency: "Agency staff cost too much", paperwork: "Paperwork and offices take forever", german: "Their German is not enough" },
       qHeard: "How did you hear about Borivon?", heard: { google: "Google", youtube: "YouTube", linkedin: "LinkedIn", referral: "Someone recommended us", email: "An email from Borivon", event: "A fair or event", other: "Other" },
-      qFinish: "Almost done.", pFinish: "We are making your roadmap now and sending it to",
-      tips: "Yes, send me a few short tips by email. Unsubscribe any time.",
-      consent: "I agree that Borivon uses my answers to make my roadmap and send it to me by email.", privacyLink: "Privacy",
-      errBiz: "Please use your business email address.", errConsent: "Please tick the privacy box.",
-      submit: "Make my roadmap", sending: "Making it …",
+      consent: "I want to receive my roadmap and tips and offers from Borivon by email. Unsubscribe at any time.", privacyLink: "Privacy policy",
+      errBiz: "Please use your business email address.", errConsent: "Please tick the box. Otherwise we cannot send you the roadmap.",
+      submit: "Get my roadmap", sending: "Sending …",
       errMail: "Please check the email address.", errFacility: "Please enter the name of your facility.", errSend: "That did not work. Please try again.", errMany: "Too many tries. Please try again later.",
       congrats: "Congratulations, {n}: your facility is at", level: "Level", of5: "of 5",
       lose: "Empty posts cost you", loseYear: "Together with resignations, per year", win: "Every nurse who stays brings you", perMonth: "per month",
-      sentTo: "Your roadmap PDF is on its way to", spam: "Nothing there? Check your spam folder.", bonus: "Bonus in the same email: the agency check, 10 questions to ask any recruiter.", notSent: "We have your answers. We will send your PDF shortly.",
-      tipsNote: "Please confirm the tips with the button in the email.",
+      sentH: "Almost done: please confirm your email.", sentTo: "We sent a link to {e}. After your click we send you the roadmap as a PDF.", bonus: "Bonus included: the agency check, 10 questions to ask any recruiter.", spam: "Nothing there? Check your spam folder.",
       bottomL: "Bottom line", gradByL: "Move up by",
       readH: "Your plan, right now", readP: "While the PDF is on its way, you can start right here.",
       plan90: "The 90-day stay plan", reasons: "7 reasons nurses leave", why: "Why", fix: "What helps",
@@ -214,10 +215,10 @@ details .in { padding: 0 18px 16px; }
       lead: "Répondez à quelques questions courtes. Vous recevez un plan en PDF, rien que pour votre établissement.",
       gets: ["Votre niveau de 1 à 5", "Ce que les postes vides et les départs vous coûtent, par mois et par an", "Votre plan pour le niveau suivant", "Le plan de 90 jours pour que les nouvelles restent"],
       start: "C'est parti", sample: "Voir un exemple", next: "Suivant", back: "Retour", skip: "Passer",
-      qName: "Comment vous appelez-vous ?", phFirst: "Prénom", phLast: "Nom",
-      qEmail: "Quelle est votre adresse e-mail professionnelle ?", hEmail: "Nous y envoyons votre plan.",
-      qPhone: "Votre numéro de téléphone ?", hPhone: "Facultatif. Seulement pour des questions sur votre plan.",
-      qFacility: "Comment s'appelle votre établissement, et où est-il ?", phFacility: "Nom de votre établissement", phCity: "Ville",
+      qName: "Comment devons-nous vous appeler ?", sal: { frau: "Madame", herr: "Monsieur", none: "Non précisé" }, phLast: "Nom",
+      note: "Nous utilisons vos données uniquement pour créer votre plan. Pas de vente, pas de transmission à des tiers. Responsable : Borivon LLC.", noteLink: "Politique de confidentialité", errName: "Merci de choisir une civilité et d'indiquer votre nom.",
+      qEmail: "Où devons-nous envoyer votre plan ?", hEmail: "Votre adresse e-mail professionnelle.",
+      qFacility: "Comment s'appelle votre établissement ?", phFacility: "Nom de votre établissement",
       qType: "Quel type d'établissement dirigez-vous ?", types: { hospital: "Hôpital / clinique", care_home: "Maison de retraite", home_care: "Soins à domicile" },
       qStaff: "Combien d'infirmières diplômées travaillent chez vous ?", qOpen: "Combien de postes d'infirmière sont vides en ce moment ?", qLeft: "Combien d'infirmières sont parties ces 12 derniers mois ?",
       hintNum: "Une estimation suffit.",
@@ -226,16 +227,13 @@ details .in { padding: 0 18px 16px; }
       qOnb: "Que reçoit une nouvelle infirmière pendant ses 90 premiers jours ?", hintMulti: "Plusieurs choix possibles.", onb: { mentor: "Une marraine fixe", german: "Allemand pour le travail", housing: "Aide pour le logement", plan: "Un plan d'intégration écrit", checkins: "Des entretiens réguliers" }, none: "Rien de tout ça",
       qPain: "Qu'est-ce qui fait le plus mal ?", pain: { open_posts: "Les postes restent vides", leaving: "Les infirmières repartent", agency: "L'intérim coûte trop cher", paperwork: "Les papiers prennent une éternité", german: "Leur allemand ne suffit pas" },
       qHeard: "Comment avez-vous connu Borivon ?", heard: { google: "Google", youtube: "YouTube", linkedin: "LinkedIn", referral: "Une recommandation", email: "Un e-mail de Borivon", event: "Un salon ou un événement", other: "Autre" },
-      qFinish: "Presque fini.", pFinish: "Nous créons votre plan et l'envoyons à",
-      tips: "Oui, envoyez-moi quelques conseils courts par e-mail. Désabonnement à tout moment.",
-      consent: "J'accepte que Borivon utilise mes réponses pour créer mon plan et me l'envoyer par e-mail.", privacyLink: "Confidentialité",
-      errBiz: "Merci d'utiliser votre adresse e-mail professionnelle.", errConsent: "Merci de cocher la case de confidentialité.",
-      submit: "Créer mon plan", sending: "Création …",
+      consent: "Je souhaite recevoir mon plan ainsi que des conseils et des offres de Borivon par e-mail. Désabonnement à tout moment.", privacyLink: "Politique de confidentialité",
+      errBiz: "Merci d'utiliser votre adresse e-mail professionnelle.", errConsent: "Merci de cocher la case. Sinon, nous ne pouvons pas vous envoyer le plan.",
+      submit: "Recevoir mon plan", sending: "Envoi …",
       errMail: "Merci de vérifier l'adresse e-mail.", errFacility: "Merci d'indiquer le nom de votre établissement.", errSend: "Ça n'a pas marché. Merci de réessayer.", errMany: "Trop d'essais. Merci de réessayer plus tard.",
       congrats: "Félicitations, {n} : votre établissement est au", level: "Niveau", of5: "sur 5",
       lose: "Les postes vides vous coûtent", loseYear: "Avec les départs, par an", win: "Chaque infirmière qui reste vous rapporte", perMonth: "par mois",
-      sentTo: "Votre plan en PDF est en route vers", spam: "Rien reçu ? Regardez dans les spams.", bonus: "Bonus dans le même e-mail : le check agence, 10 questions à poser à tout recruteur.", notSent: "Nous avons vos réponses. Nous vous envoyons le PDF très vite.",
-      tipsNote: "Merci de confirmer les conseils avec le bouton dans l'e-mail.",
+      sentH: "Presque fini : merci de confirmer votre e-mail.", sentTo: "Nous avons envoyé un lien à {e}. Après votre clic, nous vous envoyons le plan en PDF.", bonus: "En bonus : le check agence, 10 questions à poser à tout recruteur.", spam: "Rien reçu ? Regardez dans les spams.",
       bottomL: "En résumé", gradByL: "Monter en",
       readH: "Votre plan, dès maintenant", readP: "Pendant que le PDF arrive, vous pouvez commencer ici.",
       plan90: "Le plan de 90 jours", reasons: "7 raisons pour lesquelles elles partent", why: "Pourquoi", fix: "Ce qui aide",
@@ -245,11 +243,13 @@ details .in { padding: 0 18px 16px; }
 
   var lang = "de";
   try { var s0 = localStorage.getItem("bv-lang"); if (T[s0]) lang = s0; } catch (e) {}
-  var A = { firstName: "", lastName: "", email: "", phone: "", facility: "", city: "", facilityType: "care_home", staff: 40, openPosts: 3, leftLastYear: 4, agency: "", foreign: "", onboarding: [], pain: "", heardFrom: "", tips: false, consent: false, website: "" };
-  // Contact first, then the house (founder's Hormozi breakdown): one thing per screen.
+  // consent starts EMPTY (never pre-ticked); only the visitor's own click sets it.
+  var A = { salutation: "", lastName: "", email: "", facility: "", facilityType: "care_home", staff: 40, openPosts: 3, leftLastYear: 4, agency: "", foreign: "", onboarding: [], pain: "", heardFrom: "", consent: false, website: "" };
+  // One thing per screen. Founder 2026-11-07: Anrede + Nachname first (with the
+  // privacy note), the email + the one consent box on the LAST screen.
   // Altenheime only for now (founder 2026-10-27): no type question; facilityType stays "care_home".
-  var STEPS = ["intro", "name", "email", "phone", "facility", "staff", "open", "left", "agency", "foreign", "onb", "pain", "heard", "finish", "result"];
-  var at = 0, R = null, emailed = false, busy = false, err = "";
+  var STEPS = ["intro", "name", "facility", "staff", "open", "left", "agency", "foreign", "onb", "pain", "heard", "email", "result"];
+  var at = 0, R = null, busy = false, err = "";
 
   // Business emails only (founder rule). Same list as lib/roadmap/freeMail.ts.
   var FREE = ["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","yahoo.com","ymail.com","rocketmail.com","icloud.com","me.com","mac.com","aol.com","proton.me","protonmail.com","pm.me","tutanota.com","tutanota.de","tuta.io","tuta.com","gmx.com","mail.com","yandex.com","yandex.ru","mail.ru","zohomail.com","hey.com","gmx.de","gmx.net","gmx.at","gmx.ch","web.de","t-online.de","freenet.de","posteo.de","mailbox.org","arcor.de","online.de","email.de","outlook.de","hotmail.de","live.de","yahoo.de","aol.de","bluewin.ch","kabelmail.de","vodafonemail.de","ewe.net","orange.fr","wanadoo.fr","free.fr","laposte.net","sfr.fr","neuf.fr","bbox.fr","outlook.fr","hotmail.fr","live.fr","yahoo.fr","aol.fr","gmx.fr","skynet.be","hotmail.co.uk","yahoo.co.uk","outlook.at","hotmail.it","libero.it"];
@@ -294,13 +294,12 @@ details .in { padding: 0 18px 16px; }
         '<ul class="gets">' + t.gets.map(function (g) { return '<li>' + esc(g) + '</li>'; }).join("") + '</ul>' +
         '<div class="row"><span></span><button type="button" class="btn" data-act="next">' + esc(t.start) + ' →</button></div>';
     } else if (s === "name") {
-      h = '<h2>' + esc(t.qName) + '</h2><div class="two">' + field("fFirst", "text", t.phFirst, A.firstName, "given-name", 60) + field("fLast", "text", t.phLast, A.lastName, "family-name", 80) + '</div>' + nav(true);
-    } else if (s === "email") {
-      h = '<h2>' + esc(t.qEmail) + '</h2><p>' + esc(t.hEmail) + '</p>' + field("fEmail", "email", "name@haus.de", A.email, "email", 254) + nav(true);
-    } else if (s === "phone") {
-      h = '<h2>' + esc(t.qPhone) + '</h2><p>' + esc(t.hPhone) + '</p>' + field("fPhone", "tel", "+49 …", A.phone, "tel", 40) + nav(true, '<button type="button" class="ghost" data-act="skip">' + esc(t.skip) + '</button>');
+      h = '<h2>' + esc(t.qName) + '</h2><div class="three" role="group" aria-label="' + esc(t.qName) + '">' +
+        ["frau", "herr", "none"].map(function (k) { return '<button type="button" class="opt" data-sal="' + k + '" aria-pressed="' + (A.salutation === k) + '">' + esc(t.sal[k]) + '</button>'; }).join("") + '</div>' +
+        field("fLast", "text", t.phLast, A.lastName, "family-name", 80) +
+        '<p class="small note">' + esc(t.note) + ' <a href="/datenschutz" target="_blank" rel="noopener">' + esc(t.noteLink) + '</a></p>' + nav(true);
     } else if (s === "facility") {
-      h = '<h2>' + esc(t.qFacility) + '</h2>' + field("fFacility", "text", t.phFacility, A.facility, "organization", 120) + '<div style="height:10px"></div>' + field("fCity", "text", t.phCity, A.city, "address-level2", 80) + nav(true);
+      h = '<h2>' + esc(t.qFacility) + '</h2>' + field("fFacility", "text", t.phFacility, A.facility, "organization", 120) + nav(true);
     } else if (s === "type") { h = '<h2>' + esc(t.qType) + '</h2>' + choice("facilityType", t.types) + nav(false); }
     else if (s === "staff") { h = numStep(t.qStaff, "staff"); }
     else if (s === "open") { h = numStep(t.qOpen, "openPosts"); }
@@ -314,11 +313,11 @@ details .in { padding: 0 18px 16px; }
     }
     else if (s === "pain") { h = '<h2>' + esc(t.qPain) + '</h2>' + choice("pain", t.pain) + nav(false); }
     else if (s === "heard") { h = '<h2>' + esc(t.qHeard) + '</h2>' + choice("heardFrom", t.heard) + nav(false); }
-    else if (s === "finish") {
-      h = '<h2>' + esc(t.qFinish) + '</h2><p class="lead">' + esc(t.pFinish) + ' <b>' + esc(A.email) + '</b>.</p>' +
+    else if (s === "email") {
+      // Last screen: email, then directly under it the ONE empty, required box, then the button.
+      h = '<h2>' + esc(t.qEmail) + '</h2><p>' + esc(t.hEmail) + '</p>' + field("fEmail", "email", "name@haus.de", A.email, "email", 254) +
         '<label class="hp" aria-hidden="true">Website<input type="text" id="fWeb" tabindex="-1" autocomplete="off"></label>' +
-        '<label class="chk"><input type="checkbox" id="fConsent" required aria-required="true"' + (A.consent ? " checked" : "") + '><span>' + esc(t.consent) + ' <a href="/privacy-policy" target="_blank" rel="noopener">' + esc(t.privacyLink) + '</a></span></label>' +
-        '<label class="chk"><input type="checkbox" id="fTips"' + (A.tips ? " checked" : "") + '><span>' + esc(t.tips) + '</span></label>' +
+        '<label class="chk consent"><input type="checkbox" id="fConsent" required aria-required="true"' + (A.consent ? " checked" : "") + '><span>' + esc(t.consent) + ' <a href="/datenschutz" target="_blank" rel="noopener">' + esc(t.privacyLink) + '</a></span></label>' +
         '<p class="err" id="err">' + esc(err) + '</p>' +
         '<div class="row"><button type="button" class="ghost" data-act="back">← ' + esc(t.back) + '</button><button type="button" class="btn" data-act="submit"' + (busy ? " disabled" : "") + '>' + esc(busy ? t.sending : t.submit) + '</button></div>';
     } else if (s === "result" && R) {
@@ -326,45 +325,44 @@ details .in { padding: 0 18px 16px; }
       var lad = (R.ladder || []).map(function (c) {
         return '<div class="lc' + (c.current ? " cur" : "") + '"><span class="k">' + esc(t.level) + ' ' + c.level + '</span><b>' + esc(c.name) + '</b><small>' + esc(c.line) + '</small></div>';
       }).join("");
-      h = '<div class="congrats"><p class="eyebrow">' + esc(t.congrats.replace("{n}", A.firstName || "").replace(/, :/, ":").replace(/,\s*:/, ":")) + '</p><h2>' + esc(t.level) + ' ' + r.level + ' ' + esc(t.of5) + '</h2></div>' +
+      h = '<div class="congrats"><p class="eyebrow">' + esc(t.congrats.replace("{n}", addr()).replace(/,\s*:/, ":")) + '</p><h2>' + esc(t.level) + ' ' + r.level + ' ' + esc(t.of5) + '</h2></div>' +
         '<div class="ladder' + ((R.ladder || []).length === 2 ? " two-col" : "") + '">' + lad + '</div>' +
-        '<div class="sent"><div>' + esc(t.sentTo) + ' <b>' + esc(A.email) + '</b>.<br><span class="small">' + esc(t.bonus) + ' ' + esc(t.spam) + (A.tips ? " " + esc(t.tipsNote) : "") + '</span></div></div>' +
+        '<div class="sent wait"><div><b>' + esc(t.sentH) + '</b><br>' + esc(t.sentTo).replace("{e}", "<b>" + esc(A.email) + "</b>") + '<br><span class="small">' + esc(t.bonus) + ' ' + esc(t.spam) + '</span></div></div>' +
         '<div class="fit"><p>' + esc(t.fitP) + '</p><a class="btn" href="/book/clinic" data-book>' + esc(t.fitBtn) + ' →</a></div>';
     }
     card.innerHTML = '<div class="step">' + h + '</div>';
-    var first = card.querySelector("input:not([type=checkbox]):not(#fWeb)"); if (first && s !== "finish") { first.focus(); if (first.select) first.select(); }
+    var first = card.querySelector("input:not([type=checkbox]):not(#fWeb)"); if (first) { first.focus(); if (first.type === "number" && first.select) first.select(); }
   }
 
+  /** "Frau Müller" for the result screen, "" without a title. Same as lib/roadmap/consent.ts addressName. */
+  function addr() { return A.salutation === "frau" || A.salutation === "herr" ? (A.lastName ? T[lang].sal[A.salutation] + " " + A.lastName : "") : ""; }
   function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : null; }
   function readCurrent() {
     var v;
-    if ((v = val("fFirst")) !== null) A.firstName = v;
     if ((v = val("fLast")) !== null) A.lastName = v;
     if ((v = val("fEmail")) !== null) A.email = v;
-    if ((v = val("fPhone")) !== null) A.phone = v;
     if ((v = val("fFacility")) !== null) A.facility = v;
-    if ((v = val("fCity")) !== null) A.city = v;
     if ((v = val("fWeb")) !== null) A.website = v;
-    var tp = document.getElementById("fTips"); if (tp) A.tips = !!tp.checked;
     var cs = document.getElementById("fConsent"); if (cs) A.consent = !!cs.checked;
     var nu = document.getElementById("numIn"); if (nu) { var n = parseInt(nu.value, 10); A[nu.getAttribute("data-key")] = isNaN(n) ? 0 : Math.max(0, Math.min(5000, n)); }
   }
   /** Can we leave this step forward? Sets err and re-renders if not. */
   function okToLeave() {
     var t = T[lang], s = STEPS[at];
-    if (s === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(A.email)) { err = t.errMail; render(); return false; }
-    if (s === "email" && isFree(A.email)) { err = t.errBiz; render(); return false; }
+    if (s === "name" && (!A.salutation || !A.lastName)) { err = t.errName; render(); return false; }
     if (s === "facility" && !A.facility) { err = t.errFacility; render(); return false; }
     return true;
   }
   function submit() {
     var t = T[lang];
     readCurrent();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(A.email)) { err = t.errMail; render(); return; }
+    if (isFree(A.email)) { err = t.errBiz; render(); return; }
     if (!A.consent) { err = t.errConsent; render(); return; }
     busy = true; err = ""; render();
     fetch("/api/roadmap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      lang: lang, firstName: A.firstName, lastName: A.lastName, email: A.email, phone: A.phone, facility: A.facility, city: A.city,
-      heardFrom: A.heardFrom, tips: A.tips, consent: A.consent, website: A.website,
+      lang: lang, salutation: A.salutation, lastName: A.lastName, email: A.email, facility: A.facility,
+      heardFrom: A.heardFrom, consent: A.consent, website: A.website,
       answers: { facilityType: A.facilityType, staff: A.staff, openPosts: A.openPosts, leftLastYear: A.leftLastYear, agency: A.agency, foreign: A.foreign, onboarding: A.onboarding, pain: A.pain }
     }) }).then(function (res) {
       if (res.status === 429) throw new Error("many");
@@ -374,12 +372,13 @@ details .in { padding: 0 18px 16px; }
     }).then(function (j) {
       busy = false;
       if (!j || !j.result) throw new Error("fail");
-      R = j; emailed = !!j.emailed; go(STEPS.length - 1);
+      R = j; go(STEPS.length - 1);
     }).catch(function (e) {
       busy = false;
       var m = e && e.message;
-      if (m === "business_email" || m === "invalid_email") { at = STEPS.indexOf("email"); err = m === "business_email" ? t.errBiz : t.errMail; render(); return; }
-      err = m === "many" ? t.errMany : m === "consent_required" ? t.errConsent : t.errSend; render();
+      if (m === "name_required") { at = STEPS.indexOf("name"); err = t.errName; render(); return; }
+      if (m === "facility_required") { at = STEPS.indexOf("facility"); err = t.errFacility; render(); return; }
+      err = m === "business_email" ? t.errBiz : m === "invalid_email" ? t.errMail : m === "many" ? t.errMany : m === "consent_required" ? t.errConsent : t.errSend; render();
     });
   }
 
@@ -390,9 +389,9 @@ details .in { padding: 0 18px 16px; }
     var b = e.target.closest("button"); if (!b) return;
     var act = b.getAttribute("data-act");
     if (act === "next") { readCurrent(); if (okToLeave()) go(at + 1); return; }
-    if (act === "skip") { var el = document.getElementById("fPhone"); if (el) el.value = ""; A.phone = ""; go(at + 1); return; }
     if (act === "back") { readCurrent(); go(at - 1); return; }
     if (act === "submit") { submit(); return; }
+    if (b.hasAttribute("data-sal")) { readCurrent(); A.salutation = b.getAttribute("data-sal"); err = ""; render(); return; }
     if (b.hasAttribute("data-set")) { A[b.getAttribute("data-set")] = b.getAttribute("data-val"); render(); setTimeout(function () { go(at + 1); }, 220); return; }
     if (b.hasAttribute("data-multi")) {
       var k = b.getAttribute("data-multi");
@@ -415,7 +414,7 @@ details .in { padding: 0 18px 16px; }
     if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.target.type === "checkbox") return;
     e.preventDefault();
     readCurrent();
-    if (STEPS[at] === "finish") submit(); else if (okToLeave()) go(at + 1);
+    if (STEPS[at] === "email") submit(); else if (okToLeave()) go(at + 1);
   });
   document.querySelectorAll(".langs button").forEach(function (b) {
     b.addEventListener("click", function () { readCurrent(); lang = b.getAttribute("data-lang"); try { localStorage.setItem("bv-lang", lang); } catch (e) {} render(); });

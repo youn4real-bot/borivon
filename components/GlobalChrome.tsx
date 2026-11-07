@@ -9,6 +9,7 @@ import { LangProvider } from "@/components/LangContext";
 import { MobileMenuProvider } from "@/components/MobileMenuContext";
 import { Navbar } from "@/components/Navbar";
 import { useLang } from "@/components/LangContext";
+import { LegalFooter } from "@/components/LegalFooter";
 
 /**
  * The PORTAL-ONLY widgets, lazy-loaded.
@@ -171,6 +172,10 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
               bottom action bar lives). Public + login pages stay flush. */}
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
             {children}
+            {/* Impressum + Datenschutz on every public page (§ 5 DDG). Not inside
+                the logged-in portal app screens, where full-height layouts
+                would push it into a second scrollbar. */}
+            {!isPortal && <LegalFooter absolute={isAffiliate} />}
           </div>
           {/* Bug-report button: portal-only AND not on the login page.
               Public/marketing/login pages never render it so a stale cached

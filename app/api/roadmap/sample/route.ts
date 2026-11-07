@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     agency: "mid", foreign: "tried_left", onboarding: ["plan"], pain: "leaving",
   });
   const label = lang === "de" ? "Beispiel: Seniorenzentrum Am Park" : lang === "fr" ? "Exemple : Résidence du Parc" : "Example: Park Care Home";
-  const pdf = await renderRoadmapPdf({ result, lang, firstName: "Beispiel", facility: label, date: new Date() });
+  const pdf = await renderRoadmapPdf({ result, lang, name: "", facility: label, date: new Date() });
   return new Response(Buffer.from(pdf), {
     headers: {
       "content-type": "application/pdf",
