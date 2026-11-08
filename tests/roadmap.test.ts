@@ -260,7 +260,7 @@ describe("admin lead summary", () => {
     const chips = roadmapLeadChips(details, "de");
     for (const c of chips) { expect(typeof c.k).toBe("string"); expect(typeof c.v).toBe("string"); }
     const v = Object.fromEntries(chips.map((c) => [c.k, c.v]));
-    expect(v.Stufe).toBe("2 · Lückenfüller");
+    expect(v.Stufe).toBe("2 · Füllen");
     expect(v["Verlust/Jahr"]).toBe("1.683.000 €");
     expect(v.Personal).toBe("60 · 6 offen · 9 gegangen");
     expect(v.Status).toBe("bestätigt · PDF gesendet · 1/4 Mails");
@@ -432,7 +432,7 @@ describe("the Fahrplan on the website", () => {
         const bytes = await renderRoadmapPdf({ result: r, lang, name: "Frau Müller-Lüdenscheidt", facility: "Seniorenzentrum Am Stadtpark Nord", date: new Date("2026-11-08") });
         expect((await PDFDocument.load(bytes)).getPageCount()).toBe(roadmapPageCount(r.level));
         const links = await pdfLinks(bytes);
-        expect(links.length).toBeGreaterThanOrEqual(2);
+        expect(links.length).toBeGreaterThanOrEqual(1); // the calculator; nothing is sold in the PDF
         for (const l of links) expect(l.y + l.h).toBeLessThan(0.93); // clear of the footer
       }
     }
@@ -442,7 +442,7 @@ describe("the Fahrplan on the website", () => {
     const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang: "de", name: "", facility: "Haus", date: new Date("2026-11-08"), calcUrl: "https://borivon.com/fahrplan/rechner?o=9" });
     const links = await pdfLinks(bytes);
     expect(links.some((l) => l.url === "https://borivon.com/fahrplan/rechner?o=9")).toBe(true);
-    expect(links.some((l) => l.url === "https://borivon.com/book/clinic")).toBe(true);
+    expect(links.some((l) => l.url.includes("/book/"))).toBe(false); // founder: no pitch in the PDF
     for (const l of links) { expect(l.x).toBeGreaterThanOrEqual(0); expect(l.y + l.h).toBeLessThan(0.93); }
   }, 30_000);
   it("the mail links to the website instead of attaching", () => {

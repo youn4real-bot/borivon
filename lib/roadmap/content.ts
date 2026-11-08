@@ -17,7 +17,7 @@ export const pick = (l: L, lang: Lang): string => l[lang] ?? l.de;
 
 export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = {
   1: {
-    name: { de: "Notbetrieb", en: "Emergency mode", fr: "Mode urgence" },
+    name: { de: "Retten", en: "Rescue", fr: "Sauver" },
     line: { de: "Jeden Tag fehlen Leute.", en: "People are missing every day.", fr: "Il manque du monde chaque jour." },
     looks: [
       { de: "Viele Stellen sind leer.", en: "Many posts are empty.", fr: "Beaucoup de postes sont vides." },
@@ -27,8 +27,8 @@ export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = 
     trap: { de: "Vorsicht: Mehr Agenturen helfen nicht. Viele Lebensläufe sind noch keine Pflegekraft.", en: "Watch out: more agencies won't help. A pile of CVs is not a nurse.", fr: "Attention : plus d'agences n'aident pas. Une pile de CV n'est pas une infirmière." },
   },
   2: {
-    name: { de: "Lückenfüller", en: "Gap filler", fr: "Bouche-trou" },
-    line: { de: "Leihkräfte stopfen die Löcher.", en: "Agency staff plug the holes.", fr: "L'intérim bouche les trous." },
+    name: { de: "Füllen", en: "Fill", fr: "Remplir" },
+    line: { de: "Überstunden stopfen die Löcher.", en: "Overtime plugs the holes.", fr: "Les heures sup bouchent les trous." },
     looks: [
       { de: "Die Schichten sind voll. Aber teuer.", en: "Shifts are full. But costly.", fr: "Les gardes sont pleines. Mais chères." },
       { de: "Sie stellen eine nach der anderen ein.", en: "You hire one person at a time.", fr: "Vous recrutez une personne à la fois." },
@@ -37,8 +37,8 @@ export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = 
     trap: { de: "Vorsicht: Die billigste Agentur wird oft die teuerste. Geht die Pflegekraft wieder, zahlen Sie doppelt.", en: "Watch out: the cheapest agency often ends up the most costly. If she leaves, you pay twice.", fr: "Attention : l'agence la moins chère finit souvent la plus chère. Si elle part, vous payez deux fois." },
   },
   3: {
-    name: { de: "Stabil, aber teuer", en: "Stable, but costly", fr: "Stable, mais coûteux" },
-    line: { de: "Alles ist besetzt. Aber es kostet zu viel.", en: "Everything is filled. But it costs too much.", fr: "Tout est pourvu. Mais ça coûte trop cher." },
+    name: { de: "Halten", en: "Keep", fr: "Garder" },
+    line: { de: "Alles besetzt. Jede Kündigung wirft Sie zurück.", en: "Everything filled. Every resignation sets you back.", fr: "Tout est pourvu. Chaque départ vous fait reculer." },
     looks: [
       { de: "Wenige Stellen sind leer.", en: "Few posts are empty.", fr: "Peu de postes sont vides." },
       { de: "Aber jedes Jahr gehen Leute.", en: "But people leave every year.", fr: "Mais des gens partent chaque année." },
@@ -47,7 +47,7 @@ export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = 
     trap: { de: "Vorsicht: Nicht ausruhen. Zwei Kündigungen, und Sie sind wieder auf Stufe 2.", en: "Watch out: don't relax. Two resignations and you are back on level 2.", fr: "Attention : ne vous relâchez pas. Deux départs, et vous revoilà au niveau 2." },
   },
   4: {
-    name: { de: "Planbar", en: "Predictable", fr: "Prévisible" },
+    name: { de: "Planen", en: "Plan", fr: "Planifier" },
     line: { de: "Sie wissen früh, wer kommt.", en: "You know early who is coming.", fr: "Vous savez tôt qui arrive." },
     looks: [
       { de: "Neue kommen in Gruppen.", en: "New nurses come in groups.", fr: "Les nouvelles arrivent en groupe." },
@@ -57,7 +57,7 @@ export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = 
     trap: { de: "Vorsicht: Nicht nur auf Neue schauen. Die nächste Stufe schaffen Sie mit den Leuten, die schon da sind.", en: "Watch out: don't only look at new people. You reach the next level with the people you already have.", fr: "Attention : ne regardez pas que les nouvelles. Le niveau suivant se gagne avec celles qui sont déjà là." },
   },
   5: {
-    name: { de: "Magnet", en: "Magnet", fr: "Aimant" },
+    name: { de: "Anziehen", en: "Attract", fr: "Attirer" },
     line: { de: "Pflegekräfte wollen zu Ihnen. Und sie bleiben.", en: "Nurses want to work for you. And they stay.", fr: "Les infirmières veulent venir. Et elles restent." },
     looks: [
       { de: "Ihre Leute holen Freunde.", en: "Your people bring friends.", fr: "Vos équipes amènent des amies." },
@@ -80,7 +80,7 @@ export const CLIMB: Record<Level, { goal: L; steps: { t: L; d: L }[] }> = {
     ],
   },
   2: {
-    goal: { de: "Von Stufe 2 auf 3: Weniger Leihkräfte.", en: "From level 2 to 3: less agency staff.", fr: "Du niveau 2 au 3 : moins d'intérim." },
+    goal: { de: "Von Stufe 2 auf 3: Feste Leute statt Überstunden.", en: "From level 2 to 3: your own people instead of overtime.", fr: "Du niveau 2 au 3 : des équipes fixes au lieu des heures sup." },
     steps: [
       { t: { de: "In Gruppen holen", en: "Hire in groups", fr: "Recruter en groupe" }, d: { de: "Holen Sie 3 bis 5 Pflegekräfte auf einmal. Zusammen bleiben sie eher.", en: "Bring 3 to 5 nurses at once. Together, they stay.", fr: "Faites venir 3 à 5 infirmières à la fois. Ensemble, elles restent." } },
       { t: { de: "Rückwärts planen", en: "Plan backwards", fr: "Planifier à rebours" }, d: { de: "Papiere dauern Monate. Wann brauchen Sie die Pflegekraft? Zählen Sie von dort zurück.", en: "Papers take months. When do you need her? Count back from that day.", fr: "Les papiers prennent des mois. Quand en avez-vous besoin ? Comptez à rebours." } },

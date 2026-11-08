@@ -52,8 +52,8 @@ export const PLAYBOOK: Record<Level, Play> = {
       { t: x("Kein Geld mehr verlieren", "Stop losing money", "Arrêter de perdre de l'argent"), items: [
         x("Alle leeren Stellen auf eine Liste", "All empty posts on one list", "Tous les postes vides sur une liste"),
         x("Die teuerste Stelle zuerst", "The most costly post first", "Le poste le plus cher d'abord"),
-        x("Leihstunden jeden Monat zählen", "Count agency hours monthly", "Compter l'intérim chaque mois"),
-        x("Ziel: weniger Leihstunden", "Goal: fewer agency hours", "But : moins d'intérim")] },
+        x("Überstunden jeden Monat zählen", "Count overtime monthly", "Compter les heures sup chaque mois"),
+        x("Ziel: weniger Überstunden", "Goal: less overtime", "But : moins d'heures sup")] },
       { t: x("Einen Partner wählen", "Choose one partner", "Choisir un partenaire"), items: [
         x("Einer statt fünf Agenturen", "One instead of five agencies", "Un au lieu de cinq agences"),
         x("Fragen: Wer prüft das Deutsch?", "Ask: who checks the German?", "Demander : qui vérifie l'allemand ?"),
@@ -122,11 +122,11 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Der 90-Tage-Plan", "The 90-day plan", "Le plan de 90 jours"),
         x("Eine feste Patin", "One fixed mentor", "Une marraine fixe"),
         x("Jede Woche 10 Minuten reden", "Talk 10 minutes every week", "Parler 10 minutes par semaine")] },
-      { t: x("Leihkräfte abbauen", "Cut agency staff", "Réduire l'intérim"), items: [
-        x("Leihstunden zählen", "Count agency hours", "Compter l'intérim"),
-        x("Für jede Neue Stunden kündigen", "Cancel hours for each new nurse", "Annuler des heures par nouvelle"),
-        x("Leihkräfte nur für Notfälle", "Agency only for emergencies", "L'intérim pour les urgences"),
-        x("Ersparnis jedes Quartal rechnen", "Count the savings every quarter", "Calculer l'économie chaque trimestre")] },
+      { t: x("Überstunden abbauen", "Cut overtime", "Réduire les heures sup"), items: [
+        x("Überstunden zählen", "Count overtime", "Compter les heures sup"),
+        x("Jede Neue nimmt Stunden ab", "Each new nurse takes hours off", "Chaque nouvelle soulage l'équipe"),
+        x("Einspringen nur im Notfall", "Stepping in only in emergencies", "Remplacer seulement en urgence"),
+        x("Jedes Quartal Bilanz ziehen", "Take stock every quarter", "Faire le bilan chaque trimestre")] },
     ],
   },
 
@@ -170,11 +170,11 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("1 bis 2 Stellen im Voraus", "1 to 2 posts in advance", "1 à 2 postes d'avance"),
         x("Der Ablauf steht auf Papier", "The process is on paper", "Le processus est écrit"),
         x("Zwei Leute kennen ihn", "Two people know it", "Deux personnes le connaissent")] },
-      { t: x("Leihkräfte abbauen", "Cut agency staff", "Réduire l'intérim"), items: [
-        x("Ein Ziel pro Quartal", "One goal per quarter", "Un but par trimestre"),
-        x("Für jede Neue Stunden kündigen", "Cancel hours for each new nurse", "Annuler des heures par nouvelle"),
-        x("Ersparnis dem Team zeigen", "Show the team the savings", "Montrer l'économie à l'équipe"),
-        x("Leihkräfte nur für Notfälle", "Agency only for emergencies", "L'intérim pour les urgences")] },
+      { t: x("Ersatz vorbereiten", "Line up cover", "Préparer le remplacement"), items: [
+        x("Kündigungen vom Vorjahr zählen", "Count last year's resignations", "Compter les départs de l'an dernier"),
+        x("So viele Stellen im Voraus", "That many posts in advance", "Autant de postes d'avance"),
+        x("Überstunden-Ziel pro Quartal", "An overtime goal per quarter", "Un but d'heures sup par trimestre"),
+        x("Einspringen nur im Notfall", "Stepping in only in emergencies", "Remplacer seulement en urgence")] },
       { t: x("Klar beim Lohn", "Clear about pay", "Clair sur le salaire"), items: [
         x("Lohn schriftlich", "Pay in writing", "Salaire par écrit"),
         x("Sagen, wann es mehr gibt", "Say when it goes up", "Dire quand il monte"),
@@ -229,9 +229,9 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Gruppen fest im Kalender", "Groups fixed in the calendar", "Des groupes au calendrier"),
         x("Wohnungen im Voraus", "Flats in advance", "Des logements d'avance")] },
       { t: x("Eigene Springer", "Your own floaters", "Vos remplaçantes"), items: [
-        x("Springer statt Leihkräfte", "Floaters instead of agency", "Remplaçantes au lieu d'intérim"),
+        x("Springer statt Überstunden", "Floaters instead of overtime", "Remplaçantes au lieu d'heures sup"),
         x("Bonus fürs Einspringen", "A bonus for stepping in", "Une prime de remplacement"),
-        x("Null Leihstunden im Alltag", "Zero agency hours day to day", "Zéro intérim au quotidien"),
+        x("Kein Einspringen aus dem Frei", "Nobody called in on days off", "Personne rappelé sur ses repos"),
         x("Ersparnis jedes Quartal zeigen", "Show the savings every quarter", "Montrer l'économie chaque trimestre")] },
       { t: x("Einarbeitung mit Zielen", "Onboarding with goals", "Intégration avec des buts"), items: [
         x("Ziele für Woche 4, 8, 12", "Goals for week 4, 8, 12", "Buts semaines 4, 8, 12"),

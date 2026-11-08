@@ -4,8 +4,9 @@
  *
  * Structure (founder 2026-11-08, "transformation, not information"; see lib/roadmap/visual.ts):
  *   cover · 5-level staircase · [watch this first] · before → after · leaky bucket ·
- *   lose vs win (+ calculator) · the Borivon way · [the deadline] · checklists to
- *   the next level · 90-day plan · the call. One picture per page, few words.
+ *   lose vs win (+ calculator) · [the deadline] · checklists to the next level ·
+ *   90-day plan. One picture per page, few words. NO pitch, nothing sold: the PDF
+ *   is a pure value asset; our offer only appears in the later emails.
  *
  * Design = borivon.com: night #0e0e10, gold #c9a240, paper #f6f4ef, Playfair
  * Display headings (drawn as outlines, lib/roadmap/vectorFont.ts), Lexend body,
@@ -26,7 +27,7 @@ import { VIDEO_INTRO } from "./videos";
 import { PLAYBOOK } from "./playbook";
 import { buildTimeline, STEP_NAME, TL } from "./timeline";
 import { BEDARF_LINE, type FormV2 } from "./form";
-import { LEVEL_ICON, BEFORE_AFTER, WAY, V } from "./visual";
+import { LEVEL_ICON, BEFORE_AFTER, V } from "./visual";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
 const NIGHT = hexColor("#0e0e10");
@@ -49,7 +50,6 @@ const RED = hexColor("#b5553b");
 const RED_SOFT = hexColor("#f8ebe5");
 const GREEN = hexColor("#3f7a52");
 
-const BOOK_URL = "https://borivon.com/book/clinic";
 const PLAYFAIR = "pflege/assets/playfair-latin.woff2";
 const PLAYFAIR_ITALIC = "pflege/assets/playfair-italic-latin.woff2";
 
@@ -76,10 +76,10 @@ export function formatEuro(n: number, lang: Lang): string {
 
 /**
  * How many pages a Fahrplan has: cover · staircase · before/after · bucket · numbers ·
- * the Borivon way · [timeline] · checklists · 90 days · call. The level no longer adds pages.
+ * [timeline] · checklists · 90 days. The level no longer adds pages.
  */
 export function roadmapPageCount(_level: Level, timeline = false): number {
-  return 9 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0);
+  return 7 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0);
 }
 
 type Fonts = { reg: DocFont; semi: DocFont };
@@ -168,40 +168,33 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   };
   const tagLine = `${t.title}  •  ${sn(lv)}: ${levelName(lv)}`.toUpperCase();
 
-  // ── 1 · cover ─────────────────────────────────────────────────────────────
+  // ── 1 · cover: calm, big title, the staircase as the picture ──────────────
   {
     const fr = newPage();
     const { page, s } = fr;
     fr.top = "night";
-    s.rect(0, 0, PW, 262, NIGHT);
-    wordmark(page, M, 30, 17, FG);
-    cdisp(page, H, t.title, 92, W, 58, FG, 1.0);
-    s.rect(0, 262, PW, 48, GOLD);
+    s.rect(0, 0, PW, 300, NIGHT);
+    wordmark(page, M, 30, 15, FG);
+    cdisp(page, HN, t.title, 104, W, 64, FG, 1.0);
+    s.rect(0, 300, PW, 44, GOLD);
     const stg = `${sn(lv)}: ${levelName(lv)}`.toUpperCase();
-    const sw = capsW(stg, 21);
-    caps(s, stg, (PW - sw) / 2, 352, 21, INK);
-    triangle(page, (PW - sw) / 2 - 24, 355, 14, 18, GOLD, "right");
-    triangle(page, (PW + sw) / 2 + 24, 355, 14, 18, GOLD, "left");
-    let y = 432;
-    const dateStr = input.date.toLocaleDateString(lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE");
-    if (input.form) {
-      // v2: the person is the headline ("Frau Müller"), then "Pflegeheim · Bayern · date"
-      if (input.name) y = cpara(s, t.for.toUpperCase(), PW / 2, y, W, F.semi, 9, GOLD_TEXT, 1.6, 1.5) + 6;
-      if (input.name) y = cdisp(page, HI, input.name, y, W, 28, INK, 1.2) + 4;
-      cpara(s, [input.facility, dateStr].filter(Boolean).join("  ·  "), PW / 2, y + 6, W, F.reg, 10.5, MUTED);
-    } else {
-      if (input.name) y = cpara(s, `${t.for} ${input.name}`.toUpperCase(), PW / 2, y, W, F.semi, 9, GOLD_TEXT, 1.6, 1.5) + 6;
-      if (input.facility) y = cdisp(page, HI, input.facility, y, W, 26, INK, 1.2) + 4;
-      cpara(s, `${pick(FACILITY[result.facilityType].name, lang)}  ·  ${dateStr}`, PW / 2, y + 6, W, F.reg, 10.5, MUTED);
+    const sw = capsW(stg, 24);
+    caps(s, stg, (PW - sw) / 2, 392, 24, INK);
+    triangle(page, (PW - sw) / 2 - 26, 395, 15, 20, GOLD, "right");
+    triangle(page, (PW + sw) / 2 + 26, 395, 15, 20, GOLD, "left");
+    // the 5 steps, theirs in gold
+    const bw = 46, gap = 12, sx = (PW - (5 * bw + 4 * gap)) / 2, base = 650;
+    for (let i = 1 as Level; i <= 5; i = (i + 1) as Level) {
+      const h = 40 + (i - 1) * 34, x = sx + (i - 1) * (bw + gap), me = i === lv;
+      s.rect(x, base - h, bw, h, me ? GOLD : LINE);
+      const n = String(i);
+      s.text(n, x + (bw - measure(n, F.semi, 11)) / 2, base - h + 10, F.semi, 11, me ? ON_GOLD : MUTED);
+      if (me) triangle(page, x + bw / 2, base - h - 22, 14, 11, GOLD);
+      if (i === 5) break;
     }
-    if (result.totalYear > 0) {
-      cpara(s, result.turnoverCostYear > 0 ? t.lossYear : t.lossYearOpen, PW / 2, 560, W, F.reg, 11, MUTED);
-      cdisp(page, HN, `−${formatEuro(result.totalYear, lang)} ${t.perYear}`, 580, W, 30, RED, 1.1);
-    }
-    const p = SU.personal.toUpperCase();
-    s.text(p, (PW - measure(p, F.reg, 12, 3)) / 2, PH - 150, F.reg, 12, INK, 3);
-    const wm = HI.measure("Borivon", 34) + H.measure(".", 34);
-    wordmark(page, (PW - wm) / 2, PH - 122, 34, INK);
+    if (input.name) cpara(s, `${t.for} ${input.name}`, PW / 2, 690, W, F.reg, 12, INK, 1.4);
+    const wm = HI.measure("Borivon", 30) + H.measure(".", 30);
+    wordmark(page, (PW - wm) / 2, PH - 110, 30, INK);
   }
 
   // ── 2 · the 5 levels as a staircase, "you are here" on theirs ─────────────
@@ -217,8 +210,8 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       icon(page, LEVEL_ICON[i], x + (cw - 36) / 2, top + 14, 36, me ? { base: ON_GOLD, accent: FG, hole: GOLD } : { base: FG, accent: GOLD, hole: NIGHT_CARD });
       const num = String(i);
       HN.draw(page, PH, num, x + (cw - HN.measure(num, 30)) / 2, top + 58, 30, me ? ON_GOLD : GOLD);
-      const ty = cpara(s, levelName(i).toUpperCase(), x + cw / 2, top + 98, cw - 12, F.semi, 7.5, ink, 1.35, 0.6) + 4;
-      cpara(s, pick(LEVELS[i].line, lang), x + cw / 2, ty, cw - 14, F.reg, 8, sub, 1.4);
+      const ty = cpara(s, levelName(i).toUpperCase(), x + cw / 2, top + 98, cw - 8, F.semi, 10.5, ink, 1.3, 0.8) + 6;
+      cpara(s, pick(LEVELS[i].line, lang), x + cw / 2, ty, cw - 14, F.reg, 9, sub, 1.4);
       if (me) {
         const lbl = VV.you, lw = measure(lbl, F.semi, 11, 1.5);
         s.text(lbl, x + (cw - lw) / 2, top - 44, F.semi, 11, GOLD, 1.5);
@@ -357,25 +350,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     link(page, M, by, cbw, cbh, cl);
   }
 
-  // ── 6 · the Borivon way (our mechanism) ───────────────────────────────────
-  {
-    const { page, s } = newPage();
-    let y = disp(page, HN, VV.wayH, M, 70, W, 46, INK, 1.05);
-    y = para(s, VV.waySub, M, y + 6, W, F.reg, 13, MUTED) + 26;
-    const rowH = 118, lx = M + 30;
-    s.rect(lx - 1.5, y + 30, 3, rowH * (WAY.length - 1), GOLD_2);
-    WAY.forEach((st, i) => {
-      const top = y + i * rowH;
-      s.roundedRect(lx - 30, top, 60, 60, 30, { fill: NIGHT });
-      icon(page, st.ic, lx - 18, top + 12, 36, { base: FG, accent: GOLD, hole: NIGHT });
-      s.roundedRect(lx + 16, top - 4, 22, 22, 11, { fill: GOLD });
-      const n = String(i + 1);
-      s.text(n, lx + 27 - measure(n, F.semi, 11) / 2, top + 1, F.semi, 11, ON_GOLD);
-      disp(page, HN, pick(st.t, lang), M + 86, top + 6, W - 86, 28, INK, 1.05);
-      para(s, pick(st.d, lang), M + 86, top + 40, W - 86, F.reg, 13, INK, 1.5);
-    });
-  }
-
   // ── 6b · the personal deadline (only with the v2 form) ────────────────────
   if (input.form) {
     const T = TL[lang];
@@ -412,10 +386,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     icon(page, "check", lx - 6, fy + 2, 12, { base: GOLD, accent: GOLD, hole: NIGHT });
     disp(page, H, long(last), tx, fy - 4, W - 104, 20, INK, 1.1);
     y = fy + 46;
-    // the faster way + where the numbers come from
-    const boxH = paraH(T.fast, F.reg, 11, W - 40, 1.5) + 32;
-    s.roundedRect(M, y, W, boxH, 16, { fill: CARD, border: LINE, borderWidth: 0.8 });
-    para(s, T.fast, M + 20, y + 16, W - 40, F.reg, 11, INK, 1.5);
   }
 
   // ── 8 · checklists to the next level (2 × 2 cards, tick boxes) ────────────
@@ -470,31 +440,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       });
       y += rh + 16;
     }
-  }
-
-  // ── 12 · next step, framed as "see if you fit" ────────────────────────────
-  {
-    const fr = newPage();
-    const { page, s } = fr;
-    cdisp(page, HN, lv === 5 ? SU.wantStay : SU.wantNext, 70, W - 20, 44, INK, 1.1);
-    const split = 470;
-    s.rect(0, split, PW, PH - split, NIGHT);
-    fr.bottom = "night";
-    const bw = (W - 24) / 3;
-    const ics: IconName[] = ["nurse", "house", "heart"];
-    ics.forEach((ic, i) => {
-      const x = M + i * (bw + 12), top = i === 1 ? 268 : 288, h = i === 1 ? 250 : 210;
-      s.rect(x, top, bw, h, GOLD);
-      icon(page, ic, x + (bw - 78) / 2, top + (h - 78) / 2, 78, { base: ON_GOLD, accent: FG, hole: GOLD });
-    });
-    let y = cpara(s, `${SU.stuck} ${SU.fitLine}`, PW / 2, 556, W - 40, F.reg, 12, FG, 1.85) + 22;
-    const btn = t.book, bw2 = measure(btn, F.semi, 14) + 64, bh = 50;
-    s.roundedRect((PW - bw2) / 2, y, bw2, bh, 25, { fill: GOLD });
-    s.text(btn, (PW - bw2) / 2 + 32, y + 16, F.semi, 14, ON_GOLD);
-    link(page, (PW - bw2) / 2, y, bw2, bh, BOOK_URL);
-    y += bh + 16;
-    cpara(s, `${t.contact}: contact@borivon.com`, PW / 2, y, W, F.reg, 10, MUTED_NIGHT);
-    cpara(s, t.disclaimer, PW / 2, PH - 96, W, F.reg, 7.5, MUTED_NIGHT, 1.5);
   }
 
   // ── header + footer on every page but the cover; then the links ───────────

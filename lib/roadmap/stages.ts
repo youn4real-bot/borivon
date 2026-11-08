@@ -51,7 +51,7 @@ export const STAGES: Record<Level, Stage> = {
     },
     bottom: { de: "Sie verlieren Geld und Leute. Jeden Monat.", en: "You lose money and people. Every month.", fr: "Vous perdez de l'argent et des gens. Chaque mois." },
     gradBy: { de: "Erst mal kein Geld mehr verlieren.", en: "First, stop losing money.", fr: "D'abord, arrêter de perdre de l'argent." },
-    story: { de: "Jeden Tag fehlen Leute. Das Team ist müde. Leihkräfte kosten viel Geld. Die gute Nachricht: Die ersten Schritte sind leicht. Und sie helfen schnell.", en: "People are missing every day. The team is tired. Agency staff cost a lot. The good news: the first steps are easy. And they help fast.", fr: "Il manque du monde chaque jour. L'équipe est fatiguée. L'intérim coûte cher. La bonne nouvelle : les premiers pas sont simples. Et ils aident vite." },
+    story: { de: "Jeden Tag fehlen Leute. Das Team ist müde. Jeder springt ein. Die gute Nachricht: Die ersten Schritte sind leicht. Und sie helfen schnell.", en: "People are missing every day. The team is tired. Everyone steps in. The good news: the first steps are easy. And they help fast.", fr: "Il manque du monde chaque jour. L'équipe est fatiguée. Tout le monde remplace. La bonne nouvelle : les premiers pas sont simples. Et ils aident vite." },
   },
   2: {
     profile: {
@@ -70,7 +70,7 @@ export const STAGES: Record<Level, Stage> = {
     },
     bottom: { de: "Sie zahlen viel Geld, nur um Löcher zu stopfen.", en: "You pay a lot just to plug holes.", fr: "Vous payez cher juste pour boucher des trous." },
     gradBy: { de: "In Gruppen holen. Rückwärts planen.", en: "Hire in groups. Plan backwards.", fr: "Recruter en groupe. Planifier à rebours." },
-    story: { de: "Der Betrieb läuft. Aber nur mit Leihkräften und Überstunden. Sie stellen ein, aber eine nach der anderen. Jetzt ist die Zeit für einen Plan.", en: "The house runs. But only with agency staff and overtime. You hire, but one at a time. Now is the time for a plan.", fr: "La maison tourne. Mais seulement avec l'intérim et les heures sup. Vous recrutez, mais une par une. C'est le moment d'avoir un plan." },
+    story: { de: "Der Betrieb läuft. Aber nur mit Überstunden und Einspringen. Sie stellen ein, aber eine nach der anderen. Jetzt ist die Zeit für einen Plan.", en: "The house runs. But only with overtime and stepping in. You hire, but one at a time. Now is the time for a plan.", fr: "La maison tourne. Mais seulement avec les heures sup et les remplacements. Vous recrutez, mais une par une. C'est le moment d'avoir un plan." },
   },
   3: {
     profile: {
@@ -87,9 +87,9 @@ export const STAGES: Record<Level, Stage> = {
       agency:  { c: { de: "Leihkräfte sind fest eingeplant.", en: "Agency staff are part of the plan.", fr: "L'intérim fait partie du plan." }, g: { de: "Leihstunden abbauen, Schritt für Schritt.", en: "Cut agency hours, step by step.", fr: "Réduire l'intérim, pas à pas." } },
       keep:    { c: { de: "Überraschungen beim Lohn. Dann gehen Leute.", en: "Pay surprises. Then people leave.", fr: "Surprises sur la paie. Puis départs." }, g: { de: "Lohn ehrlich und schriftlich.", en: "Pay, honest and in writing.", fr: "Salaire honnête, par écrit." } },
     },
-    bottom: { de: "Jede Kündigung kostet Sie wieder Leihkräfte.", en: "Every resignation costs you agency staff again.", fr: "Chaque départ vous coûte de nouveau de l'intérim." },
+    bottom: { de: "Jede Kündigung wirft Sie zurück.", en: "Every resignation sets you back.", fr: "Chaque départ vous fait reculer." },
     gradBy: { de: "Ein fester Rhythmus statt Feuerwehr.", en: "A fixed rhythm instead of firefighting.", fr: "Un rythme fixe au lieu de l'urgence." },
-    story: { de: "Fast alles ist besetzt. Aber jedes Jahr gehen Leute. Jede Lücke kostet wieder Leihkräfte. Mit einem festen Rhythmus sparen Sie viel Geld.", en: "Almost everything is filled. But people leave every year. Every gap costs agency staff again. A fixed rhythm saves you a lot of money.", fr: "Presque tout est pourvu. Mais des gens partent chaque année. Chaque trou coûte de nouveau de l'intérim. Un rythme fixe vous fait économiser beaucoup." },
+    story: { de: "Fast alles ist besetzt. Aber jedes Jahr gehen Leute. Jede Lücke heißt wieder Überstunden. Mit einem festen Rhythmus sind Sie vorbereitet.", en: "Almost everything is filled. But people leave every year. Every gap means overtime again. A fixed rhythm keeps you ready.", fr: "Presque tout est pourvu. Mais des gens partent chaque année. Chaque trou, ce sont de nouveau des heures sup. Un rythme fixe vous garde prêt." },
   },
   4: {
     profile: {
@@ -108,7 +108,7 @@ export const STAGES: Record<Level, Stage> = {
     },
     bottom: { de: "Es läuft nach Plan. Aber nur mit bezahlter Suche.", en: "It runs by plan. But only with paid hiring.", fr: "Tout suit le plan. Mais seulement avec un recrutement payant." },
     gradBy: { de: "Ihre Leute holen Leute.", en: "Your people bring people.", fr: "Vos équipes font venir d'autres." },
-    story: { de: "Es läuft nach Plan. Neue kommen in Gruppen. Sie haben Patinnen. Leihkräfte sind selten. Der nächste Schritt kommt von Ihren eigenen Leuten.", en: "Things run by plan. New nurses come in groups. They have mentors. Agency staff are rare. The next step comes from your own people.", fr: "Tout suit le plan. Les nouvelles arrivent en groupe. Elles ont des marraines. L'intérim est rare. La prochaine étape vient de vos équipes." },
+    story: { de: "Es läuft nach Plan. Neue kommen in Gruppen. Sie haben Patinnen. Überstunden sind selten. Der nächste Schritt kommt von Ihren eigenen Leuten.", en: "Things run by plan. New nurses come in groups. They have mentors. Overtime is rare. The next step comes from your own people.", fr: "Tout suit le plan. Les nouvelles arrivent en groupe. Elles ont des marraines. Les heures sup sont rares. La prochaine étape vient de vos équipes." },
   },
   5: {
     profile: {

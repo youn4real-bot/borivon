@@ -73,7 +73,7 @@ export function buildTimeline(f: Pick<FormV2, "start" | "datum">, today: Date): 
 /** Page text. {date} {start} {weeks} {first} are filled in by the PDF. */
 export const TL: Record<keyof L, {
   h: string; sub: string; ok: string; okBig: string; tight: string; late: string; lateBig: string; asap: string; asapBig: string;
-  weeks: string; week: string; fast: string;
+  weeks: string; week: string;
 }> = {
   de: {
     h: "Ihr Zeitplan", sub: "Rückwärts gerechnet von Ihrem Wunschtermin.",
@@ -82,7 +82,6 @@ export const TL: Record<keyof L, {
     late: "Für den {date} ist es zu knapp. Wenn Sie diese Woche starten, kann sie am {first} anfangen.", lateBig: "Frühestens: {first}",
     asap: "Wenn Sie diese Woche starten, kann Ihre erste Fachkraft am {first} anfangen.", asapBig: "Erster Arbeitstag: {first}",
     weeks: "Wochen", week: "Woche",
-    fast: "Papiere, Anerkennung und Visum übernehmen wir. Sie bereiten nur den ersten Tag vor.",
   },
   en: {
     h: "Your timeline", sub: "Worked backwards from your start date.",
@@ -91,7 +90,6 @@ export const TL: Record<keyof L, {
     late: "{date} is too soon. If you begin this week, she can start on {first}.", lateBig: "Earliest: {first}",
     asap: "If you begin this week, your first nurse can start on {first}.", asapBig: "First working day: {first}",
     weeks: "weeks", week: "week",
-    fast: "We take care of the papers, recognition and visa. You only prepare the first day.",
   },
   fr: {
     h: "Votre calendrier", sub: "Calculé à rebours depuis votre date.",
@@ -100,6 +98,5 @@ export const TL: Record<keyof L, {
     late: "Le {date}, c'est trop tôt. Si vous démarrez cette semaine, elle peut commencer le {first}.", lateBig: "Au plus tôt : {first}",
     asap: "Si vous démarrez cette semaine, votre première infirmière peut commencer le {first}.", asapBig: "Premier jour : {first}",
     weeks: "semaines", week: "semaine",
-    fast: "Papiers, reconnaissance et visa : on s'en occupe. Vous préparez seulement le premier jour.",
   },
 };
