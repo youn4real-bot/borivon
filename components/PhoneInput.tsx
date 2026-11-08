@@ -43,7 +43,7 @@ export function CountryFlag({ iso, size = 22 }: { iso: string; size?: number }) 
   );
 }
 
-export function PhoneInput({ value, onChange, hasError = false, forceLang }: { value: string; onChange: (v: string) => void; hasError?: boolean; forceLang?: "en" | "de" | "fr" }) {
+export function PhoneInput({ value, onChange, hasError = false, forceLang, defaultIso }: { value: string; onChange: (v: string) => void; hasError?: boolean; forceLang?: "en" | "de" | "fr"; defaultIso?: string }) {
   const { lang: ctxLang } = useLang();
   const lang = forceLang ?? ctxLang;
   // Localize the names + sort alphabetically by current language (A-Z).
@@ -58,9 +58,9 @@ export function PhoneInput({ value, onChange, hasError = false, forceLang }: { v
     const m = value.match(/^(\+\d+)\s*/);
     if (m) {
       const found = COUNTRY_CODES.find(c => c.code === m[1]);
-      return found?.iso ?? "ma";
+      return found?.iso ?? defaultIso ?? "ma";
     }
-    return "ma";
+    return defaultIso ?? "ma";
   });
   const [open, setOpen] = useState(false);
 

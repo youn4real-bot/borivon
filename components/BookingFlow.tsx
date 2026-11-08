@@ -983,7 +983,7 @@ export function BookingFlow({
                 {/* Not a <label htmlFor> — PhoneInput is a composite (country dropdown
                     + number field) with no single control to point at. */}
                 <p className="bv-label">{T("Phone", "Telefon", "Téléphone")} <span style={{ color: "var(--w3)" }}>({T("optional", "optional", "facultatif")})</span></p>
-                <PhoneInput value={phone} onChange={setPhone} forceLang={forceLang} />
+                <PhoneInput value={phone} onChange={setPhone} forceLang={forceLang} defaultIso={forceLang === "de" ? "de" : undefined} />
               </div>
 
               {isOrg && (
