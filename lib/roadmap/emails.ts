@@ -27,14 +27,25 @@ type Mail = { subject: string; html: string; text: string };
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/** Founder's sign-off with the real "Borivon." logo (public/email-logo.png, the site font as an image).
+ *  The card is #fcfaf7 = the logo's own background, so the logo has no visible box. */
+export const SIGNER = "Youness Taoufiq";
+function signature(lang: Lang): string {
+  const role = lang === "de" ? "Gründer, Borivon" : lang === "fr" ? "Fondateur, Borivon" : "Founder, Borivon";
+  return `<div style="margin-top:28px;padding-top:20px;border-top:1px solid #ebe6da">
+<div style="font-size:15px;line-height:1.5;color:#1c1c1e"><b>${SIGNER}</b><br><span style="color:#6d6a63">${role}</span></div>
+<img src="https://borivon.com/email-logo.png" alt="Borivon." width="132" height="42" style="display:block;border:0;outline:none;text-decoration:none;margin:14px 0 8px" />
+<div style="font-size:12px;line-height:1.6;color:#8a8a8a">77 Boulevard Mohamed Smiha · 20080 Casablanca, Marokko<br><a href="mailto:contact@borivon.com" style="color:#8a8a8a">contact@borivon.com</a> · <a href="https://borivon.com" style="color:#8a8a8a">borivon.com</a></div>
+</div>`;
+}
 function shell(lang: Lang, bodyHtml: string, footerExtra = ""): string {
-  const foot = lang === "de" ? "Borivon · Pflegefachkräfte für Deutschland" : lang === "fr" ? "Borivon · Infirmières pour l'Allemagne" : "Borivon · Nurses for Germany";
-  return `<!doctype html><html lang="${lang}"><body style="margin:0;background:#f6f4ef;padding:24px 12px;font-family:Helvetica,Arial,sans-serif;color:#1c1c1e">
-<div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:32px 28px;border:1px solid #ebe6da">
-<div style="font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:24px;margin-bottom:22px">Borivon<span style="color:#c9a240;font-style:normal">.</span></div>
+  const legal = lang === "de" ? ["Impressum", "Datenschutz"] : lang === "fr" ? ["Mentions légales", "Confidentialité"] : ["Legal notice", "Privacy"];
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f6f4ef;padding:24px 12px;font-family:Helvetica,Arial,sans-serif;color:#1c1c1e">
+<div style="max-width:560px;margin:0 auto;background:#fcfaf7;border-radius:16px;padding:32px 28px;border:1px solid #ebe6da">
 ${bodyHtml}
+${signature(lang)}
 </div>
-<p style="max-width:560px;margin:14px auto 0;font-size:11px;line-height:1.6;color:#8a8a8a;text-align:center">${foot} · <a href="https://borivon.com" style="color:#8a8a8a">borivon.com</a> · contact@borivon.com${footerExtra}</p>
+<p style="max-width:560px;margin:14px auto 0;font-size:11px;line-height:1.6;color:#8a8a8a;text-align:center"><a href="https://borivon.com/impressum" style="color:#8a8a8a">${legal[0]}</a> · <a href="https://borivon.com/datenschutz" style="color:#8a8a8a">${legal[1]}</a>${footerExtra}</p>
 </body></html>`;
 }
 const p = (s: string) => `<p style="font-size:15px;line-height:1.6;margin:0 0 14px">${s}</p>`;
@@ -60,7 +71,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       ],
       btn: "Ja, Fahrplan senden",
       notYou: "Sie haben das nicht angefordert? Dann ignorieren Sie diese E-Mail einfach. Wir schreiben Ihnen nicht wieder.",
-      bye: "Viele Grüße<br>Ihr Borivon-Team",
+      bye: "Viele Grüße",
     },
     en: {
       subject: "Please confirm: your nurse staffing roadmap",
@@ -69,7 +80,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       ],
       btn: "Yes, send my roadmap",
       notYou: "You did not ask for this? Then just ignore this email. We will not write to you again.",
-      bye: "Best regards<br>The Borivon team",
+      bye: "Best regards",
     },
     fr: {
       subject: "Merci de confirmer : votre plan infirmier",
@@ -78,7 +89,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       ],
       btn: "Oui, envoyer mon plan",
       notYou: "Vous n'avez rien demandé ? Ignorez simplement cet e-mail. Nous ne vous écrirons plus.",
-      bye: "Bien cordialement<br>L'équipe Borivon",
+      bye: "Bien cordialement",
     },
   }[lang];
   const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
@@ -121,9 +132,9 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Leere Stellen und Kündigungen kosten" : "Leere Stellen kosten"} Sie etwa <b>${loss} im Jahr</b>.` : "",
       bottom: "Unterm Strich:",
       start: "Fangen Sie bei „Ihr Zeitplan“ an. Dann die Checklisten abhaken.",
-      bye: "Viele Grüße<br>Ihr Borivon-Team",
-      ps: "P.S. Viele Einrichtungen bleiben auf ihrer Stufe hängen, weil zu viel auf einmal brennt. Wir arbeiten pro Runde mit höchstens 10 Einrichtungen.",
-      psLink: "Prüfen Sie hier, ob Ihre Einrichtung passt.",
+      bye: "Viele Grüße",
+      ps: "P.S. Sie möchten die Pflegekräfte erst persönlich sehen? Das geht in unserem Workshop in Marokko, 2 Tage, nur 10 Plätze.",
+      psLink: "Platz anfragen.",
     },
     en: {
       subject: `Your nurse staffing roadmap (level ${result.level}: ${lvl})`,
@@ -141,9 +152,9 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Empty posts and resignations cost" : "Empty posts cost"} you about <b>${loss} a year</b>.` : "",
       bottom: "Bottom line:",
       start: "Start with “Your timeline”. Then tick off the checklists.",
-      bye: "Best regards<br>The Borivon team",
-      ps: "P.S. Many facilities get stuck on their level because too much is on fire at once. We work with at most 10 employers per group.",
-      psLink: "See if your facility is a fit.",
+      bye: "Best regards",
+      ps: "P.S. Want to see the nurses in person first? You can, at our workshop in Morocco: 2 days, only 10 seats.",
+      psLink: "Request a seat.",
     },
     fr: {
       subject: `Votre plan infirmier (niveau ${result.level} : ${lvl})`,
@@ -161,9 +172,9 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Les postes vides et les départs vous coûtent" : "Les postes vides vous coûtent"} environ <b>${loss} par an</b>.` : "",
       bottom: "En résumé :",
       start: "Commencez par « Votre calendrier ». Puis cochez les listes.",
-      bye: "Bien cordialement<br>L'équipe Borivon",
-      ps: "P.S. Beaucoup d'établissements restent bloqués à leur niveau, car trop de choses brûlent en même temps. Nous travaillons avec 10 employeurs au maximum par groupe.",
-      psLink: "Vérifiez ici si votre établissement correspond.",
+      bye: "Bien cordialement",
+      ps: "P.S. Vous voulez d'abord voir les infirmières en personne ? C'est possible à notre atelier au Maroc : 2 jours, seulement 10 places.",
+      psLink: "Demander une place.",
     },
   }[lang];
   const story = pick(St.story, lang);
@@ -227,11 +238,12 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         `Bei drei Pflegekräften sind das etwa <b>${three} pro Monat</b>. Jeder Monat, den Sie warten, ist Geld, das nicht zurückkommt.`,
         "In 15 Minuten rechnen wir Ihre echten Zahlen aus. Kostenlos.",
       ], cta: "Meine Zahlen ausrechnen" },
-      { subject: "Passt Ihre Einrichtung in die nächste Runde?", lines: [
+      { subject: "Lernen Sie Ihre Pflegekräfte persönlich kennen", lines: [
         hello,
-        "Sie haben jetzt Ihren Fahrplan. Sie können ihn allein umsetzen, oder mit uns: Sie führen ein Interview, wir machen den Rest, bis die Pflegekraft die Probezeit geschafft hat.",
-        "Wir nehmen pro Runde höchstens 10 Einrichtungen auf, und nicht jede passt. In 15 Minuten finden wir es gemeinsam heraus.",
-      ], cta: "Prüfen, ob meine Einrichtung passt" },
+        "Sie haben jetzt Ihren Fahrplan. Viele wollen den nächsten Schritt nicht allein gehen, sondern die Pflegekräfte erst einmal selbst sehen.",
+        "Dafür gibt es unseren <b>Workshop in Marokko</b>: 2 Tage mit mir. Wir setzen Ihren Fahrplan gemeinsam um, und Sie lernen die Pflegekräfte persönlich kennen. Sie fahren mit einem fertigen Plan nach Hause.",
+        "<b>3.000 € pro Platz.</b> Bringen Sie gern Kolleginnen oder Kollegen mit. Es gibt nur 10 Plätze pro Termin.",
+      ], cta: "Platz anfragen" },
     ],
     en: [
       { subject: "The most expensive mistake with nurses from abroad", lines: [
@@ -253,11 +265,12 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         `With three nurses that is about <b>${three} a month</b>. Every month you wait is money that never comes back.`,
         "In 15 minutes we work out your real numbers. For free.",
       ], cta: "Work out my numbers" },
-      { subject: "Is your facility a fit for the next group?", lines: [
+      { subject: "Meet your nurses in person", lines: [
         hello,
-        "you have your roadmap now. You can put it into action on your own, or with us: you do one interview, we do the rest, until the nurse has passed probation.",
-        "We take at most 10 employers per group, and not every facility is a fit. In 15 minutes we find out together.",
-      ], cta: "Check if we are a fit" },
+        "you have your roadmap now. Many don't want to take the next step alone, but to see the nurses for themselves first.",
+        "That is what our <b>workshop in Morocco</b> is for: 2 days with me. We put your roadmap into action together, and you meet the nurses in person. You go home with a finished plan.",
+        "<b>€3,000 per seat.</b> Feel free to bring colleagues. There are only 10 seats per date.",
+      ], cta: "Request a seat" },
     ],
     fr: [
       { subject: "L'erreur la plus chère avec les infirmières de l'étranger", lines: [
@@ -279,11 +292,12 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         `Avec trois infirmières, c'est environ <b>${three} par mois</b>. Chaque mois d'attente est de l'argent perdu.`,
         "En 15 minutes, nous calculons vos vrais chiffres. Gratuitement.",
       ], cta: "Calculer mes chiffres" },
-      { subject: "Votre établissement correspond-il au prochain groupe ?", lines: [
+      { subject: "Rencontrez vos infirmières en personne", lines: [
         hello,
-        "vous avez maintenant votre plan. Vous pouvez le mettre en œuvre seul, ou avec nous : vous faites un entretien, nous faisons le reste, jusqu'à la fin de la période d'essai.",
-        "Nous acceptons au maximum 10 employeurs par groupe, et tous ne correspondent pas. En 15 minutes, nous le découvrons ensemble.",
-      ], cta: "Vérifier si nous correspondons" },
+        "vous avez maintenant votre plan. Beaucoup ne veulent pas faire la prochaine étape seuls, mais d'abord voir les infirmières eux-mêmes.",
+        "C'est le but de notre <b>atelier au Maroc</b> : 2 jours avec moi. Nous mettons votre plan en œuvre ensemble, et vous rencontrez les infirmières en personne. Vous repartez avec un plan prêt.",
+        "<b>3 000 € par place.</b> Venez avec des collègues si vous voulez. Seulement 10 places par date.",
+      ], cta: "Demander une place" },
     ],
   };
   const m = S[lang][n];

@@ -55,7 +55,7 @@ export const BEFORE_AFTER: Record<Level, { ic: IconName; b: L; a: L }[]> = {
 export const V: Record<keyof L, {
   ladderH: string; you: string; baH: string; today: string; withPlan: string; nextOf5: string;
   bucketH: string; bucketIn: string; bucketOut: string[]; bucketLine: string; bucketFix: string;
-  stepsH: string; softH: string; softHTop: string; softP: string; softBtn: string; stepsSub: string; stayH: string;
+  stepsH: string; softH: string; softHTop: string; softP: string; softBtn: string; softTags: string[]; stepsSub: string; stayH: string;
 }> = {
   de: {
     ladderH: "Hier stehen Sie.", you: "SIE", baH: "Vorher. Nachher.", today: "Heute", withPlan: "Mit Plan", nextOf5: "Stufe {n}",
@@ -63,8 +63,8 @@ export const V: Record<keyof L, {
     bucketLine: "Oben gießen Sie neue Leute rein. Unten läuft es wieder raus.",
     bucketFix: "Erst das Loch stopfen. Dann füllen.",
     softH: "Wollen Sie auf Stufe {n}?", softHTop: "Wollen Sie oben bleiben?",
-    softP: "Viele Häuser bleiben genau hier stecken. Nicht, weil sie es nicht können. Sondern weil zu viel auf einmal anliegt. Wenn Sie Hilfe dabei möchten: In 15 Minuten schauen wir gemeinsam, ob wir zu Ihnen passen.",
-    softBtn: "Prüfen, ob es passt",
+    softP: "Lernen Sie Ihre Pflegekräfte persönlich kennen. In unserem Workshop in Marokko: 2 Tage mit unserem Gründer. Sie setzen Ihren Fahrplan mit uns um und treffen die Pflegekräfte vor Ort. Nur 10 Plätze pro Termin.",
+    softBtn: "Platz anfragen", softTags: ["2 Tage", "Pflegekräfte treffen", "Workshop"],
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
   },
   en: {
@@ -73,8 +73,8 @@ export const V: Record<keyof L, {
     bucketLine: "You pour new people in at the top. They run out at the bottom.",
     bucketFix: "Fix the hole first. Then fill.",
     softH: "Want to reach level {n}?", softHTop: "Want to stay on top?",
-    softP: "Many facilities get stuck right here. Not because they can't do it, but because too much lands at once. If you'd like help with it: in 15 minutes we look together at whether we're a fit.",
-    softBtn: "See if it fits",
+    softP: "Meet your nurses in person. At our workshop in Morocco: 2 days with our founder. You put your roadmap into action with us and meet the nurses on site. Only 10 seats per date.",
+    softBtn: "Request a seat", softTags: ["2 days", "Meet the nurses", "Workshop"],
     stepsH: "How you reach level {n}.", stepsSub: "Tick them off. One by one.", stayH: "How you stay on top.",
   },
   fr: {
@@ -83,8 +83,8 @@ export const V: Record<keyof L, {
     bucketLine: "Vous versez des gens par le haut. Ils repartent par le bas.",
     bucketFix: "D'abord boucher le trou. Puis remplir.",
     softH: "Passer au niveau {n} ?", softHTop: "Rester au sommet ?",
-    softP: "Beaucoup d'établissements restent bloqués ici. Pas parce qu'ils n'y arrivent pas, mais parce que tout arrive en même temps. Si vous voulez de l'aide : en 15 minutes, nous voyons ensemble si nous vous correspondons.",
-    softBtn: "Voir si ça correspond",
+    softP: "Rencontrez vos infirmières en personne. À notre atelier au Maroc : 2 jours avec notre fondateur. Vous mettez votre plan en œuvre avec nous et rencontrez les infirmières sur place. Seulement 10 places par date.",
+    softBtn: "Demander une place", softTags: ["2 jours", "Rencontrer les infirmières", "Atelier"],
     stepsH: "Comment passer au niveau {n}.", stepsSub: "Cochez. Une chose après l'autre.", stayH: "Comment rester au sommet.",
   },
 };

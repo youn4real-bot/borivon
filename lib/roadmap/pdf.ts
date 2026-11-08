@@ -464,11 +464,12 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     s.rect(0, split, PW, PH - split, NIGHT);
     fr.bottom = "night";
     const bw = (W - 24) / 3;
-    const ics: IconName[] = ["nurse", "house", "heart"];
+    const ics: IconName[] = ["calendar", "nurse", "team"];
     ics.forEach((ic, i) => {
       const x = M + i * (bw + 12), top = i === 1 ? 250 : 280, h = i === 1 ? 260 : 220;
       s.rect(x, top, bw, h, GOLD);
-      icon(page, ic, x + (bw - 78) / 2, top + (h - 78) / 2, 78, { base: ON_GOLD, accent: FG, hole: GOLD });
+      icon(page, ic, x + (bw - 78) / 2, top + (h - 78) / 2 - 14, 78, { base: ON_GOLD, accent: FG, hole: GOLD });
+      cpara(s, VV.softTags[i].toUpperCase(), x + bw / 2, top + (h - 78) / 2 + 78, bw - 16, F.semi, 9, ON_GOLD, 1.3, 1);
     });
     let y = cpara(s, VV.softP, PW / 2, 560, W - 40, F.reg, 12, FG, 1.85) + 24;
     const btn = VV.softBtn, bw2 = measure(btn, F.semi, 14) + 64, bh = 50;
