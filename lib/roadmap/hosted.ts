@@ -17,6 +17,7 @@ import { calcUrl } from "./calc";
 import { signLeadToken } from "./token";
 import { LANGS, type Lang } from "./content";
 import type { RoadmapDetails } from "./leadState";
+import { isFormV2, normalizeForm, toModel, facilityLine } from "./form";
 
 export type HostedDoc = "plan" | "bonus";
 const SITE = "https://borivon.com";
@@ -40,12 +41,13 @@ export function fileName(doc: HostedDoc, lang: Lang): string {
 export async function renderFor(leadId: string, d: RoadmapDetails, doc: HostedDoc): Promise<Uint8Array> {
   const lang: Lang = LANGS.includes(d.lang as Lang) ? (d.lang as Lang) : "de";
   if (doc === "bonus") return renderAgencyCheckPdf(lang);
-  const answers = normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>);
+  const form = isFormV2(d.form) ? normalizeForm(d.form as Record<string, unknown>) : undefined;
+  const answers = form ? toModel(form) : normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>);
   const result = scoreRoadmap(answers);
   return renderRoadmapPdf({
-    result, lang,
-    name: addressName(lang, asSalutation(d.salutation), String(d.lastName ?? "")),
-    facility: String(d.facility ?? ""),
+    result, lang, form,
+    name: addressName(lang, asSalutation(d.salutation), String(d.lastName ?? ""), String(d.firstName ?? "")),
+    facility: form ? facilityLine(form, lang) : String(d.facility ?? ""),
     date: d.consent?.confirmedAt ? new Date(String(d.consent.confirmedAt)) : new Date(),
     calcUrl: await calcUrl({ lang, facilityType: answers.facilityType, openPosts: answers.openPosts, leftLastYear: answers.leftLastYear, leadId }),
   });

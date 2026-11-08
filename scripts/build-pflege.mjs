@@ -149,7 +149,7 @@ ${s.slice(cut).trim()}
   let s = fs.readFileSync(path.join(SRC, "fahrplan.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in fahrplan.html"); }
-  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in 60 Sekunden: Ihre Stufe, was leere Stellen und Kündigungen Sie kosten, und Ihr Plan, damit Pflegekräfte bleiben. Als PDF per E-Mail.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/fahrplan-og.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in ca. 2 Minuten: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/fahrplan-og.png") + s.slice(i + "<!--HEAD-->".length);
   pages.FAHRPLAN_HTML = s;
 }
 

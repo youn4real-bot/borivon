@@ -6,6 +6,7 @@ import { linkPage } from "@/lib/roadmap/linkPage";
 import { setListSubscribed } from "@/lib/roadmap/resendList";
 import { clientIp } from "@/lib/roadmap/consent";
 import { deliverRoadmap, leadLang } from "@/lib/roadmap/delivery";
+import { lastDelivered, supersedeOlder } from "@/lib/roadmap/repeat";
 import { keepAlive } from "@/lib/keepAlive";
 
 /**
@@ -95,7 +96,15 @@ export async function POST(req: NextRequest) {
   // the PDF: first click, or a retry after a failed send (not twice in 30 min)
   if (deliveryDue(d, new Date())) {
     const lead = { id: x.id, email: x.email, details: d };
-    keepAlive(async () => { await deliverRoadmap(x.db, lead); });
+    keepAlive(async () => {
+      // same email asked before: link the earlier plan, stop its tips (lib/roadmap/repeat.ts)
+      if (x.email) {
+        const prev = await lastDelivered(x.db, x.email, x.id);
+        if (prev && !lead.details.previousLeadId) lead.details = { ...lead.details, previousLeadId: prev };
+        await supersedeOlder(x.db, x.email, x.id);
+      }
+      await deliverRoadmap(x.db, lead);
+    });
   }
   return linkPage(x.lang, T.done[0], T.done[1]);
 }

@@ -42,6 +42,7 @@ export async function deliverRoadmap(db: Db, lead: { id: string; email: string; 
   const salutation = asSalutation(d.salutation);
   const lastName = String(d.lastName ?? "");
   const facility = String(d.facility ?? "");
+  const firstName = String(d.firstName ?? "");
   let ok = false;
   try {
     // Rendered once, kept on the website (R2); the mail only links to it.
@@ -50,7 +51,7 @@ export async function deliverRoadmap(db: Db, lead: { id: string; email: string; 
     await Promise.all([storeHosted(lead.id, "plan", pdf), storeHosted(lead.id, "bonus", bonus)]);
     const unsubscribeUrl = await unsubscribeLink(lead.id);
     const [viewUrl, bonusUrl] = await Promise.all([viewLink(lead.id, lang, "plan"), viewLink(lead.id, lang, "bonus")]);
-    const m = deliveryMail({ lang, salutation, lastName, facility, result, unsubscribeUrl, viewUrl, bonusUrl });
+    const m = deliveryMail({ lang, salutation, lastName, firstName, facility, result, unsubscribeUrl, viewUrl, bonusUrl, previousUrl: d.previousLeadId ? await viewLink(String(d.previousLeadId), lang, "plan") : undefined });
     ok = await sendRoadmapDeliveryEmail({ to: lead.email, subject: m.subject, html: m.html, text: m.text, unsubscribeUrl });
   } catch (e) { console.error("[roadmap] pdf/email failed:", e instanceof Error ? e.message : e); }
 

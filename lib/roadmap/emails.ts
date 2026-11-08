@@ -18,7 +18,7 @@ import { greeting, type Salutation } from "./consent";
 
 export const BOOK_URL = "https://borivon.com/book/clinic";
 /** Who the mail is for: Anrede + Nachname (no first name since 2026-11-07). */
-export type Addressee = { salutation: Salutation; lastName: string };
+export type Addressee = { salutation: Salutation; lastName: string; firstName?: string };
 
 /** Days after the confirm click when each follow-up goes out. */
 export const FOLLOWUP_DAYS = [2, 5, 9, 14] as const;
@@ -81,11 +81,11 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       bye: "Bien cordialement<br>L'équipe Borivon",
     },
   }[lang];
-  const hello = esc(greeting(lang, o.salutation, o.lastName));
+  const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
   const body = p(hello) + T.lines.map(p).join("") + btn(o.confirmUrl, T.btn) +
     `<p style="font-size:13px;line-height:1.6;margin:0 0 14px;color:#6d6a63">${T.notYou}</p>` + p(T.bye);
   const strip = (x: string) => x.replace(/<br>/g, "\n").replace(/<[^>]+>/g, "");
-  const text = [greeting(lang, o.salutation, o.lastName), ...T.lines.map(strip), `${T.btn}: ${o.confirmUrl}`, T.notYou, strip(T.bye)].join("\n\n");
+  const text = [greeting(lang, o.salutation, o.lastName, o.firstName), ...T.lines.map(strip), `${T.btn}: ${o.confirmUrl}`, T.notYou, strip(T.bye)].join("\n\n");
   return { subject: T.subject, html: shell(lang, body), text };
 }
 
@@ -95,12 +95,14 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
  * of their level, then a P.S. that frames the call as "see if you fit", never
  * as a sale. Marketing from here on, so it carries the unsubscribe link.
  */
-export function deliveryMail(o: Addressee & { lang: Lang; facility: string; result: RoadmapResult; unsubscribeUrl: string; viewUrl: string; bonusUrl: string }): Mail {
+export function deliveryMail(o: Addressee & { lang: Lang; facility: string; result: RoadmapResult; unsubscribeUrl: string; viewUrl: string; bonusUrl: string; previousUrl?: string }): Mail {
   const { lang, result } = o;
+  const prevT = { de: "Ihr früherer Fahrplan bleibt gültig:", en: "Your earlier roadmap stays valid:", fr: "Votre plan précédent reste valable :" }[lang];
+  const prevL = { de: "früheren Fahrplan öffnen", en: "open the earlier roadmap", fr: "ouvrir le plan précédent" }[lang];
   const lvl = pick(LEVELS[result.level].name, lang);
   const St = STAGES[result.level];
   const loss = formatEuro(result.totalYear, lang);
-  const hello = esc(greeting(lang, o.salutation, o.lastName));
+  const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
   const fac = o.facility ? esc(o.facility) : "";
   const T = {
     de: {
@@ -116,7 +118,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
         "<b>Bonus:</b> den Agentur-Check. 10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen",
       ],
       level: `Sie sind auf Stufe ${result.level} von 5: ${esc(lvl)}.`,
-      loss: result.totalYear > 0 ? `Leere Stellen und Kündigungen kosten Sie etwa <b>${loss} im Jahr</b>.` : "",
+      loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Leere Stellen und Kündigungen kosten" : "Leere Stellen kosten"} Sie etwa <b>${loss} im Jahr</b>.` : "",
       bottom: "Unterm Strich:",
       start: "Fangen Sie bei „So sieht Erfolg aus“ an. Drucken Sie den 90-Tage-Plan aus.",
       bye: "Viele Grüße<br>Ihr Borivon-Team",
@@ -136,7 +138,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
         "<b>Bonus:</b> the agency check. 10 questions before you bring nurses from abroad",
       ],
       level: `You are on level ${result.level} of 5: ${esc(lvl)}.`,
-      loss: result.totalYear > 0 ? `Empty posts and resignations cost you about <b>${loss} a year</b>.` : "",
+      loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Empty posts and resignations cost" : "Empty posts cost"} you about <b>${loss} a year</b>.` : "",
       bottom: "Bottom line:",
       start: "Start with “What success looks like”. Print the 90-day plan.",
       bye: "Best regards<br>The Borivon team",
@@ -156,7 +158,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
         "<b>Bonus :</b> le check agence. 10 questions avant de faire venir des infirmières de l'étranger",
       ],
       level: `Vous êtes au niveau ${result.level} sur 5 : ${esc(lvl)}.`,
-      loss: result.totalYear > 0 ? `Les postes vides et les départs vous coûtent environ <b>${loss} par an</b>.` : "",
+      loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Les postes vides et les départs vous coûtent" : "Les postes vides vous coûtent"} environ <b>${loss} par an</b>.` : "",
       bottom: "En résumé :",
       start: "Commencez par « À quoi ressemble la réussite ». Imprimez le plan de 90 jours.",
       bye: "Bien cordialement<br>L'équipe Borivon",
@@ -176,6 +178,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
   const list = `<ul style="font-size:15px;line-height:1.6;margin:0 0 18px;padding-left:20px">${T.inside.map((x) => `<li>${x}</li>`).join("")}</ul>`;
   const body = card + p(T.hello) + p(T.promised) + btn(o.viewUrl, T.open) + p(`<b>${T.insideH}</b>`) + list +
     p(`<a href="${esc(o.bonusUrl)}" style="color:#9c7a27;font-weight:bold">${esc(T.bonusLink)} →</a>`) +
+    (o.previousUrl ? p(`${esc(prevT)} <a href="${esc(o.previousUrl)}" style="color:#9c7a27">${esc(prevL)}</a>`) : "") +
     p(`<b>${T.level}</b> ${esc(story)}`) +
     p(`${T.loss ? T.loss + " " : ""}${T.bottom} <b>${esc(bottom)}</b>`) + p(T.start) +
     p(T.bye) +
@@ -185,6 +188,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
     strip(T.hello), strip(T.promised), `${T.open}: ${o.viewUrl}`,
     T.insideH + "\n" + T.inside.map((x) => "- " + strip(x)).join("\n"),
     `${T.bonusLink}: ${o.bonusUrl}`,
+    o.previousUrl ? `${prevT} ${o.previousUrl}` : "",
     `${T.level} ${story}`,
     `${T.loss ? strip(T.loss) + " " : ""}${T.bottom} ${bottom}`,
     T.start,
@@ -199,7 +203,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
 export function followupMail(n: number, o: Addressee & { lang: Lang; result: RoadmapResult; unsubscribeUrl: string; facilityType?: FacilityType }): Mail | null {
   const { lang } = o;
   const firstWeek = esc(pick(FACILITY[o.facilityType ?? "care_home"].firstWeek, lang));
-  const hello = esc(greeting(lang, o.salutation, o.lastName));
+  const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
   const per = formatEuro(o.result.perNurseMonth, lang);
   const three = formatEuro(o.result.perNurseMonth * 3, lang);
   const S: Record<Lang, { subject: string; lines: string[]; cta: string }[]> = {

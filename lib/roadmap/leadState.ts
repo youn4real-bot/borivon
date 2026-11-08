@@ -15,7 +15,12 @@ export type RoadmapDetails = {
   lang?: string;
   salutation?: string;
   lastName?: string;
+  firstName?: string;
   facility?: string;
+  /** the v2 form answers as sent (lib/roadmap/form.ts) */
+  form?: unknown;
+  /** a newer Fahrplan for the same email exists: this one sends no more tips */
+  supersededBy?: string;
   result?: { level?: number; bottleneck?: string; openCostMonth?: number; totalYear?: number };
   consent?: { text?: string; givenAt?: string; ip?: string; confirmedAt?: string | null; confirmIp?: string };
   delivery?: { sentAt?: string | null; attempts?: number; lastAttemptAt?: string | null };
@@ -50,7 +55,7 @@ export function deliveryDue(d: RoadmapDetails, now: Date): boolean {
 
 /** Which follow-up (0-based) is due now, or null. Pure → tested. */
 export function dueFollowup(d: RoadmapDetails, now: Date): number | null {
-  if (d.unsubscribedAt || !confirmed(d) || !d.delivery?.sentAt) return null;
+  if (d.unsubscribedAt || d.supersededBy || !confirmed(d) || !d.delivery?.sentAt) return null;
   const step = Math.max(0, Number(d.seq?.step ?? 0));
   if (step >= FOLLOWUP_DAYS.length) return null;
   const dueAt = Date.parse(String(d.consent!.confirmedAt)) + FOLLOWUP_DAYS[step] * 86_400_000;

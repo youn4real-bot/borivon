@@ -9,6 +9,7 @@
  * React child, which would have crashed the leads page on the first real lead.
  */
 import { LEVELS, BOTTLENECK, pick, type Lang } from "./content";
+import { isFormV2, normalizeForm, formSummaryDe } from "./form";
 import type { Level, RoadmapResult } from "./score";
 
 type L3 = Record<Lang, string>;
@@ -106,6 +107,10 @@ export function roadmapLeadChips(details: unknown, lang: Lang): Chip[] {
   if (total !== null) out.push({ k: t("loss"), v: euro(total, lang) });
   const neck = str(r.bottleneck) as RoadmapResult["bottleneck"];
   if (BOTTLENECK[neck]) out.push({ k: t("neck"), v: pick(BOTTLENECK[neck].t, lang).replace(/^[^:]*:\s*/, "") });
+  // v2 form: show the real answers (German, the founder's view), not the derived model numbers
+  const v2 = isFormV2(d.form) ? normalizeForm(d.form as Record<string, unknown>) : null;
+  if (v2) for (const [k, v] of formSummaryDe(v2)) out.push({ k, v });
+  else {
   if (TYPE[str(a.facilityType)]) out.push({ k: t("house"), v: pick(TYPE[str(a.facilityType)], lang) });
   const staff = num(a.staff), open = num(a.openPosts), left = num(a.leftLastYear);
   if (staff !== null) out.push({ k: t("staff"), v: `${staff} · ${open ?? 0} ${t("open")} · ${left ?? 0} ${t("left")}` });
@@ -116,6 +121,7 @@ export function roadmapLeadChips(details: unknown, lang: Lang): Chip[] {
     out.push({ k: t("onb"), v: items.length ? items.join(", ") : t("nothing") });
   }
   if (PAIN[str(a.pain)]) out.push({ k: t("pain"), v: pick(PAIN[str(a.pain)], lang) });
+  }
   const sent = num(seq.step) ?? 0;
   const pdf = str(obj(d.delivery).sentAt) ? t("pdfSent") : t("pdfOpen");
   const status = str(d.unsubscribedAt) ? t("unsub")

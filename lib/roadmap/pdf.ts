@@ -27,6 +27,8 @@ import { costPerDeparture } from "./score";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
 import { VIDEO_INTRO, VIDEO_STAGE } from "./videos";
 import { PLAYBOOK, type AreaKey } from "./playbook";
+import { buildTimeline, STEP_NAME, TL } from "./timeline";
+import { BEDARF_LINE, type FormV2 } from "./form";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
 const NIGHT = hexColor("#0e0e10");
@@ -62,6 +64,8 @@ export type RoadmapPdfInput = {
   /** the personal calculator link (lib/roadmap/calc.ts); a generic one when missing */
   calcUrl?: string;
   date: Date;
+  /** the v2 form answers (lib/roadmap/form.ts); adds the personal timeline page */
+  form?: FormV2;
 };
 
 export function formatEuro(n: number, lang: Lang): string {
@@ -73,8 +77,8 @@ export function formatEuro(n: number, lang: Lang): string {
 }
 
 /** How many pages a Fahrplan has for a level: 12 + the stage behind and the stage ahead (5 each). */
-export function roadmapPageCount(level: Level): number {
-  return 12 + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 5 : 0) + (level < 5 ? 5 : 0);
+export function roadmapPageCount(level: Level, timeline = false): number {
+  return 12 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 5 : 0) + (level < 5 ? 5 : 0);
 }
 
 type Fonts = { reg: DocFont; semi: DocFont };
@@ -298,11 +302,19 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     triangle(page, (PW - sw) / 2 - 24, 355, 14, 18, GOLD, "right");
     triangle(page, (PW + sw) / 2 + 24, 355, 14, 18, GOLD, "left");
     let y = 432;
-    if (input.name) y = cpara(s, `${t.for} ${input.name}`.toUpperCase(), PW / 2, y, W, F.semi, 9, GOLD_TEXT, 1.6, 1.5) + 6;
-    if (input.facility) y = cdisp(page, HI, input.facility, y, W, 26, INK, 1.2) + 4;
-    cpara(s, `${pick(FACILITY[result.facilityType].name, lang)}  ·  ${input.date.toLocaleDateString(lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE")}`, PW / 2, y + 6, W, F.reg, 10.5, MUTED);
+    const dateStr = input.date.toLocaleDateString(lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE");
+    if (input.form) {
+      // v2: the person is the headline ("Frau Müller"), then "Pflegeheim · Bayern · date"
+      if (input.name) y = cpara(s, t.for.toUpperCase(), PW / 2, y, W, F.semi, 9, GOLD_TEXT, 1.6, 1.5) + 6;
+      if (input.name) y = cdisp(page, HI, input.name, y, W, 28, INK, 1.2) + 4;
+      cpara(s, [input.facility, dateStr].filter(Boolean).join("  ·  "), PW / 2, y + 6, W, F.reg, 10.5, MUTED);
+    } else {
+      if (input.name) y = cpara(s, `${t.for} ${input.name}`.toUpperCase(), PW / 2, y, W, F.semi, 9, GOLD_TEXT, 1.6, 1.5) + 6;
+      if (input.facility) y = cdisp(page, HI, input.facility, y, W, 26, INK, 1.2) + 4;
+      cpara(s, `${pick(FACILITY[result.facilityType].name, lang)}  ·  ${dateStr}`, PW / 2, y + 6, W, F.reg, 10.5, MUTED);
+    }
     if (result.totalYear > 0) {
-      cpara(s, t.lossYear, PW / 2, 560, W, F.reg, 11, MUTED);
+      cpara(s, result.turnoverCostYear > 0 ? t.lossYear : t.lossYearOpen, PW / 2, 560, W, F.reg, 11, MUTED);
       cdisp(page, HN, `−${formatEuro(result.totalYear, lang)} ${t.perYear}`, 580, W, 30, RED, 1.1);
     }
     const p = SU.personal.toUpperCase();
@@ -366,7 +378,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
         HN.draw(page, PH, big, x + 18, y + 50, sz, color);
         para(s, sub, x + 18, y + 92, cw - 36, F.reg, 10.5, MUTED, 1.45);
       };
-      card(M, SU.loseLbl, `−${formatEuro(result.totalYear, lang)}`, SU.loseSub, RED);
+      card(M, SU.loseLbl, `−${formatEuro(result.totalYear, lang)}`, result.turnoverCostYear > 0 ? SU.loseSub : SU.loseSubOpen, RED);
       card(M + cw + 14, SU.winLbl, `+${formatEuro(result.perNurseMonth * 12, lang)}`, SU.winSub, GREEN);
       y += ch + 22;
     }
@@ -382,16 +394,16 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       y += rh + 10;
     };
     row("bed", t.openPosts, `−${formatEuro(result.openCostMonth, lang)} ${t.perMonth}`, `−${formatEuro(result.openCostYear, lang)} ${t.perYear}`, RED);
-    row("door", t.leaving, `−${formatEuro(result.turnoverCostYear, lang)} ${t.perYear}`, "", RED);
+    if (result.turnoverCostYear > 0) row("door", t.leaving, `−${formatEuro(result.turnoverCostYear, lang)} ${t.perYear}`, "", RED);
     y += 8;
     caps(s, t.howCounted, M, y, 8, MUTED);
     y += 18;
     const FT = FACILITY[result.facilityType];
-    const lines: [IconName, string][] = [
-      [FT.icon, pick(FT.openModel, lang)],
-      ["door", leaveModel(result.facilityType, lang, (n) => formatEuro(n, lang), result.perNurseMonth, costPerDeparture(result.facilityType))],
-      ["target", pick(FT.source, lang)],
-    ];
+    const lines: [IconName, string][] = [];
+    if (input.form) lines.push(["bed", BEDARF_LINE[lang](input.form)]);
+    lines.push([FT.icon, pick(FT.openModel, lang)]);
+    if (result.turnoverCostYear > 0) lines.push(["door", leaveModel(result.facilityType, lang, (n) => formatEuro(n, lang), result.perNurseMonth, costPerDeparture(result.facilityType))]);
+    lines.push(["target", pick(FT.source, lang)]);
     for (const [ic, txt] of lines) {
       icon(page, ic, M, y - 1, 16, on(PAPER));
       y = para(s, txt, M + 26, y, W - 26, F.reg, 9.5, MUTED, 1.5) + 7;
@@ -408,6 +420,51 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     s.text(cb, M + 22, by + 12, F.semi, 12.5, FG);
     for (let k = 0; k < 3; k++) triangle(page, M + 22 + measure(cb, F.semi, 12.5) + 14 + k * 10, by + 14, 7, 10, GOLD, "right");
     link(page, M, by, cbw, cbh, cl);
+  }
+
+  // ── 6b · the personal deadline (only with the v2 form) ────────────────────
+  if (input.form) {
+    const T = TL[lang];
+    const tl = buildTimeline(input.form, input.date);
+    const loc = lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE";
+    const long = (d: Date) => d.toLocaleDateString(loc, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    const short = (d: Date) => d.toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: "UTC" });
+    const fill = (str: string) => str.replace("{date}", tl.target ? long(tl.target) : "").replace("{start}", tl.latestStart ? long(tl.latestStart) : "")
+      .replace("{weeks}", String(Math.max(0, tl.weeksLeft ?? 0))).replace("{first}", long(tl.earliestFirstDay));
+    const { page, s } = newPage();
+    icon(page, "calendar", M + W - 56, 72, 56, on(PAPER));
+    let y = disp(page, HN, T.h, M, 70, W - 80, 44, INK, 1.05);
+    y = para(s, T.sub, M, y + 6, W - 80, F.reg, 12, MUTED) + 20;
+    const [lead, big, color] = tl.status === "asap" ? [T.asap, T.asapBig, GOLD_TEXT] : tl.status === "late" ? [T.late, T.lateBig, RED] : [T.ok, T.okBig, tl.status === "tight" ? RED : GOLD_TEXT];
+    y = para(s, fill(lead), M, y, W, F.semi, 13, INK, 1.5) + 8;
+    y = disp(page, HN, fill(big), M, y, W, 34, color, 1.1) + 6;
+    if (tl.status === "tight") y = para(s, T.tight, M, y, W, F.reg, 11, MUTED, 1.5) + 4;
+    if (input.form.deutsch === "b2") y = para(s, T.b2, M, y, W, F.reg, 11, MUTED, 1.5) + 4;
+    y += 18;
+    // the steps, top to bottom, with dates
+    const lx = M + 84, tx = M + 104, rowH = 44;
+    const n = tl.steps.length;
+    s.rect(lx - 1.5, y + 6, 3, rowH * n, GOLD_2);
+    tl.steps.forEach((st, i) => {
+      const yy = y + i * rowH;
+      s.text(short(st.from), M, yy + 2, F.semi, 10.5, MUTED);
+      s.roundedRect(lx - 6, yy + 1, 12, 12, 6, { fill: GOLD });
+      s.text(pick(STEP_NAME[st.key], lang), tx, yy, F.semi, 12, INK);
+      s.text(`${st.weeks} ${st.weeks === 1 ? T.week : T.weeks}`, tx, yy + 17, F.reg, 10.5, MUTED);
+    });
+    const fy = y + n * rowH;
+    const last = tl.steps[n - 1].to;
+    s.text(short(last), M, fy + 4, F.semi, 10.5, INK);
+    s.roundedRect(lx - 10, fy - 2, 20, 20, 10, { fill: NIGHT });
+    icon(page, "check", lx - 6, fy + 2, 12, { base: GOLD, accent: GOLD, hole: NIGHT });
+    disp(page, H, long(last), tx, fy - 4, W - 104, 20, INK, 1.1);
+    y = fy + 46;
+    // the faster way + where the numbers come from
+    const boxH = paraH(T.fast, F.reg, 11, W - 40, 1.5) + 32;
+    s.roundedRect(M, y, W, boxH, 16, { fill: CARD, border: LINE, borderWidth: 0.8 });
+    para(s, T.fast, M + 20, y + 16, W - 40, F.reg, 11, INK, 1.5);
+    y += boxH + 14;
+    para(s, T.lawNote, M, y, W, F.reg, 8.5, MUTED, 1.5);
   }
 
   // ── 7 · what success looks like ───────────────────────────────────────────

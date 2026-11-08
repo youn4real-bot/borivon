@@ -31,14 +31,16 @@ export function asSalutation(v: unknown): Salutation {
 }
 
 /** "Frau Müller", or "" when there is no title to put in front. */
-export function addressName(lang: Lang, sal: Salutation, lastName: string): string {
+export function addressName(lang: Lang, sal: Salutation, lastName: string, firstName = ""): string {
   const last = (lastName || "").trim();
-  return sal === "none" || !last ? "" : `${TITLE[lang][sal]} ${last}`;
+  // "Keine Angabe": first + last name ("Anna Müller"), never a guessed title
+  if (sal === "none" || !last) return sal === "none" && last && (firstName || "").trim() ? `${firstName.trim()} ${last}` : "";
+  return `${TITLE[lang][sal]} ${last}`;
 }
 
 /** First line of every mail: "Hallo Frau Müller," or just "Hallo,". */
-export function greeting(lang: Lang, sal: Salutation, lastName: string): string {
-  const n = addressName(lang, sal, lastName);
+export function greeting(lang: Lang, sal: Salutation, lastName: string, firstName = ""): string {
+  const n = addressName(lang, sal, lastName, firstName);
   const hi = lang === "de" ? "Hallo" : lang === "fr" ? "Bonjour" : "Hello";
   return n ? `${hi} ${n},` : `${hi},`;
 }

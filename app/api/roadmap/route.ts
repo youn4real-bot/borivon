@@ -13,6 +13,9 @@ import { confirmLink } from "@/lib/roadmap/delivery";
 import type { Level } from "@/lib/roadmap/score";
 import { tokensEnabled } from "@/lib/roadmap/token";
 import { keepAlive } from "@/lib/keepAlive";
+import { isFormV2, normalizeForm, toModel, facilityLine, formSummaryDe } from "@/lib/roadmap/form";
+import { findConfirmedPrior, supersedeOlder } from "@/lib/roadmap/repeat";
+import { deliverRoadmap } from "@/lib/roadmap/delivery";
 
 /**
  * POST /api/roadmap — the free Pflege-Fahrplan (borivon.com/fahrplan).
@@ -52,26 +55,37 @@ export async function POST(req: NextRequest) {
   const email = S(body.email, 254).toLowerCase();
   const salutation = asSalutation(body.salutation);
   const lastName = S(body.lastName, 80);
-  const facility = S(body.facility, 120);
+  const firstName = S(body.firstName, 80);
+  // v2 form (founder spec 2026-11-08): no facility name, Vorname + Nachname, Anrede required
+  const form = isFormV2(body.answers) ? normalizeForm(body.answers as Record<string, unknown>) : null;
+  const facility = form ? facilityLine(form, lang) : S(body.facility, 120);
   const heardFrom = S(body.heardFrom, 40);
-  if (!lastName) return NextResponse.json({ error: "name_required" }, { status: 400 });
+  if (!lastName || (form && !firstName)) return NextResponse.json({ error: "name_required" }, { status: 400 });
+  if (form && !["frau", "herr", "none"].includes(String(body.salutation))) return NextResponse.json({ error: "name_required" }, { status: 400 });
   if (!facility) return NextResponse.json({ error: "facility_required" }, { status: 400 });
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "invalid_email" }, { status: 400 });
   if (isFreeMail(email)) return NextResponse.json({ error: "business_email" }, { status: 400 });
   if (body.consent !== true) return NextResponse.json({ error: "consent_required" }, { status: 400 });
 
-  const answers = normalizeAnswers((body.answers ?? {}) as Partial<RoadmapAnswers>);
+  const answers = form ? toModel(form) : normalizeAnswers((body.answers ?? {}) as Partial<RoadmapAnswers>);
   const result = scoreRoadmap(answers);
   const now = new Date().toISOString();
 
   // 1 · keep the request + the proof of the ticked box (Art. 7(1) GDPR)
   const db = getServiceSupabase();
+  const ip = clientIp(req.headers);
+  // Same email, already confirmed before → no second confirm mail (lib/roadmap/repeat.ts)
+  const prior = form ? await findConfirmedPrior(db, email) : null;
   const details = {
     source: "roadmap",
-    lang, salutation, lastName, facility, heardFrom,
+    lang, salutation, firstName, lastName, facility, heardFrom,
+    ...(form ? { form } : {}),
+    ...(prior?.delivered ? { previousLeadId: prior.id } : {}),
     answers,
     result: { level: result.level, score: result.score, bottleneck: result.bottleneck, openCostMonth: result.openCostMonth, turnoverCostYear: result.turnoverCostYear, totalYear: result.totalYear },
-    consent: { text: CONSENT_TEXT[lang], givenAt: now, ip: clientIp(req.headers), confirmedAt: null as string | null },
+    consent: prior
+      ? { text: CONSENT_TEXT[lang], givenAt: now, ip, confirmedAt: now as string | null, confirmIp: ip, confirmedVia: prior.id }
+      : { text: CONSENT_TEXT[lang], givenAt: now, ip, confirmedAt: null as string | null },
     delivery: { sentAt: null as string | null, attempts: 0 },
     seq: { step: 0, lastSentAt: null as string | null },
     unsubscribedAt: null as string | null,
@@ -93,9 +107,13 @@ export async function POST(req: NextRequest) {
   // 2 · the confirm mail, then 3 · tell the founder — both after the response
   keepAlive(async () => {
     let mailed = false;
-    if (tokensEnabled()) {
+    if (prior) {
+      // known, confirmed address: the new plan goes straight out, the old series stops
+      await supersedeOlder(db, email, id);
+      mailed = (await deliverRoadmap(db, { id, email, details })).ok;
+    } else if (tokensEnabled()) {
       try {
-        const m = confirmMail({ lang, salutation, lastName, facility, confirmUrl: await confirmLink(id) });
+        const m = confirmMail({ lang, salutation, lastName, firstName, facility, confirmUrl: await confirmLink(id) });
         mailed = await sendRoadmapConfirmEmail({ to: email, subject: m.subject, html: m.html, text: m.text });
       } catch (e) { console.error("[roadmap] confirm mail failed:", e instanceof Error ? e.message : e); }
     } else console.error("[roadmap] DL_TOKEN_SECRET missing: no confirm link possible");
@@ -104,13 +122,13 @@ export async function POST(req: NextRequest) {
       `Neue Fahrplan-Anfrage — Stufe ${result.level} (${pick(LEVELS[result.level].name, "de")})`,
       "",
       `Einrichtung : ${facility}`,
-      `Name        : ${lastName} (${SAL_DE[salutation]})`,
+      `Name        : ${[firstName, lastName].filter(Boolean).join(" ")} (${SAL_DE[salutation]})`,
       `E-Mail      : ${email}`,
       heardFrom ? `Quelle      : ${heardFrom}` : null,
-      `Zahlen      : ${answers.staff} Pflegekräfte · ${answers.openPosts} offen · ${answers.leftLastYear} gegangen`,
+      ...(form ? formSummaryDe(form).map(([k, v]) => `${(k + "            ").slice(0, 12)}: ${v}`) : [`Zahlen      : ${answers.staff} Pflegekräfte · ${answers.openPosts} offen · ${answers.leftLastYear} gegangen`]),
       `Verlust     : ${formatEuro(result.totalYear, "de")} pro Jahr`,
       `Engpass     : ${pick(BOTTLENECK[result.bottleneck].t, "de")}`,
-      `Status      : ${mailed ? "Bestätigungs-Mail raus, wartet auf Klick. Erst dann geht das PDF raus." : "ACHTUNG: Bestätigungs-Mail NICHT versendet."}`,
+      `Status      : ${prior ? (mailed ? "Schon bestätigt (frühere Anfrage): neuer Fahrplan direkt verschickt." : "Schon bestätigt, aber Fahrplan NICHT verschickt (Job versucht es erneut).") : mailed ? "Bestätigungs-Mail raus, wartet auf Klick. Erst dann geht das PDF raus." : "ACHTUNG: Bestätigungs-Mail NICHT versendet."}`,
       "",
       "https://borivon.com/portal/admin/leads",
     ].filter((l) => l !== null).join("\n");
