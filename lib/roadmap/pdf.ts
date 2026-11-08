@@ -409,7 +409,9 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     y = para(s, VV.stepsSub, M, y + 6, W, F.reg, 13, MUTED) + 22;
     const blocks = PLAYBOOK[lv].success, ics: IconName[] = ["target", "team", "calendar", "heart"];
     const cw = (W - 16) / 2, iw = cw - 56;
-    const cardH = (b: (typeof blocks)[number]) => 104 + b.items.reduce((h, it) => h + paraH(pick(it, lang), F.reg, 12.5, iw, 1.4) + 12, 0) + 10;
+    // title can wrap ("Wissen, warum Leute gehen"): the list starts under the title, wherever it ends
+    const titleH = (b: (typeof blocks)[number]) => paraH(pick(b.t, lang), F.semi, 15, cw - 36, 1.2);
+    const cardH = (b: (typeof blocks)[number]) => 70 + titleH(b) + 16 + b.items.reduce((h, it) => h + paraH(pick(it, lang), F.reg, 12.5, iw, 1.4) + 12, 0) + 10;
     for (let r = 0; r < blocks.length; r += 2) {
       const pair = blocks.slice(r, r + 2), rh = Math.max(...pair.map(cardH));
       pair.forEach((b, j) => {
@@ -419,8 +421,8 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
         s.roundedRect(x + 68, y + 25, 24, 24, 12, { fill: NIGHT });
         const n = String(r + j + 1);
         s.text(n, x + 80 - measure(n, F.semi, 11) / 2, y + 31, F.semi, 11, GOLD);
-        para(s, pick(b.t, lang), x + 18, y + 70, cw - 36, F.semi, 15, INK, 1.2);
-        let iy = y + 104;
+        const tEnd = para(s, pick(b.t, lang), x + 18, y + 70, cw - 36, F.semi, 15, INK, 1.2);
+        let iy = tEnd + 16;
         for (const it of b.items) {
           s.roundedRect(x + 20, iy + 1, 14, 14, 3, { border: GOLD_TEXT, borderWidth: 1.3 });
           iy = para(s, pick(it, lang), x + 44, iy, iw, F.reg, 12.5, INK, 1.4) + 12;

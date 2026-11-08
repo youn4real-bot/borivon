@@ -503,6 +503,9 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 
 .bv-enter      { animation: bvFadeRise 0.32s var(--ease-out) both; }
 .bv-enter-soft { animation: bvFadeIn   0.24s var(--ease-out) both; }
+/* Embedded booking calendar (inside /workshop): the browser may never run these fade-ins in a frame,
+   leaving buttons and the details form at opacity 0. Show them at once. */
+html.bv-embedded .bv-enter, html.bv-embedded .bv-enter-soft, html.bv-embedded .bv-enter-stagger > * { animation: none !important; opacity: 1 !important; transform: none !important; }
 
 /* Stagger — children animate in with cascading delays */
 .bv-enter-stagger > *           { animation: bvFadeRise 0.32s var(--ease-out) both; opacity: 0; }

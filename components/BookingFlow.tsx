@@ -189,6 +189,8 @@ export function BookingFlow({
   /** Always this language, whatever the browser says (the workshop calendar is German only). */
   forceLang?: "en" | "de" | "fr";
 } = {}) {
+  // Shown inside another page (the /workshop calendar)? Then no fade-ins (see globals.css).
+  useEffect(() => { if (typeof window !== "undefined" && window.self !== window.top) document.documentElement.classList.add("bv-embedded"); }, []);
   const { lang: ctxLang } = useLang();
   const lang = forceLang ?? ctxLang;
   const T = useCallback((en: string, de: string, fr: string) => tr(lang, en, de, fr), [lang]);
