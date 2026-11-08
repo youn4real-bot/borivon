@@ -114,7 +114,7 @@ export function normalizeForm(a: Record<string, unknown>): FormV2 {
 const MID_BEDARF: Record<FormV2["bedarf"], number> = { "1-5": 3, "6-10": 8, "11-25": 18, "26-50": 38, "51-100": 75, "100+": 120 };
 const MID_PLAETZE: Record<FormV2["plaetze"], number> = { "<50": 35, "50-100": 75, "100-200": 150, "200+": 280 };
 /** Nurses (Fachkräfte) per place/bed/client, rough German averages. Only used to size the gap for the Stufe. */
-const NURSES_PER_UNIT: Record<FacilityType, number> = { care_home: 0.2, hospital: 0.5, home_care: 0.1 };
+const NURSES_PER_UNIT: Record<FacilityType, number> = { care_home: 0.2, hospital: 0.7, home_care: 0.2 };
 const AGENCY: Record<FormV2["leasing"], AgencyBand> = { "0": "none", "1-2": "mid", "3-5": "high", "6+": "very_high" };
 
 export function facilityTypeOf(f: FormV2): FacilityType {
@@ -165,7 +165,7 @@ export function formScore(f: FormV2): number {
   const t = facilityTypeOf(f);
   const staff = Math.max(1, MID_PLAETZE[f.plaetze] * NURSES_PER_UNIT[t]);
   const gap = openPostsOf(f) / staff;
-  let s = 100 - Math.min(55, gap * 250);
+  let s = 100 - Math.min(70, gap * 250);
   s -= { "0": 0, "1-2": 8, "3-5": 16, "6+": 25 }[f.leasing];
   if (f.erfahrung === "failed") s -= 10;
   if (f.erfahrung === "more") s += 8;
