@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { normalizeForm, toModel, facilityLine, openPostsOf, formSummaryDe, isFormV2 } from "../lib/roadmap/form";
-import { buildTimeline, STEP_WEEKS, B2_EXTRA_WEEKS } from "../lib/roadmap/timeline";
+import { buildTimeline, STEP_WEEKS } from "../lib/roadmap/timeline";
 import { addressName, greeting } from "../lib/roadmap/consent";
 import { dueFollowup } from "../lib/roadmap/leadState";
 import { scoreRoadmap } from "../lib/roadmap/score";
@@ -42,22 +42,21 @@ describe("v2 form → model", () => {
 
 describe("personal deadline", () => {
   it("fixed date: latest start = date − all steps", () => {
-    const tl = buildTimeline({ start: "date", datum: "2027-09-01", deutsch: "b1" }, today);
+    const tl = buildTimeline({ start: "date", datum: "2027-09-01" }, today);
     expect(tl.status).toBe("ok");
     expect(tl.latestStart!.toISOString().slice(0, 10)).toBe(new Date(Date.parse("2027-09-01T00:00:00Z") - TOTAL * 7 * 86_400_000).toISOString().slice(0, 10));
     expect(tl.steps.at(-1)!.to.toISOString().slice(0, 10)).toBe("2027-09-01");
     expect(tl.weeksLeft).toBe(11);
   });
   it("too soon → late, plan starts today", () => {
-    const tl = buildTimeline({ start: "6m", datum: "", deutsch: "unknown" }, today);
+    const tl = buildTimeline({ start: "6m", datum: "" }, today);
     expect(tl.status).toBe("late");
     expect(tl.steps[0].from.toISOString().slice(0, 10)).toBe("2026-11-08");
   });
-  it("B2 only adds the extra weeks", () => {
-    const a = buildTimeline({ start: "asap", datum: "", deutsch: "b1" }, today);
-    const b = buildTimeline({ start: "asap", datum: "", deutsch: "b2" }, today);
-    expect(b.totalWeeks - a.totalWeeks).toBe(B2_EXTRA_WEEKS);
+  it("as soon as possible → no deadline, just the first day", () => {
+    const a = buildTimeline({ start: "asap", datum: "" }, today);
     expect(a.status).toBe("asap");
+    expect(a.totalWeeks).toBe(TOTAL);
   });
 });
 
@@ -85,9 +84,10 @@ describe("the page", () => {
     expect(page).toContain("c-nach");
     expect(page).toContain("Was ist beim letzten Mal schiefgelaufen?");
     expect(page).toContain("Teil {n} von 4 erledigt.");
+    expect(page).not.toContain("Welches Deutsch");
   });
   it("sends only codes lib/roadmap/form.ts knows", () => {
-    for (const code of ["care_home", "home_care", "disability", "never_came", "me_board", "b2", "asap", "12m"]) expect(page).toContain(code);
+    for (const code of ["care_home", "home_care", "disability", "never_came", "me_board", "asap", "12m"]) expect(page).toContain(code);
   });
 });
 
@@ -97,7 +97,7 @@ describe("PDF with the v2 form", () => {
     const { pdfLinks } = await import("../lib/roadmap/hosted");
     const { PDFDocument } = await import("pdf-lib");
     for (const lang of ["de", "en", "fr"] as const) {
-      const form = normalizeForm({ art: "home_care", land: "NW", bedarf: "26-50", leasing: "1-2", start: "date", datum: "2027-03-01", deutsch: "b2" });
+      const form = normalizeForm({ art: "home_care", land: "NW", bedarf: "26-50", leasing: "1-2", start: "date", datum: "2027-03-01" });
       const result = scoreRoadmap(toModel(form));
       const bytes = await renderRoadmapPdf({ result, lang, form, name: "Anna Müller", facility: facilityLine(form, lang), date: today });
       const doc = await PDFDocument.load(bytes);

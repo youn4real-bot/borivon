@@ -6,7 +6,8 @@
  * Every question must change something in the Fahrplan:
  *   art · cost model + tips          bedarf · open posts → money
  *   leasing · stage                  erfahrung/grund · stage + the main hurdle
- *   haben · stage + checklist        deutsch/start/datum · the personal deadline (timeline.ts)
+ *   haben · stage + checklist        start/datum · the personal deadline (timeline.ts)
+ * (The German-level question was cut 2026-11-08: too technical for the reader.)
  *   land/standorte/plaetze/rolle/wer · cover line, size of the gap, admin view
  */
 import type { L } from "./content";
@@ -48,7 +49,6 @@ export const GRUND = {
   agency: x("Der Vermittler passte nicht zu uns", "The agency wasn't right for us", "L'agence ne nous convenait pas"),
   other: x("Etwas anderes", "Something else", "Autre chose"),
 } as const;
-export const DEUTSCH = ["b1", "b2", "unknown"] as const;
 export const START = ["asap", "6m", "12m", "date"] as const;
 export const HABEN = {
   flat: x("Eine Wohnung", "A flat", "Un logement"),
@@ -70,7 +70,6 @@ export type FormV2 = {
   leasing: (typeof LEASING)[number];
   erfahrung: (typeof ERFAHRUNG)[number];
   grund: (keyof typeof GRUND)[];
-  deutsch: (typeof DEUTSCH)[number];
   start: (typeof START)[number];
   /** YYYY-MM-DD, only with start = "date" */
   datum: string;
@@ -103,7 +102,6 @@ export function normalizeForm(a: Record<string, unknown>): FormV2 {
     leasing: one(a.leasing, LEASING, "0"),
     erfahrung,
     grund: erfahrung === "failed" ? many(a.grund, keys(GRUND)) : [],
-    deutsch: one(a.deutsch, DEUTSCH, "unknown"),
     start: start === "date" && !datum ? "asap" : start,
     datum: start === "date" ? datum : "",
     haben: many(a.haben, keys(HABEN)),
@@ -165,7 +163,6 @@ export function facilityLine(f: FormV2, lang: keyof L): string {
 export function formSummaryDe(f: FormV2): [string, string][] {
   const START_DE = { asap: "So schnell wie möglich", "6m": "In ca. 6 Monaten", "12m": "In ca. 12 Monaten", date: f.datum };
   const ERF_DE = { never: "Nein, noch nie", failed: "Ja, aber es hat nicht geklappt", more: "Ja, und wir wollen mehr" };
-  const DE_DE = { b1: "B1 reicht", b2: "Nur B2", unknown: "Weiß ich nicht" };
   const WER_DE = { me: "Ich", me_board: "Ich mit Träger / GF", board: "Nur Träger / GF" };
   const rows: [string, string][] = [
     ["Einrichtung", ART[f.art].de],
@@ -178,7 +175,7 @@ export function formSummaryDe(f: FormV2): [string, string][] {
     ["Ausland", ERF_DE[f.erfahrung]],
   ];
   if (f.grund.length) rows.push(["Schiefgelaufen", f.grund.map((k) => GRUND[k].de).join(", ")]);
-  rows.push(["Deutsch", DE_DE[f.deutsch]], ["Start", START_DE[f.start]],
+  rows.push(["Start", START_DE[f.start]],
     ["Vorbereitet", f.haben.length ? f.haben.map((k) => HABEN[k].de).join(", ") : "Noch nichts"], ["Entscheidet", WER_DE[f.wer]]);
   return rows;
 }

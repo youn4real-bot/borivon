@@ -11,7 +11,7 @@ import { addressName } from "../lib/roadmap/consent";
 (async () => {
   const form = normalizeForm({
     art: "care_home", rolle: "lead", standorte: "1", land: "BY", plaetze: "100-200", bedarf: "6-10", leasing: "3-5",
-    erfahrung: "failed", grund: ["papers", "left"], deutsch: "b1", start: "date", datum: "2027-09-01",
+    erfahrung: "failed", grund: ["papers", "left"],  start: "date", datum: "2027-09-01",
     haben: ["flat", "mentor"], wer: "me_board",
   });
   const result = scoreRoadmap(toModel(form));

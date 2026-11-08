@@ -17,8 +17,6 @@ const x = (de: string, en: string, fr: string): L => ({ de, en, fr });
 // Internally we always use the fast track (§ 81a). The PDF never says so: founder 2026-11-08,
 // "the moment you get technical, you lose them". Plain steps and dates only.
 export const STEP_WEEKS = { find: 6, papers: 6, office: 8, visa: 8, arrive: 3 } as const;
-/** Only B2 accepted: fewer candidates, or one more course B1 → B2. */
-export const B2_EXTRA_WEEKS = 12;
 
 export const STEP_NAME: Record<keyof typeof STEP_WEEKS, L> = {
   find: x("Pflegekraft finden", "Find the nurse", "Trouver l'infirmière"),
@@ -55,9 +53,9 @@ export function targetDate(f: Pick<FormV2, "start" | "datum">, today: Date): Dat
   return null;
 }
 
-export function buildTimeline(f: Pick<FormV2, "start" | "datum" | "deutsch">, today: Date): Timeline {
+export function buildTimeline(f: Pick<FormV2, "start" | "datum">, today: Date): Timeline {
   const t0 = startOfDay(today);
-  const weeks = { ...STEP_WEEKS, find: STEP_WEEKS.find + (f.deutsch === "b2" ? B2_EXTRA_WEEKS : 0) };
+  const weeks = { ...STEP_WEEKS };
   const totalWeeks = Object.values(weeks).reduce((a, b) => a + b, 0);
   const target = targetDate(f, today);
   const latestStart = target ? addWeeks(target, -totalWeeks) : null;
@@ -75,7 +73,7 @@ export function buildTimeline(f: Pick<FormV2, "start" | "datum" | "deutsch">, to
 /** Page text. {date} {start} {weeks} {first} are filled in by the PDF. */
 export const TL: Record<keyof L, {
   h: string; sub: string; ok: string; okBig: string; tight: string; late: string; lateBig: string; asap: string; asapBig: string;
-  weeks: string; week: string; fast: string; b2: string;
+  weeks: string; week: string; fast: string;
 }> = {
   de: {
     h: "Ihr Zeitplan", sub: "Rückwärts gerechnet von Ihrem Wunschtermin.",
@@ -85,7 +83,6 @@ export const TL: Record<keyof L, {
     asap: "Wenn Sie diese Woche starten, kann Ihre erste Fachkraft am {first} anfangen.", asapBig: "Erster Arbeitstag: {first}",
     weeks: "Wochen", week: "Woche",
     fast: "Papiere, Anerkennung und Visum übernehmen wir. Sie bereiten nur den ersten Tag vor.",
-    b2: "Sie wollen nur B2: Das kostet ca. 12 Wochen mehr. Mit B1 zum Start sind Sie schneller.",
   },
   en: {
     h: "Your timeline", sub: "Worked backwards from your start date.",
@@ -95,7 +92,6 @@ export const TL: Record<keyof L, {
     asap: "If you begin this week, your first nurse can start on {first}.", asapBig: "First working day: {first}",
     weeks: "weeks", week: "week",
     fast: "We take care of the papers, recognition and visa. You only prepare the first day.",
-    b2: "You only accept B2: that adds about 12 weeks. Starting with B1 is faster.",
   },
   fr: {
     h: "Votre calendrier", sub: "Calculé à rebours depuis votre date.",
@@ -105,6 +101,5 @@ export const TL: Record<keyof L, {
     asap: "Si vous démarrez cette semaine, votre première infirmière peut commencer le {first}.", asapBig: "Premier jour : {first}",
     weeks: "semaines", week: "semaine",
     fast: "Papiers, reconnaissance et visa : on s'en occupe. Vous préparez seulement le premier jour.",
-    b2: "Vous n'acceptez que le B2 : cela ajoute environ 12 semaines. Avec le B1, c'est plus rapide.",
   },
 };

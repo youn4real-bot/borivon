@@ -130,7 +130,6 @@ var T={
   leasing:{q:'Wie viele Leasingkräfte arbeiten gerade bei Ihnen?',o:{'0':'Keine','1-2':'1 – 2','3-5':'3 – 5','6+':'6 oder mehr'}},
   erfahrung:{q:'Haben Sie schon Fachkräfte aus dem Ausland eingestellt?',o:{never:'Nein, noch nie',failed:'Ja, aber es hat nicht geklappt',more:'Ja, und wir wollen mehr'}},
   grund:{q:'Was ist beim letzten Mal schiefgelaufen?',sub:'Bei Ihren Fachkräften aus dem Ausland. Mehrere Antworten möglich.',o:{never_came:'Sie kam nie an',papers:'Die Papiere dauerten zu lange',german:'Ihr Deutsch reichte nicht',left:'Sie ging nach der Ankunft',skills:'Sie passte fachlich nicht',agency:'Der Vermittler passte nicht zu uns',other:'Etwas anderes'}},
-  deutsch:{q:'Welches Deutsch reicht Ihnen zum Start?',o:{b1:'B1 reicht',b2:'Nur B2',unknown:'Weiß ich nicht'}},
   start:{q:'Wann soll die erste Fachkraft bei Ihnen anfangen?',o:{asap:'So schnell wie möglich','6m':'In ca. 6 Monaten','12m':'In ca. 12 Monaten',date:'An einem festen Datum'}},
   datum:'An welchem Datum?',
   haben:{q:'Was ist für neue Fachkräfte schon vorbereitet?',o:{flat:'Eine Wohnung',mentor:'Eine feste Ansprechperson im Team',offices:'Hilfe bei Ämtern',plan:'Ein Einarbeitungsplan',budget:'Das Budget',none:'Noch nichts'}},
@@ -156,7 +155,6 @@ var T={
   leasing:{q:'How many agency nurses work for you right now?',o:{'0':'None','1-2':'1 – 2','3-5':'3 – 5','6+':'6 or more'}},
   erfahrung:{q:'Have you hired nurses from abroad before?',o:{never:'No, never',failed:"Yes, but it didn't work",more:'Yes, and we want more'}},
   grund:{q:'What went wrong last time?',sub:'With your nurses from abroad. Several answers possible.',o:{never_came:'She never arrived',papers:'The papers took too long',german:"Her German wasn't enough",left:'She left after arriving',skills:"Her skills didn't fit",agency:"The agency wasn't right for us",other:'Something else'}},
-  deutsch:{q:'What German level is enough for the start?',o:{b1:'B1 is enough',b2:'Only B2',unknown:"I don't know"}},
   start:{q:'When should the first nurse start?',o:{asap:'As soon as possible','6m':'In about 6 months','12m':'In about 12 months',date:'On a fixed date'}},
   datum:'On which date?',
   haben:{q:'What is already in place for new nurses?',o:{flat:'A flat',mentor:'A fixed contact in the team',offices:'Help with offices',plan:'An onboarding plan',budget:'The budget',none:'Nothing yet'}},
@@ -182,7 +180,6 @@ var T={
   leasing:{q:"Combien d'intérimaires travaillent chez vous en ce moment ?",o:{'0':'Aucun','1-2':'1 – 2','3-5':'3 – 5','6+':'6 ou plus'}},
   erfahrung:{q:"Avez-vous déjà recruté des infirmières de l'étranger ?",o:{never:'Non, jamais',failed:"Oui, mais ça n'a pas marché",more:'Oui, et nous en voulons plus'}},
   grund:{q:"Qu'est-ce qui n'a pas marché la dernière fois ?",sub:"Avec vos infirmières de l'étranger. Plusieurs réponses possibles.",o:{never_came:"Elle n'est jamais arrivée",papers:'Les papiers ont pris trop de temps',german:'Son allemand ne suffisait pas',left:"Elle est partie après l'arrivée",skills:'Ses compétences ne convenaient pas',agency:"L'agence ne nous convenait pas",other:'Autre chose'}},
-  deutsch:{q:"Quel niveau d'allemand suffit pour commencer ?",o:{b1:'B1 suffit',b2:'Seulement B2',unknown:'Je ne sais pas'}},
   start:{q:'Quand la première infirmière doit-elle commencer ?',o:{asap:'Le plus vite possible','6m':'Dans env. 6 mois','12m':'Dans env. 12 mois',date:'À une date fixe'}},
   datum:'À quelle date ?',
   haben:{q:"Qu'est-ce qui est déjà prêt pour les nouvelles ?",o:{flat:'Un logement',mentor:'Une personne de référence',offices:'Aide pour les démarches',plan:"Un plan d'intégration",budget:'Le budget',none:'Rien encore'}},
@@ -222,7 +219,6 @@ function Q(){var t=T[lang];return [
  {c:1,id:'leasing',ic:'repeat',q:t.leasing.q,o:o(t.leasing.o,{'0':L(0),'1-2':L(1),'3-5':L(2),'6+':L(4)})},
  {c:2,id:'erfahrung',ic:'globe',q:t.erfahrung.q,one:true,o:o(t.erfahrung.o,{never:'search',failed:'x',more:'up'})},
  {c:2,id:'grund',ic:'search',q:t.grund.q,sub:t.grund.sub,multi:true,when:function(a){return a.erfahrung==='failed'},o:o(t.grund.o,{never_came:'plane',papers:'doc',german:'chat',left:'door',skills:'steth',agency:'x',other:'dots'})},
- {c:2,id:'deutsch',ic:'lang',q:t.deutsch.q,o:o(t.deutsch.o,{b1:{b:'B1'},b2:{b:'B2'},unknown:'help'})},
  {c:3,id:'start',ic:'cal',q:t.start.q,o:o(t.start.o,{asap:'bolt','6m':'cal','12m':'cal',date:'pin'})},
  {c:3,id:'datum',ic:'pin',q:t.datum,type:'date',when:function(a){return a.start==='date'}},
  {c:3,id:'haben',ic:'clip',q:t.haben.q,multi:true,o:o(t.haben.o,{flat:'home',mentor:'hands',offices:'cols',plan:'clip',budget:'euro',none:'x'})},
@@ -288,7 +284,7 @@ function submit(){
  if(!c.consent)return showErr(t.errConsent);
  busy=true;err='';
  var answers={v:2,art:A.art,rolle:A.rolle,standorte:A.standorte,land:A.land,plaetze:A.plaetze,bedarf:A.bedarf,leasing:A.leasing,erfahrung:A.erfahrung,
-  grund:A.erfahrung==='failed'?(A.grund||[]):[],deutsch:A.deutsch,start:A.start,datum:A.start==='date'?(A.datum||''):'',haben:(A.haben||[]).filter(function(x){return x!=='none'}),wer:A.wer};
+  grund:A.erfahrung==='failed'?(A.grund||[]):[],start:A.start,datum:A.start==='date'?(A.datum||''):'',haben:(A.haben||[]).filter(function(x){return x!=='none'}),wer:A.wer};
  var req=fetch('/api/roadmap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:lang,salutation:c.anrede,firstName:c.vor,lastName:c.nach,email:c.mail,consent:c.consent===true,website:$('c-web').value,answers:answers})})
   .then(function(r){if(r.status===429)throw new Error('many');if(!r.ok)return r.json().then(function(j){throw new Error((j&&j.error)||'fail')},function(){throw new Error('fail')});return r.json()});
  building(req);

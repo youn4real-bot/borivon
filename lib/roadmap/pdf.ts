@@ -439,7 +439,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     y = para(s, fill(lead), M, y, W, F.semi, 13, INK, 1.5) + 8;
     y = disp(page, HN, fill(big), M, y, W, 34, color, 1.1) + 6;
     if (tl.status === "tight") y = para(s, T.tight, M, y, W, F.reg, 11, MUTED, 1.5) + 4;
-    if (input.form.deutsch === "b2") y = para(s, T.b2, M, y, W, F.reg, 11, MUTED, 1.5) + 4;
     y += 18;
     // the steps, top to bottom, with dates
     const lx = M + 84, tx = M + 104, rowH = 44;
