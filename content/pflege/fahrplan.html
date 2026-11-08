@@ -279,9 +279,13 @@ function readContact(){var c=A.kontakt,g=function(id){var e=$(id);return e?e.val
 function submit(){
  var t=T[lang],c=A.kontakt;if(busy)return;readContact();
  if(!c.anrede||!c.vor||!c.nach)return showErr(t.errName);
+ // TEST is only ever true on the founder's local test server (never on borivon.com; the server checks anyway)
+ var TEST=window.BV_TEST===true;
+ if(!TEST){
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.mail))return showErr(t.errMail);
  if(isFree(c.mail)){showErr(t.errBiz);$('c-mail').focus();return}
  if(!c.consent)return showErr(t.errConsent);
+ }
  busy=true;err='';
  var answers={v:2,art:A.art,rolle:A.rolle,standorte:A.standorte,land:A.land,plaetze:A.plaetze,bedarf:A.bedarf,leasing:A.leasing,erfahrung:A.erfahrung,
   grund:A.erfahrung==='failed'?(A.grund||[]):[],start:A.start,datum:A.start==='date'?(A.datum||''):'',haben:(A.haben||[]).filter(function(x){return x!=='none'}),wer:A.wer};
@@ -294,10 +298,12 @@ function building(req){var t=T[lang],icons=['euro','cal','up','pin','clip'];$('d
  app.innerHTML='<div class="screen"><h2>'+greet()+t.building+'</h2><div class="build">'+t.build.map(function(s,n){return '<div class="wait" id="b'+n+'">'+ic(icons[n])+esc(s)+'</div>'}).join('')+'</div></div>';
  t.build.forEach(function(_,n){setTimeout(function(){var el=$('b'+n);if(el)el.classList.remove('wait')},400+n*550)});
  var shown=new Promise(function(res){setTimeout(res,400+t.build.length*550+500)});
- Promise.all([req,shown]).then(function(){busy=false;done()},function(e){busy=false;var m=e&&e.message;
+ Promise.all([req,shown]).then(function(r){busy=false;done(r[0])},function(e){busy=false;var m=e&&e.message;
   err=m==='business_email'?t.errBiz:m==='invalid_email'?t.errMail:m==='many'||m==='too_many'?t.errMany:m==='consent_required'?t.errConsent:m==='name_required'?t.errName:t.errSend;render()});
 }
-function done(){var t=T[lang];app.innerHTML='<div class="screen center"><div class="qi" style="margin:0 auto 22px;width:76px;height:76px">'+ic('mail')+'</div><h1>'+esc(t.doneH)+'</h1><p class="sub">'+esc(t.doneP)+'</p><p class="sub" style="font-size:14px;color:var(--mute)">'+esc(t.spam)+'</p></div>'}
+function done(j){var t=T[lang],test=!!j&&typeof j.testPdf==='string'&&j.testPdf.charAt(0)==='/';
+ app.innerHTML='<div class="screen center"><div class="qi" style="margin:0 auto 22px;width:76px;height:76px">'+ic('mail')+'</div><h1>'+esc(t.doneH)+'</h1><p class="sub">'+esc(t.doneP)+'</p><p class="sub" style="font-size:14px;color:var(--mute)">'+esc(t.spam)+'</p>'+
+ (test?'<div class="row" style="justify-content:center"><a class="btn gold" href="'+esc(j.testPdf)+'" target="_blank" rel="noopener">Test: Fahrplan öffnen</a></div>':'')+'</div>'}
 
 render();
 })();
