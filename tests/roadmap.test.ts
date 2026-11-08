@@ -182,7 +182,7 @@ describe("content + emails", () => {
     }
     expect(confirmMail({ lang: "de", salutation: "frau", lastName: "Müller", facility: "Haus", confirmUrl: "u" }).html).toContain("Hallo Frau Müller,");
   });
-  it("delivery mail: level in subject, fit P.S., unsubscribe link, Anrede", () => {
+  it("delivery mail: level in subject, workshop P.S., logo, unsubscribe link, Anrede", () => {
     const r = scoreRoadmap(struggling);
     for (const l of LANGS) {
       const m = deliveryMail({ lang: l, salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u", viewUrl: "https://x/v", bonusUrl: "https://x/b" });
@@ -192,7 +192,9 @@ describe("content + emails", () => {
     }
     const m = deliveryMail({ lang: "de", salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u", viewUrl: "https://x/v", bonusUrl: "https://x/b" });
     expect(m.subject).toContain("Stufe 1");
-    expect(m.html).toContain("Prüfen Sie hier, ob Ihre Einrichtung passt");
+    expect(m.html).toContain("Workshop in Marokko"); // the soft P.S.
+    expect(m.html).toContain("https://borivon.com/email-logo.png"); // logo in the signature
+    expect(m.html).toContain("/impressum");
     expect(m.html).toContain("Hallo Herr Kaya,");
     expect(m.html).not.toContain("Tipps senden");
   });
