@@ -150,7 +150,7 @@ export const STAGE_UI: Record<"de" | "en" | "fr", Record<string, string>> = {
     blP1: "Sie müssen nicht alles auf einmal lösen. Nehmen Sie Ihren größten Engpass. Lösen Sie ihn richtig. Dann den nächsten.",
     blP2: "Wer diese Stufe schafft, stopft keine Löcher mehr. Er hat ein Team, das bleibt.",
     watch: "Erst ansehen", watchLead: "Dieses Video erklärt den ganzen Fahrplan in wenigen Minuten.", videoLead: "Dieses Video zeigt, was auf Stufe {n} bremst und was hilft.",
-    calcH: "Mit Ihren eigenen Zahlen rechnen", role: "Ihre Rolle", openLbl: "Leere Stellen",
+    calcH: "Mit Ihren eigenen Zahlen rechnen", doNow: "Das machen Sie jetzt", role: "Ihre Rolle", openLbl: "Leere Stellen",
   },
   en: {
     whenYou: "This is level {n}.", typical: "What level {n} often looks like",
@@ -170,7 +170,7 @@ export const STAGE_UI: Record<"de" | "en" | "fr", Record<string, string>> = {
     blP1: "You don't have to fix everything at once. Take your biggest bottleneck. Fix it well. Then the next one.",
     blP2: "Who passes this level stops plugging holes. They have a team that stays.",
     watch: "Watch this first", watchLead: "This video explains the whole roadmap in a few minutes.", videoLead: "This video shows what holds level {n} back and what helps.",
-    calcH: "Work it out with your own numbers", role: "Your role", openLbl: "Empty posts",
+    calcH: "Work it out with your own numbers", doNow: "What you do now", role: "Your role", openLbl: "Empty posts",
   },
   fr: {
     whenYou: "Voici le niveau {n}.", typical: "Le niveau {n}, souvent",
@@ -190,6 +190,6 @@ export const STAGE_UI: Record<"de" | "en" | "fr", Record<string, string>> = {
     blP1: "Vous n'avez pas à tout régler d'un coup. Prenez votre plus gros blocage. Réglez-le bien. Puis le suivant.",
     blP2: "Qui passe ce niveau ne bouche plus de trous. Il a une équipe qui reste.",
     watch: "À voir d'abord", watchLead: "Cette vidéo explique tout le plan en quelques minutes.", videoLead: "Cette vidéo montre ce qui freine au niveau {n} et ce qui aide.",
-    calcH: "Calculer avec vos propres chiffres", role: "Votre rôle", openLbl: "Postes vides",
+    calcH: "Calculer avec vos propres chiffres", doNow: "Ce que vous faites maintenant", role: "Votre rôle", openLbl: "Postes vides",
   },
 };

@@ -26,6 +26,7 @@ import { FACILITY, leaveModel } from "./types";
 import { costPerDeparture } from "./score";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
 import { VIDEO_INTRO, VIDEO_STAGE } from "./videos";
+import { PLAYBOOK } from "./playbook";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
 const NIGHT = hexColor("#0e0e10");
@@ -71,9 +72,9 @@ export function formatEuro(n: number, lang: Lang): string {
   return s + " €";
 }
 
-/** How many pages a Fahrplan has for a level: 12 + the stage behind and the stage ahead (5 each). */
+/** How many pages a Fahrplan has for a level: 13 + the stage behind and the stage ahead (6 each). */
 export function roadmapPageCount(level: Level): number {
-  return 12 + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 5 : 0) + (level < 5 ? 5 : 0);
+  return 13 + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 6 : 0) + (level < 5 ? 6 : 0);
 }
 
 type Fonts = { reg: DocFont; semi: DocFont };
@@ -218,53 +219,59 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     });
   };
 
-  /** Area by area: big icon, gold tag, two bullets (what holds back / what helps). */
-  const areasPage = (n: Level) => {
-    const { page, s } = newPage();
-    const St = STAGES[n];
-    let y = 78;
-    const step = (PH - 120 - y) / AREAS.length;
-    for (const a of AREAS) {
-      const r = St.rows[a.key];
-      icon(page, a.icon, M, y + 4, 62, on(PAPER));
-      const tx = M + 100, tw = W - 100;
-      const yy = block(s, pick(a.name, lang), tx, y, 12, GOLD, ON_GOLD, 12, 6) + 12;
-      s.text("•", tx + 4, yy, F.reg, 11, INK);
-      const y2 = para(s, pick(r.c, lang), tx + 20, yy, tw - 20, F.reg, 11, INK, 1.55) + 4;
-      s.text("•", tx + 4, y2, F.reg, 11, GREEN);
-      para(s, `${SU.graduate}: ${pick(r.g, lang)}`, tx + 20, y2, tw - 20, F.semi, 11, GREEN, 1.55);
-      y += step;
+  /**
+   * Area by area, like acquisition.com page 7: big icon, gold tag, then what you
+   * see (2 bullets) and exactly what to do now (3 bullets). 3 areas per page.
+   */
+  const areasPages = (n: Level) => {
+    const P = PLAYBOOK[n];
+    for (let start = 0; start < AREAS.length; start += 3) {
+      const { page, s } = newPage();
+      let y = 74;
+      for (const a of AREAS.slice(start, start + 3)) {
+        const r = P.areas[a.key as keyof typeof P.areas];
+        icon(page, a.icon, M, y + 2, 64, on(PAPER));
+        const tx = M + 96, tw = W - 96;
+        let yy = block(s, pick(a.name, lang), tx, y, 13, GOLD, ON_GOLD, 12, 6) + 12;
+        for (const p of r.p) {
+          s.text("•", tx + 2, yy, F.reg, 12.5, MUTED);
+          yy = para(s, pick(p, lang), tx + 18, yy, tw - 18, F.reg, 12.5, MUTED, 1.5) + 4;
+        }
+        yy += 5;
+        caps(s, SU.doNow, tx, yy, 9, GREEN);
+        yy += 18;
+        for (const act of r.a) {
+          icon(page, "check", tx, yy + 2, 13, { base: GREEN, accent: GREEN, hole: PAPER });
+          yy = para(s, pick(act, lang), tx + 20, yy, tw - 20, F.semi, 12.5, INK, 1.5) + 5;
+        }
+        y = Math.max(yy, y + 70) + 40;
+      }
     }
   };
 
-  /** What success looks like: a vertical line, check circles, night tags, bullets. */
-  const successPage = (n: Level, current: boolean) => {
+  /** What success looks like: a vertical line, check circles, 4 night tags with 4 steps each. */
+  const successPage = (n: Level) => {
     const { page, s } = newPage();
-    let y = disp(page, HN, SU.successA, M, 70, W, 42, INK, 1.05);
-    y = disp(page, HN, SU.successB.replace("{n}", String(n)), M, y, W, 42, GOLD_TEXT, 1.05) + 14;
-    y = para(s, pick(CLIMB[n].goal, lang) + " " + SU.successLead, M, y, W, F.reg, 12, INK, 1.9) + 30;
-    const steps = CLIMB[n].steps.map((st) => ({ t: pick(st.t, lang), d: pick(st.d, lang) }));
-    const lx = M + 22, tx = M + 96, tw = W - 96;
-    const hs = steps.map((st) => 30 + paraH(st.d, F.reg, 11.5, tw, 1.6) + 30);
+    let y = disp(page, HN, SU.successA, M, 66, W, 40, INK, 1.05);
+    y = disp(page, HN, SU.successB.replace("{n}", String(n)), M, y, W, 40, GOLD_TEXT, 1.05) + 10;
+    y = para(s, pick(CLIMB[n].goal, lang) + " " + SU.successLead, M, y, W, F.reg, 11.5, INK, 1.8) + 22;
+    const blocks = PLAYBOOK[n].success;
+    const lx = M + 20, tx = M + 86, tw = W - 86;
+    const hs = blocks.map((b) => 34 + b.items.reduce((h, it) => h + paraH(pick(it, lang), F.reg, 12, tw - 16, 1.45) + 3, 0) + 24);
     const total = hs.reduce((a, b) => a + b, 0);
-    s.rect(lx - 2, y + 10, 4, total - 20, GOLD);
-    steps.forEach((st, i) => {
-      s.roundedRect(lx - 21, y, 42, 42, 21, { fill: NIGHT });
-      icon(page, "check", lx - 11, y + 10, 22, { base: GOLD, accent: GOLD, hole: NIGHT });
-      for (let dx = lx + 26; dx < tx - 8; dx += 5) s.roundedRect(dx, y + 20, 2, 2, 1, { fill: GOLD });
-      block(s, st.t, tx, y + 8, 12.5, NIGHT, FG, 12, 7);
-      para(s, st.d, tx, y + 44, tw, F.reg, 11.5, INK, 1.6);
+    s.rect(lx - 2, y + 10, 4, total - hs[hs.length - 1], GOLD);
+    blocks.forEach((b, i) => {
+      s.roundedRect(lx - 19, y, 38, 38, 19, { fill: NIGHT });
+      icon(page, "check", lx - 10, y + 9, 20, { base: GOLD, accent: GOLD, hole: NIGHT });
+      for (let dx = lx + 24; dx < tx - 6; dx += 5) s.roundedRect(dx, y + 18, 2, 2, 1, { fill: GOLD });
+      block(s, pick(b.t, lang), tx, y + 6, 12.5, NIGHT, FG, 12, 7);
+      let yy = y + 42;
+      for (const it of b.items) {
+        s.text("•", tx + 2, yy, F.reg, 12, INK);
+        yy = para(s, pick(it, lang), tx + 16, yy, tw - 16, F.reg, 12, INK, 1.45) + 3;
+      }
       y += hs[i];
     });
-    if (current) {
-      const trap = pick(LEVELS[n].trap, lang);
-      const th = Math.max(64, 22 + paraH(trap, F.reg, 11, W - 92, 1.55) + 18);
-      if (y + th < PH - 80) {
-        s.roundedRect(M, y + 4, W, th, 16, { fill: RED_SOFT });
-        icon(page, "warning", M + 22, y + 4 + (th - 30) / 2, 30, on(RED_SOFT));
-        para(s, trap, M + 70, y + 26, W - 92, F.reg, 11, INK, 1.55);
-      }
-    }
   };
 
   /** Night divider before the stage behind / the stage ahead. */
@@ -340,7 +347,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   // ── 3–5 · your stage, when you hit it, area by area ───────────────────────
   stagePage(lv, SU.yourStage);
   whenPage(lv, true);
-  areasPage(lv);
+  areasPages(lv);
 
   // ── 6 · your numbers + the calculator ─────────────────────────────────────
   {
@@ -390,7 +397,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   }
 
   // ── 7 · what success looks like ───────────────────────────────────────────
-  successPage(lv, true);
+  successPage(lv);
 
   // ── 8 · the 90-day plan ───────────────────────────────────────────────────
   {
@@ -502,16 +509,16 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     dividerPage(p, SU.gradFrom);
     stagePage(p, sn(p));
     whenPage(p, false);
-    areasPage(p);
-    successPage(p, false);
+    areasPages(p);
+    successPage(p);
   }
   if (lv < 5) {
     const n = (lv + 1) as Level;
     dividerPage(n, SU.comingNext);
     stagePage(n, sn(n));
     whenPage(n, false);
-    areasPage(n);
-    successPage(n, false);
+    areasPages(n);
+    successPage(n);
   }
 
   // ── header + footer on every page but the cover; then the links ───────────
