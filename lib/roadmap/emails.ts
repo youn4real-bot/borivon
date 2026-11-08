@@ -226,20 +226,20 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "der teuerste Fehler ist nicht ein zu hoher Preis. Es ist die Pflegekraft, die in der Probezeit wieder geht. Dann zahlen Sie alles doppelt: die Suche, die Einarbeitung, die leere Stelle.",
         "Stellen Sie jeder Vermittlung drei Fragen: <b>1.</b> Wer prüft ihr Deutsch, und wie? <b>2.</b> Wer macht Anerkennung und Visum? <b>3.</b> Was passiert, wenn sie in der Probezeit geht?",
         "Wenn die Antworten unklar sind: Finger weg. Alle 10 Fragen stehen im Agentur-Check aus unserer ersten E-Mail.",
-      ], cta: "Prüfen, ob meine Einrichtung passt" },
+      ], cta: "Den Workshop ansehen" },
       { subject: "Die erste Woche entscheidet", lines: [
         hello,
         "ob eine Pflegekraft bleibt, entscheidet sich oft in der ersten Woche. Drei Dinge machen den Unterschied:",
         "<b>1.</b> Jemand holt sie ab. <b>2.</b> Die Wohnung ist fertig, bevor sie kommt. <b>3.</b> Jeden Tag 10 Minuten: Wie war es heute?",
         firstWeek,
         "Den ganzen 90-Tage-Plan finden Sie in Ihrem Fahrplan.",
-      ], cta: "Fragen? Kurz sprechen" },
+      ], cta: "Pflegekräfte persönlich treffen" },
       { subject: "So rechnet sich eine Pflegekraft, die bleibt", lines: [
         hello,
         `eine Pflegekraft, die bleibt, bringt Ihnen etwa <b>${per} pro Monat</b>. So viel kostet Sie eine leere Stelle heute.`,
         `Bei drei Pflegekräften sind das etwa <b>${three} pro Monat</b>. Jeder Monat, den Sie warten, ist Geld, das nicht zurückkommt.`,
-        "In 15 Minuten rechnen wir Ihre echten Zahlen aus. Kostenlos.",
-      ], cta: "Meine Zahlen ausrechnen" },
+        "Im Workshop in Marokko rechnen wir Ihre echten Zahlen mit Ihnen durch.",
+      ], cta: "Den Workshop ansehen" },
       { subject: "Lernen Sie Ihre Pflegekräfte persönlich kennen", lines: [
         hello,
         "Sie haben jetzt Ihren Fahrplan. Viele wollen den nächsten Schritt nicht allein gehen, sondern die Pflegekräfte erst einmal selbst sehen.",
@@ -253,20 +253,20 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "the most expensive mistake is not a high price. It is the nurse who leaves during probation. Then you pay for everything twice: the search, the onboarding, the empty post.",
         "Ask every agency three questions: <b>1.</b> Who checks her German, and how? <b>2.</b> Who does recognition and the visa? <b>3.</b> What happens if she leaves during probation?",
         "If the answers are unclear: walk away. All 10 questions are in the agency check from our first email.",
-      ], cta: "Check if we are a fit" },
+      ], cta: "See the workshop" },
       { subject: "The first week decides", lines: [
         hello,
         "whether a nurse stays is often decided in the first week. Three things make the difference:",
         "<b>1.</b> Someone picks her up. <b>2.</b> The flat is ready before she arrives. <b>3.</b> 10 minutes every day: how was today?",
         firstWeek,
         "The full 90-day plan is in your roadmap.",
-      ], cta: "Questions? Let's talk" },
+      ], cta: "Meet the nurses in person" },
       { subject: "What a nurse who stays is worth", lines: [
         hello,
         `a nurse who stays brings you about <b>${per} a month</b>. That is what one empty post costs you today.`,
         `With three nurses that is about <b>${three} a month</b>. Every month you wait is money that never comes back.`,
-        "In 15 minutes we work out your real numbers. For free.",
-      ], cta: "Work out my numbers" },
+        "At the workshop in Morocco we work through your real numbers with you.",
+      ], cta: "See the workshop" },
       { subject: "Meet your nurses in person", lines: [
         hello,
         "you have your roadmap now. Many don't want to take the next step alone, but to see the nurses for themselves first.",
@@ -280,20 +280,20 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "l'erreur la plus chère n'est pas un prix trop élevé. C'est l'infirmière qui part pendant la période d'essai. Vous payez alors tout deux fois : la recherche, l'intégration, le poste vide.",
         "Posez trois questions à chaque agence : <b>1.</b> Qui vérifie son allemand, et comment ? <b>2.</b> Qui gère la reconnaissance et le visa ? <b>3.</b> Que se passe-t-il si elle part pendant l'essai ?",
         "Si les réponses sont floues : passez votre chemin. Les 10 questions sont dans le check agence de notre premier e-mail.",
-      ], cta: "Vérifier si nous correspondons" },
+      ], cta: "Voir l'atelier" },
       { subject: "La première semaine décide", lines: [
         hello,
         "qu'une infirmière reste se décide souvent la première semaine. Trois choses font la différence :",
         "<b>1.</b> Quelqu'un vient la chercher. <b>2.</b> Le logement est prêt avant son arrivée. <b>3.</b> 10 minutes chaque jour : comment ça s'est passé ?",
         firstWeek,
         "Le plan complet de 90 jours est dans votre plan.",
-      ], cta: "Des questions ? Parlons-en" },
+      ], cta: "Rencontrer les infirmières" },
       { subject: "Ce que vaut une infirmière qui reste", lines: [
         hello,
         `une infirmière qui reste vous rapporte environ <b>${per} par mois</b>. C'est ce que vous coûte un poste vide aujourd'hui.`,
         `Avec trois infirmières, c'est environ <b>${three} par mois</b>. Chaque mois d'attente est de l'argent perdu.`,
-        "En 15 minutes, nous calculons vos vrais chiffres. Gratuitement.",
-      ], cta: "Calculer mes chiffres" },
+        "À l'atelier au Maroc, nous calculons vos vrais chiffres avec vous.",
+      ], cta: "Voir l'atelier" },
       { subject: "Rencontrez vos infirmières en personne", lines: [
         hello,
         "vous avez maintenant votre plan. Beaucoup ne veulent pas faire la prochaine étape seuls, mais d'abord voir les infirmières eux-mêmes.",
@@ -304,7 +304,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
   };
   const m = S[lang][n];
   if (!m) return null;
-  const url = n === 3 ? WORKSHOP_URL : BOOK_URL; // the last one is the workshop mail
+  // no discovery calls (founder 2026-11-08): every tip mail points to the workshop
+  const url = WORKSHOP_URL;
   const html = shell(lang, m.lines.map(p).join("") + btn(url, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
   const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${url}`, BYE[lang].replace("<br>", "\n"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
   return { subject: m.subject, html, text };

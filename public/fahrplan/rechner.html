@@ -125,7 +125,7 @@ footer a { color: var(--muted); }
       unitNote: { hospital: "Start: rund 650 € pro Tag, 80 % belegt.", care_home: "Start: Eigenanteil Ø 3.364 € (vdek, 07/2026) + Pflegekasse Pflegegrad 3.", home_care: "Start: Branchendurchschnitt." },
       unitWord: { hospital: "Bett", care_home: "Plätze", home_care: "Patienten" }, per: "à",
       how: "Ohne: jede offene Stelle kostet Leihkräfte und leere Plätze. Wer geht, kostet 3 Monate davon, die Einarbeitung (5.400 €) und die neue Suche (8.000 €). Mit: jede besetzte Stelle spart die Leihkräfte und füllt die Plätze, minus Gehalt.",
-      cta: "Zahlen mit uns durchgehen"
+      cta: "Im Workshop mit uns durchrechnen"
     },
     en: {
       ttl: "Calculator for your roadmap",
@@ -144,7 +144,7 @@ footer a { color: var(--muted); }
       unitNote: { hospital: "Start: about €650 a day, 80 % occupied.", care_home: "Start: average own share €3,364 (vdek, 07/2026) + care insurance level 3.", home_care: "Start: sector average." },
       unitWord: { hospital: "bed", care_home: "places", home_care: "patients" }, per: "at",
       how: "Without: every open post costs agency staff and empty places. Each nurse who leaves costs 3 months of that, the onboarding (€5,400) and the next search (€8,000). With: every filled post saves the agency staff and fills the places, minus salary.",
-      cta: "Go through the numbers with us"
+      cta: "Work them through with us at the workshop"
     },
     fr: {
       ttl: "Calculateur de votre plan",
@@ -163,7 +163,7 @@ footer a { color: var(--muted); }
       unitNote: { hospital: "Départ : environ 650 € par jour, occupé à 80 %.", care_home: "Départ : reste à charge moyen 3 364 € (vdek, 07/2026) + assurance dépendance degré 3.", home_care: "Départ : moyenne du secteur." },
       unitWord: { hospital: "lit", care_home: "places", home_care: "patients" }, per: "à",
       how: "Sans : chaque poste vacant coûte de l'intérim et des places vides. Chaque départ coûte 3 mois de cela, l'intégration (5 400 €) et la nouvelle recherche (8 000 €). Avec : chaque poste pourvu économise l'intérim et remplit les places, moins le salaire.",
-      cta: "Revoir les chiffres avec nous"
+      cta: "Les revoir avec nous à l'atelier"
     }
   };
 
@@ -266,7 +266,7 @@ footer a { color: var(--muted); }
         '<div class="yrs" role="group">' + t.yrs.map(function (l, i) { return '<button type="button" data-y="' + (i + 1) + '" aria-pressed="' + (years === i + 1) + '">' + esc(l) + '</button>'; }).join("") + '</div></div>' +
       '<div class="chartbox">' + chart(c) + '</div>' +
       '<div class="gain"><div class="k">' + esc(t.gainK.replace("{y}", t.yrsIn[years - 1])) + '<b>' + (green < 0 ? "−" : "+") + esc(eur(green)) + '</b></div>' +
-        '<a class="btn" href="/book/clinic" id="bookBtn">' + esc(t.cta) + ' →</a></div>';
+        '<a class="btn" href="/workshop" id="bookBtn">' + esc(t.cta) + ' →</a></div>';
   }
   function render() {
     var t = T[lang];

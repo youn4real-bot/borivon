@@ -54,7 +54,7 @@ function swap(s, a, b, label, { all = false, optional = false } = {}) {
   return s.split(a).join(b);
 }
 function sharedLinks(s) {
-  s = swap(s, 'href="https://www.borivon.com/book/clinic" target="_blank" rel="noopener"', 'href="/book/clinic"', "booking links", { all: true });
+  s = swap(s, 'href="https://www.borivon.com/book/clinic" target="_blank" rel="noopener"', 'href="/book/clinic"', "booking links", { all: true, optional: true }); // none left since 2026-11-08: no discovery calls, buttons go to /fahrplan
   s = swap(s, "'<a class=\"btn btn-gold\" href=\"https://www.borivon.com/book/clinic\" target=\"_blank\" rel=\"noopener\"", "'<a class=\"btn btn-gold\" href=\"/book/clinic\"", "booking link in script", { optional: true });
   s = swap(s, 'href="https://www.borivon.com/portal" target="_blank" rel="noopener"', 'href="/portal"', "portal link", { all: true });
   s = swap(s, 'href="https://www.borivon.com/fahrplan" target="_blank" rel="noopener"', 'href="/fahrplan"', "roadmap links", { all: true, optional: true });

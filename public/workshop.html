@@ -24,103 +24,168 @@
 
 <style>
 /* The workshop page (founder 2026-11-08): the paid next step after the free Fahrplan.
-   Same look as /fahrplan: cream paper, Playfair headings, Lexend body, gold. Few words. */
-:root{--bg:#FAF7F0;--card:#FFFDF8;--line:#ECE4D0;--ink:#17161A;--soft:#6A645A;--mute:#A39E93;--gold:#C9A240;--gold-d:#8C6C2A;--gold-l:#F3E6C4;--night:#0e0e10;
---display:'Playfair Display',Georgia,serif;--body:'Lexend','Segoe UI',Arial,sans-serif}
+   Same design language as borivon.com home: night background, gold glow, Playfair 600 with
+   gold italics, glass cards, the real nurse photo, big numbers instead of paragraphs. */
+:root{--bg:#0e0e10;--bg-2:#131316;--card:#18181c;--line:rgba(238,236,234,.08);--line-gold:rgba(201,162,64,.3);
+--fg:#eeecea;--muted:#9a978f;--gold:#c9a240;--gold-soft:rgba(201,162,64,.12);
+--font-display:"Playfair Display","Times New Roman",Georgia,serif;--font-body:"Lexend","Segoe UI",system-ui,sans-serif;
+--font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+--step-4:clamp(2.9rem,1.8rem + 4.6vw,5.6rem);--step-3:clamp(2.2rem,1.5rem + 2.8vw,3.8rem);--ease:cubic-bezier(.2,.7,.1,1)}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-weight:300;font-size:17px;line-height:1.5}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-weight:300;font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 a{color:inherit}
-.wrap{max-width:760px;margin:0 auto;padding:0 max(20px,env(safe-area-inset-left,0px))}
-header{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
-.mark{font-family:var(--display);font-style:italic;font-weight:700;font-size:24px;text-decoration:none}
-.mark b{color:var(--gold)}
-.eyebrow{font-size:13px;letter-spacing:2px;text-transform:uppercase;font-weight:500;color:var(--gold-d);margin:0 0 18px}
-h1{font-family:var(--display);font-weight:700;font-size:clamp(40px,8vw,64px);line-height:1.04;margin:0;text-wrap:balance}
-h1 em,h2 em{color:var(--gold-d)}
-h2{font-family:var(--display);font-weight:700;font-size:clamp(30px,6vw,42px);line-height:1.1;margin:0 0 26px;text-wrap:balance}
-.sub{font-size:19px;color:var(--soft);margin:22px 0 0;max-width:600px}
-.hero{padding:40px 0 64px}
-.btn{display:inline-flex;align-items:center;gap:10px;font:inherit;font-weight:500;border:none;border-radius:999px;padding:17px 34px;background:var(--gold);color:var(--ink);text-decoration:none;margin-top:32px}
-.btn:hover{filter:brightness(.96)}
-.seats{display:block;margin-top:14px;font-size:14px;color:var(--mute)}
-section{padding:56px 0;border-top:1px solid var(--line)}
-svg.i{width:26px;height:26px;stroke:var(--gold-d);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.qi{width:52px;height:52px;border-radius:50%;background:var(--gold-l);display:grid;place-items:center;flex:none}
-.days{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media (max-width:620px){.days{grid-template-columns:1fr}}
-.day{background:var(--card);border:1.5px solid var(--line);border-radius:20px;padding:24px}
-.day .k{font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:500;color:var(--gold-d);margin:18px 0 6px}
-.day b{display:block;font-family:var(--display);font-size:26px;font-weight:700;line-height:1.15;margin-bottom:8px}
-.day p{margin:0;color:var(--soft)}
-.why{display:grid;gap:22px}
-.why>div{display:flex;gap:18px;align-items:flex-start}
-.why b{display:block;font-weight:500;font-size:19px;margin:2px 0 4px}
-.why p{margin:0;color:var(--soft)}
-.src{font-size:12px;color:var(--mute);margin:26px 0 0;line-height:1.6}
-.offer{background:var(--night);color:#eeecea;border-radius:28px;padding:44px 32px;text-align:center}
-.offer h2{color:#eeecea;margin-bottom:8px}
-.price{font-family:var(--display);font-weight:700;font-size:clamp(54px,12vw,84px);color:var(--gold);line-height:1;margin:18px 0 8px}
-.facts{list-style:none;padding:0;margin:22px auto 0;display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
-.facts li{border:1px solid #2b2b30;border-radius:999px;padding:8px 16px;font-size:15px;color:#cfccc6}
-.offer .note{color:#9a978f;font-size:15px;margin:22px auto 0;max-width:460px}
-.offer .btn{margin-top:28px}
-footer{display:flex;gap:18px;justify-content:center;padding:40px 0 48px;font-size:13px;color:var(--mute)}
-footer a{color:var(--mute);text-decoration:none}
+h1,h2,h3{font-family:var(--font-display);font-weight:600;line-height:1.06;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 em,h2 em{font-style:italic;font-weight:500;color:var(--gold)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 max(20px,env(safe-area-inset-left,0px))}
+.eyebrow{font-family:var(--font-mono);font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+/* nav */
+.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(14,14,16,.74);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:68px}
+.brand{font-family:var(--font-display);font-style:italic;font-weight:600;font-size:1.4rem;text-decoration:none}
+.brand b{color:var(--gold);font-style:normal}
+.btn{display:inline-flex;align-items:center;gap:10px;text-decoration:none;font-weight:500;font-size:.95rem;letter-spacing:.02em;border-radius:999px;padding:15px 26px;border:1px solid transparent;transition:transform .2s var(--ease),background .2s}
+.btn-gold{background:var(--gold);color:#121215;box-shadow:0 14px 34px -14px rgba(201,162,64,.7)}
+.btn-gold:hover{transform:translateY(-1px);background:#d6b04f}
+.btn-ghost{border-color:var(--line-gold);color:var(--fg)}
+.btn-ghost:hover{border-color:var(--gold)}
+.nav .btn{padding:11px 20px}
+@media (max-width:560px){.nav .btn{display:none}}
+/* hero */
+.hero{position:relative;padding:clamp(48px,8vw,104px) 0 clamp(64px,9vw,112px);overflow:hidden}
+.hero::before{content:"";position:absolute;inset:auto -10% -45% -10%;height:75%;background:radial-gradient(60% 60% at 50% 100%,rgba(201,162,64,.18),transparent 70%);pointer-events:none}
+.hero::after{content:"";position:absolute;top:-20%;right:-15%;width:60%;height:70%;background:radial-gradient(50% 50% at 50% 50%,rgba(201,162,64,.10),transparent 70%);pointer-events:none}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(32px,5vw,72px);align-items:center;position:relative;z-index:1}
+@media (max-width:880px){.grid{grid-template-columns:1fr}}
+.hero h1{font-size:var(--step-4);margin-top:20px}
+.lead{margin-top:26px;font-size:clamp(1.05rem,1rem + .4vw,1.25rem);color:var(--muted);max-width:32em}
+.lead strong{color:var(--fg);font-weight:500}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px}
+.proof{display:grid;grid-template-columns:repeat(4,auto);justify-content:start;gap:12px 34px;margin-top:42px}
+.proof b{display:block;font-family:var(--font-display);font-size:1.7rem;font-weight:600;line-height:1}
+.proof span{font-size:.78rem;color:var(--muted)}
+@media (max-width:600px){.proof{grid-template-columns:repeat(2,auto)}}
+/* the card with the nurse */
+.card{position:relative;background:linear-gradient(180deg,#232329,#1b1b20);border:1px solid var(--line);border-radius:24px;padding:20px;box-shadow:0 40px 90px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05)}
+.card-top{display:flex;justify-content:space-between;align-items:center}
+.tag{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+.tag.live{color:var(--gold);border-color:var(--line-gold)}
+.photo{margin-top:16px;aspect-ratio:4/3.3;border-radius:16px;overflow:hidden;position:relative}
+.photo img{width:100%;height:100%;object-fit:cover;display:block}
+.photo::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(14,14,16,.75))}
+.photo figcaption{position:absolute;left:18px;right:18px;bottom:14px;z-index:1;font-family:var(--font-display);font-style:italic;font-size:1.25rem}
+.checks{list-style:none;margin:18px 0 4px;padding:0;display:grid;gap:11px}
+.checks li{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;font-size:.92rem}
+.dot{width:20px;height:20px;border-radius:50%;background:rgba(201,162,64,.14);border:1px solid var(--line-gold);display:grid;place-items:center}
+.dot svg{width:11px;height:11px;stroke:var(--gold);stroke-width:3;fill:none}
+.checks small{font-family:var(--font-mono);font-size:.68rem;color:var(--muted);letter-spacing:.06em}
+/* sections */
+section{padding:clamp(80px,11vw,150px) 0;border-top:1px solid var(--line);position:relative}
+.head{max-width:40rem;margin-bottom:clamp(36px,5vw,60px)}
+.head h2{font-size:var(--step-3);margin-top:16px}
+.days{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:24px;overflow:hidden}
+@media (max-width:720px){.days{grid-template-columns:1fr}}
+.day{background:var(--bg);padding:clamp(28px,4vw,44px);display:grid;gap:12px;align-content:start}
+.day .k{font-family:var(--font-display);font-style:italic;color:var(--gold);font-size:1.6rem;line-height:1}
+.day h3{font-family:var(--font-body);font-weight:500;font-size:1.25rem;line-height:1.3}
+.day p{margin:0;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(20px,3vw,36px)}
+@media (max-width:760px){.stats{grid-template-columns:1fr}}
+.stat{border-top:1px solid var(--line-gold);padding-top:22px}
+.stat b{display:block;font-family:var(--font-display);font-weight:600;font-size:clamp(3.2rem,2.2rem + 3vw,4.8rem);line-height:1;color:var(--gold);font-variant-numeric:tabular-nums}
+.stat h3{font-family:var(--font-body);font-weight:500;font-size:1.1rem;margin-top:16px}
+.stat p{margin:6px 0 0;color:var(--muted);font-size:.95rem}
+.src{margin-top:40px;font-size:.74rem;color:#6f6c66;line-height:1.6;max-width:56rem}
+/* offer */
+.offer{position:relative;text-align:center;border:1px solid var(--line-gold);border-radius:32px;padding:clamp(48px,7vw,84px) clamp(22px,5vw,64px);background:radial-gradient(80% 90% at 50% 0%,rgba(201,162,64,.16),transparent 65%),linear-gradient(180deg,#1b1b20,#141417);box-shadow:0 50px 120px -40px rgba(0,0,0,.8)}
+.offer h2{font-size:var(--step-3);margin-top:16px}
+.price{font-family:var(--font-display);font-weight:600;font-size:clamp(4rem,3rem + 5vw,7rem);line-height:1;color:var(--gold);margin-top:26px;font-variant-numeric:tabular-nums}
+.per{color:var(--muted);margin-top:8px}
+.chips{list-style:none;padding:0;margin:30px auto 0;display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.chips li{border:1px solid var(--line);border-radius:999px;padding:9px 18px;font-size:.92rem;color:#cfccc6;background:rgba(255,255,255,.02)}
+.note{color:var(--muted);max-width:30rem;margin:26px auto 0}
+.offer .btn{margin-top:34px;padding:18px 34px;font-size:1rem}
+.seats{display:block;margin-top:14px;font-family:var(--font-mono);font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+footer{border-top:1px solid var(--line);padding:36px 0 48px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:22px;justify-content:space-between;align-items:center;font-size:.85rem;color:var(--muted)}
+footer nav{display:flex;gap:20px}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--fg)}
+@media (prefers-reduced-motion:no-preference){.rise{animation:rise .8s var(--ease) both}.rise.d2{animation-delay:.12s}.rise.d3{animation-delay:.24s}}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}}
 </style>
 </head>
 <body>
-<div class="wrap">
- <header><a class="mark" href="/">Borivon<b>.</b></a></header>
+<header class="nav"><div class="wrap">
+ <a class="brand" href="/">Borivon<b>.</b></a>
+ <a class="btn btn-gold" href="/book/workshop">Platz anfragen <span aria-hidden="true">→</span></a>
+</div></header>
 
- <div class="hero">
-  <p class="eyebrow">Workshop in Marokko · alle 3 Monate</p>
-  <h1>Lernen Sie Ihre Pflegekräfte <em>persönlich kennen.</em></h1>
-  <p class="sub">2 Tage mit Youness Taoufiq, Gründer von Borivon. Sie setzen Ihren Fahrplan um und treffen die Pflegekräfte vor Ort.</p>
-  <a class="btn" href="/book/clinic">Platz anfragen <span aria-hidden="true">→</span></a>
-  <span class="seats">Nur 10 Plätze pro Termin.</span>
- </div>
+<main>
+ <div class="hero"><div class="wrap grid">
+  <div>
+   <p class="eyebrow rise">Workshop · Marokko · alle 3 Monate</p>
+   <h1 class="rise d2">Treffen Sie Ihre Pflegekräfte. <em>Persönlich.</em></h1>
+   <p class="lead rise d3">2 Tage mit <strong>Youness Taoufiq</strong>, Gründer von Borivon. Am ersten Tag machen wir Ihren Plan. Am zweiten lernen Sie die Pflegekräfte kennen.</p>
+   <div class="cta rise d3">
+    <a class="btn btn-gold" href="/book/workshop">Platz anfragen <span aria-hidden="true">→</span></a>
+    <a class="btn btn-ghost" href="/fahrplan">Erst der kostenlose Fahrplan</a>
+   </div>
+   <div class="proof rise d3">
+    <div><b>2</b><span>Tage</span></div>
+    <div><b>10</b><span>Plätze pro Termin</span></div>
+    <div><b>3,5 h</b><span>Flug ab Frankfurt</span></div>
+    <div><b>4×</b><span>im Jahr</span></div>
+   </div>
+  </div>
+  <div class="card rise d2">
+   <div class="card-top"><span class="tag live">Vor Ort</span><span class="tag">Marokko</span></div>
+   <figure class="photo" style="margin:16px 0 0">
+    <img src="/pflege/assets/nurse.jpg" alt="Pflegefachkraft im Gespräch" loading="eager">
+    <figcaption>Sie sitzen ihr gegenüber.</figcaption>
+   </figure>
+   <ul class="checks">
+    <li><span class="dot"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></span>Ihr Fahrplan, Schritt für Schritt<small>TAG 1</small></li>
+    <li><span class="dot"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></span>Die Pflegekräfte persönlich treffen<small>TAG 2</small></li>
+    <li><span class="dot"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></span>Mit fertigem Plan nach Hause<small>DANACH</small></li>
+   </ul>
+  </div>
+ </div></div>
 
- <section>
-  <h2>So laufen die <em>2 Tage.</em></h2>
+ <section><div class="wrap">
+  <div class="head"><p class="eyebrow">So laufen die 2 Tage</p><h2>Ein Plan. <em>Echte Menschen.</em></h2></div>
   <div class="days">
-   <div class="day">
-    <div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6v3H9zM6 5h3M15 5h3v16H6V5M9 12h6M9 16h4"/></svg></div>
-    <p class="k">Tag 1</p><b>Ihr Plan.</b>
-    <p>Wir gehen Ihren Fahrplan gemeinsam durch: was zuerst, in welcher Reihenfolge, bis wann.</p>
-   </div>
-   <div class="day">
-    <div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 11a2.5 2.5 0 1 0 0-5M18 14c2 .6 3 2.8 3 6"/></svg></div>
-    <p class="k">Tag 2</p><b>Ihre Pflegekräfte.</b>
-    <p>Sie treffen die Pflegekräfte persönlich, sprechen mit ihnen und sehen selbst, wer zu Ihnen passt.</p>
-   </div>
+   <div class="day"><span class="k">Tag 1</span><h3>Ihr Plan.</h3><p>Wir gehen Ihren Fahrplan gemeinsam durch. Was zuerst kommt, in welcher Reihenfolge, bis wann.</p></div>
+   <div class="day"><span class="k">Tag 2</span><h3>Ihre Pflegekräfte.</h3><p>Sie treffen die Pflegekräfte vor Ort, sprechen mit ihnen und sehen selbst, wer zu Ihnen passt.</p></div>
   </div>
- </section>
+ </div></section>
 
- <section>
-  <h2>Warum <em>Marokko?</em></h2>
-  <div class="why">
-   <div><div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h9M8.5 3v2M6 5c1 4 4 7 7 8M11 5c-1 4-4 7-7 8M14 21l4-9 4 9M15.5 18h5"/></svg></div>
-    <div><b>Mit mehreren Sprachen aufgewachsen.</b><p>Arabisch, dazu oft Französisch und Amazigh. Deutsch ist für viele schon die nächste Sprache.</p></div></div>
-   <div><div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 16l20-8-6 12-3-5zM13 15l-3 5"/></svg></div>
-    <div><b>3,5 Stunden entfernt.</b><p>Direktflug ab Frankfurt. Im Winter dieselbe Uhrzeit wie in Deutschland.</p></div></div>
-   <div><div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></div>
-    <div><b>Jung.</b><p>Das Durchschnittsalter liegt bei rund 30 Jahren. In Deutschland bei rund 45.</p></div></div>
+ <section><div class="wrap">
+  <div class="head"><p class="eyebrow">Warum Marokko</p><h2>Nah. Jung. <em>Mehrsprachig.</em></h2></div>
+  <div class="stats">
+   <div class="stat"><b>58 %</b><h3>lesen und schreiben Französisch.</h3><p>Aufgewachsen mit Arabisch, oft auch Amazigh. Deutsch ist die nächste Sprache.</p></div>
+   <div class="stat"><b>3,5 h</b><h3>Direktflug ab Frankfurt.</h3><p>Im Winter dieselbe Uhrzeit wie in Deutschland.</p></div>
+   <div class="stat"><b>≈ 30</b><h3>Jahre Durchschnittsalter.</h3><p>In Deutschland liegt es bei rund 45.</p></div>
   </div>
-  <p class="src">Quellen: Volkszählung Marokko 2024 (HCP): 58 % der Lesekundigen lesen und schreiben Französisch. Flugzeit Frankfurt–Casablanca laut Flugplänen ca. 3,5 Stunden. Durchschnittsalter: UN World Population Prospects 2024 und Statistisches Bundesamt.</p>
- </section>
+  <p class="src">Quellen: Volkszählung Marokko 2024 (HCP): 58 % der Lesekundigen lesen und schreiben Französisch. Flugzeit Frankfurt–Casablanca laut Flugplänen ca. 3,5 Stunden. Durchschnittsalter: UN World Population Prospects 2024, Statistisches Bundesamt.</p>
+ </div></section>
 
- <section>
+ <section><div class="wrap">
   <div class="offer">
-   <h2>Ein Platz im Workshop</h2>
+   <p class="eyebrow">Ein Platz im Workshop</p>
+   <h2>2 Tage, die Ihre <em>Suche abkürzen.</em></h2>
    <div class="price">3.000 €</div>
-   <div style="color:#9a978f">pro Person</div>
-   <ul class="facts"><li>2 Tage</li><li>in Marokko</li><li>alle 3 Monate</li><li>10 Plätze</li></ul>
+   <p class="per">pro Person</p>
+   <ul class="chips"><li>2 Tage</li><li>in Marokko</li><li>alle 3 Monate</li><li>10 Plätze</li></ul>
    <p class="note">Bringen Sie gern Kolleginnen und Kollegen mit. Jede Person bucht einen eigenen Platz.</p>
-   <a class="btn" href="/book/clinic">Platz anfragen <span aria-hidden="true">→</span></a>
+   <a class="btn btn-gold" href="/book/workshop">Platz anfragen <span aria-hidden="true">→</span></a>
+   <span class="seats">Nur 10 Plätze pro Termin</span>
   </div>
- </section>
+ </div></section>
+</main>
 
- <footer><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/fahrplan">Kostenloser Fahrplan</a></footer>
-</div>
+<footer><div class="wrap">
+ <span>© Borivon LLC</span>
+ <nav><a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></nav>
+</div></footer>
 </body>
 </html>

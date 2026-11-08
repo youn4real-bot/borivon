@@ -79,6 +79,22 @@ const BUILT_IN: Record<string, BookingEventType> = {
       fr: "Pour les entreprises qui ont besoin de cours d'allemand pour leur personnel.",
     },
   },
+  // The workshop in Morocco (founder 2026-11-08): the ONLY call Borivon offers is qualifying for a
+  // workshop seat. /workshop → "Platz anfragen" → this calendar. Code-only: no DB row needed.
+  workshop: {
+    slug: "workshop", kind: "clinic", active: true,
+    slotMinutes: null, bufferMinutes: null, minNoticeHours: null, horizonDays: null,
+    title: {
+      en: "Workshop in Morocco — request a seat",
+      de: "Workshop in Marokko — Platz anfragen",
+      fr: "Atelier au Maroc — demander une place",
+    },
+    blurb: {
+      en: "15 minutes: we check whether your facility qualifies for a seat in the workshop.",
+      de: "15 Minuten: Wir prüfen, ob Ihre Einrichtung für einen Platz im Workshop in Frage kommt.",
+      fr: "15 minutes : nous vérifions si votre établissement peut obtenir une place à l'atelier.",
+    },
+  },
 };
 
 /** The slugs that always resolve, in display order. */
@@ -165,7 +181,8 @@ export async function loadEventType(slug: string): Promise<BookingEventType | nu
     // supabase-js RESOLVES with { error } rather than throwing, so this branch
     // is the one that actually runs when the table has not been migrated yet.
     if (error) return BUILT_IN[slug] ?? null;
-    if (!data) return null;
+    // no stored row: a built-in (e.g. "workshop") still resolves; anything else is a 404
+    if (!data) return BUILT_IN[slug] ?? null;
     const t = fromRow(data as unknown as Row);
     if (!t) return BUILT_IN[slug] ?? null;
     return t.active ? t : null;
