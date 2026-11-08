@@ -463,8 +463,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     const boxH = paraH(T.fast, F.reg, 11, W - 40, 1.5) + 32;
     s.roundedRect(M, y, W, boxH, 16, { fill: CARD, border: LINE, borderWidth: 0.8 });
     para(s, T.fast, M + 20, y + 16, W - 40, F.reg, 11, INK, 1.5);
-    y += boxH + 14;
-    para(s, T.lawNote, M, y, W, F.reg, 8.5, MUTED, 1.5);
   }
 
   // ── 7 · what success looks like ───────────────────────────────────────────

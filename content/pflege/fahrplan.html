@@ -90,15 +90,13 @@ select,input[type=text],input[type=email],input[type=date]{font:inherit;font-wei
 .build div.wait{opacity:.25}
 .foot{align-self:center;display:flex;gap:14px;align-items:center;font-size:12px;color:var(--mute)}
 .foot a{color:var(--mute);text-decoration:none}
-.foot button{background:none;border:0;font:inherit;color:var(--mute);cursor:pointer;padding:2px 4px}
-.foot button[aria-pressed=true]{color:var(--gold-d);font-weight:500}
 </style>
 </head>
 <body>
 <div class="wrap">
  <header><a class="mark" href="/">Borivon<b>.</b></a><div class="dots" id="dots"></div></header>
  <main id="app" aria-live="polite"></main>
- <div class="foot"><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><span role="group" aria-label="Sprache"><button type="button" data-lang="de">DE</button><button type="button" data-lang="en">EN</button><button type="button" data-lang="fr">FR</button></span></div>
+ <div class="foot"><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></div>
 </div>
 
 <script>
@@ -205,8 +203,8 @@ var T={
   var FREE = ["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","yahoo.com","ymail.com","rocketmail.com","icloud.com","me.com","mac.com","aol.com","proton.me","protonmail.com","pm.me","tutanota.com","tutanota.de","tuta.io","tuta.com","gmx.com","mail.com","yandex.com","yandex.ru","mail.ru","zohomail.com","hey.com","gmx.de","gmx.net","gmx.at","gmx.ch","web.de","t-online.de","freenet.de","posteo.de","mailbox.org","arcor.de","online.de","email.de","outlook.de","hotmail.de","live.de","yahoo.de","aol.de","bluewin.ch","kabelmail.de","vodafonemail.de","ewe.net","orange.fr","wanadoo.fr","free.fr","laposte.net","sfr.fr","neuf.fr","bbox.fr","outlook.fr","hotmail.fr","live.fr","yahoo.fr","aol.fr","gmx.fr","skynet.be","hotmail.co.uk","yahoo.co.uk","outlook.at","hotmail.it","libero.it"];
 function isFree(m){var s=String(m||'').trim().toLowerCase(),k=s.lastIndexOf('@');return k>=0&&FREE.indexOf(s.slice(k+1))>=0}
 
+// German only (founder 2026-11-08): the facilities are German. EN/FR text stays only for the consent-text check.
 var lang='de';
-try{var q0=new URLSearchParams(location.search).get('lang');var s0=q0||localStorage.getItem('bv-lang');if(T[s0])lang=s0}catch(e){}
 // consent starts EMPTY (never pre-ticked); only the visitor's own click sets it.
 var A={kontakt:{anrede:'',vor:'',nach:'',mail:'',consent: false}},hist=[],i=0,err='',busy=false;
 
@@ -247,7 +245,6 @@ function visual(v){if(!v)return '';if(typeof v==='string')return ic(v);if('lvl' 
 
 function render(){
  var t=T[lang],q=cur();document.documentElement.lang=lang;
- document.querySelectorAll('.foot [data-lang]').forEach(function(b){b.setAttribute('aria-pressed',b.getAttribute('data-lang')===lang)});
  dots();
  var title=q.type==='contact'?q.q:esc(typeof q.q==='function'?q.q(A):q.q);
  var h='<div class="screen">'+(i===0&&!hist.length?'<p class="intro">'+esc(t.intro)+'</p>':'')+'<div class="qi">'+ic(q.ic)+'</div><h2>'+title+'</h2>'+(q.sub?'<p class="qsub">'+esc(q.sub)+'</p>':'');
@@ -306,9 +303,6 @@ function building(req){var t=T[lang],icons=['euro','cal','up','pin','clip'];$('d
 }
 function done(){var t=T[lang];app.innerHTML='<div class="screen center"><div class="qi" style="margin:0 auto 22px;width:76px;height:76px">'+ic('mail')+'</div><h1>'+esc(t.doneH)+'</h1><p class="sub">'+esc(t.doneP)+'</p><p class="sub" style="font-size:14px;color:var(--mute)">'+esc(t.spam)+'</p></div>'}
 
-document.querySelectorAll('.foot [data-lang]').forEach(function(b){b.addEventListener('click',function(){
- if(busy||!app.querySelector('#bk'))return;if(cur().type==='contact')readContact();
- lang=b.getAttribute('data-lang');try{localStorage.setItem('bv-lang',lang)}catch(e){}render()})});
 render();
 })();
 </script>
