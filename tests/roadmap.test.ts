@@ -444,8 +444,8 @@ describe("the Fahrplan on the website", () => {
     const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang: "de", name: "", facility: "Haus", date: new Date("2026-11-08"), calcUrl: "https://borivon.com/fahrplan/rechner?o=9" });
     const links = await pdfLinks(bytes);
     expect(links.some((l) => l.url === "https://borivon.com/fahrplan/rechner?o=9")).toBe(true);
-    // founder: no pitch in the PDF, only ONE soft link on the last page
-    const book = links.filter((l) => l.url.includes("/book/"));
+    // founder: no pitch in the PDF, only ONE soft link (to /workshop) on the last page
+    const book = links.filter((l) => l.url.includes("/book/") || l.url.includes("/workshop"));
     expect(book.length).toBe(1);
     expect(book[0].page).toBe((await PDFDocument.load(bytes)).getPageCount());
     for (const l of links) { expect(l.x).toBeGreaterThanOrEqual(0); expect(l.y + l.h).toBeLessThan(0.93); }

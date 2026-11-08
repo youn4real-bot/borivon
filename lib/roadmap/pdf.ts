@@ -475,7 +475,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     const btn = VV.softBtn, bw2 = measure(btn, F.semi, 14) + 64, bh = 50;
     s.roundedRect((PW - bw2) / 2, y, bw2, bh, 25, { fill: GOLD });
     s.text(btn, (PW - bw2) / 2 + 32, y + 16, F.semi, 14, ON_GOLD);
-    link(page, (PW - bw2) / 2, y, bw2, bh, "https://borivon.com/book/clinic");
+    link(page, (PW - bw2) / 2, y, bw2, bh, "https://borivon.com/workshop");
     y += bh + 16;
     cpara(s, `${t.contact}: contact@borivon.com`, PW / 2, y, W, F.reg, 10, MUTED_NIGHT);
   }

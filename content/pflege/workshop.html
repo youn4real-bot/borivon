@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="de">
+<head>
+<!--HEAD-->
+<style>
+/* The workshop page (founder 2026-11-08): the paid next step after the free Fahrplan.
+   Same look as /fahrplan: cream paper, Playfair headings, Lexend body, gold. Few words. */
+:root{--bg:#FAF7F0;--card:#FFFDF8;--line:#ECE4D0;--ink:#17161A;--soft:#6A645A;--mute:#A39E93;--gold:#C9A240;--gold-d:#8C6C2A;--gold-l:#F3E6C4;--night:#0e0e10;
+--display:'Playfair Display',Georgia,serif;--body:'Lexend','Segoe UI',Arial,sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-weight:300;font-size:17px;line-height:1.5}
+a{color:inherit}
+.wrap{max-width:760px;margin:0 auto;padding:0 max(20px,env(safe-area-inset-left,0px))}
+header{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+.mark{font-family:var(--display);font-style:italic;font-weight:700;font-size:24px;text-decoration:none}
+.mark b{color:var(--gold)}
+.eyebrow{font-size:13px;letter-spacing:2px;text-transform:uppercase;font-weight:500;color:var(--gold-d);margin:0 0 18px}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(40px,8vw,64px);line-height:1.04;margin:0;text-wrap:balance}
+h1 em,h2 em{color:var(--gold-d)}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(30px,6vw,42px);line-height:1.1;margin:0 0 26px;text-wrap:balance}
+.sub{font-size:19px;color:var(--soft);margin:22px 0 0;max-width:600px}
+.hero{padding:40px 0 64px}
+.btn{display:inline-flex;align-items:center;gap:10px;font:inherit;font-weight:500;border:none;border-radius:999px;padding:17px 34px;background:var(--gold);color:var(--ink);text-decoration:none;margin-top:32px}
+.btn:hover{filter:brightness(.96)}
+.seats{display:block;margin-top:14px;font-size:14px;color:var(--mute)}
+section{padding:56px 0;border-top:1px solid var(--line)}
+svg.i{width:26px;height:26px;stroke:var(--gold-d);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.qi{width:52px;height:52px;border-radius:50%;background:var(--gold-l);display:grid;place-items:center;flex:none}
+.days{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:620px){.days{grid-template-columns:1fr}}
+.day{background:var(--card);border:1.5px solid var(--line);border-radius:20px;padding:24px}
+.day .k{font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:500;color:var(--gold-d);margin:18px 0 6px}
+.day b{display:block;font-family:var(--display);font-size:26px;font-weight:700;line-height:1.15;margin-bottom:8px}
+.day p{margin:0;color:var(--soft)}
+.why{display:grid;gap:22px}
+.why>div{display:flex;gap:18px;align-items:flex-start}
+.why b{display:block;font-weight:500;font-size:19px;margin:2px 0 4px}
+.why p{margin:0;color:var(--soft)}
+.src{font-size:12px;color:var(--mute);margin:26px 0 0;line-height:1.6}
+.offer{background:var(--night);color:#eeecea;border-radius:28px;padding:44px 32px;text-align:center}
+.offer h2{color:#eeecea;margin-bottom:8px}
+.price{font-family:var(--display);font-weight:700;font-size:clamp(54px,12vw,84px);color:var(--gold);line-height:1;margin:18px 0 8px}
+.facts{list-style:none;padding:0;margin:22px auto 0;display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.facts li{border:1px solid #2b2b30;border-radius:999px;padding:8px 16px;font-size:15px;color:#cfccc6}
+.offer .note{color:#9a978f;font-size:15px;margin:22px auto 0;max-width:460px}
+.offer .btn{margin-top:28px}
+footer{display:flex;gap:18px;justify-content:center;padding:40px 0 48px;font-size:13px;color:var(--mute)}
+footer a{color:var(--mute);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <header><a class="mark" href="/">Borivon<b>.</b></a></header>
+
+ <div class="hero">
+  <p class="eyebrow">Workshop in Marokko · alle 3 Monate</p>
+  <h1>Lernen Sie Ihre Pflegekräfte <em>persönlich kennen.</em></h1>
+  <p class="sub">2 Tage mit Youness Taoufiq, Gründer von Borivon. Sie setzen Ihren Fahrplan um und treffen die Pflegekräfte vor Ort.</p>
+  <a class="btn" href="/book/clinic">Platz anfragen <span aria-hidden="true">→</span></a>
+  <span class="seats">Nur 10 Plätze pro Termin.</span>
+ </div>
+
+ <section>
+  <h2>So laufen die <em>2 Tage.</em></h2>
+  <div class="days">
+   <div class="day">
+    <div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6v3H9zM6 5h3M15 5h3v16H6V5M9 12h6M9 16h4"/></svg></div>
+    <p class="k">Tag 1</p><b>Ihr Plan.</b>
+    <p>Wir gehen Ihren Fahrplan gemeinsam durch: was zuerst, in welcher Reihenfolge, bis wann.</p>
+   </div>
+   <div class="day">
+    <div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 11a2.5 2.5 0 1 0 0-5M18 14c2 .6 3 2.8 3 6"/></svg></div>
+    <p class="k">Tag 2</p><b>Ihre Pflegekräfte.</b>
+    <p>Sie treffen die Pflegekräfte persönlich, sprechen mit ihnen und sehen selbst, wer zu Ihnen passt.</p>
+   </div>
+  </div>
+ </section>
+
+ <section>
+  <h2>Warum <em>Marokko?</em></h2>
+  <div class="why">
+   <div><div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h9M8.5 3v2M6 5c1 4 4 7 7 8M11 5c-1 4-4 7-7 8M14 21l4-9 4 9M15.5 18h5"/></svg></div>
+    <div><b>Mit mehreren Sprachen aufgewachsen.</b><p>Arabisch, dazu oft Französisch und Amazigh. Deutsch ist für viele schon die nächste Sprache.</p></div></div>
+   <div><div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 16l20-8-6 12-3-5zM13 15l-3 5"/></svg></div>
+    <div><b>3,5 Stunden entfernt.</b><p>Direktflug ab Frankfurt. Im Winter dieselbe Uhrzeit wie in Deutschland.</p></div></div>
+   <div><div class="qi"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></div>
+    <div><b>Jung.</b><p>Das Durchschnittsalter liegt bei rund 30 Jahren. In Deutschland bei rund 45.</p></div></div>
+  </div>
+  <p class="src">Quellen: Volkszählung Marokko 2024 (HCP): 58 % der Lesekundigen lesen und schreiben Französisch. Flugzeit Frankfurt–Casablanca laut Flugplänen ca. 3,5 Stunden. Durchschnittsalter: UN World Population Prospects 2024 und Statistisches Bundesamt.</p>
+ </section>
+
+ <section>
+  <div class="offer">
+   <h2>Ein Platz im Workshop</h2>
+   <div class="price">3.000 €</div>
+   <div style="color:#9a978f">pro Person</div>
+   <ul class="facts"><li>2 Tage</li><li>in Marokko</li><li>alle 3 Monate</li><li>10 Plätze</li></ul>
+   <p class="note">Bringen Sie gern Kolleginnen und Kollegen mit. Jede Person bucht einen eigenen Platz.</p>
+   <a class="btn" href="/book/clinic">Platz anfragen <span aria-hidden="true">→</span></a>
+  </div>
+ </section>
+
+ <footer><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="/fahrplan">Kostenloser Fahrplan</a></footer>
+</div>
+</body>
+</html>

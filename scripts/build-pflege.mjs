@@ -162,6 +162,15 @@ ${s.slice(cut).trim()}
   pages.RECHNER_HTML = s;
 }
 
+// ── Workshop in Marokko (the paid next step, linked from the PDF last page + the emails) ──
+{
+  let s = fs.readFileSync(path.join(SRC, "workshop.html"), "utf8");
+  const i = s.indexOf("<!--HEAD-->");
+  if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in workshop.html"); }
+  else s = s.slice(0, i) + head("Workshop in Marokko · Borivon", "2 Tage in Marokko mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, nur 10 Plätze.", "https://www.borivon.com/workshop") + s.slice(i + "<!--HEAD-->".length);
+  pages.WORKSHOP_HTML = s;
+}
+
 // sanity: nothing may still reach outside servers
 for (const [name, s] of Object.entries(pages)) {
   const f = name;
@@ -179,6 +188,7 @@ if (problems) { console.error(problems + " problem(s)"); process.exit(1); }
 fs.writeFileSync(path.join(OUT, "index.html"), pages.HOME_HTML);
 fs.writeFileSync(path.join(OUT, "plattform.html"), pages.PLATTFORM_HTML);
 fs.writeFileSync(path.join(OUT, "fahrplan.html"), pages.FAHRPLAN_HTML);
+fs.writeFileSync(path.join(OUT, "workshop.html"), pages.WORKSHOP_HTML);
 fs.mkdirSync(path.join(OUT, "fahrplan"), { recursive: true });
 fs.writeFileSync(path.join(OUT, "fahrplan", "rechner.html"), pages.RECHNER_HTML);
 for (const old of [path.join(OUT, "pflege.html"), path.join(OUT, "pflege", "plattform.html")]) fs.rmSync(old, { force: true });

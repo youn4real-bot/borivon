@@ -16,6 +16,8 @@ import { formatEuro } from "./pdf";
 import { greeting, type Salutation } from "./consent";
 
 export const BOOK_URL = "https://borivon.com/book/clinic";
+/** The workshop in Morocco (content/pflege/workshop.html): the P.S., the last tip mail, the PDF last page. */
+export const WORKSHOP_URL = "https://borivon.com/workshop";
 /** Who the mail is for: Anrede + Nachname (no first name since 2026-11-07). */
 export type Addressee = { salutation: Salutation; lastName: string; firstName?: string };
 
@@ -196,14 +198,14 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
     p(esc(L.when)) + p(esc(L.role)) + p(esc(L.problem)) + p(esc(L.why)) + p(esc(L.feel)) +
     p(a(o.viewUrl, T.next)) +
     p(SIGNOFF[lang]) +
-    `<div style="margin-top:28px">` + p(esc(T.ps)) + p(esc(T.ps2)) + p(a(BOOK_URL, T.psLink)) + `</div>`;
+    `<div style="margin-top:28px">` + p(esc(T.ps)) + p(esc(T.ps2)) + p(a(WORKSHOP_URL, T.psLink)) + `</div>`;
   const text = [
     greeting(lang, o.salutation, o.lastName, o.firstName), T.promised, `${T.tap}\n>> ${T.link} <<\n${o.viewUrl}`,
     T.insideH + "\n" + T.inside.map((x) => "- " + x).join("\n"), T.note.replace(/<[^>]+>/g, ""),
     o.previousUrl ? `${T.prev} ${o.previousUrl}` : "",
     L.when, L.role, L.problem, L.why, L.feel, `${T.next} ${o.viewUrl}`,
     SIGNOFF[lang].replace("<br>", "\n"),
-    `${T.ps}\n\n${T.ps2}\n\n${T.psLink} ${BOOK_URL}`,
+    `${T.ps}\n\n${T.ps2}\n\n${T.psLink} ${WORKSHOP_URL}`,
     `${unsubLabel(lang)}: ${o.unsubscribeUrl}`,
   ].filter(Boolean).join("\n\n");
   void o.bonusUrl; // the bonus lives in the viewer (second tab)
@@ -302,7 +304,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
   };
   const m = S[lang][n];
   if (!m) return null;
-  const html = shell(lang, m.lines.map(p).join("") + btn(BOOK_URL, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
-  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${BOOK_URL}`, BYE[lang].replace("<br>", "\n"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
+  const url = n === 3 ? WORKSHOP_URL : BOOK_URL; // the last one is the workshop mail
+  const html = shell(lang, m.lines.map(p).join("") + btn(url, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
+  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${url}`, BYE[lang].replace("<br>", "\n"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
   return { subject: m.subject, html, text };
 }
