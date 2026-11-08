@@ -43,8 +43,9 @@ export function CountryFlag({ iso, size = 22 }: { iso: string; size?: number }) 
   );
 }
 
-export function PhoneInput({ value, onChange, hasError = false }: { value: string; onChange: (v: string) => void; hasError?: boolean }) {
-  const { lang } = useLang();
+export function PhoneInput({ value, onChange, hasError = false, forceLang }: { value: string; onChange: (v: string) => void; hasError?: boolean; forceLang?: "en" | "de" | "fr" }) {
+  const { lang: ctxLang } = useLang();
+  const lang = forceLang ?? ctxLang;
   // Localize the names + sort alphabetically by current language (A-Z).
   const sortedCountries = COUNTRY_CODES
     .map(c => {

@@ -180,13 +180,17 @@ export function BookingFlow({
   eventType,
   headline,
   blurb,
+  forceLang,
 }: {
   initialKind?: Kind;
   eventType?: string;
   headline?: { en: string; de: string; fr: string };
   blurb?: { en: string; de: string; fr: string };
+  /** Always this language, whatever the browser says (the workshop calendar is German only). */
+  forceLang?: "en" | "de" | "fr";
 } = {}) {
-  const { lang } = useLang();
+  const { lang: ctxLang } = useLang();
+  const lang = forceLang ?? ctxLang;
   const T = useCallback((en: string, de: string, fr: string) => tr(lang, en, de, fr), [lang]);
   const loc = locOf(lang);
 
@@ -799,7 +803,8 @@ export function BookingFlow({
                   type="button"
                   onClick={() => setStep(2)}
                   className="bv-btn bv-btn-primary bv-tap flex-1 bv-enter-soft"
-                  style={{ minHeight: 44 }}
+                  // solid gold + dark ink: the theme colours turned this into pale gold with white text (unreadable)
+                  style={{ minHeight: 44, background: "var(--gold)", color: "#131312", fontWeight: 600, borderRadius: 10 }}
                 >
                   {T("Confirm", "Bestätigen", "Confirmer")}
                 </button>
@@ -976,7 +981,7 @@ export function BookingFlow({
                 {/* Not a <label htmlFor> — PhoneInput is a composite (country dropdown
                     + number field) with no single control to point at. */}
                 <p className="bv-label">{T("Phone", "Telefon", "Téléphone")} <span style={{ color: "var(--w3)" }}>({T("optional", "optional", "facultatif")})</span></p>
-                <PhoneInput value={phone} onChange={setPhone} />
+                <PhoneInput value={phone} onChange={setPhone} forceLang={forceLang} />
               </div>
 
               {isOrg && (

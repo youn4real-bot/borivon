@@ -46,5 +46,6 @@ export default async function BookTypePage({ params }: Params) {
   const { type } = await params;
   const et = await loadEventType(type);
   if (!et) notFound();
-  return <BookingFlow initialKind={et.kind} eventType={et.slug} headline={et.title} blurb={et.blurb} />;
+  // the workshop calendar (shown inside borivon.com/workshop) is German only, like the page around it
+  return <BookingFlow initialKind={et.kind} eventType={et.slug} headline={et.title} blurb={et.blurb} forceLang={et.slug === "workshop" ? "de" : undefined} />;
 }
