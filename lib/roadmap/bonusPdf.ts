@@ -46,7 +46,7 @@ export const AGENCY_CHECK: { q: L; a: L }[] = [
   { q: { de: "Wie viele Ihrer Pflegekräfte sind nach einem Jahr noch da?", en: "How many of your nurses are still there after a year?", fr: "Combien de vos infirmières sont encore là après un an ?" },
     a: { de: "Eine ehrliche Zahl. Wer sie nicht kennt, misst nicht.", en: "An honest number. If they don't know it, they don't measure.", fr: "Un chiffre honnête. Qui ne le connaît pas ne mesure pas." } },
   { q: { de: "Was genau muss ich selbst tun?", en: "What exactly do I have to do myself?", fr: "Que dois-je faire moi-même, exactement ?" },
-    a: { de: "Wenig, und klar beschrieben. Zum Beispiel: ein Gespräch führen und eine Patin bestimmen.", en: "Little, and clearly described. For example: one interview and choosing a mentor.", fr: "Peu de choses, clairement décrites. Par exemple : un entretien et choisir une marraine." } },
+    a: { de: "Wenig, und klar beschrieben. Zum Beispiel: ein Gespräch führen und eine Ansprechperson bestimmen.", en: "Little, and clearly described. For example: one interview and choosing a mentor.", fr: "Peu de choses, clairement décrites. Par exemple : un entretien et choisir une marraine." } },
 ];
 
 const T: Record<Lang, Record<string, string>> = {

@@ -442,7 +442,10 @@ describe("the Fahrplan on the website", () => {
     const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang: "de", name: "", facility: "Haus", date: new Date("2026-11-08"), calcUrl: "https://borivon.com/fahrplan/rechner?o=9" });
     const links = await pdfLinks(bytes);
     expect(links.some((l) => l.url === "https://borivon.com/fahrplan/rechner?o=9")).toBe(true);
-    expect(links.some((l) => l.url.includes("/book/"))).toBe(false); // founder: no pitch in the PDF
+    // founder: no pitch in the PDF, only ONE soft link on the last page
+    const book = links.filter((l) => l.url.includes("/book/"));
+    expect(book.length).toBe(1);
+    expect(book[0].page).toBe((await PDFDocument.load(bytes)).getPageCount());
     for (const l of links) { expect(l.x).toBeGreaterThanOrEqual(0); expect(l.y + l.h).toBeLessThan(0.93); }
   }, 30_000);
   it("the mail links to the website instead of attaching", () => {

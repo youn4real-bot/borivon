@@ -34,7 +34,7 @@ export const PLAYBOOK: Record<Level, Play> = {
       ],
       onboard: [
         x("Neue arbeiten ab Tag 1 voll mit. Das geht schief.", "New nurses work full shifts from day 1. It goes wrong.", "Les nouvelles travaillent à plein dès le jour 1. Ça casse."),
-        x("Jede Neue bekommt eine feste Patin.", "Every new nurse gets one fixed mentor.", "Chaque nouvelle a une marraine fixe."),
+        x("Jede Neue bekommt eine feste Ansprechperson.", "Every new nurse gets one fixed mentor.", "Chaque nouvelle a une marraine fixe."),
         x("Die ersten 2 Wochen: nie allein im Dienst.", "First 2 weeks: never alone on shift.", "2 premières semaines : jamais seule."),
       ],
       agency: [
@@ -52,8 +52,8 @@ export const PLAYBOOK: Record<Level, Play> = {
       { t: x("Kein Geld mehr verlieren", "Stop losing money", "Arrêter de perdre de l'argent"), items: [
         x("Alle leeren Stellen auf eine Liste", "All empty posts on one list", "Tous les postes vides sur une liste"),
         x("Die teuerste Stelle zuerst", "The most costly post first", "Le poste le plus cher d'abord"),
-        x("Überstunden jeden Monat zählen", "Count overtime monthly", "Compter les heures sup chaque mois"),
-        x("Ziel: weniger Überstunden", "Goal: less overtime", "But : moins d'heures sup")] },
+        x("Leere Stellen jeden Monat zählen", "Count empty posts monthly", "Compter les postes vides chaque mois"),
+        x("Ziel: jeden Monat eine weniger", "Goal: one fewer every month", "But : un de moins chaque mois")] },
       { t: x("Einen Partner wählen", "Choose one partner", "Choisir un partenaire"), items: [
         x("Einer statt fünf Agenturen", "One instead of five agencies", "Un au lieu de cinq agences"),
         x("Fragen: Wer prüft das Deutsch?", "Ask: who checks the German?", "Demander : qui vérifie l'allemand ?"),
@@ -62,7 +62,7 @@ export const PLAYBOOK: Record<Level, Play> = {
       { t: x("Den Start vorbereiten", "Prepare the start", "Préparer l'arrivée"), items: [
         x("Wohnung klären", "Sort the flat", "Régler le logement"),
         x("Abholen klären", "Sort the pick-up", "Organiser l'accueil"),
-        x("Eine Patin bestimmen", "Name a mentor", "Désigner une marraine"),
+        x("Eine Ansprechperson bestimmen", "Name a mentor", "Désigner une marraine"),
         x("Dienstplan für 2 Wochen", "Rota for 2 weeks", "Planning pour 2 semaines")] },
       { t: x("Wissen, warum Leute gehen", "Know why people leave", "Savoir pourquoi on part"), items: [
         x("Mit jedem reden, der geht", "Talk to everyone who leaves", "Parler à chaque départ"),
@@ -91,9 +91,9 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Bank, Amt und Krankenkasse in Woche 1.", "Bank, town hall, health insurance in week 1.", "Banque, mairie, assurance en semaine 1."),
       ],
       onboard: [
-        x("Jede Patin macht es anders.", "Every mentor does it differently.", "Chaque marraine fait autrement."),
+        x("Jede Ansprechperson macht es anders.", "Every mentor does it differently.", "Chaque marraine fait autrement."),
         x("Nutzen Sie den 90-Tage-Plan für jede Neue.", "Use the 90-day plan for every new nurse.", "Utilisez le plan de 90 jours pour chacune."),
-        x("Jede Woche 10 Minuten: Neue und Patin reden.", "10 minutes a week: new nurse and mentor talk.", "10 minutes par semaine : nouvelle et marraine parlent."),
+        x("Jede Woche 10 Minuten: Neue und Ansprechperson reden.", "10 minutes a week: new nurse and mentor talk.", "10 minutes par semaine : nouvelle et marraine parlent."),
       ],
       agency: [
         x("Ohne Leihkräfte geht keine Woche.", "No week works without agency staff.", "Aucune semaine sans intérim."),
@@ -120,12 +120,12 @@ export const PLAYBOOK: Record<Level, Play> = {
       { t: x("Gleicher Start für jede", "The same start for all", "Le même départ pour toutes"), items: [
         x("Eine Ankunfts-Liste", "One arrival checklist", "Une liste d'arrivée"),
         x("Der 90-Tage-Plan", "The 90-day plan", "Le plan de 90 jours"),
-        x("Eine feste Patin", "One fixed mentor", "Une marraine fixe"),
+        x("Eine feste Ansprechperson", "One fixed mentor", "Une marraine fixe"),
         x("Jede Woche 10 Minuten reden", "Talk 10 minutes every week", "Parler 10 minutes par semaine")] },
-      { t: x("Überstunden abbauen", "Cut overtime", "Réduire les heures sup"), items: [
-        x("Überstunden zählen", "Count overtime", "Compter les heures sup"),
-        x("Jede Neue nimmt Stunden ab", "Each new nurse takes hours off", "Chaque nouvelle soulage l'équipe"),
-        x("Einspringen nur im Notfall", "Stepping in only in emergencies", "Remplacer seulement en urgence"),
+      { t: x("Lücken schließen", "Close the gaps", "Combler les trous"), items: [
+        x("Offene Stellen zählen", "Count open posts", "Compter les postes vides"),
+        x("Die dringendste zuerst", "The most urgent first", "Le plus urgent d'abord"),
+        x("Jede Neue entlastet das Team", "Every new nurse lightens the team", "Chaque nouvelle soulage l'équipe"),
         x("Jedes Quartal Bilanz ziehen", "Take stock every quarter", "Faire le bilan chaque trimestre")] },
     ],
   },
@@ -149,9 +149,9 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Planen Sie die Familie früh mit: Kita, Schule.", "Plan for the family early: nursery, school.", "Prévoyez la famille tôt : crèche, école."),
       ],
       onboard: [
-        x("Die Patinnen haben keine Zeit.", "The mentors have no time.", "Les marraines n'ont pas le temps."),
-        x("Patinnen bekommen 2 Stunden pro Woche dafür.", "Mentors get 2 hours a week for it.", "Les marraines ont 2 heures par semaine pour ça."),
-        x("Jede Patin hat höchstens 2 Neue.", "Each mentor has 2 new nurses at most.", "Chaque marraine a 2 nouvelles au plus."),
+        x("Die Ansprechpersonen haben keine Zeit.", "The mentors have no time.", "Les marraines n'ont pas le temps."),
+        x("Ansprechpersonen bekommen 2 Stunden pro Woche dafür.", "Mentors get 2 hours a week for it.", "Les marraines ont 2 heures par semaine pour ça."),
+        x("Jede Ansprechperson hat höchstens 2 Neue.", "Each mentor has 2 new nurses at most.", "Chaque marraine a 2 nouvelles au plus."),
       ],
       agency: [
         x("Leihkräfte sind fest eingeplant.", "Agency staff are part of the plan.", "L'intérim est prévu d'office."),
@@ -173,8 +173,8 @@ export const PLAYBOOK: Record<Level, Play> = {
       { t: x("Ersatz vorbereiten", "Line up cover", "Préparer le remplacement"), items: [
         x("Kündigungen vom Vorjahr zählen", "Count last year's resignations", "Compter les départs de l'an dernier"),
         x("So viele Stellen im Voraus", "That many posts in advance", "Autant de postes d'avance"),
-        x("Überstunden-Ziel pro Quartal", "An overtime goal per quarter", "Un but d'heures sup par trimestre"),
-        x("Einspringen nur im Notfall", "Stepping in only in emergencies", "Remplacer seulement en urgence")] },
+        x("Mit jedem reden, der geht", "Talk to everyone who leaves", "Parler à chaque départ"),
+        x("Ersatz planen, bevor jemand geht", "Plan cover before someone leaves", "Prévoir le remplacement avant un départ")] },
       { t: x("Klar beim Lohn", "Clear about pay", "Clair sur le salaire"), items: [
         x("Lohn schriftlich", "Pay in writing", "Salaire par écrit"),
         x("Sagen, wann es mehr gibt", "Say when it goes up", "Dire quand il monte"),
@@ -229,14 +229,14 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Gruppen fest im Kalender", "Groups fixed in the calendar", "Des groupes au calendrier"),
         x("Wohnungen im Voraus", "Flats in advance", "Des logements d'avance")] },
       { t: x("Eigene Springer", "Your own floaters", "Vos remplaçantes"), items: [
-        x("Springer statt Überstunden", "Floaters instead of overtime", "Remplaçantes au lieu d'heures sup"),
+        x("Eigene Springer im Team", "Your own floaters in the team", "Vos propres remplaçantes"),
         x("Bonus fürs Einspringen", "A bonus for stepping in", "Une prime de remplacement"),
         x("Kein Einspringen aus dem Frei", "Nobody called in on days off", "Personne rappelé sur ses repos"),
         x("Ersparnis jedes Quartal zeigen", "Show the savings every quarter", "Montrer l'économie chaque trimestre")] },
       { t: x("Einarbeitung mit Zielen", "Onboarding with goals", "Intégration avec des buts"), items: [
         x("Ziele für Woche 4, 8, 12", "Goals for week 4, 8, 12", "Buts semaines 4, 8, 12"),
         x("Gespräch nach 90 Tagen", "A talk after 90 days", "Un bilan après 90 jours"),
-        x("Gute Patinnen bilden aus", "Good mentors train others", "Les bonnes marraines forment"),
+        x("Gute Ansprechpersonen bilden aus", "Good mentors train others", "Les bonnes marraines forment"),
         x("Checkliste für die Papiere", "A checklist for the papers", "Une check-list pour les papiers")] },
       { t: x("Gute Leute halten", "Keep the good people", "Garder les meilleures"), items: [
         x("Ein Zukunftsgespräch im Jahr", "One future talk a year", "Un entretien d'avenir par an"),
@@ -265,9 +265,9 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Fragen Sie nach 90 Tagen: Was machen wir besser?", "Ask after 90 days: what can we do better?", "Demandez après 90 jours : que faire mieux ?"),
       ],
       onboard: [
-        x("Gute Patinnen sind überlastet.", "Good mentors are overloaded.", "Les bonnes marraines sont surchargées."),
-        x("Wechseln Sie die Patinnen ab.", "Rotate the mentors.", "Faites tourner les marraines."),
-        x("Machen Sie gute Patinnen zu Ausbilderinnen.", "Turn good mentors into trainers.", "Faites des bonnes marraines des formatrices."),
+        x("Gute Ansprechpersonen sind überlastet.", "Good mentors are overloaded.", "Les bonnes marraines sont surchargées."),
+        x("Wechseln Sie die Ansprechpersonen ab.", "Rotate the mentors.", "Faites tourner les marraines."),
+        x("Machen Sie gute Ansprechpersonen zu Ausbilderinnen.", "Turn good mentors into trainers.", "Faites des bonnes marraines des formatrices."),
       ],
       agency: [
         x("Keine Leihkräfte mehr. Ausfälle gibt es trotzdem.", "No more agency staff. Absences still happen.", "Plus d'intérim. Les absences arrivent quand même."),
@@ -292,8 +292,8 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("Kosten pro Pflegekraft vergleichen", "Compare cost per nurse", "Comparer le coût par infirmière"),
         x("Neue Länder, gleicher Ablauf", "New countries, same process", "Nouveaux pays, même processus")] },
       { t: x("Das Team wachsen lassen", "Let the team grow", "Faire grandir l'équipe"), items: [
-        x("Patinnen abwechseln", "Rotate mentors", "Faire tourner les marraines"),
-        x("Gute Patinnen fördern", "Promote good mentors", "Faire évoluer les marraines"),
+        x("Ansprechpersonen abwechseln", "Rotate mentors", "Faire tourner les marraines"),
+        x("Gute Ansprechpersonen fördern", "Promote good mentors", "Faire évoluer les marraines"),
         x("Jede Gruppe fragen", "Ask every group", "Demander à chaque groupe"),
         x("Ersparnis ans Team", "Savings to the team", "L'économie à l'équipe")] },
       { t: x("Oben bleiben", "Stay on top", "Rester au sommet"), items: [

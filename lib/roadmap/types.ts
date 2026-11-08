@@ -25,6 +25,8 @@ export const FACILITY: Record<FacilityType, {
   forTitle: L;
   /** how one open post is counted, one line each */
   openModel: L;
+  /** the same without agency staff (they told us they have none) */
+  openModelNoAgency: L;
   /** where the numbers come from */
   source: L;
   tips: Tip[];
@@ -40,6 +42,11 @@ export const FACILITY: Record<FacilityType, {
       en: "1 open post = 80 agency hours at €55 (€4,400) + 1 closed bed (€15,600) = €20,000 a month.",
       fr: "1 poste vide = 80 heures d'intérim à 55 € (4 400 €) + 1 lit fermé (15 600 €) = 20 000 € par mois.",
     },
+    openModelNoAgency: {
+      de: "1 offene Stelle = 1 gesperrtes Bett = 15.600 € im Monat.",
+      en: "1 open post = 1 closed bed = €15,600 a month.",
+      fr: "1 poste vide = 1 lit fermé = 15 600 € par mois.",
+    },
     source: {
       de: "Ein Bett bringt rund 650 € am Tag: Bundesbasisfallwert 2026 (4.570,64 €) geteilt durch rund 7 Tage Liegezeit. Bei 80 % Belegung sind das 15.600 € im Monat.",
       en: "A bed earns about €650 a day: the 2026 federal base rate (€4,570.64) divided by about 7 days' stay. At 80% occupancy that is €15,600 a month.",
@@ -52,7 +59,7 @@ export const FACILITY: Record<FacilityType, {
       { t: { de: "Faire Dienste", en: "Fair shifts", fr: "Des gardes justes" }, d: { de: "Nicht nur Nächte und Wochenenden für die Neuen. Das merkt jede.", en: "Not only nights and weekends for new nurses. Everyone notices.", fr: "Pas seulement les nuits et les week-ends pour les nouvelles. Tout le monde le remarque." } },
       { t: { de: "Einen Weg zeigen", en: "Show a path", fr: "Montrer un chemin" }, d: { de: "Intensiv, OP, Praxisanleitung: Zeigen Sie früh, wohin sie wachsen kann.", en: "Intensive care, OR, mentoring students: show early where she can grow.", fr: "Réanimation, bloc, tutorat : montrez tôt où elle peut évoluer." } },
     ],
-    firstWeek: { de: "Im Krankenhaus heißt das: die ersten Dienste auf einer festen Station, mit derselben Patin.", en: "In a hospital that means: the first shifts on one fixed ward, with the same mentor.", fr: "À l'hôpital, cela veut dire : les premières gardes dans un service fixe, avec la même marraine." },
+    firstWeek: { de: "Im Krankenhaus heißt das: die ersten Dienste auf einer festen Station, mit derselben Ansprechperson.", en: "In a hospital that means: the first shifts on one fixed ward, with the same mentor.", fr: "À l'hôpital, cela veut dire : les premières gardes dans un service fixe, avec la même marraine." },
   },
   care_home: {
     name: { de: "Altenheim / Pflegeheim", en: "Care home", fr: "Maison de retraite" },
@@ -62,6 +69,11 @@ export const FACILITY: Record<FacilityType, {
       de: "1 offene Stelle = 80 Leihstunden à 55 € (4.400 €) + 2 leere Plätze à 4.600 € (9.200 €) = 13.600 € im Monat.",
       en: "1 open post = 80 agency hours at €55 (€4,400) + 2 empty places at €4,600 (€9,200) = €13,600 a month.",
       fr: "1 poste vide = 80 heures d'intérim à 55 € (4 400 €) + 2 places vides à 4 600 € (9 200 €) = 13 600 € par mois.",
+    },
+    openModelNoAgency: {
+      de: "1 offene Stelle = 2 leere Plätze à 4.600 € = 9.200 € im Monat.",
+      en: "1 open post = 2 empty places at €4,600 = €9,200 a month.",
+      fr: "1 poste vide = 2 places vides à 4 600 € = 9 200 € par mois.",
     },
     source: {
       de: "Ein Heimplatz bringt rund 4.600 € im Monat: Eigenanteil im Schnitt 3.364 € (vdek, Juli 2026) plus Pflegekasse bei Pflegegrad 3 (1.319 €).",
@@ -75,7 +87,7 @@ export const FACILITY: Record<FacilityType, {
       { t: { de: "Doku mit Beispielen", en: "Notes with examples", fr: "Le dossier avec des exemples" }, d: { de: "Zeigen Sie die Pflegedoku an echten Beispielen. Das spart Wochen.", en: "Show the care notes with real examples. It saves weeks.", fr: "Montrez le dossier de soins avec de vrais exemples. Cela fait gagner des semaines." } },
       { t: { de: "Wohnung und Weg", en: "Flat and commute", fr: "Logement et trajet" }, d: { de: "Viele Heime liegen am Rand. Klären Sie Wohnung und Weg zur Arbeit vorher.", en: "Many homes are on the edge of town. Sort out the flat and the way to work first.", fr: "Beaucoup de maisons sont en périphérie. Réglez le logement et le trajet avant." } },
     ],
-    firstWeek: { de: "Im Altenheim heißt das: ein fester Wohnbereich, dieselben Bewohner, dieselbe Patin.", en: "In a care home that means: one fixed unit, the same residents, the same mentor.", fr: "En maison de retraite, cela veut dire : une unité fixe, les mêmes résidents, la même marraine." },
+    firstWeek: { de: "Im Altenheim heißt das: ein fester Wohnbereich, dieselben Bewohner, dieselbe Ansprechperson.", en: "In a care home that means: one fixed unit, the same residents, the same mentor.", fr: "En maison de retraite, cela veut dire : une unité fixe, les mêmes résidents, la même marraine." },
   },
   home_care: {
     name: { de: "Ambulanter Pflegedienst", en: "Home care service", fr: "Soins à domicile" },
@@ -85,6 +97,11 @@ export const FACILITY: Record<FacilityType, {
       de: "1 offene Stelle = 80 Leihstunden à 55 € (4.400 €) + 4 abgelehnte Patienten à 1.300 € (5.200 €) = 9.600 € im Monat.",
       en: "1 open post = 80 agency hours at €55 (€4,400) + 4 refused patients at €1,300 (€5,200) = €9,600 a month.",
       fr: "1 poste vide = 80 heures d'intérim à 55 € (4 400 €) + 4 patients refusés à 1 300 € (5 200 €) = 9 600 € par mois.",
+    },
+    openModelNoAgency: {
+      de: "1 offene Stelle = 4 abgelehnte Patienten à 1.300 € = 5.200 € im Monat.",
+      en: "1 open post = 4 refused patients at €1,300 = €5,200 a month.",
+      fr: "1 poste vide = 4 patients refusés à 1 300 € = 5 200 € par mois.",
     },
     source: {
       de: "Ein Patient bringt einem Pflegedienst im Schnitt rund 1.200 bis 1.400 € im Monat. Wir rechnen mit 1.300 €.",

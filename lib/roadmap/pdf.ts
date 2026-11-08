@@ -5,8 +5,8 @@
  * Structure (founder 2026-11-08, "transformation, not information"; see lib/roadmap/visual.ts):
  *   cover · 5-level staircase · [watch this first] · before → after · leaky bucket ·
  *   lose vs win (+ calculator) · [the deadline] · checklists to the next level ·
- *   90-day plan. One picture per page, few words. NO pitch, nothing sold: the PDF
- *   is a pure value asset; our offer only appears in the later emails.
+ *   90-day plan · one SOFT last page ("want help? see if it fits"). One picture per
+ *   page, few words. No pitch anywhere else: the PDF is a value asset.
  *
  * Design = borivon.com: night #0e0e10, gold #c9a240, paper #f6f4ef, Playfair
  * Display headings (drawn as outlines, lib/roadmap/vectorFont.ts), Lexend body,
@@ -27,7 +27,7 @@ import { VIDEO_INTRO } from "./videos";
 import { PLAYBOOK } from "./playbook";
 import { buildTimeline, STEP_NAME, TL } from "./timeline";
 import { BEDARF_LINE, type FormV2 } from "./form";
-import { LEVEL_ICON, BEFORE_AFTER, V } from "./visual";
+import { LEVEL_ICON, BEFORE_AFTER, V, beforeAfterFor, leaksFor } from "./visual";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
 const NIGHT = hexColor("#0e0e10");
@@ -76,10 +76,10 @@ export function formatEuro(n: number, lang: Lang): string {
 
 /**
  * How many pages a Fahrplan has: cover · staircase · before/after · bucket · numbers ·
- * [timeline] · checklists · 90 days. The level no longer adds pages.
+ * [timeline] · checklists · 90 days · one soft last page. The level no longer adds pages.
  */
 export function roadmapPageCount(_level: Level, timeline = false): number {
-  return 7 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0);
+  return 8 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0);
 }
 
 type Fonts = { reg: DocFont; semi: DocFont };
@@ -243,7 +243,10 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     block(s, (lv < 5 ? `${VV.withPlan} · ${VV.nextOf5.replace("{n}", String(nxt))}` : SU.successA).toUpperCase(), rx, y, 9, GREEN, CARD, 10, 6);
     y += 40;
     const rh = 96, ch = rh - 14;
-    for (const r of BEFORE_AFTER[lv]) {
+    const mineBA = input.form ? beforeAfterFor(input.form, input.date) : [];
+    // their own pains first; fill up to 4 with the rows of their level
+    const rows = [...mineBA, ...BEFORE_AFTER[lv].filter((r) => !mineBA.some((m) => m.ic === r.ic))].slice(0, 4);
+    for (const r of rows) {
       s.roundedRect(M, y, cw, ch, 16, { fill: RED_SOFT });
       icon(page, r.ic, M + 16, y + (ch - 40) / 2, 40, { base: RED, accent: RED, hole: RED_SOFT });
       const bt = pick(r.b, lang), bh = paraH(bt, F.semi, 12.5, cw - 80, 1.35);
@@ -277,10 +280,14 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     page.drawSvgPath(`M 0 0 L ${bw} 0 L ${bw - 36} ${bh} L 36 ${bh} Z`, { x: cx - bw / 2, y: PH - bt, color: NIGHT });
     page.drawSvgPath(`M 16 54 L ${bw - 16} 54 L ${bw - 46} ${bh - 12} L 46 ${bh - 12} Z`, { x: cx - bw / 2, y: PH - bt, color: GOLD });
     s.roundedRect(cx - bw / 2 - 10, bt - 8, bw + 20, 14, 7, { fill: NIGHT });
-    [-1, 0, 1].forEach((k, i) => {
+    const mine = input.form ? leaksFor(input.form, input.date).map((l) => pick(l, lang)) : VV.bucketOut;
+    // nothing specific ticked: waiting (posts stay empty) is true for everyone who needs nurses
+    const leaks = mine.length ? mine : [VV.bucketOut[1]];
+    const ks = leaks.length === 1 ? [0] : leaks.length === 2 ? [-0.6, 0.6] : [-1, 0, 1];
+    ks.forEach((k, i) => {
       const hx = cx + k * 60, hy = bt + bh, lx = cx + k * 140;
       for (let d = 0; d < 2; d++) page.drawSvgPath("M 7 0 C 7 0 14 10 14 15 A 7 7 0 0 1 0 15 C 0 10 7 0 7 0 Z", { x: hx + (lx - hx) * (d + 1) / 3 - 7, y: PH - (hy + 8 + d * 22), color: RED });
-      cpara(s, VV.bucketOut[i].toUpperCase(), lx, hy + 66, 130, F.semi, 10, RED, 1.3, 0.8);
+      cpara(s, leaks[i].toUpperCase(), lx, hy + 66, 130, F.semi, 10, RED, 1.3, 0.8);
     });
     cpara(s, VV.bucketLine, cx, bt + bh + 104, W - 40, F.reg, 14, INK, 1.5);
     const bandTop = PH - 170;
@@ -329,7 +336,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     const FT = FACILITY[result.facilityType];
     const lines: [IconName, string][] = [];
     if (input.form) lines.push(["bed", BEDARF_LINE[lang](input.form)]);
-    lines.push([FT.icon, pick(FT.openModel, lang)]);
+    lines.push([FT.icon, pick(result.usesAgency ? FT.openModel : FT.openModelNoAgency, lang)]);
     if (result.turnoverCostYear > 0) lines.push(["door", leaveModel(result.facilityType, lang, (n) => formatEuro(n, lang), result.perNurseMonth, costPerDeparture(result.facilityType))]);
     lines.push(["target", pick(FT.source, lang)]);
     for (const [ic, txt] of lines) {
@@ -440,6 +447,30 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       });
       y += rh + 16;
     }
+  }
+
+  // ── last page: soft, like acquisition.com's "Do you want to scale?" (no hard selling) ──
+  {
+    const fr = newPage();
+    const { page, s } = fr;
+    cdisp(page, HN, lv < 5 ? VV.softH.replace("{n}", String(lv + 1)) : VV.softHTop, 76, W - 20, 46, INK, 1.1);
+    const split = 470;
+    s.rect(0, split, PW, PH - split, NIGHT);
+    fr.bottom = "night";
+    const bw = (W - 24) / 3;
+    const ics: IconName[] = ["nurse", "house", "heart"];
+    ics.forEach((ic, i) => {
+      const x = M + i * (bw + 12), top = i === 1 ? 250 : 280, h = i === 1 ? 260 : 220;
+      s.rect(x, top, bw, h, GOLD);
+      icon(page, ic, x + (bw - 78) / 2, top + (h - 78) / 2, 78, { base: ON_GOLD, accent: FG, hole: GOLD });
+    });
+    let y = cpara(s, VV.softP, PW / 2, 560, W - 40, F.reg, 12, FG, 1.85) + 24;
+    const btn = VV.softBtn, bw2 = measure(btn, F.semi, 14) + 64, bh = 50;
+    s.roundedRect((PW - bw2) / 2, y, bw2, bh, 25, { fill: GOLD });
+    s.text(btn, (PW - bw2) / 2 + 32, y + 16, F.semi, 14, ON_GOLD);
+    link(page, (PW - bw2) / 2, y, bw2, bh, "https://borivon.com/book/clinic");
+    y += bh + 16;
+    cpara(s, `${t.contact}: contact@borivon.com`, PW / 2, y, W, F.reg, 10, MUTED_NIGHT);
   }
 
   // ── header + footer on every page but the cover; then the links ───────────

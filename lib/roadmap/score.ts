@@ -35,6 +35,8 @@ export type RoadmapAnswers = {
   /** What new nurses get in their first 90 days. */
   onboarding: Onboarding[];
   pain: Pain;
+  /** false = they told us they have no agency staff: an open post then costs only the lost places */
+  usesAgency?: boolean;
 };
 
 export type Level = 1 | 2 | 3 | 4 | 5;
@@ -58,6 +60,8 @@ export type RoadmapResult = {
   bottleneck: "fill" | "keep" | "agency" | "process" | "language";
   /** The kind of Einrichtung the money model was built for. */
   facilityType: FacilityType;
+  /** whether agency hours are part of the cost of an open post (see usesAgency) */
+  usesAgency: boolean;
 };
 
 // The generic per-post model of the borivon.com calculator.
@@ -98,9 +102,9 @@ export const COST_MODEL: Record<FacilityType, { agencyHours: number; lossUnits: 
   care_home: { agencyHours: 80, lossUnits: 2, lossPerUnit: 4_600 },
   home_care: { agencyHours: 80, lossUnits: 4, lossPerUnit: 1_300 },
 };
-export function costPerOpenPost(t: FacilityType): number {
+export function costPerOpenPost(t: FacilityType, usesAgency = true): number {
   const m = COST_MODEL[t] ?? COST_MODEL.care_home;
-  return m.agencyHours * AGENCY_RATE + m.lossUnits * m.lossPerUnit;
+  return (usesAgency ? m.agencyHours * AGENCY_RATE : 0) + m.lossUnits * m.lossPerUnit;
 }
 export function costPerDeparture(t: FacilityType): number {
   return DEPARTURE_GAP_MONTHS * costPerOpenPost(t) + ONBOARDING_HOURS * ONBOARDING_RATE + REPLACEMENT_COST;
@@ -130,6 +134,7 @@ export function normalizeAnswers(a: Partial<RoadmapAnswers>): RoadmapAnswers {
     foreign: hist.includes(a.foreign as ForeignHistory) ? (a.foreign as ForeignHistory) : "never",
     onboarding: Array.isArray(a.onboarding) ? onb.filter((o) => (a.onboarding as string[]).includes(o)) : [],
     pain: pains.includes(a.pain as Pain) ? (a.pain as Pain) : "open_posts",
+    ...(a.usesAgency === false ? { usesAgency: false } : {}),
   };
 }
 
@@ -150,7 +155,8 @@ export function scoreRoadmap(input: Partial<RoadmapAnswers>): RoadmapResult {
 
   const level: Level = score >= 82 ? 5 : score >= 66 ? 4 : score >= 48 ? 3 : score >= 30 ? 2 : 1;
 
-  const perPost = costPerOpenPost(a.facilityType);
+  const usesAgency = input.usesAgency !== false;
+  const perPost = costPerOpenPost(a.facilityType, usesAgency);
   const openCostMonth = a.openPosts * perPost;
   const openCostYear = openCostMonth * 12;
   const turnoverCostYear = a.leftLastYear * costPerDeparture(a.facilityType);
@@ -173,5 +179,6 @@ export function scoreRoadmap(input: Partial<RoadmapAnswers>): RoadmapResult {
     perNurseMonth: perPost,
     bottleneck,
     facilityType: a.facilityType,
+    usesAgency,
   };
 }

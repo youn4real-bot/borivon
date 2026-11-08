@@ -34,7 +34,7 @@ const FOREIGN: Record<string, L3> = {
   most_stayed: { de: "ja, die meisten blieben", en: "yes, most stayed", fr: "oui, la plupart restées" },
 };
 const ONB: Record<string, L3> = {
-  mentor: { de: "Patin", en: "mentor", fr: "marraine" },
+  mentor: { de: "Ansprechperson", en: "mentor", fr: "marraine" },
   german: { de: "Deutsch", en: "German", fr: "allemand" },
   housing: { de: "Wohnung", en: "housing", fr: "logement" },
   plan: { de: "Plan", en: "plan", fr: "plan" },

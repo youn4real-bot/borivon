@@ -45,7 +45,7 @@ export const STAGES: Record<Level, Stage> = {
       fill:    { c: { de: "Viele Stellen sind seit Monaten leer.", en: "Many posts are empty for months.", fr: "Des postes vides depuis des mois." }, g: { de: "Ein guter Partner. Nicht fünf Agenturen.", en: "One good partner. Not five agencies.", fr: "Un bon partenaire. Pas cinq agences." } },
       papers:  { c: { de: "Niemand kümmert sich um die Papiere.", en: "Nobody looks after the papers.", fr: "Personne ne gère les papiers." }, g: { de: "Eine Person macht die Papiere. Jeden Tag.", en: "One person does the papers. Every day.", fr: "Une personne gère les papiers. Chaque jour." } },
       arrive:  { c: { de: "Keine Wohnung. Kein Plan.", en: "No flat. No plan.", fr: "Pas de logement. Pas de plan." }, g: { de: "Wohnung und Abholen vorher klären.", en: "Sort out flat and pick-up first.", fr: "Régler logement et accueil avant." } },
-      onboard: { c: { de: "Neue arbeiten sofort voll.", en: "New nurses work full shifts at once.", fr: "Les nouvelles travaillent à plein tout de suite." }, g: { de: "Jede Neue bekommt eine Patin.", en: "Every new nurse gets a mentor.", fr: "Chaque nouvelle a une marraine." } },
+      onboard: { c: { de: "Neue arbeiten sofort voll.", en: "New nurses work full shifts at once.", fr: "Les nouvelles travaillent à plein tout de suite." }, g: { de: "Jede Neue bekommt eine Ansprechperson.", en: "Every new nurse gets a mentor.", fr: "Chaque nouvelle a une marraine." } },
       agency:  { c: { de: "Leihkräfte jeden Tag. Sehr teuer.", en: "Agency staff every day. Very costly.", fr: "Intérim tous les jours. Très cher." }, g: { de: "Leihkräfte für ganze Monate buchen.", en: "Book agency staff for whole months.", fr: "Réserver l'intérim au mois." } },
       keep:    { c: { de: "Sie wissen nicht, warum Leute gehen.", en: "You don't know why people leave.", fr: "Vous ne savez pas pourquoi on part." }, g: { de: "Jeden Monat leere Stellen zählen.", en: "Count empty posts every month.", fr: "Compter les postes vides chaque mois." } },
     },
@@ -70,7 +70,7 @@ export const STAGES: Record<Level, Stage> = {
     },
     bottom: { de: "Sie zahlen viel Geld, nur um Löcher zu stopfen.", en: "You pay a lot just to plug holes.", fr: "Vous payez cher juste pour boucher des trous." },
     gradBy: { de: "In Gruppen holen. Rückwärts planen.", en: "Hire in groups. Plan backwards.", fr: "Recruter en groupe. Planifier à rebours." },
-    story: { de: "Der Betrieb läuft. Aber nur mit Überstunden und Einspringen. Sie stellen ein, aber eine nach der anderen. Jetzt ist die Zeit für einen Plan.", en: "The house runs. But only with overtime and stepping in. You hire, but one at a time. Now is the time for a plan.", fr: "La maison tourne. Mais seulement avec les heures sup et les remplacements. Vous recrutez, mais une par une. C'est le moment d'avoir un plan." },
+    story: { de: "Der Betrieb läuft. Aber jede Lücke ist ein Kraftakt. Sie stellen ein, aber eine nach der anderen. Jetzt ist die Zeit für einen Plan.", en: "The house runs. But every gap is a struggle. You hire, but one at a time. Now is the time for a plan.", fr: "La maison tourne. Mais chaque trou est un effort. Vous recrutez, mais une par une. C'est le moment d'avoir un plan." },
   },
   3: {
     profile: {
@@ -83,13 +83,13 @@ export const STAGES: Record<Level, Stage> = {
       fill:    { c: { de: "Neue kommen erst, wenn es brennt.", en: "New nurses only come when there is a fire.", fr: "Les nouvelles n'arrivent qu'en urgence." }, g: { de: "Jedes Quartal eine Gruppe. Fest im Kalender.", en: "A group every quarter. In the calendar.", fr: "Un groupe par trimestre. Au calendrier." } },
       papers:  { c: { de: "Jedes Mal fangen Sie von vorne an.", en: "Every time you start from zero.", fr: "Chaque fois, vous repartez de zéro." }, g: { de: "Ein fester Ablauf. Ein fester Partner.", en: "One fixed process. One fixed partner.", fr: "Un processus fixe. Un partenaire fixe." } },
       arrive:  { c: { de: "Die Familie fehlt. Das Heimweh bleibt.", en: "Family is far. Homesickness stays.", fr: "La famille manque. Le mal du pays reste." }, g: { de: "Die Familie früh mitplanen.", en: "Plan for the family early.", fr: "Prévoir tôt la famille." } },
-      onboard: { c: { de: "Die Patinnen haben keine Zeit.", en: "Mentors have no time.", fr: "Les marraines n'ont pas le temps." }, g: { de: "Patinnen bekommen 2 Stunden pro Woche.", en: "Mentors get 2 hours a week.", fr: "Les marraines ont 2 heures par semaine." } },
+      onboard: { c: { de: "Die Ansprechpersonen haben keine Zeit.", en: "Mentors have no time.", fr: "Les marraines n'ont pas le temps." }, g: { de: "Ansprechpersonen bekommen 2 Stunden pro Woche.", en: "Mentors get 2 hours a week.", fr: "Les marraines ont 2 heures par semaine." } },
       agency:  { c: { de: "Leihkräfte sind fest eingeplant.", en: "Agency staff are part of the plan.", fr: "L'intérim fait partie du plan." }, g: { de: "Leihstunden abbauen, Schritt für Schritt.", en: "Cut agency hours, step by step.", fr: "Réduire l'intérim, pas à pas." } },
       keep:    { c: { de: "Überraschungen beim Lohn. Dann gehen Leute.", en: "Pay surprises. Then people leave.", fr: "Surprises sur la paie. Puis départs." }, g: { de: "Lohn ehrlich und schriftlich.", en: "Pay, honest and in writing.", fr: "Salaire honnête, par écrit." } },
     },
     bottom: { de: "Jede Kündigung wirft Sie zurück.", en: "Every resignation sets you back.", fr: "Chaque départ vous fait reculer." },
     gradBy: { de: "Ein fester Rhythmus statt Feuerwehr.", en: "A fixed rhythm instead of firefighting.", fr: "Un rythme fixe au lieu de l'urgence." },
-    story: { de: "Fast alles ist besetzt. Aber jedes Jahr gehen Leute. Jede Lücke heißt wieder Überstunden. Mit einem festen Rhythmus sind Sie vorbereitet.", en: "Almost everything is filled. But people leave every year. Every gap means overtime again. A fixed rhythm keeps you ready.", fr: "Presque tout est pourvu. Mais des gens partent chaque année. Chaque trou, ce sont de nouveau des heures sup. Un rythme fixe vous garde prêt." },
+    story: { de: "Fast alles ist besetzt. Aber jedes Jahr gehen Leute. Jede Lücke trifft Sie unvorbereitet. Mit einem festen Rhythmus sind Sie bereit.", en: "Almost everything is filled. But people leave every year. Every gap catches you unprepared. A fixed rhythm keeps you ready.", fr: "Presque tout est pourvu. Mais des gens partent chaque année. Chaque trou vous prend de court. Un rythme fixe vous garde prêt." },
   },
   4: {
     profile: {
@@ -108,7 +108,7 @@ export const STAGES: Record<Level, Stage> = {
     },
     bottom: { de: "Es läuft nach Plan. Aber nur mit bezahlter Suche.", en: "It runs by plan. But only with paid hiring.", fr: "Tout suit le plan. Mais seulement avec un recrutement payant." },
     gradBy: { de: "Ihre Leute holen Leute.", en: "Your people bring people.", fr: "Vos équipes font venir d'autres." },
-    story: { de: "Es läuft nach Plan. Neue kommen in Gruppen. Sie haben Patinnen. Überstunden sind selten. Der nächste Schritt kommt von Ihren eigenen Leuten.", en: "Things run by plan. New nurses come in groups. They have mentors. Overtime is rare. The next step comes from your own people.", fr: "Tout suit le plan. Les nouvelles arrivent en groupe. Elles ont des marraines. Les heures sup sont rares. La prochaine étape vient de vos équipes." },
+    story: { de: "Es läuft nach Plan. Neue kommen in Gruppen. Sie haben Ansprechpersonen. Lücken sind selten. Der nächste Schritt kommt von Ihren eigenen Leuten.", en: "Things run by plan. New nurses come in groups. They have mentors. Gaps are rare. The next step comes from your own people.", fr: "Tout suit le plan. Les nouvelles arrivent en groupe. Elles ont des marraines. Les trous sont rares. La prochaine étape vient de vos équipes." },
   },
   5: {
     profile: {
@@ -121,7 +121,7 @@ export const STAGES: Record<Level, Stage> = {
       fill:    { c: { de: "Bewerbungen kommen von allein.", en: "Applications come by themselves.", fr: "Les candidatures arrivent seules." }, g: { de: "Rhythmus halten. Auch in guten Zeiten.", en: "Keep the rhythm. Also in good times.", fr: "Garder le rythme. Même quand tout va bien." } },
       papers:  { c: { de: "Läuft wie ein Uhrwerk.", en: "Runs like clockwork.", fr: "Tourne comme une horloge." }, g: { de: "Neue Regeln früh kennen.", en: "Know new rules early.", fr: "Connaître tôt les nouvelles règles." } },
       arrive:  { c: { de: "Familien kommen nach. Und bleiben.", en: "Families follow. And stay.", fr: "Les familles suivent. Et restent." }, g: { de: "Die Gemeinschaft pflegen.", en: "Look after the community.", fr: "Entretenir la communauté." } },
-      onboard: { c: { de: "Frühere Neue sind heute Patinnen.", en: "Former newcomers are mentors now.", fr: "Les anciennes nouvelles sont marraines." }, g: { de: "Patinnen ausbilden. Und danken.", en: "Train mentors. And thank them.", fr: "Former les marraines. Et les remercier." } },
+      onboard: { c: { de: "Frühere Neue sind heute Ansprechpersonen.", en: "Former newcomers are mentors now.", fr: "Les anciennes nouvelles sont marraines." }, g: { de: "Ansprechpersonen ausbilden. Und danken.", en: "Train mentors. And thank them.", fr: "Former les marraines. Et les remercier." } },
       agency:  { c: { de: "Leihkräfte fast nie.", en: "Agency staff almost never.", fr: "L'intérim presque jamais." }, g: { de: "So bleibt es.", en: "Keep it that way.", fr: "Que ça reste ainsi." } },
       keep:    { c: { de: "Fast niemand geht.", en: "Almost nobody leaves.", fr: "Presque personne ne part." }, g: { de: "Jedes Quartal zählen.", en: "Count every quarter.", fr: "Compter chaque trimestre." } },
     },

@@ -28,7 +28,7 @@ export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = 
   },
   2: {
     name: { de: "Füllen", en: "Fill", fr: "Remplir" },
-    line: { de: "Überstunden stopfen die Löcher.", en: "Overtime plugs the holes.", fr: "Les heures sup bouchent les trous." },
+    line: { de: "Sie besetzen Stellen, eine nach der anderen.", en: "You fill posts, one at a time.", fr: "Vous pourvoyez les postes un par un." },
     looks: [
       { de: "Die Schichten sind voll. Aber teuer.", en: "Shifts are full. But costly.", fr: "Les gardes sont pleines. Mais chères." },
       { de: "Sie stellen eine nach der anderen ein.", en: "You hire one person at a time.", fr: "Vous recrutez une personne à la fois." },
@@ -51,7 +51,7 @@ export const LEVELS: Record<Level, { name: L; line: L; looks: L[]; trap: L }> = 
     line: { de: "Sie wissen früh, wer kommt.", en: "You know early who is coming.", fr: "Vous savez tôt qui arrive." },
     looks: [
       { de: "Neue kommen in Gruppen.", en: "New nurses come in groups.", fr: "Les nouvelles arrivent en groupe." },
-      { de: "Jede Neue hat eine Patin.", en: "Every new nurse has a mentor.", fr: "Chaque nouvelle a une marraine." },
+      { de: "Jede Neue hat eine Ansprechperson.", en: "Every new nurse has a mentor.", fr: "Chaque nouvelle a une marraine." },
       { de: "Leihkräfte nur noch selten.", en: "Agency staff only now and then.", fr: "L'intérim seulement de temps en temps." },
     ],
     trap: { de: "Vorsicht: Nicht nur auf Neue schauen. Die nächste Stufe schaffen Sie mit den Leuten, die schon da sind.", en: "Watch out: don't only look at new people. You reach the next level with the people you already have.", fr: "Attention : ne regardez pas que les nouvelles. Le niveau suivant se gagne avec celles qui sont déjà là." },
@@ -75,16 +75,16 @@ export const CLIMB: Record<Level, { goal: L; steps: { t: L; d: L }[] }> = {
     steps: [
       { t: { de: "Liste machen", en: "Make a list", fr: "Faire une liste" }, d: { de: "Schreiben Sie jede leere Stelle auf. Fangen Sie mit der teuersten an.", en: "Write down every empty post. Start with the most costly one.", fr: "Notez chaque poste vide. Commencez par le plus cher." } },
       { t: { de: "Ein Partner, nicht fünf", en: "One partner, not five", fr: "Un partenaire, pas cinq" }, d: { de: "Nehmen Sie einen Partner. Er prüft das Deutsch und macht die Papiere.", en: "Pick one partner. They check German and do the papers.", fr: "Prenez un seul partenaire. Il vérifie l'allemand et fait les papiers." } },
-      { t: { de: "Zuerst eine Patin", en: "A mentor first", fr: "D'abord une marraine" }, d: { de: "Bevor die Neue kommt, wissen Sie: Wer hilft ihr? Ohne Patin gehen viele wieder.", en: "Before she comes, know who will help her. Without a mentor, many leave.", fr: "Avant son arrivée, sachez qui l'aidera. Sans marraine, beaucoup repartent." } },
+      { t: { de: "Zuerst eine Ansprechperson", en: "A mentor first", fr: "D'abord une marraine" }, d: { de: "Bevor die Neue kommt, wissen Sie: Wer hilft ihr? Ohne Ansprechperson gehen viele wieder.", en: "Before she comes, know who will help her. Without a mentor, many leave.", fr: "Avant son arrivée, sachez qui l'aidera. Sans marraine, beaucoup repartent." } },
       { t: { de: "Leihkräfte im Block", en: "Agency staff in blocks", fr: "L'intérim en bloc" }, d: { de: "Buchen Sie Leihkräfte für ganze Monate. Das ist billiger als jede Schicht einzeln.", en: "Book agency staff for whole months. It is cheaper than shift by shift.", fr: "Réservez l'intérim pour des mois entiers. C'est moins cher que garde par garde." } },
     ],
   },
   2: {
-    goal: { de: "Von Stufe 2 auf 3: Feste Leute statt Überstunden.", en: "From level 2 to 3: your own people instead of overtime.", fr: "Du niveau 2 au 3 : des équipes fixes au lieu des heures sup." },
+    goal: { de: "Von Stufe 2 auf 3: Mehrere auf einmal statt einzeln.", en: "From level 2 to 3: several at once, not one by one.", fr: "Du niveau 2 au 3 : plusieurs à la fois, pas une par une." },
     steps: [
       { t: { de: "In Gruppen holen", en: "Hire in groups", fr: "Recruter en groupe" }, d: { de: "Holen Sie 3 bis 5 Pflegekräfte auf einmal. Zusammen bleiben sie eher.", en: "Bring 3 to 5 nurses at once. Together, they stay.", fr: "Faites venir 3 à 5 infirmières à la fois. Ensemble, elles restent." } },
       { t: { de: "Rückwärts planen", en: "Plan backwards", fr: "Planifier à rebours" }, d: { de: "Papiere dauern Monate. Wann brauchen Sie die Pflegekraft? Zählen Sie von dort zurück.", en: "Papers take months. When do you need her? Count back from that day.", fr: "Les papiers prennent des mois. Quand en avez-vous besoin ? Comptez à rebours." } },
-      { t: { de: "Den 90-Tage-Plan nutzen", en: "Use the 90-day plan", fr: "Utiliser le plan de 90 jours" }, d: { de: "Jede Neue bekommt den Plan aus diesem PDF. Und eine Patin, 2 Stunden pro Woche.", en: "Every new nurse gets the plan in this PDF. And a mentor, 2 hours a week.", fr: "Chaque nouvelle reçoit le plan de ce PDF. Et une marraine, 2 heures par semaine." } },
+      { t: { de: "Den 90-Tage-Plan nutzen", en: "Use the 90-day plan", fr: "Utiliser le plan de 90 jours" }, d: { de: "Jede Neue bekommt den Plan aus diesem PDF. Und eine Ansprechperson, 2 Stunden pro Woche.", en: "Every new nurse gets the plan in this PDF. And a mentor, 2 hours a week.", fr: "Chaque nouvelle reçoit le plan de ce PDF. Et une marraine, 2 heures par semaine." } },
       { t: { de: "Eine Zahl zählen", en: "Count one number", fr: "Compter un chiffre" }, d: { de: "Wie viele schaffen die Probezeit? Schreiben Sie es jeden Monat auf.", en: "How many pass probation? Write it down every month.", fr: "Combien réussissent la période d'essai ? Notez-le chaque mois." } },
     ],
   },
@@ -110,7 +110,7 @@ export const CLIMB: Record<Level, { goal: L; steps: { t: L; d: L }[] }> = {
     goal: { de: "Auf Stufe 5 bleiben.", en: "Staying on level 5.", fr: "Rester au niveau 5." },
     steps: [
       { t: { de: "Rhythmus halten", en: "Keep the rhythm", fr: "Garder le rythme" }, d: { de: "Jedes Quartal eine Gruppe. Auch in guten Zeiten.", en: "One group every quarter. Also in good times.", fr: "Un groupe par trimestre. Même quand tout va bien." } },
-      { t: { de: "Patinnen ausbilden", en: "Train mentors", fr: "Former des marraines" }, d: { de: "Ihre erfahrenen Leute helfen den Neuen.", en: "Your experienced people help the new ones.", fr: "Vos anciennes aident les nouvelles." } },
+      { t: { de: "Ansprechpersonen ausbilden", en: "Train mentors", fr: "Former des marraines" }, d: { de: "Ihre erfahrenen Leute helfen den Neuen.", en: "Your experienced people help the new ones.", fr: "Vos anciennes aident les nouvelles." } },
       { t: { de: "Drei Zahlen zählen", en: "Count three numbers", fr: "Compter trois chiffres" }, d: { de: "Leere Stellen, Kündigungen, Leihstunden. Jedes Quartal.", en: "Empty posts, resignations, agency hours. Every quarter.", fr: "Postes vides, départs, heures d'intérim. Chaque trimestre." } },
     ],
   },
@@ -127,7 +127,7 @@ export const BOTTLENECK: Record<RoadmapResult["bottleneck"], { t: L; d: L }> = {
 export const PLAN_90: { when: L; items: L[] }[] = [
   { when: { de: "Bevor sie kommt", en: "Before she comes", fr: "Avant son arrivée" }, items: [
     { de: "Die Wohnung ist fertig.", en: "The flat is ready.", fr: "Le logement est prêt." },
-    { de: "Die Patin sagt per Video Hallo.", en: "The mentor says hello by video.", fr: "La marraine dit bonjour en vidéo." },
+    { de: "Die Ansprechperson sagt per Video Hallo.", en: "The mentor says hello by video.", fr: "La marraine dit bonjour en vidéo." },
     { de: "Der Dienstplan für 2 Wochen steht.", en: "The rota for 2 weeks is done.", fr: "Le planning de 2 semaines est prêt." },
   ] },
   { when: { de: "Tag 1", en: "Day 1", fr: "Jour 1" }, items: [
@@ -136,7 +136,7 @@ export const PLAN_90: { when: L; items: L[] }[] = [
     { de: "Mittagessen mit dem Team.", en: "Lunch with the team.", fr: "Déjeuner avec l'équipe." },
   ] },
   { when: { de: "Woche 1", en: "Week 1", fr: "Semaine 1" }, items: [
-    { de: "Nur mitlaufen, mit der Patin.", en: "Only shadowing, with the mentor.", fr: "Seulement en binôme avec la marraine." },
+    { de: "Nur mitlaufen, mit der Ansprechperson.", en: "Only shadowing, with the mentor.", fr: "Seulement en binôme avec la marraine." },
     { de: "Bank, Amt, Krankenkasse.", en: "Bank, town hall, health insurance.", fr: "Banque, mairie, assurance maladie." },
     { de: "Jeden Tag 10 Minuten: Wie war es?", en: "10 minutes a day: how was it?", fr: "10 minutes par jour : comment ça va ?" },
   ] },
@@ -157,7 +157,7 @@ export const PLAN_90: { when: L; items: L[] }[] = [
 
 export const REASONS: { why: L; fix: L }[] = [
   { why: { de: "Keine gute Wohnung", en: "No good flat", fr: "Pas de bon logement" }, fix: { de: "Wohnung vorher suchen.", en: "Find the flat before she comes.", fr: "Trouver le logement avant." } },
-  { why: { de: "Allein, ohne Freunde", en: "Alone, no friends", fr: "Seule, sans amis" }, fix: { de: "Patin, Gruppe, Leute von zu Hause.", en: "Mentor, group, people from home.", fr: "Marraine, groupe, gens du pays." } },
+  { why: { de: "Allein, ohne Freunde", en: "Alone, no friends", fr: "Seule, sans amis" }, fix: { de: "Ansprechperson, Gruppe, Leute von zu Hause.", en: "Mentor, group, people from home.", fr: "Marraine, groupe, gens du pays." } },
   { why: { de: "Deutsch im Stress", en: "German under stress", fr: "L'allemand sous stress" }, fix: { de: "Im Dienst üben. Nicht nur im Kurs.", en: "Practise at work. Not only in class.", fr: "S'entraîner au travail. Pas qu'en cours." } },
   { why: { de: "Weniger Lohn als gedacht", en: "Less pay than she thought", fr: "Moins payée que prévu" }, fix: { de: "Lohn ehrlich und schriftlich.", en: "Pay, honest and in writing.", fr: "Salaire honnête, par écrit." } },
   { why: { de: "Die Familie fehlt", en: "She misses her family", fr: "La famille manque" }, fix: { de: "Familie früh mitplanen.", en: "Plan for the family early.", fr: "Prévoir tôt la famille." } },

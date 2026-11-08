@@ -151,6 +151,7 @@ export function toModel(f: FormV2): RoadmapAnswers {
     foreign,
     onboarding,
     pain,
+    usesAgency: f.leasing !== "0",
   };
 }
 
@@ -180,7 +181,7 @@ export function formSummaryDe(f: FormV2): [string, string][] {
   return rows;
 }
 
-const BANDS: Record<FormV2["bedarf"], L> = {
+export const BANDS: Record<FormV2["bedarf"], L> = {
   "1-5": x("1 bis 5", "1 to 5", "1 à 5"), "6-10": x("6 bis 10", "6 to 10", "6 à 10"), "11-25": x("11 bis 25", "11 to 25", "11 à 25"),
   "26-50": x("26 bis 50", "26 to 50", "26 à 50"), "51-100": x("51 bis 100", "51 to 100", "51 à 100"), "100+": x("über 100", "over 100", "plus de 100"),
 };
