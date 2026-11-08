@@ -139,6 +139,8 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const isAffiliate = pathname === "/affiliate" || pathname.startsWith("/affiliate/");
   // /fahrplan/plan is the hosted Fahrplan PDF: its own slim header, no site navbar.
   const isPlan = pathname === "/fahrplan/plan";
+  // /book/workshop is shown INSIDE the /workshop page (iframe, "Wählen Sie einen Termin"): calendar only.
+  const isWorkshopCal = pathname === "/book/workshop";
 
   return (
     <ThemeProvider>
@@ -151,7 +153,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           {/* .bv-chrome wrapper lets the affiliate subdomain hide ALL global
               chrome (navbar + flag strip + actions bar) via one CSS rule set by
               the no-flash host script in the <head> — see app/layout.tsx. */}
-          {!isV2 && !isUpload && !isAffiliate && !isPlan && (
+          {!isV2 && !isUpload && !isAffiliate && !isPlan && !isWorkshopCal && (
             <div className="bv-chrome">
             <Navbar
               hideThemeLang={isPortal}
@@ -177,7 +179,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
             {/* Impressum + Datenschutz on every public page (§ 5 DDG). Not inside
                 the logged-in portal app screens, where full-height layouts
                 would push it into a second scrollbar. */}
-            {!isPortal && <LegalFooter absolute={isAffiliate} />}
+            {!isPortal && !isWorkshopCal && <LegalFooter absolute={isAffiliate} />}
           </div>
           {/* Bug-report button: portal-only AND not on the login page.
               Public/marketing/login pages never render it so a stale cached
