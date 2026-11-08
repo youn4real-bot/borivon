@@ -303,7 +303,6 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
   const m = S[lang][n];
   if (!m) return null;
   const html = shell(lang, m.lines.map(p).join("") + btn(BOOK_URL, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
-  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${BOOK_URL}`, BYE[lang].replace("<br>", "
-"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
+  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${BOOK_URL}`, BYE[lang].replace("<br>", "\n"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
   return { subject: m.subject, html, text };
 }
