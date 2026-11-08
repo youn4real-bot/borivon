@@ -41,7 +41,8 @@ export async function deliverRoadmap(db: Db, lead: { id: string; email: string; 
   const lang = leadLang(d);
   const salutation = asSalutation(d.salutation);
   const lastName = String(d.lastName ?? "");
-  const facility = String(d.facility ?? "");
+  // v2 stores "Pflegeheim · Bayern" as facility: fine for the admin, odd in a sentence → leave it out of the mail
+  const facility = d.form ? "" : String(d.facility ?? "");
   const firstName = String(d.firstName ?? "");
   let ok = false;
   try {

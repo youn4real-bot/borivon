@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
       mailed = (await deliverRoadmap(db, { id, email, details })).ok;
     } else if (tokensEnabled()) {
       try {
-        const m = confirmMail({ lang, salutation, lastName, firstName, facility, confirmUrl: await confirmLink(id) });
+        const m = confirmMail({ lang, salutation, lastName, firstName, facility: form ? "" : facility, confirmUrl: await confirmLink(id) });
         mailed = await sendRoadmapConfirmEmail({ to: email, subject: m.subject, html: m.html, text: m.text });
       } catch (e) { console.error("[roadmap] confirm mail failed:", e instanceof Error ? e.message : e); }
     } else console.error("[roadmap] DL_TOKEN_SECRET missing: no confirm link possible");
