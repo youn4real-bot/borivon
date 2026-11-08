@@ -98,7 +98,7 @@ export const CLIMB: Record<Level, { goal: L; steps: { t: L; d: L }[] }> = {
     ],
   },
   4: {
-    goal: { de: "Von Stufe 4 auf 5: Werden Sie ein Magnet.", en: "From level 4 to 5: become a magnet.", fr: "Du niveau 4 au 5 : devenez un aimant." },
+    goal: { de: "Von Stufe 4 auf 5: Pflegekräfte kommen von selbst.", en: "From level 4 to 5: nurses come by themselves.", fr: "Du niveau 4 au 5 : les infirmières viennent d'elles-mêmes." },
     steps: [
       { t: { de: "Ihre Leute holen Leute", en: "Your people bring people", fr: "Vos équipes recrutent" }, d: { de: "Geben Sie eine Prämie für jede Freundin, die kommt und bleibt.", en: "Give a bonus for every friend who comes and stays.", fr: "Une prime pour chaque amie qui vient et reste." } },
       { t: { de: "Einen Weg zeigen", en: "Show a path", fr: "Montrer un chemin" }, d: { de: "Zeigen Sie im ersten Jahr: Wohin kann sie wachsen?", en: "Show in year one: where can she grow?", fr: "Montrez dès la première année : où peut-elle évoluer ?" } },

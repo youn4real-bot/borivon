@@ -48,6 +48,7 @@ const ON_GOLD = hexColor("#131312");
 const MUTED = hexColor("#6d6a63");
 const RED = hexColor("#b5553b");
 const RED_SOFT = hexColor("#f8ebe5");
+const RED_LIGHT = hexColor("#e2a491");
 const GREEN = hexColor("#3f7a52");
 
 const PLAYFAIR = "pflege/assets/playfair-latin.woff2";
@@ -244,11 +245,11 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     y += 40;
     const rh = 96, ch = rh - 14;
     const mineBA = input.form ? beforeAfterFor(input.form, input.date) : [];
-    // their own pains first; fill up to 4 with the rows of their level
-    const rows = [...mineBA, ...BEFORE_AFTER[lv].filter((r) => !mineBA.some((m) => m.ic === r.ic))].slice(0, 4);
+    // only their own pains (founder: always relevant); old leads without the form get the level rows
+    const rows = input.form ? mineBA : BEFORE_AFTER[lv];
     for (const r of rows) {
       s.roundedRect(M, y, cw, ch, 16, { fill: RED_SOFT });
-      icon(page, r.ic, M + 16, y + (ch - 40) / 2, 40, { base: RED, accent: RED, hole: RED_SOFT });
+      icon(page, r.ic, M + 16, y + (ch - 40) / 2, 40, { base: RED, accent: RED_LIGHT, hole: RED_SOFT });
       const bt = pick(r.b, lang), bh = paraH(bt, F.semi, 12.5, cw - 80, 1.35);
       para(s, bt, M + 68, y + (ch - bh) / 2 + 2, cw - 80, F.semi, 12.5, INK, 1.35);
       triangle(page, M + cw + 22, y + ch / 2 - 9, 14, 18, GOLD, "right");
@@ -360,17 +361,22 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   // ── 6b · the personal deadline (only with the v2 form) ────────────────────
   if (input.form) {
     const T = TL[lang];
-    const tl = buildTimeline(input.form, input.date);
+    const form = input.form;
+    const tl = buildTimeline(form, input.date);
     const loc = lang === "en" ? "en-GB" : lang === "fr" ? "fr-FR" : "de-DE";
     const long = (d: Date) => d.toLocaleDateString(loc, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
     const short = (d: Date) => d.toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: "UTC" });
     const fill = (str: string) => str.replace("{date}", tl.target ? long(tl.target) : "").replace("{start}", tl.latestStart ? long(tl.latestStart) : "")
-      .replace("{weeks}", String(Math.max(0, tl.weeksLeft ?? 0))).replace("{first}", long(tl.earliestFirstDay));
+      .replace("{weeks}", String(Math.max(0, tl.weeksLeft ?? 0))).replace("{first}", long(tl.earliestFirstDay))
+      .replace("{m}", form.start === "12m" ? "12" : "6");
+    const approx = form.start === "6m" || form.start === "12m";
     const { page, s } = newPage();
     icon(page, "calendar", M + W - 56, 72, 56, on(PAPER));
     let y = disp(page, HN, T.h, M, 70, W - 80, 44, INK, 1.05);
     y = para(s, T.sub, M, y + 6, W - 80, F.reg, 12, MUTED) + 20;
-    const [lead, big, color] = tl.status === "asap" ? [T.asap, T.asapBig, GOLD_TEXT] : tl.status === "late" ? [T.late, T.lateBig, RED] : [T.ok, T.okBig, tl.status === "tight" ? RED : GOLD_TEXT];
+    const [lead, big, color] = tl.status === "asap" ? [T.asap, T.asapBig, GOLD_TEXT]
+      : tl.status === "late" ? [approx ? T.lateIn : T.late, T.lateBig, RED]
+      : [approx ? T.okIn : T.ok, T.okBig, tl.status === "tight" ? RED : GOLD_TEXT];
     y = para(s, fill(lead), M, y, W, F.semi, 13, INK, 1.5) + 8;
     y = disp(page, HN, fill(big), M, y, W, 34, color, 1.1) + 6;
     if (tl.status === "tight") y = para(s, T.tight, M, y, W, F.reg, 11, MUTED, 1.5) + 4;

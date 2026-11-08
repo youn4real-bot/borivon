@@ -106,3 +106,27 @@ describe("PDF with the v2 form", () => {
     }
   }, 120_000);
 });
+
+describe("relevance (founder: only what they told us)", () => {
+  it("no Leasing anywhere when they have none, and none of our guesses", async () => {
+    const { painsFor } = await import("../lib/roadmap/visual");
+    const f = normalizeForm({ art: "home_care", bedarf: "1-5", leasing: "0", erfahrung: "never", start: "12m", haben: ["flat", "mentor", "plan"] });
+    const words = JSON.stringify(painsFor(f, today));
+    expect(words).not.toMatch(/Leasing|Leih|Überstunden|Patin/);
+    expect(scoreRoadmap(toModel(f)).usesAgency).toBe(false);
+  });
+  it("what they ticked becomes a row", async () => {
+    const { painsFor } = await import("../lib/roadmap/visual");
+    const f = normalizeForm({ bedarf: "6-10", leasing: "3-5", erfahrung: "failed", grund: ["papers", "left"], haben: ["flat", "mentor", "plan"], start: "12m" });
+    const de = painsFor(f, today).map((p) => p.b.de);
+    expect(de).toEqual(["6 bis 10 Fachkräfte fehlen", "Neue gingen wieder", "Papiere dauerten ewig", "3 bis 5 Leasingkräfte im Haus"]);
+  });
+  it("the Stufe follows the answers: urgent → 1, healthy → 5", () => {
+    const urgent = scoreRoadmap(toModel(normalizeForm({ art: "hospital", plaetze: "200+", bedarf: "100+", leasing: "6+", erfahrung: "failed", haben: [] })));
+    const small = scoreRoadmap(toModel(normalizeForm({ art: "home_care", plaetze: "<50", bedarf: "1-5", leasing: "0", erfahrung: "never", haben: [] })));
+    const healthy = scoreRoadmap(toModel(normalizeForm({ art: "disability", plaetze: "200+", bedarf: "1-5", leasing: "0", erfahrung: "more", haben: ["flat", "mentor", "plan"] })));
+    expect(urgent.level).toBe(1);
+    expect(small.level).toBeLessThanOrEqual(2); // needs a third of its nurses: never "Halten"
+    expect(healthy.level).toBe(5);
+  });
+});

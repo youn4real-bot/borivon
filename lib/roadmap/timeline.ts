@@ -73,6 +73,7 @@ export function buildTimeline(f: Pick<FormV2, "start" | "datum">, today: Date): 
 /** Page text. {date} {start} {weeks} {first} are filled in by the PDF. */
 export const TL: Record<keyof L, {
   h: string; sub: string; ok: string; okBig: string; tight: string; late: string; lateBig: string; asap: string; asapBig: string;
+  okIn: string; lateIn: string;
   weeks: string; week: string;
 }> = {
   de: {
@@ -81,6 +82,8 @@ export const TL: Record<keyof L, {
     tight: "Das ist knapp. Jede Woche Warten schiebt den ersten Arbeitstag nach hinten.",
     late: "Für den {date} ist es zu knapp. Wenn Sie diese Woche starten, kann sie am {first} anfangen.", lateBig: "Frühestens: {first}",
     asap: "Wenn Sie diese Woche starten, kann Ihre erste Fachkraft am {first} anfangen.", asapBig: "Erster Arbeitstag: {first}",
+    okIn: "Damit Ihre erste Fachkraft in {m} Monaten anfängt, müssen Sie spätestens am {start} starten.",
+    lateIn: "In {m} Monaten ist zu knapp. Wenn Sie diese Woche starten, kann sie am {first} anfangen.",
     weeks: "Wochen", week: "Woche",
   },
   en: {
@@ -89,6 +92,8 @@ export const TL: Record<keyof L, {
     tight: "That is tight. Every week of waiting moves the first working day back.",
     late: "{date} is too soon. If you begin this week, she can start on {first}.", lateBig: "Earliest: {first}",
     asap: "If you begin this week, your first nurse can start on {first}.", asapBig: "First working day: {first}",
+    okIn: "For your first nurse to start in {m} months, you must begin by {start} at the latest.",
+    lateIn: "{m} months is too soon. If you begin this week, she can start on {first}.",
     weeks: "weeks", week: "week",
   },
   fr: {
@@ -97,6 +102,8 @@ export const TL: Record<keyof L, {
     tight: "C'est serré. Chaque semaine d'attente repousse le premier jour.",
     late: "Le {date}, c'est trop tôt. Si vous démarrez cette semaine, elle peut commencer le {first}.", lateBig: "Au plus tôt : {first}",
     asap: "Si vous démarrez cette semaine, votre première infirmière peut commencer le {first}.", asapBig: "Premier jour : {first}",
+    okIn: "Pour que votre première infirmière commence dans {m} mois, vous devez démarrer au plus tard le {start}.",
+    lateIn: "{m} mois, c'est trop tôt. Si vous démarrez cette semaine, elle peut commencer le {first}.",
     weeks: "semaines", week: "semaine",
   },
 };

@@ -12,8 +12,10 @@ export const CALC_PATH = "https://borivon.com/fahrplan/rechner";
 export const MIN_SALARY_MONTH = 4411;
 
 /** The link printed on PDF page 4: their numbers prefilled; id+t only when the lead exists. */
-export async function calcUrl(o: { lang: Lang; facilityType: FacilityType; openPosts: number; leftLastYear: number; leadId?: string }): Promise<string> {
+export async function calcUrl(o: { lang: Lang; facilityType: FacilityType; openPosts: number; leftLastYear: number; leadId?: string; usesAgency?: boolean }): Promise<string> {
   const p = new URLSearchParams({ lang: o.lang, f: o.facilityType, o: String(o.openPosts), l: String(o.leftLastYear) });
+  // no agency staff in their house → the calculator starts with 0 agency hours (founder: always relevant)
+  if (o.usesAgency === false) p.set("a", "0");
   if (o.leadId) { p.set("id", o.leadId); p.set("t", await signLeadToken("calc", o.leadId)); }
   return `${CALC_PATH}?${p.toString()}`;
 }

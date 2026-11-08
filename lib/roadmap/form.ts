@@ -152,7 +152,25 @@ export function toModel(f: FormV2): RoadmapAnswers {
     onboarding,
     pain,
     usesAgency: f.leasing !== "0",
+    scoreV2: formScore(f),
   };
+}
+
+/**
+ * The Stufe from the v2 answers (0–100, higher = healthier; 82+ = 5 … under 30 = 1):
+ *   the gap: open posts against the estimated nurses on staff (biggest weight)
+ *   agency staff in the house · it went wrong before · nothing prepared · hired abroad and want more
+ */
+export function formScore(f: FormV2): number {
+  const t = facilityTypeOf(f);
+  const staff = Math.max(1, MID_PLAETZE[f.plaetze] * NURSES_PER_UNIT[t]);
+  const gap = openPostsOf(f) / staff;
+  let s = 100 - Math.min(55, gap * 250);
+  s -= { "0": 0, "1-2": 8, "3-5": 16, "6+": 25 }[f.leasing];
+  if (f.erfahrung === "failed") s -= 10;
+  if (f.erfahrung === "more") s += 8;
+  for (const k of ["flat", "mentor", "plan"] as const) if (!f.haben.includes(k)) s -= 3;
+  return Math.round(Math.min(100, Math.max(0, s)));
 }
 
 /** Cover / email line: "Pflegeheim · Bayern". */

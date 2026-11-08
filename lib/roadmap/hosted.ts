@@ -49,7 +49,7 @@ export async function renderFor(leadId: string, d: RoadmapDetails, doc: HostedDo
     name: addressName(lang, asSalutation(d.salutation), String(d.lastName ?? ""), String(d.firstName ?? "")),
     facility: form ? facilityLine(form, lang) : String(d.facility ?? ""),
     date: d.consent?.confirmedAt ? new Date(String(d.consent.confirmedAt)) : new Date(),
-    calcUrl: await calcUrl({ lang, facilityType: answers.facilityType, openPosts: answers.openPosts, leftLastYear: answers.leftLastYear, leadId }),
+    calcUrl: await calcUrl({ lang, facilityType: answers.facilityType, openPosts: answers.openPosts, leftLastYear: answers.leftLastYear, leadId, usesAgency: answers.usesAgency !== false }),
   });
 }
 

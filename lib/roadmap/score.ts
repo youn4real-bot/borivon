@@ -37,6 +37,8 @@ export type RoadmapAnswers = {
   pain: Pain;
   /** false = they told us they have no agency staff: an open post then costs only the lost places */
   usesAgency?: boolean;
+  /** 0–100 from the v2 form (form.ts formScore); replaces the old staff/turnover score */
+  scoreV2?: number;
 };
 
 export type Level = 1 | 2 | 3 | 4 | 5;
@@ -135,6 +137,7 @@ export function normalizeAnswers(a: Partial<RoadmapAnswers>): RoadmapAnswers {
     onboarding: Array.isArray(a.onboarding) ? onb.filter((o) => (a.onboarding as string[]).includes(o)) : [],
     pain: pains.includes(a.pain as Pain) ? (a.pain as Pain) : "open_posts",
     ...(a.usesAgency === false ? { usesAgency: false } : {}),
+    ...(Number.isFinite(a.scoreV2) ? { scoreV2: Math.min(100, Math.max(0, Math.round(Number(a.scoreV2)))) } : {}),
   };
 }
 
@@ -152,6 +155,7 @@ export function scoreRoadmap(input: Partial<RoadmapAnswers>): RoadmapResult {
   score += FOREIGN_POINTS[a.foreign];
   score += a.onboarding.length * 2;                // a real first-90-days plan helps
   score = Math.round(Math.min(100, Math.max(0, score)));
+  if (a.scoreV2 !== undefined) score = a.scoreV2;
 
   const level: Level = score >= 82 ? 5 : score >= 66 ? 4 : score >= 48 ? 3 : score >= 30 ? 2 : 1;
 

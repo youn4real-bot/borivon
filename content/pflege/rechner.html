@@ -155,7 +155,7 @@ footer a { color: var(--muted); }
   // Everything the visitor can change. Salary and agency are built from their parts.
   var V = { open: num("o", 3, 60), left: num("l", 4, 60), growth: 0,
     rate: MIN_RATE, hours: 40, share: EMPLOYER_SHARE,
-    agHours: M.agency / AGENCY_RATE, agRate: AGENCY_RATE,
+    agHours: q.get("a") === "0" ? 0 : M.agency / AGENCY_RATE, agRate: AGENCY_RATE,
     units: M.units, perUnit: M.perUnit };
   var years = 3, openRow = null;
   var lead = { id: q.get("id") || "", t: q.get("t") || "" };
