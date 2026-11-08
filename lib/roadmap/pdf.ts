@@ -26,7 +26,7 @@ import { FACILITY, leaveModel } from "./types";
 import { costPerDeparture } from "./score";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
 import { VIDEO_INTRO, VIDEO_STAGE } from "./videos";
-import { PLAYBOOK } from "./playbook";
+import { PLAYBOOK, type AreaKey } from "./playbook";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
 const NIGHT = hexColor("#0e0e10");
@@ -72,9 +72,9 @@ export function formatEuro(n: number, lang: Lang): string {
   return s + " €";
 }
 
-/** How many pages a Fahrplan has for a level: 13 + the stage behind and the stage ahead (6 each). */
+/** How many pages a Fahrplan has for a level: 12 + the stage behind and the stage ahead (5 each). */
 export function roadmapPageCount(level: Level): number {
-  return 13 + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 6 : 0) + (level < 5 ? 6 : 0);
+  return 12 + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 5 : 0) + (level < 5 ? 5 : 0);
 }
 
 type Fonts = { reg: DocFont; semi: DocFont };
@@ -220,33 +220,33 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   };
 
   /**
-   * Area by area, like acquisition.com page 7: big icon, gold tag, then what you
-   * see (2 bullets) and exactly what to do now (3 bullets). 3 areas per page.
+   * Area by area on ONE page, like acquisition.com page 7: icon, gold tag, then
+   * 3 short lines: the problem, then 2 things to do (green checks).
    */
   const areasPages = (n: Level) => {
     const P = PLAYBOOK[n];
-    for (let start = 0; start < AREAS.length; start += 3) {
-      const { page, s } = newPage();
-      let y = 74;
-      for (const a of AREAS.slice(start, start + 3)) {
-        const r = P.areas[a.key as keyof typeof P.areas];
-        icon(page, a.icon, M, y + 2, 64, on(PAPER));
-        const tx = M + 96, tw = W - 96;
-        let yy = block(s, pick(a.name, lang), tx, y, 13, GOLD, ON_GOLD, 12, 6) + 12;
-        for (const p of r.p) {
-          s.text("•", tx + 2, yy, F.reg, 12.5, MUTED);
-          yy = para(s, pick(p, lang), tx + 18, yy, tw - 18, F.reg, 12.5, MUTED, 1.5) + 4;
-        }
-        yy += 5;
-        caps(s, SU.doNow, tx, yy, 9, GREEN);
-        yy += 18;
-        for (const act of r.a) {
-          icon(page, "check", tx, yy + 2, 13, { base: GREEN, accent: GREEN, hole: PAPER });
-          yy = para(s, pick(act, lang), tx + 20, yy, tw - 20, F.semi, 12.5, INK, 1.5) + 5;
-        }
-        y = Math.max(yy, y + 70) + 40;
+    const { page, s } = newPage();
+    const tx = M + 80, tw = W - 80, fs = 11.5, lh = 1.45;
+    const lineH = (txt: string, f: typeof F.reg, w: number) => paraH(txt, f, fs, w, lh) + 4;
+    const hs = AREAS.map((a) => {
+      const r = P.areas[a.key as AreaKey];
+      return Math.max(56, 30 + lineH(pick(r[0], lang), F.reg, tw - 16) + r.slice(1).reduce((h, l) => h + lineH(pick(l, lang), F.semi, tw - 20), 0));
+    });
+    const top = 70, bottom = PH - 74;
+    const gap = Math.max(10, Math.min(34, (bottom - top - hs.reduce((a, b) => a + b, 0)) / (AREAS.length - 1)));
+    let y = top;
+    AREAS.forEach((a, i) => {
+      const r = P.areas[a.key as AreaKey];
+      icon(page, a.icon, M, y + 2, 52, on(PAPER));
+      let yy = block(s, pick(a.name, lang), tx, y, 12.5, GOLD, ON_GOLD, 11, 6) + 10;
+      s.text("•", tx + 2, yy, F.reg, fs, MUTED);
+      yy = para(s, pick(r[0], lang), tx + 16, yy, tw - 16, F.reg, fs, MUTED, lh) + 4;
+      for (const act of r.slice(1)) {
+        icon(page, "check", tx, yy + 2, 12, { base: GREEN, accent: GREEN, hole: PAPER });
+        yy = para(s, pick(act, lang), tx + 20, yy, tw - 20, F.semi, fs, INK, lh) + 4;
       }
-    }
+      y += hs[i] + gap;
+    });
   };
 
   /** What success looks like: a vertical line, check circles, 4 night tags with 4 steps each. */
@@ -353,10 +353,25 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   {
     const fr = newPage();
     const { page, s } = fr;
-    let y = disp(page, HN, t.numbers, M, 70, W, 44, INK, 1.05) + 6;
-    y = disp(page, HN, "−" + formatEuro(result.totalYear, lang), M, y, W, 50, RED, 1.1, 0);
-    s.text(t.total, M, y + 2, F.reg, 12, MUTED);
-    y += 30;
+    let y = disp(page, HN, t.numbers, M, 70, W, 44, INK, 1.05) + 16;
+    // lose vs win, side by side: the two numbers that matter
+    {
+      const cw = (W - 14) / 2, ch = 132;
+      const card = (x: number, label: string, big: string, sub: string, color: RGB) => {
+        s.roundedRect(x, y, cw, ch, 16, { fill: CARD, border: LINE, borderWidth: 0.8 });
+        s.rect(x + 18, y + 18, 28, 3, color);
+        caps(s, label, x + 18, y + 30, 9, color);
+        let sz = 30;
+        while (sz > 18 && HN.measure(big, sz) > cw - 36) sz -= 1;
+        HN.draw(page, PH, big, x + 18, y + 50, sz, color);
+        para(s, sub, x + 18, y + 92, cw - 36, F.reg, 10.5, MUTED, 1.45);
+      };
+      card(M, SU.loseLbl, `−${formatEuro(result.totalYear, lang)}`, SU.loseSub, RED);
+      card(M + cw + 14, SU.winLbl, `+${formatEuro(result.perNurseMonth * 12, lang)}`, SU.winSub, GREEN);
+      y += ch + 22;
+    }
+    caps(s, SU.whereFrom, M, y, 8, MUTED);
+    y += 16;
     const row = (ic: IconName, label: string, big: string, small: string, color: RGB) => {
       const rh = 74;
       s.roundedRect(M, y, W, rh, 16, { fill: CARD, border: LINE, borderWidth: 0.8 });
@@ -368,7 +383,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     };
     row("bed", t.openPosts, `−${formatEuro(result.openCostMonth, lang)} ${t.perMonth}`, `−${formatEuro(result.openCostYear, lang)} ${t.perYear}`, RED);
     row("door", t.leaving, `−${formatEuro(result.turnoverCostYear, lang)} ${t.perYear}`, "", RED);
-    row("heart", t.perNurse, `+${formatEuro(result.perNurseMonth, lang)} ${t.perMonth}`, `+${formatEuro(result.perNurseMonth * 12, lang)} ${t.perYear}`, GREEN);
     y += 8;
     caps(s, t.howCounted, M, y, 8, MUTED);
     y += 18;
