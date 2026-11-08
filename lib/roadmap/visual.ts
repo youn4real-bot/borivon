@@ -63,8 +63,8 @@ export const V: Record<keyof L, {
     bucketLine: "Oben gießen Sie neue Leute rein. Unten läuft es wieder raus.",
     bucketFix: "Erst das Loch stopfen. Dann füllen.",
     softH: "Wollen Sie auf Stufe {n}?", softHTop: "Wollen Sie oben bleiben?",
-    softP: "Lernen Sie Ihre Pflegekräfte persönlich kennen. In unserem Workshop in Marokko: 2 Tage mit unserem Gründer. Sie setzen Ihren Fahrplan mit uns um und treffen die Pflegekräfte vor Ort. Nur 10 Plätze pro Termin.",
-    softBtn: "Platz anfragen", softTags: ["2 Tage", "Pflegekräfte treffen", "Workshop"],
+    softP: "Unser Workshop in Marokko: 2 Tage mit unserem Gründer. Am ersten Tag bauen wir mit Ihnen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte dafür persönlich kennen. Nur 10 Plätze pro Termin.",
+    softBtn: "Platz anfragen", softTags: ["Tag 1: Ihr Plan", "Tag 2: Ihre Pflegekräfte", "10 Plätze"],
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
   },
   en: {
@@ -73,8 +73,8 @@ export const V: Record<keyof L, {
     bucketLine: "You pour new people in at the top. They run out at the bottom.",
     bucketFix: "Fix the hole first. Then fill.",
     softH: "Want to reach level {n}?", softHTop: "Want to stay on top?",
-    softP: "Meet your nurses in person. At our workshop in Morocco: 2 days with our founder. You put your roadmap into action with us and meet the nurses on site. Only 10 seats per date.",
-    softBtn: "Request a seat", softTags: ["2 days", "Meet the nurses", "Workshop"],
+    softP: "Our workshop in Morocco: 2 days with our founder. On day one we build your plan with you. On day two you meet the nurses for it in person. Only 10 seats per date.",
+    softBtn: "Request a seat", softTags: ["Day 1: your plan", "Day 2: your nurses", "10 seats"],
     stepsH: "How you reach level {n}.", stepsSub: "Tick them off. One by one.", stayH: "How you stay on top.",
   },
   fr: {
@@ -83,8 +83,8 @@ export const V: Record<keyof L, {
     bucketLine: "Vous versez des gens par le haut. Ils repartent par le bas.",
     bucketFix: "D'abord boucher le trou. Puis remplir.",
     softH: "Passer au niveau {n} ?", softHTop: "Rester au sommet ?",
-    softP: "Rencontrez vos infirmières en personne. À notre atelier au Maroc : 2 jours avec notre fondateur. Vous mettez votre plan en œuvre avec nous et rencontrez les infirmières sur place. Seulement 10 places par date.",
-    softBtn: "Demander une place", softTags: ["2 jours", "Rencontrer les infirmières", "Atelier"],
+    softP: "Notre atelier au Maroc : 2 jours avec notre fondateur. Le premier jour, nous construisons votre plan avec vous. Le deuxième, vous rencontrez les infirmières en personne. Seulement 10 places par date.",
+    softBtn: "Demander une place", softTags: ["Jour 1 : votre plan", "Jour 2 : vos infirmières", "10 places"],
     stepsH: "Comment passer au niveau {n}.", stepsSub: "Cochez. Une chose après l'autre.", stayH: "Comment rester au sommet.",
   },
 };
