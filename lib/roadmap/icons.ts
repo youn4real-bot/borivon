@@ -57,6 +57,12 @@ export const ICONS = {
   heart: [a("M 24 42 C 10 32 4 24.5 4 16.5 C 4 10 9 5.5 15 5.5 C 19 5.5 22 7.5 24 10.5 C 26 7.5 29 5.5 33 5.5 C 39 5.5 44 10 44 16.5 C 44 24.5 38 32 24 42 Z"), line("M 10.5 16 C 10.5 12.5 12.5 11 15 11", "hole", 2.6)],
   /** a magnet: level 5 */
   magnet: [line("M 14 8 V 24 A 10 10 0 0 0 34 24 V 8", "base", 9, "butt"), a(rr(9.5, 2, 9, 8, 1)), a(rr(29.5, 2, 9, 8, 1)), line("M 6 39 L 2.5 42.5", "accent", 2.5), line("M 42 39 L 45.5 42.5", "accent", 2.5), line("M 24 42 V 46", "accent", 2.5)],
+  /** a flame: level 1, everything is on fire */
+  fire: [a("M 24 3 C 30 13 40 19 40 30 C 40 39 33 45 24 45 C 15 45 8 39 8 30 C 8 22 14 17 16 10 C 19 15 20 18 22 19 C 23 13 23 8 24 3 Z"),
+    b("M 24 24 C 28 29 32 32 32 36.5 C 32 41 28.5 44 24 44 C 19.5 44 16 41 16 36.5 C 16 32 20 29 24 24 Z")],
+  /** a plaster: level 2, plugging gaps */
+  bandage: [a("M 7.5 31.5 L 31.5 7.5 A 6.4 6.4 0 0 1 40.5 16.5 L 16.5 40.5 A 6.4 6.4 0 0 1 7.5 31.5 Z"), b("M 24 15 L 33 24 L 24 33 L 15 24 Z"),
+    h(circle(22, 22, 1.4)), h(circle(26, 26, 1.4)), h(circle(26, 22, 1.4)), h(circle(22, 26, 1.4))],
   /** a filled check: done */
   check: [b(circle(24, 24, 22)), line("M 14 24.5 L 21 31.5 L 34 18", "hole", 5)],
   /** an arrow up: the next level */

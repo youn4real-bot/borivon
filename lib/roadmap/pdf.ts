@@ -2,13 +2,10 @@
  * The personal Pflege-Fahrplan PDF (A4). Drawn with pdf-lib on the same
  * helpers as the B2 report (lib/pdflib/render.ts), so it runs on Workers.
  *
- * Structure = acquisition.com's $100M Scaling Roadmap, page for page (founder,
- * 2026-11-08: "model them exactly, in our design"):
- *   cover · you are here · [watch this first] · your stage · when you hit it ·
- *   area by area · your numbers (+ calculator) · what success looks like ·
- *   90-day plan · just for your kind of house · 7 reasons · the bottom line ·
- *   next step · then the stage you passed and the stage that comes next, in full.
- * Bold blocks, giant headings, a few words per line.
+ * Structure (founder 2026-11-08, "transformation, not information"; see lib/roadmap/visual.ts):
+ *   cover · 5-level staircase · [watch this first] · before → after · leaky bucket ·
+ *   lose vs win (+ calculator) · the Borivon way · [the deadline] · checklists to
+ *   the next level · 90-day plan · the call. One picture per page, few words.
  *
  * Design = borivon.com: night #0e0e10, gold #c9a240, paper #f6f4ef, Playfair
  * Display headings (drawn as outlines, lib/roadmap/vectorFont.ts), Lexend body,
@@ -19,16 +16,17 @@
 import { PDFDocument, PageSizes, PDFName, PDFString, type PDFPage, type PDFRef, type RGB } from "pdf-lib";
 import { embedFonts, hexColor, Surface, wrapText, measure, type DocFont } from "@/lib/pdflib/render";
 import type { RoadmapResult, Level } from "./score";
-import { LEVELS, CLIMB, BOTTLENECK, PLAN_90, REASONS, UI, pick, type Lang } from "./content";
-import { STAGES, AREAS, STAGE_UI } from "./stages";
-import { drawIcon, REASON_ICONS, type IconName, type IconColors } from "./icons";
+import { LEVELS, CLIMB, PLAN_90, UI, pick, type Lang } from "./content";
+import { STAGE_UI } from "./stages";
+import { drawIcon, type IconName, type IconColors } from "./icons";
 import { FACILITY, leaveModel } from "./types";
 import { costPerDeparture } from "./score";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
-import { VIDEO_INTRO, VIDEO_STAGE } from "./videos";
-import { PLAYBOOK, type AreaKey } from "./playbook";
+import { VIDEO_INTRO } from "./videos";
+import { PLAYBOOK } from "./playbook";
 import { buildTimeline, STEP_NAME, TL } from "./timeline";
 import { BEDARF_LINE, type FormV2 } from "./form";
+import { LEVEL_ICON, BEFORE_AFTER, WAY, V } from "./visual";
 
 // borivon.com tokens (content/pflege/*.html :root) + their light-paper twins
 const NIGHT = hexColor("#0e0e10");
@@ -76,9 +74,12 @@ export function formatEuro(n: number, lang: Lang): string {
   return s + " €";
 }
 
-/** How many pages a Fahrplan has for a level: 12 + the stage behind and the stage ahead (5 each). */
-export function roadmapPageCount(level: Level, timeline = false): number {
-  return 12 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0) + (level > 1 ? 5 : 0) + (level < 5 ? 5 : 0);
+/**
+ * How many pages a Fahrplan has: cover · staircase · before/after · bucket · numbers ·
+ * the Borivon way · [timeline] · checklists · 90 days · call. The level no longer adds pages.
+ */
+export function roadmapPageCount(_level: Level, timeline = false): number {
+  return 9 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0);
 }
 
 type Fonts = { reg: DocFont; semi: DocFont };
@@ -88,6 +89,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
   const { result, lang } = input;
   const t = UI[lang];
   const SU = STAGE_UI[lang];
+  const VV = V[lang];
   const doc = await PDFDocument.create();
   doc.setTitle(`${t.title} · ${input.facility || "Borivon"}`);
   doc.setAuthor("Borivon");
@@ -131,7 +133,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     for (const ln of wrapVector(text, vf, size, width, size * -0.02)) { vf.draw(page, PH, ln, (PW - vf.measure(ln, size, size * -0.02)) / 2, y, size, color, size * -0.02); y += size * lh; }
     return y;
   };
-  const dispH = (vf: VectorFont, text: string, size: number, width: number, lh = 1.1) => wrapVector(text, vf, size, width, size * -0.02).length * size * lh;
   function para(s: Surface, text: string, x: number, y: number, width: number, font: DocFont, size: number, color: RGB, lh = 1.6): number {
     for (const ln of wrapText(text, font, size, width)) { s.text(ln, x, y, font, size, color); y += size * lh; }
     return y;
@@ -166,126 +167,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     link(page, cx - d / 2, top, d, d, url);
   };
   const tagLine = `${t.title}  •  ${sn(lv)}: ${levelName(lv)}`.toUpperCase();
-
-  // ── reusable stage pages (the person's stage, and the one before/after) ─────
-
-  /** "Your stage": two tag blocks, a play button, then the four facts on night. */
-  const stagePage = (n: Level, heading: string) => {
-    const fr = newPage();
-    const { page, s } = fr;
-    const St = STAGES[n];
-    cdisp(page, H, heading, 74, W, 46, INK);
-    const b1 = block(s, sn(n).toUpperCase(), M, 158, 24, GOLD, ON_GOLD, 16, 10);
-    block(s, levelName(n).toUpperCase(), M, b1 + 12, 17, GOLD_2, ON_GOLD, 16, 9);
-    if (VIDEO_STAGE[n]) playButton(page, s, PW / 2 + 70, 196, 76, VIDEO_STAGE[n]);
-    const top = 330;
-    s.rect(0, top, PW, PH - top, NIGHT);
-    fr.bottom = "night";
-    const lead = VIDEO_STAGE[n] ? SU.videoLead.replace("{n}", String(n)) : pick(LEVELS[n].line, lang);
-    cdisp(page, H, lead, top + 110, W - 40, 28, FG, 1.2);
-    const cols: [string, string][] = [
-      [SU.role, pick(St.profile.role, lang)],
-      [SU.openLbl, pick(St.profile.open, lang)],
-      [SU.bottom, pick(St.bottom, lang)],
-      [SU.gradBy, pick(St.gradBy, lang)],
-    ];
-    const cw = W / 4;
-    cols.forEach(([k, v], i) => {
-      const cx = M + cw * i + cw / 2;
-      cpara(s, k.toUpperCase(), cx, top + 330, cw - 10, F.semi, 10.5, FG, 1.35, 1);
-      cpara(s, v, cx, top + 366, cw - 14, F.reg, 10.5, MUTED_NIGHT, 1.5);
-    });
-  };
-
-  /** "When you hit stage n": big gold heading block, the story, the hurdle, the areas. */
-  const whenPage = (n: Level, current: boolean) => {
-    const { page, s } = newPage();
-    const St = STAGES[n];
-    const l1 = SU.whenHit.replace("{n}", String(n)), l2 = `„${levelName(n)}“`;
-    const hw = PW * 0.84 - M;
-    const bh = 34 + dispH(H, l1, 34, hw) + dispH(H, l2, 34, hw) + 22;
-    s.rect(0, 72, PW * 0.84, bh, GOLD);
-    let y = disp(page, H, l1, M, 72 + 30, hw, 34, ON_GOLD);
-    disp(page, H, l2, M, y, hw, 34, ON_GOLD);
-    y = 72 + bh + 30;
-    y = para(s, pick(St.story, lang), M, y, W, F.reg, 12, INK, 1.95) + 14;
-    const B = BOTTLENECK[result.bottleneck];
-    const hurdle = current ? pick(B.t, lang).replace(/^[^:]*:\s*/, "") : pick(St.bottom, lang);
-    y = para(s, `${SU.hurdle}: ${hurdle}`.toUpperCase(), M, y, W, F.semi, 14, INK, 1.4) + 10;
-    y = para(s, current ? pick(B.d, lang) : pick(CLIMB[n].goal, lang), M, y, W, F.reg, 12, INK, 1.95) + 12;
-    y = para(s, SU.areasLead, M, y, W, F.reg, 12, MUTED, 1.6) + 18;
-    const barTop = y, gap = 30, chipsH = AREAS.length * gap;
-    s.rect(M, barTop, 12, chipsH + 44, NIGHT);
-    AREAS.forEach((a, i) => {
-      const mix = i / (AREAS.length - 1);
-      const fill = hexColor(mixHex("#c9a240", "#e3cf98", mix));
-      block(s, pick(a.name, lang), M + 34, barTop + 22 + i * gap, 11, fill, ON_GOLD, 10, 6);
-    });
-  };
-
-  /**
-   * Area by area on ONE page, like acquisition.com page 7: icon, gold tag, then
-   * 3 short lines: the problem, then 2 things to do (green checks).
-   */
-  const areasPages = (n: Level) => {
-    const P = PLAYBOOK[n];
-    const { page, s } = newPage();
-    const tx = M + 80, tw = W - 80, fs = 11.5, lh = 1.45;
-    const lineH = (txt: string, f: typeof F.reg, w: number) => paraH(txt, f, fs, w, lh) + 4;
-    const hs = AREAS.map((a) => {
-      const r = P.areas[a.key as AreaKey];
-      return Math.max(56, 30 + lineH(pick(r[0], lang), F.reg, tw - 16) + r.slice(1).reduce((h, l) => h + lineH(pick(l, lang), F.semi, tw - 20), 0));
-    });
-    const top = 70, bottom = PH - 74;
-    const gap = Math.max(10, Math.min(34, (bottom - top - hs.reduce((a, b) => a + b, 0)) / (AREAS.length - 1)));
-    let y = top;
-    AREAS.forEach((a, i) => {
-      const r = P.areas[a.key as AreaKey];
-      icon(page, a.icon, M, y + 2, 52, on(PAPER));
-      let yy = block(s, pick(a.name, lang), tx, y, 12.5, GOLD, ON_GOLD, 11, 6) + 10;
-      s.text("•", tx + 2, yy, F.reg, fs, MUTED);
-      yy = para(s, pick(r[0], lang), tx + 16, yy, tw - 16, F.reg, fs, MUTED, lh) + 4;
-      for (const act of r.slice(1)) {
-        icon(page, "check", tx, yy + 2, 12, { base: GREEN, accent: GREEN, hole: PAPER });
-        yy = para(s, pick(act, lang), tx + 20, yy, tw - 20, F.semi, fs, INK, lh) + 4;
-      }
-      y += hs[i] + gap;
-    });
-  };
-
-  /** What success looks like: a vertical line, check circles, 4 night tags with 4 steps each. */
-  const successPage = (n: Level) => {
-    const { page, s } = newPage();
-    let y = disp(page, HN, SU.successA, M, 66, W, 40, INK, 1.05);
-    y = disp(page, HN, SU.successB.replace("{n}", String(n)), M, y, W, 40, GOLD_TEXT, 1.05) + 10;
-    y = para(s, pick(CLIMB[n].goal, lang) + " " + SU.successLead, M, y, W, F.reg, 11.5, INK, 1.8) + 22;
-    const blocks = PLAYBOOK[n].success;
-    const lx = M + 20, tx = M + 86, tw = W - 86;
-    const hs = blocks.map((b) => 34 + b.items.reduce((h, it) => h + paraH(pick(it, lang), F.reg, 12, tw - 16, 1.45) + 3, 0) + 24);
-    const total = hs.reduce((a, b) => a + b, 0);
-    s.rect(lx - 2, y + 10, 4, total - hs[hs.length - 1], GOLD);
-    blocks.forEach((b, i) => {
-      s.roundedRect(lx - 19, y, 38, 38, 19, { fill: NIGHT });
-      icon(page, "check", lx - 10, y + 9, 20, { base: GOLD, accent: GOLD, hole: NIGHT });
-      for (let dx = lx + 24; dx < tx - 6; dx += 5) s.roundedRect(dx, y + 18, 2, 2, 1, { fill: GOLD });
-      block(s, pick(b.t, lang), tx, y + 6, 12.5, NIGHT, FG, 12, 7);
-      let yy = y + 42;
-      for (const it of b.items) {
-        s.text("•", tx + 2, yy, F.reg, 12, INK);
-        yy = para(s, pick(it, lang), tx + 16, yy, tw - 16, F.reg, 12, INK, 1.45) + 3;
-      }
-      y += hs[i];
-    });
-  };
-
-  /** Night divider before the stage behind / the stage ahead. */
-  const dividerPage = (n: Level, text: string) => {
-    const fr = newPage("night");
-    const { page, s } = fr;
-    const y = cdisp(page, H, text, 190, W - 40, 40, FG, 1.15);
-    cdisp(page, HN, String(n), y + 40, W, 220, GOLD, 1);
-    cpara(s, `${sn(n)}: ${levelName(n)}`.toUpperCase(), PW / 2, y + 330, W, F.semi, 18, FG, 1.4, 2);
-  };
 
   // ── 1 · cover ─────────────────────────────────────────────────────────────
   {
@@ -323,24 +204,26 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     wordmark(page, (PW - wm) / 2, PH - 122, 34, INK);
   }
 
-  // ── 2 · you are here ──────────────────────────────────────────────────────
+  // ── 2 · the 5 levels as a staircase, "you are here" on theirs ─────────────
   {
-    const fr = newPage();
+    const fr = newPage("night");
     const { page, s } = fr;
-    cdisp(page, HN, t.youAreHere + ".", 74, W, 54, INK);
-    cpara(s, `${sn(lv)}: ${levelName(lv)}`.toUpperCase(), PW / 2, 150, W, F.semi, 20, GOLD_TEXT, 1.3, 1);
-    triangle(page, PW / 2, 190, 38, 30, GOLD);
-    const top = 300;
-    s.rect(0, top, PW, PH - top, NIGHT);
-    fr.bottom = "night";
-    let y = top + 70;
+    cdisp(page, HN, VV.ladderH, 70, W, 48, FG);
+    const x0 = M - 20, gap = 8, cw = (W + 40 - gap * 4) / 5, base = PH - 96;
     for (let i = 1 as Level; i <= 5; i = (i + 1) as Level) {
-      const label = `${i}. ${levelName(i)}`.toUpperCase();
-      const me = i === lv;
-      if (me) s.rect(M + 60, y - 9, capsW(label, 16) + 24, 36, GOLD);
-      caps(s, label, M + 72, y, 16, me ? ON_GOLD : FG);
-      s.text(pick(LEVELS[i].line, lang), M + 72, y + 34, F.reg, 10.5, me ? GOLD : MUTED_NIGHT);
-      y += 82;
+      const me = i === lv, h = 180 + (i - 1) * 46, x = x0 + (i - 1) * (cw + gap), top = base - h;
+      s.rect(x, top, cw, h, me ? GOLD : NIGHT_CARD);
+      const ink = me ? ON_GOLD : FG, sub = me ? ON_GOLD : MUTED_NIGHT;
+      icon(page, LEVEL_ICON[i], x + (cw - 36) / 2, top + 14, 36, me ? { base: ON_GOLD, accent: FG, hole: GOLD } : { base: FG, accent: GOLD, hole: NIGHT_CARD });
+      const num = String(i);
+      HN.draw(page, PH, num, x + (cw - HN.measure(num, 30)) / 2, top + 58, 30, me ? ON_GOLD : GOLD);
+      const ty = cpara(s, levelName(i).toUpperCase(), x + cw / 2, top + 98, cw - 12, F.semi, 7.5, ink, 1.35, 0.6) + 4;
+      cpara(s, pick(LEVELS[i].line, lang), x + cw / 2, ty, cw - 14, F.reg, 8, sub, 1.4);
+      if (me) {
+        const lbl = VV.you, lw = measure(lbl, F.semi, 11, 1.5);
+        s.text(lbl, x + (cw - lw) / 2, top - 44, F.semi, 11, GOLD, 1.5);
+        triangle(page, x + cw / 2, top - 24, 18, 14, GOLD);
+      }
       if (i === 5) break;
     }
   }
@@ -356,10 +239,62 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     cdisp(page, H, SU.watchLead, 450, W - 40, 28, FG, 1.2);
   }
 
-  // ── 3–5 · your stage, when you hit it, area by area ───────────────────────
-  stagePage(lv, SU.yourStage);
-  whenPage(lv, true);
-  areasPages(lv);
+  // ── 3 · before → after (their level → the next) ───────────────────────────
+  {
+    const fr = newPage();
+    const { page, s } = fr;
+    let y = disp(page, HN, VV.baH, M, 70, W, 46, INK, 1.05) + 18;
+    const cw = (W - 44) / 2, rx = M + cw + 44;
+    const nxt = lv < 5 ? (lv + 1) as Level : 5;
+    block(s, `${VV.today} · ${VV.nextOf5.replace("{n}", String(lv))}`.toUpperCase(), M, y, 9, RED, CARD, 10, 6);
+    block(s, (lv < 5 ? `${VV.withPlan} · ${VV.nextOf5.replace("{n}", String(nxt))}` : SU.successA).toUpperCase(), rx, y, 9, GREEN, CARD, 10, 6);
+    y += 40;
+    const rh = 96, ch = rh - 14;
+    for (const r of BEFORE_AFTER[lv]) {
+      s.roundedRect(M, y, cw, ch, 16, { fill: RED_SOFT });
+      icon(page, r.ic, M + 16, y + (ch - 40) / 2, 40, { base: RED, accent: RED, hole: RED_SOFT });
+      const bt = pick(r.b, lang), bh = paraH(bt, F.semi, 12.5, cw - 80, 1.35);
+      para(s, bt, M + 68, y + (ch - bh) / 2 + 2, cw - 80, F.semi, 12.5, INK, 1.35);
+      triangle(page, M + cw + 22, y + ch / 2 - 9, 14, 18, GOLD, "right");
+      s.roundedRect(rx, y, cw, ch, 16, { fill: CARD, border: GREEN, borderWidth: 1.2 });
+      icon(page, r.ic, rx + 16, y + (ch - 40) / 2, 40, { base: GREEN, accent: GOLD, hole: CARD });
+      const at = pick(r.a, lang), ah = paraH(at, F.semi, 12.5, cw - 80, 1.35);
+      para(s, at, rx + 68, y + (ch - ah) / 2 + 2, cw - 80, F.semi, 12.5, INK, 1.35);
+      y += rh;
+    }
+    // the one-line goal on a gold band
+    const bandTop = PH - 190;
+    s.rect(0, bandTop, PW, PH - bandTop, GOLD);
+    fr.bottom = "gold";
+    icon(page, "up", M, bandTop + 36, 46, { base: ON_GOLD, accent: ON_GOLD, hole: GOLD });
+    disp(page, H, pick(CLIMB[lv].goal, lang), M + 66, bandTop + 40, W - 66, 24, ON_GOLD, 1.15);
+  }
+
+  // ── 4 · the leaky bucket (one picture, one lesson) ────────────────────────
+  {
+    const fr = newPage();
+    const { page, s } = fr;
+    cdisp(page, HN, VV.bucketH, 70, W, 46, INK);
+    const cx = PW / 2;
+    cpara(s, VV.bucketIn.toUpperCase(), cx, 128, W, F.semi, 9, GOLD_TEXT, 1.3, 1.2);
+    for (let k = -1; k <= 1; k++) icon(page, "nurse", cx + k * 54 - 20, 146, 40, on(PAPER));
+    triangle(page, cx, 194, 26, 18, GOLD);
+    const bt = 276, bw = 250, bh = 214;
+    page.drawSvgPath(`M 0 12 C 0 -80 ${bw} -80 ${bw} 12`, { x: cx - bw / 2, y: PH - bt, borderColor: NIGHT, borderWidth: 5 });
+    page.drawSvgPath(`M 0 0 L ${bw} 0 L ${bw - 36} ${bh} L 36 ${bh} Z`, { x: cx - bw / 2, y: PH - bt, color: NIGHT });
+    page.drawSvgPath(`M 16 54 L ${bw - 16} 54 L ${bw - 46} ${bh - 12} L 46 ${bh - 12} Z`, { x: cx - bw / 2, y: PH - bt, color: GOLD });
+    s.roundedRect(cx - bw / 2 - 10, bt - 8, bw + 20, 14, 7, { fill: NIGHT });
+    [-1, 0, 1].forEach((k, i) => {
+      const hx = cx + k * 60, hy = bt + bh, lx = cx + k * 140;
+      for (let d = 0; d < 2; d++) page.drawSvgPath("M 7 0 C 7 0 14 10 14 15 A 7 7 0 0 1 0 15 C 0 10 7 0 7 0 Z", { x: hx + (lx - hx) * (d + 1) / 3 - 7, y: PH - (hy + 8 + d * 22), color: RED });
+      cpara(s, VV.bucketOut[i].toUpperCase(), lx, hy + 66, 130, F.semi, 10, RED, 1.3, 0.8);
+    });
+    cpara(s, VV.bucketLine, cx, bt + bh + 104, W - 40, F.reg, 14, INK, 1.5);
+    const bandTop = PH - 170;
+    s.rect(0, bandTop, PW, PH - bandTop, NIGHT);
+    fr.bottom = "night";
+    cdisp(page, H, VV.bucketFix, bandTop + 44, W, 30, GOLD, 1.1);
+  }
 
   // ── 6 · your numbers + the calculator ─────────────────────────────────────
   {
@@ -422,6 +357,25 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     link(page, M, by, cbw, cbh, cl);
   }
 
+  // ── 6 · the Borivon way (our mechanism) ───────────────────────────────────
+  {
+    const { page, s } = newPage();
+    let y = disp(page, HN, VV.wayH, M, 70, W, 46, INK, 1.05);
+    y = para(s, VV.waySub, M, y + 6, W, F.reg, 13, MUTED) + 26;
+    const rowH = 118, lx = M + 30;
+    s.rect(lx - 1.5, y + 30, 3, rowH * (WAY.length - 1), GOLD_2);
+    WAY.forEach((st, i) => {
+      const top = y + i * rowH;
+      s.roundedRect(lx - 30, top, 60, 60, 30, { fill: NIGHT });
+      icon(page, st.ic, lx - 18, top + 12, 36, { base: FG, accent: GOLD, hole: NIGHT });
+      s.roundedRect(lx + 16, top - 4, 22, 22, 11, { fill: GOLD });
+      const n = String(i + 1);
+      s.text(n, lx + 27 - measure(n, F.semi, 11) / 2, top + 1, F.semi, 11, ON_GOLD);
+      disp(page, HN, pick(st.t, lang), M + 86, top + 6, W - 86, 28, INK, 1.05);
+      para(s, pick(st.d, lang), M + 86, top + 40, W - 86, F.reg, 13, INK, 1.5);
+    });
+  }
+
   // ── 6b · the personal deadline (only with the v2 form) ────────────────────
   if (input.form) {
     const T = TL[lang];
@@ -464,8 +418,34 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     para(s, T.fast, M + 20, y + 16, W - 40, F.reg, 11, INK, 1.5);
   }
 
-  // ── 7 · what success looks like ───────────────────────────────────────────
-  successPage(lv);
+  // ── 8 · checklists to the next level (2 × 2 cards, tick boxes) ────────────
+  {
+    const { page, s } = newPage();
+    const head = lv < 5 ? VV.stepsH.replace("{n}", String(lv + 1)) : VV.stayH;
+    let y = disp(page, HN, head, M, 70, W, 40, INK, 1.05);
+    y = para(s, VV.stepsSub, M, y + 6, W, F.reg, 13, MUTED) + 22;
+    const blocks = PLAYBOOK[lv].success, ics: IconName[] = ["target", "team", "calendar", "heart"];
+    const cw = (W - 16) / 2, iw = cw - 56;
+    const cardH = (b: (typeof blocks)[number]) => 104 + b.items.reduce((h, it) => h + paraH(pick(it, lang), F.reg, 12.5, iw, 1.4) + 12, 0) + 10;
+    for (let r = 0; r < blocks.length; r += 2) {
+      const pair = blocks.slice(r, r + 2), rh = Math.max(...pair.map(cardH));
+      pair.forEach((b, j) => {
+        const x = M + j * (cw + 16);
+        s.roundedRect(x, y, cw, rh, 18, { fill: CARD, border: LINE, borderWidth: 0.8 });
+        icon(page, ics[r + j], x + 18, y + 18, 40, on(CARD));
+        s.roundedRect(x + 68, y + 25, 24, 24, 12, { fill: NIGHT });
+        const n = String(r + j + 1);
+        s.text(n, x + 80 - measure(n, F.semi, 11) / 2, y + 31, F.semi, 11, GOLD);
+        para(s, pick(b.t, lang), x + 18, y + 70, cw - 36, F.semi, 15, INK, 1.2);
+        let iy = y + 104;
+        for (const it of b.items) {
+          s.roundedRect(x + 20, iy + 1, 14, 14, 3, { border: GOLD_TEXT, borderWidth: 1.3 });
+          iy = para(s, pick(it, lang), x + 44, iy, iw, F.reg, 12.5, INK, 1.4) + 12;
+        }
+      });
+      y += rh + 16;
+    }
+  }
 
   // ── 8 · the 90-day plan ───────────────────────────────────────────────────
   {
@@ -492,60 +472,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     }
   }
 
-  // ── 9 · just for this kind of Einrichtung ─────────────────────────────────
-  {
-    const { page, s } = newPage();
-    const FT = FACILITY[result.facilityType];
-    icon(page, FT.icon, M + W - 56, 72, 56, on(PAPER));
-    let y = disp(page, HN, pick(FT.forTitle, lang), M, 70, W - 80, 42, INK, 1.05) + 30;
-    FT.tips.forEach((tip, i) => {
-      const n = String(i + 1);
-      s.roundedRect(M, y, 36, 36, 18, { fill: NIGHT });
-      s.text(n, M + 18 - measure(n, F.semi, 13) / 2, y + 11, F.semi, 13, GOLD);
-      block(s, pick(tip.t, lang), M + 58, y + 2, 12, GOLD, ON_GOLD, 10, 6);
-      const after = para(s, pick(tip.d, lang), M + 58, y + 36, W - 58, F.reg, 12, INK, 1.6);
-      y = Math.max(y + 36, after) + 26;
-    });
-  }
-
-  // ── 10 · 7 reasons nurses leave ───────────────────────────────────────────
-  {
-    const { page, s } = newPage();
-    let y = disp(page, HN, t.reasons, M, 70, W, 40, INK, 1.05);
-    y = para(s, t.reasonsSub, M, y + 6, W, F.reg, 12.5, MUTED) + 18;
-    const check: IconColors = { base: GREEN, accent: GREEN, hole: PAPER };
-    REASONS.forEach((r, i) => {
-      s.hline(M, M + W, y, LINE, 0.8);
-      const tp = y + 16;
-      icon(page, REASON_ICONS[i], M, tp, 30, on(PAPER));
-      const a = para(s, pick(r.why, lang), M + 50, tp + 1, W - 50, F.semi, 12.5, INK, 1.35);
-      icon(page, "check", M + 50, a + 3, 12, check);
-      const b = para(s, pick(r.fix, lang), M + 68, a + 2, W - 68, F.reg, 11.5, GREEN, 1.45);
-      y = Math.max(tp + 32, b) + 14;
-    });
-    s.hline(M, M + W, y, LINE, 0.8);
-  }
-
-  // ── 11 · the bottom line ──────────────────────────────────────────────────
-  {
-    const fr = newPage();
-    const { page, s } = fr;
-    let y = disp(page, HN, SU.bottom, M, 66, W, 64, GOLD_TEXT, 1.0, -0.03) + 6;
-    const lw = W * 0.6;
-    y = para(s, pick(STAGES[lv].bottom, lang).toUpperCase(), M, y, lw, F.semi, 16, INK, 1.35) + 22;
-    y = para(s, SU.blP1, M, y, lw, F.reg, 12, INK, 1.95) + 16;
-    y = para(s, SU.blP2, M, y, lw * 0.85, F.reg, 12, INK, 1.95) + 22;
-    para(s, SU.canToo.toUpperCase(), M, y, lw, F.semi, 17, INK, 1.3);
-    // the big arrow
-    const ax = M + W * 0.66, aw = W * 0.34, at = 230, ah = 330;
-    page.drawSvgPath(`M ${aw * 0.32} 0 H ${aw * 0.68} V ${ah * 0.62} H ${aw} L ${aw / 2} ${ah} L 0 ${ah * 0.62} H ${aw * 0.32} Z`, { x: ax, y: PH - at, color: GOLD });
-    const bandTop = PH - 200;
-    s.rect(0, bandTop, PW, PH - bandTop, GOLD);
-    fr.bottom = "gold";
-    caps(s, SU.remember, M, bandTop + 36, 16, ON_GOLD);
-    para(s, SU.rememberTxt, M, bandTop + 66, W, F.reg, 12.5, ON_GOLD, 1.7);
-  }
-
   // ── 12 · next step, framed as "see if you fit" ────────────────────────────
   {
     const fr = newPage();
@@ -569,24 +495,6 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     y += bh + 16;
     cpara(s, `${t.contact}: contact@borivon.com`, PW / 2, y, W, F.reg, 10, MUTED_NIGHT);
     cpara(s, t.disclaimer, PW / 2, PH - 96, W, F.reg, 7.5, MUTED_NIGHT, 1.5);
-  }
-
-  // ── the stage you passed, and the stage that comes next, in full ──────────
-  if (lv > 1) {
-    const p = (lv - 1) as Level;
-    dividerPage(p, SU.gradFrom);
-    stagePage(p, sn(p));
-    whenPage(p, false);
-    areasPages(p);
-    successPage(p);
-  }
-  if (lv < 5) {
-    const n = (lv + 1) as Level;
-    dividerPage(n, SU.comingNext);
-    stagePage(n, sn(n));
-    whenPage(n, false);
-    areasPages(n);
-    successPage(n);
   }
 
   // ── header + footer on every page but the cover; then the links ───────────
@@ -616,8 +524,3 @@ function calcLinkFor(input: RoadmapPdfInput, lang: Lang, result: RoadmapResult):
   return input.calcUrl || `https://borivon.com/fahrplan/rechner?lang=${lang}&f=${result.facilityType}`;
 }
 
-/** Linear mix of two hex colours (for the fading tag stack). */
-function mixHex(a: string, b: string, k: number): string {
-  const p = (h: string, i: number) => parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16);
-  return "#" + [0, 1, 2].map((i) => Math.round(p(a, i) + (p(b, i) - p(a, i)) * k).toString(16).padStart(2, "0")).join("");
-}
