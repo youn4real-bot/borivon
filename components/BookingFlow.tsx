@@ -41,6 +41,18 @@ import {
   Loader2, Check, CalendarDays, Clock, Video, Globe, ChevronLeft, ChevronRight,
 } from "lucide-react";
 
+/**
+ * Scroll an element into view. Embedded (the calendar inside borivon.com/workshop), scrollIntoView
+ * would also scroll the PARENT page down past the calendar, so then only this frame scrolls.
+ */
+function reveal(el: Element | null, block: "start" | "center") {
+  if (!el || typeof window === "undefined") return;
+  if (window.self === window.top) { el.scrollIntoView({ block, behavior: "smooth" }); return; }
+  const r = el.getBoundingClientRect();
+  const top = window.scrollY + r.top - (block === "center" ? (window.innerHeight - r.height) / 2 : 0);
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const tr = (l: string, en: string, de: string, fr: string) => (l === "de" ? de : l === "fr" ? fr : en);
 
@@ -309,7 +321,7 @@ export function BookingFlow({
   // deep-linked /book/nurse doesn't yank the page out from under the arrival.
   useEffect(() => {
     if (!stepped.current) { stepped.current = true; return; }
-    panelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    reveal(panelRef.current, "start");
   }, [step]);
 
   const goMonth = useCallback((next: number) => {
@@ -368,7 +380,7 @@ export function BookingFlow({
     // this, tapping a day changes one 44px cell's colour and nothing else the
     // visitor can see — the times she just asked for stay below the fold.
     if (typeof window !== "undefined" && !window.matchMedia("(min-width: 768px)").matches) {
-      requestAnimationFrame(() => timesRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      requestAnimationFrame(() => reveal(timesRef.current, "start"));
     }
   }
 
@@ -385,7 +397,7 @@ export function BookingFlow({
         return;
       }
       const bad = nameBad ? nameRef.current : emailBad ? emailRef.current : null;
-      bad?.scrollIntoView({ block: "center", behavior: "smooth" });
+      reveal(bad ?? null, "center");
       bad?.focus({ preventScroll: true });
       return;
     }

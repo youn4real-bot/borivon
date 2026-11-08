@@ -84,7 +84,7 @@ const BUILT_IN: Record<string, BookingEventType> = {
   workshop: {
     slug: "workshop", kind: "clinic", active: true,
     // founder: book at most 3 days ahead, otherwise they forget the call
-    slotMinutes: null, bufferMinutes: null, minNoticeHours: null, horizonDays: 3,
+    slotMinutes: 15, bufferMinutes: null, minNoticeHours: null, horizonDays: 3,
     title: {
       en: "Workshop in Morocco — request a seat",
       de: "Workshop in Marokko — Platz anfragen",
