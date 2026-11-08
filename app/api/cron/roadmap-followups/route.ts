@@ -11,8 +11,7 @@ import { tokensEnabled } from "@/lib/roadmap/token";
 import { asSalutation } from "@/lib/roadmap/consent";
 import { deliverRoadmap, unsubscribeLink, leadLang } from "@/lib/roadmap/delivery";
 import { deleteHosted } from "@/lib/roadmap/hosted";
-import type { RoadmapResult } from "@/lib/roadmap/score";
-import { costPerOpenPost, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
+import { scoreRoadmap, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
 
 /**
  * Daily 09:30 UTC (morning in Germany), four jobs for the Fahrplan leads:
@@ -89,9 +88,11 @@ export async function GET(req: NextRequest) {
       if (n === null) continue;
       const lang = leadLang(d);
       const unsubscribeUrl = await unsubscribeLink(row.id);
-      const facilityType = normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>).facilityType;
-      const result = { perNurseMonth: costPerOpenPost(facilityType) } as RoadmapResult;
-      const m = followupMail(n, { lang, salutation: asSalutation(d.salutation), lastName: String(d.lastName ?? ""), result, unsubscribeUrl, facilityType });
+      // same numbers as their PDF (no agency cost when they have no agency staff)
+      const answers = normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>);
+      const facilityType = answers.facilityType;
+      const result = scoreRoadmap(answers);
+      const m = followupMail(n, { lang, salutation: asSalutation(d.salutation), lastName: String(d.lastName ?? ""), firstName: String(d.firstName ?? ""), result, unsubscribeUrl, facilityType });
       if (!m) continue;
       const ok = await sendRoadmapFollowupEmail({ to: row.email, subject: m.subject, html: m.html, text: m.text, unsubscribeUrl });
       if (!ok) { failed++; continue; }
