@@ -453,7 +453,10 @@ describe("the Fahrplan on the website", () => {
   it("the mail links to the website instead of attaching", () => {
     const m = deliveryMail({ lang: "de", salutation: "frau", lastName: "M", facility: "Haus", result: scoreRoadmap(struggling), unsubscribeUrl: "u", viewUrl: "https://borivon.com/fahrplan/plan?id=1", bonusUrl: "https://b" });
     expect(m.html).toContain("https://borivon.com/fahrplan/plan?id=1");
-    expect(m.html).toContain("Fahrplan öffnen");
+    expect(m.html).toContain("&gt;&gt; <a"); // the acquisition.com style link: >> PFLEGE-FAHRPLAN – STUFE n <<
+    expect(m.html).toMatch(/PFLEGE-FAHRPLAN – STUFE [1-5]/);
+    expect(m.html).toContain("Viel Erfolg,<br>– Youness");
+    expect(m.html).toContain("Sheridan, WY"); // legal address as in the Impressum
     expect(m.html).not.toContain("Anhang");
   });
 });

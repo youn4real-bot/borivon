@@ -1,7 +1,7 @@
 /**
  * Fahrplan emails, in the order they go out (founder, 2026-11-07):
  *   1 · confirmMail   right after the form: ONLY a confirm link, no PDF, no ad
- *   2 · deliveryMail  after the confirm click: the PDF + bonus attached
+ *   2 · deliveryMail  after the confirm click: a link to the Fahrplan, shaped like the acquisition.com roadmap mail
  *   3 · followupMail  the short tips series that leads to a call
  * Nothing but #1 goes out before the double opt-in (§7 UWG, Art. 6(1)(a) GDPR).
  * Every mail from #2 on carries an unsubscribe link + List-Unsubscribe header.
@@ -9,9 +9,8 @@
  * 5th-grade language, no price anywhere (founder rules).
  */
 import type { Lang } from "./content";
-import { LEVELS, UI, pick } from "./content";
-import { STAGES } from "./stages";
-import type { RoadmapResult, FacilityType } from "./score";
+import { LEVELS, pick } from "./content";
+import type { RoadmapResult, FacilityType, Level } from "./score";
 import { FACILITY } from "./types";
 import { formatEuro } from "./pdf";
 import { greeting, type Salutation } from "./consent";
@@ -27,31 +26,40 @@ type Mail = { subject: string; html: string; text: string };
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** Founder's sign-off with the real "Borivon." logo (public/email-logo.png, the site font as an image).
- *  The card is #fcfaf7 = the logo's own background, so the logo has no visible box. */
-export const SIGNER = "Youness Taoufiq";
-function signature(lang: Lang): string {
-  const role = lang === "de" ? "Gründer, Borivon" : lang === "fr" ? "Fondateur, Borivon" : "Founder, Borivon";
-  return `<div style="margin-top:28px;padding-top:20px;border-top:1px solid #ebe6da">
-<div style="font-size:15px;line-height:1.5;color:#1c1c1e"><b>${SIGNER}</b><br><span style="color:#6d6a63">${role}</span></div>
-<img src="https://borivon.com/email-logo.png" alt="Borivon." width="132" height="42" style="display:block;border:0;outline:none;text-decoration:none;margin:14px 0 8px" />
-<div style="font-size:12px;line-height:1.6;color:#8a8a8a">77 Boulevard Mohamed Smiha · 20080 Casablanca, Marokko<br><a href="mailto:contact@borivon.com" style="color:#8a8a8a">contact@borivon.com</a> · <a href="https://borivon.com" style="color:#8a8a8a">borivon.com</a></div>
-</div>`;
-}
+/**
+ * Mail look = the acquisition.com roadmap mail, 1:1 (founder 2026-11-08): plain white, short lines,
+ * the link as ">> PFLEGE-FAHRPLAN – STUFE 2 <<", signed "– Youness", a P.S., then centred:
+ * logo, company address (as in the Impressum), unsubscribe, a short disclaimer.
+ */
+export const SIGNER = "Youness";
+const LINK = "#9c7a27";
+// #fcfaf7 = the logo's own background, so the logo shows without a box
+const BYE: Record<Lang, string> = { de: "Viele Grüße,<br>– Youness", en: "Best regards,<br>– Youness", fr: "Bien cordialement,<br>– Youness" };
+const SIGNOFF: Record<Lang, string> = { de: "Viel Erfolg,<br>– Youness", en: "Enjoy,<br>– Youness", fr: "Bonne réussite,<br>– Youness" };
+const DISCLAIMER: Record<Lang, string> = {
+  de: "Diese Nachricht und Ihr Fahrplan dienen nur der Information und sind keine Rechts- oder Unternehmensberatung. Alle Zahlen sind Schätzungen auf Basis Ihrer Angaben. Ergebnisse hängen von vielen Faktoren ab. Wir geben keine Garantie für ein bestimmtes Ergebnis.",
+  en: "This message and your roadmap are for information only and are not legal or business advice. All numbers are estimates based on your answers. Results depend on many factors. We make no promise of any specific outcome.",
+  fr: "Ce message et votre plan sont fournis à titre d'information uniquement et ne constituent pas un conseil juridique ou professionnel. Tous les chiffres sont des estimations basées sur vos réponses. Les résultats dépendent de nombreux facteurs. Nous ne garantissons aucun résultat précis.",
+};
 function shell(lang: Lang, bodyHtml: string, footerExtra = ""): string {
   const legal = lang === "de" ? ["Impressum", "Datenschutz"] : lang === "fr" ? ["Mentions légales", "Confidentialité"] : ["Legal notice", "Privacy"];
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f6f4ef;padding:24px 12px;font-family:Helvetica,Arial,sans-serif;color:#1c1c1e">
-<div style="max-width:560px;margin:0 auto;background:#fcfaf7;border-radius:16px;padding:32px 28px;border:1px solid #ebe6da">
+  const muted = "color:#5b6573";
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#fcfaf7;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1c1c1e">
+<div style="max-width:540px;margin:0 auto">
 ${bodyHtml}
-${signature(lang)}
+<div style="margin-top:56px;text-align:center">
+<img src="https://borivon.com/email-logo.png" alt="Borivon." width="170" height="55" style="display:inline-block;border:0;outline:none;text-decoration:none" />
+<p style="font-size:12px;line-height:1.6;margin:14px 0 0;${muted}">Borivon LLC, 30 N Gould St Ste R,<br>Sheridan, WY 82801, USA</p>
+<p style="font-size:12px;line-height:1.6;margin:12px 0 0;${muted}"><a href="https://borivon.com/impressum" style="${muted}">${legal[0]}</a> · <a href="https://borivon.com/datenschutz" style="${muted}">${legal[1]}</a>${footerExtra}</p>
+<p style="font-size:11px;line-height:1.6;margin:16px auto 0;max-width:460px;${muted}">${DISCLAIMER[lang]}</p>
 </div>
-<p style="max-width:560px;margin:14px auto 0;font-size:11px;line-height:1.6;color:#8a8a8a;text-align:center"><a href="https://borivon.com/impressum" style="color:#8a8a8a">${legal[0]}</a> · <a href="https://borivon.com/datenschutz" style="color:#8a8a8a">${legal[1]}</a>${footerExtra}</p>
+</div>
 </body></html>`;
 }
-const p = (s: string) => `<p style="font-size:15px;line-height:1.6;margin:0 0 14px">${s}</p>`;
+const p = (s: string) => `<p style="font-size:15px;line-height:1.6;margin:0 0 16px">${s}</p>`;
+/** The link, the way acquisition.com does it: >> LABEL << */
 const btn = (href: string, label: string) =>
-  `<p style="margin:22px 0"><a href="${esc(href)}" style="display:inline-block;background:#c9a240;color:#131312;text-decoration:none;font-weight:bold;font-size:15px;padding:14px 26px;border-radius:999px">${esc(label)}</a></p>`;
-
+  `<p style="margin:20px 0;font-size:15px;font-weight:bold">&gt;&gt; <a href="${esc(href)}" style="color:${LINK};text-decoration:underline">${esc(label)}</a> &lt;&lt;</p>`;
 const unsubLabel = (lang: Lang) =>
   lang === "de" ? "Keine E-Mails mehr? Hier abmelden" : lang === "fr" ? "Plus d'e-mails ? Se désabonner" : "No more emails? Unsubscribe";
 const unsubFooter = (lang: Lang, url: string) => ` · <a href="${esc(url)}" style="color:#8a8a8a">${esc(unsubLabel(lang))}</a>`;
@@ -71,7 +79,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       ],
       btn: "Ja, Fahrplan senden",
       notYou: "Sie haben das nicht angefordert? Dann ignorieren Sie diese E-Mail einfach. Wir schreiben Ihnen nicht wieder.",
-      bye: "Viele Grüße",
+      bye: BYE.de,
     },
     en: {
       subject: "Please confirm: your nurse staffing roadmap",
@@ -80,7 +88,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       ],
       btn: "Yes, send my roadmap",
       notYou: "You did not ask for this? Then just ignore this email. We will not write to you again.",
-      bye: "Best regards",
+      bye: BYE.en,
     },
     fr: {
       subject: "Merci de confirmer : votre plan infirmier",
@@ -89,7 +97,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
       ],
       btn: "Oui, envoyer mon plan",
       notYou: "Vous n'avez rien demandé ? Ignorez simplement cet e-mail. Nous ne vous écrirons plus.",
-      bye: "Bien cordialement",
+      bye: BYE.fr,
     },
   }[lang];
   const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
@@ -100,113 +108,105 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
   return { subject: T.subject, html: shell(lang, body), text };
 }
 
+/** What each level is, said the acquisition.com way: when · your role · the main problem · why the name · how it feels. */
+const LEVEL_MAIL: Record<Level, Record<Lang, { when: string; role: string; problem: string; why: string; feel: string }>> = {
+  1: {
+    de: { when: "Stufe 1 ist, wenn jeden Tag Leute fehlen und Sie nur noch den Dienstplan retten.", role: "Ihre Rolle ist die Feuerwehr: Sie löschen jeden Tag einen neuen Brand.", problem: "Es fehlen zu viele Leute auf einmal.", why: "Darum heißt sie die Stufe „Retten“.", feel: "Alles ist dringend. Sie müssen erst einmal Ruhe hineinbringen." },
+    en: { when: "Level 1 is when people are missing every day and you are just saving the rota.", role: "Your role is the fire brigade: every day you put out a new fire.", problem: "Too many people are missing at once.", why: "That's why it's called the “Rescue” level.", feel: "Everything is urgent. First you need to bring calm in." },
+    fr: { when: "Le niveau 1, c'est quand il manque du monde chaque jour et que vous sauvez juste le planning.", role: "Votre rôle, ce sont les pompiers : chaque jour, un nouvel incendie.", problem: "Il manque trop de monde en même temps.", why: "C'est pour ça qu'on l'appelle le niveau « Sauver ».", feel: "Tout est urgent. Il faut d'abord ramener le calme." },
+  },
+  2: {
+    de: { when: "Stufe 2 ist, wenn der Betrieb läuft, aber Sie jede Stelle einzeln besetzen.", role: "Ihre Rolle ändert sich von „Retter“ zu „Füller“: Sie holen Leute, eine nach der anderen.", problem: "Jede Stelle ist ein neuer Kraftakt.", why: "Darum heißt sie die Stufe „Füllen“.", feel: "Es läuft, aber es kostet zu viel Kraft. Sie brauchen einen festen Ablauf." },
+    en: { when: "Level 2 is when things run, but you fill every post one at a time.", role: "Your role changes from “rescuer” to “filler”: you bring people in, one after another.", problem: "Every post is a new struggle.", why: "That's why it's called the “Fill” level.", feel: "It works, but it takes too much effort. You need a fixed process." },
+    fr: { when: "Le niveau 2, c'est quand tout tourne, mais que vous pourvoyez chaque poste un par un.", role: "Votre rôle passe de « sauveur » à « remplisseur » : vous faites venir les gens, un par un.", problem: "Chaque poste est un nouvel effort.", why: "C'est pour ça qu'on l'appelle le niveau « Remplir ».", feel: "Ça marche, mais ça coûte trop d'énergie. Il vous faut un processus fixe." },
+  },
+  3: {
+    de: { when: "Stufe 3 ist, wenn fast alles besetzt ist, aber Leute wieder gehen.", role: "Ihre Rolle ändert sich von „Füller“ zu „Halter“: Jetzt geht es darum, dass die Neuen bleiben.", problem: "Jede Kündigung wirft Sie zurück.", why: "Darum heißt sie die Stufe „Halten“.", feel: "Es ist ruhiger, aber wackelig. Sie müssen dafür sorgen, dass Leute bleiben." },
+    en: { when: "Level 3 is when almost everything is filled, but people leave again.", role: "Your role changes from “filler” to “keeper”: now it's about making new nurses stay.", problem: "Every resignation sets you back.", why: "That's why it's called the “Keep” level.", feel: "It's calmer, but shaky. You need to make sure people stay." },
+    fr: { when: "Le niveau 3, c'est quand presque tout est pourvu, mais que des gens repartent.", role: "Votre rôle passe de « remplisseur » à « gardien » : il s'agit maintenant que les nouvelles restent.", problem: "Chaque départ vous fait reculer.", why: "C'est pour ça qu'on l'appelle le niveau « Garder ».", feel: "C'est plus calme, mais fragile. Il faut faire en sorte que les gens restent." },
+  },
+  4: {
+    de: { when: "Stufe 4 ist, wenn Ihre Leute bleiben und Sie früh wissen, wer kommt.", role: "Ihre Rolle ändert sich von „Halter“ zu „Planer“: Sie denken 12 Monate voraus.", problem: "Sie planen erst ein paar Monate voraus.", why: "Darum heißt sie die Stufe „Planen“.", feel: "Es läuft gut. Jetzt geht es um Wachstum mit Plan." },
+    en: { when: "Level 4 is when your people stay and you know early who is coming.", role: "Your role changes from “keeper” to “planner”: you think 12 months ahead.", problem: "You only plan a few months ahead.", why: "That's why it's called the “Plan” level.", feel: "It's going well. Now it's about growing with a plan." },
+    fr: { when: "Le niveau 4, c'est quand vos équipes restent et que vous savez tôt qui arrive.", role: "Votre rôle passe de « gardien » à « planificateur » : vous pensez 12 mois à l'avance.", problem: "Vous ne planifiez que quelques mois.", why: "C'est pour ça qu'on l'appelle le niveau « Planifier ».", feel: "Tout va bien. Il s'agit maintenant de grandir avec un plan." },
+  },
+  5: {
+    de: { when: "Stufe 5 ist, wenn Pflegekräfte von selbst zu Ihnen kommen.", role: "Ihre Rolle ändert sich von „Planer“ zu „Magnet“: Ihr guter Ruf holt die Leute.", problem: "Oben bleiben ist schwerer als hinkommen.", why: "Darum heißt sie die Stufe „Anziehen“.", feel: "Sie sind da, wo viele hinwollen. Jetzt heißt es: dranbleiben." },
+    en: { when: "Level 5 is when nurses come to you by themselves.", role: "Your role changes from “planner” to “magnet”: your good name brings people in.", problem: "Staying on top is harder than getting there.", why: "That's why it's called the “Attract” level.", feel: "You are where many want to be. Now: keep at it." },
+    fr: { when: "Le niveau 5, c'est quand les infirmières viennent d'elles-mêmes.", role: "Votre rôle passe de « planificateur » à « aimant » : votre réputation attire les gens.", problem: "Rester au sommet est plus dur que d'y arriver.", why: "C'est pour ça qu'on l'appelle le niveau « Attirer ».", feel: "Vous êtes là où beaucoup veulent être. Maintenant : persévérer." },
+  },
+};
+
 /**
- * Mail #2, after the confirm click. Shaped like the founder's reference
- * (acquisition.com roadmap mail): "as promised", what is inside, a short story
- * of their level, then a P.S. that frames the call as "see if you fit", never
- * as a sale. Marketing from here on, so it carries the unsubscribe link.
+ * Mail #2, after the confirm click: built exactly like the acquisition.com roadmap mail.
+ * Marketing from here on, so it carries the unsubscribe link. The P.S. is the soft workshop offer.
  */
 export function deliveryMail(o: Addressee & { lang: Lang; facility: string; result: RoadmapResult; unsubscribeUrl: string; viewUrl: string; bonusUrl: string; previousUrl?: string }): Mail {
   const { lang, result } = o;
-  const prevT = { de: "Ihr früherer Fahrplan bleibt gültig:", en: "Your earlier roadmap stays valid:", fr: "Votre plan précédent reste valable :" }[lang];
-  const prevL = { de: "früheren Fahrplan öffnen", en: "open the earlier roadmap", fr: "ouvrir le plan précédent" }[lang];
-  const lvl = pick(LEVELS[result.level].name, lang);
-  const St = STAGES[result.level];
-  const loss = formatEuro(result.totalYear, lang);
+  const n = result.level;
+  const next = Math.min(5, n + 1);
+  const lvl = pick(LEVELS[n].name, lang);
+  const L = LEVEL_MAIL[n][lang];
   const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
-  const fac = o.facility ? esc(o.facility) : "";
   const T = {
     de: {
-      subject: `Ihr Pflege-Fahrplan (Stufe ${result.level}: ${lvl})`,
-      hello,
-      promised: `wie versprochen: Hier ist Ihr persönlicher Pflege-Fahrplan${fac ? ` für ${fac}` : ""}. Er liegt online für Sie bereit, ohne Download.`,
-      open: "Fahrplan öffnen", bonusLink: "Bonus öffnen: der Agentur-Check",
-      insideH: "Darin finden Sie:",
-      inside: [
-        "auf welcher der 5 Stufen Sie stehen, und was leere Stellen Sie im Jahr kosten",
-        "Ihren Zeitplan: bis wann Sie starten müssen, damit die erste Fachkraft rechtzeitig da ist",
-        "Checklisten für die nächste Stufe und den 90-Tage-Plan zum Abhaken",
-        "<b>Bonus:</b> den Agentur-Check. 10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen",
-      ],
-      level: `Sie sind auf Stufe ${result.level} von 5: ${esc(lvl)}.`,
-      loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Leere Stellen und Kündigungen kosten" : "Leere Stellen kosten"} Sie etwa <b>${loss} im Jahr</b>.` : "",
-      bottom: "Unterm Strich:",
-      start: "Fangen Sie bei „Ihr Zeitplan“ an. Dann die Checklisten abhaken.",
-      bye: "Viele Grüße",
-      ps: "P.S. Sie möchten die Pflegekräfte erst persönlich sehen? Das geht in unserem Workshop in Marokko, 2 Tage, nur 10 Plätze.",
-      psLink: "Platz anfragen.",
+      subject: `Ihr Pflege-Fahrplan (Stufe ${n}: ${lvl})`,
+      promised: "wie versprochen, hier ist Ihr Pflege-Fahrplan:", tap: "Tippen Sie hier für Ihr PDF:",
+      link: `PFLEGE-FAHRPLAN – STUFE ${n}`, insideH: "Darin finden Sie:",
+      inside: [`Was Stufe ${n} genau ist und was Sie gerade bremst`, "Was Sie dagegen tun können, mit Checklisten zum Abhaken", n < 5 ? `Was es braucht, um auf Stufe ${next} zu kommen` : "Was es braucht, um oben zu bleiben"],
+      note: "<b>Hinweis</b>: Im Fahrplan finden Sie auch Ihren Zeitplan, einen Rechner für Ihre eigenen Zahlen und als Bonus den Agentur-Check.",
+      next: "Der Fahrplan zeigt Ihnen, was Sie als Nächstes tun.",
+      ps: `P.S. Viele Häuser bleiben auf Stufe ${n} hängen. Zu viel kommt auf einmal, und es ist schwer zu wissen, wo man anfängt.`,
+      ps2: "In unserem Workshop in Marokko klären wir in 2 Tagen, was Sie zuerst lösen und in welcher Reihenfolge. Und Sie lernen die Pflegekräfte persönlich kennen.",
+      psLink: "Prüfen Sie hier, ob Sie dabei sein können.",
+      prev: "Ihr früherer Fahrplan bleibt gültig:", prevLink: "früheren Fahrplan öffnen",
     },
     en: {
-      subject: `Your nurse staffing roadmap (level ${result.level}: ${lvl})`,
-      hello,
-      promised: `as promised: here is your personal roadmap${fac ? ` for ${fac}` : ""}. It is ready for you online, no download needed.`,
-      open: "Open my roadmap", bonusLink: "Open the bonus: the agency check",
-      insideH: "Inside you will find:",
-      inside: [
-        "which of the 5 levels you are on, and what empty posts cost you a year",
-        "your timeline: when to start so the first nurse arrives in time",
-        "checklists for the next level and the 90-day plan to tick off",
-        "<b>Bonus:</b> the agency check. 10 questions before you bring nurses from abroad",
-      ],
-      level: `You are on level ${result.level} of 5: ${esc(lvl)}.`,
-      loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Empty posts and resignations cost" : "Empty posts cost"} you about <b>${loss} a year</b>.` : "",
-      bottom: "Bottom line:",
-      start: "Start with “Your timeline”. Then tick off the checklists.",
-      bye: "Best regards",
-      ps: "P.S. Want to see the nurses in person first? You can, at our workshop in Morocco: 2 days, only 10 seats.",
-      psLink: "Request a seat.",
+      subject: `Your nurse staffing roadmap (level ${n}: ${lvl})`,
+      promised: "as promised, here is your roadmap:", tap: "Tap below for your PDF:",
+      link: `NURSE ROADMAP – LEVEL ${n}`, insideH: "Inside you'll find:",
+      inside: [`Exactly what level ${n} is and what is holding you back`, "What to do about it, with checklists to tick off", n < 5 ? `And what it takes to reach level ${next}` : "And what it takes to stay on top"],
+      note: "<b>Note</b>: the roadmap also has your timeline, a calculator for your own numbers and, as a bonus, the agency check.",
+      next: "The roadmap shows you what to do next.",
+      ps: `P.S. Many facilities get stuck at level ${n}. Too much hits at once, and it's hard to know where to start.`,
+      ps2: "At our workshop in Morocco we work out in 2 days what to fix first and in what order. And you meet the nurses in person.",
+      psLink: "See if you qualify here.",
+      prev: "Your earlier roadmap stays valid:", prevLink: "open the earlier roadmap",
     },
     fr: {
-      subject: `Votre plan infirmier (niveau ${result.level} : ${lvl})`,
-      hello,
-      promised: `comme promis : voici votre plan personnel${fac ? ` pour ${fac}` : ""}. Il vous attend en ligne, sans téléchargement.`,
-      open: "Ouvrir mon plan", bonusLink: "Ouvrir le bonus : le check agence",
-      insideH: "Vous y trouverez :",
-      inside: [
-        "à quel niveau sur 5 vous êtes, et ce que les postes vides vous coûtent par an",
-        "votre calendrier : quand commencer pour que la première infirmière arrive à temps",
-        "des listes pour le niveau suivant et le plan de 90 jours à cocher",
-        "<b>Bonus :</b> le check agence. 10 questions avant de faire venir des infirmières de l'étranger",
-      ],
-      level: `Vous êtes au niveau ${result.level} sur 5 : ${esc(lvl)}.`,
-      loss: result.totalYear > 0 ? `${result.turnoverCostYear > 0 ? "Les postes vides et les départs vous coûtent" : "Les postes vides vous coûtent"} environ <b>${loss} par an</b>.` : "",
-      bottom: "En résumé :",
-      start: "Commencez par « Votre calendrier ». Puis cochez les listes.",
-      bye: "Bien cordialement",
-      ps: "P.S. Vous voulez d'abord voir les infirmières en personne ? C'est possible à notre atelier au Maroc : 2 jours, seulement 10 places.",
-      psLink: "Demander une place.",
+      subject: `Votre plan infirmier (niveau ${n} : ${lvl})`,
+      promised: "comme promis, voici votre plan :", tap: "Cliquez ici pour votre PDF :",
+      link: `PLAN INFIRMIER – NIVEAU ${n}`, insideH: "Vous y trouverez :",
+      inside: [`Ce qu'est exactement le niveau ${n} et ce qui vous freine`, "Quoi faire, avec des listes à cocher", n < 5 ? `Et ce qu'il faut pour passer au niveau ${next}` : "Et ce qu'il faut pour rester au sommet"],
+      note: "<b>Remarque</b> : le plan contient aussi votre calendrier, un calculateur pour vos propres chiffres et, en bonus, le check agence.",
+      next: "Le plan vous montre quoi faire ensuite.",
+      ps: `P.S. Beaucoup d'établissements restent bloqués au niveau ${n}. Trop de choses arrivent en même temps, et on ne sait pas par où commencer.`,
+      ps2: "Dans notre atelier au Maroc, nous voyons en 2 jours quoi régler d'abord et dans quel ordre. Et vous rencontrez les infirmières en personne.",
+      psLink: "Vérifiez ici si vous pouvez participer.",
+      prev: "Votre plan précédent reste valable :", prevLink: "ouvrir le plan précédent",
     },
   }[lang];
-  const story = pick(St.story, lang);
-  const bottom = pick(St.bottom, lang);
-  const U = UI[lang];
-  const segs = [1, 2, 3, 4, 5].map((i) => `<td style="height:5px;line-height:5px;font-size:0;background:${i <= result.level ? "#c9a240" : "#2b2b30"};border-radius:3px">&nbsp;</td>`).join('<td width="6" style="font-size:0">&nbsp;</td>');
-  const card = `<div style="background:#0e0e10;border-radius:16px;padding:22px 24px;margin:0 0 24px">` +
-    `<div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#c9a240;font-weight:bold">${esc(U.level)} ${result.level} ${esc(U.of5)}</div>` +
-    `<div style="font-family:'Playfair Display',Georgia,serif;font-size:30px;line-height:1.15;color:#eeecea;margin:8px 0 6px">${esc(lvl)}</div>` +
-    `<div style="font-size:14px;line-height:1.5;color:#9a978f">${esc(pick(LEVELS[result.level].line, lang))}</div>` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;border-collapse:separate"><tr>${segs}</tr></table></div>`;
-  const list = `<ul style="font-size:15px;line-height:1.6;margin:0 0 18px;padding-left:20px">${T.inside.map((x) => `<li>${x}</li>`).join("")}</ul>`;
-  const body = card + p(T.hello) + p(T.promised) + btn(o.viewUrl, T.open) + p(`<b>${T.insideH}</b>`) + list +
-    p(`<a href="${esc(o.bonusUrl)}" style="color:#9c7a27;font-weight:bold">${esc(T.bonusLink)} →</a>`) +
-    (o.previousUrl ? p(`${esc(prevT)} <a href="${esc(o.previousUrl)}" style="color:#9c7a27">${esc(prevL)}</a>`) : "") +
-    p(`<b>${T.level}</b> ${esc(story)}`) +
-    p(`${T.loss ? T.loss + " " : ""}${T.bottom} <b>${esc(bottom)}</b>`) + p(T.start) +
-    p(T.bye) +
-    `<p style="font-size:14px;line-height:1.6;margin:22px 0 0;padding-top:16px;border-top:1px solid #ebe6da;color:#4a4a4a">${T.ps} <a href="${BOOK_URL}" style="color:#9c7a27;font-weight:bold">${T.psLink}</a></p>`;
-  const strip = (x: string) => x.replace(/<br>/g, "\n").replace(/<[^>]+>/g, "");
+  const a = (href: string, label: string) => `<a href="${esc(href)}" style="color:${LINK};font-weight:bold;text-decoration:underline">${esc(label)}</a>`;
+  const list = `<ul style="font-size:15px;line-height:1.6;margin:0 0 16px;padding-left:22px">${T.inside.map((x) => `<li style="margin:0 0 10px">${esc(x)}</li>`).join("")}</ul>`;
+  const body =
+    p(hello) + p(T.promised) +
+    p(`<b><u>${T.tap}</u></b>`) + btn(o.viewUrl, T.link) +
+    p(`<b>${T.insideH}</b>`) + list + p(T.note) +
+    (o.previousUrl ? p(`${esc(T.prev)} ${a(o.previousUrl, T.prevLink)}`) : "") +
+    p(esc(L.when)) + p(esc(L.role)) + p(esc(L.problem)) + p(esc(L.why)) + p(esc(L.feel)) +
+    p(a(o.viewUrl, T.next)) +
+    p(SIGNOFF[lang]) +
+    `<div style="margin-top:28px">` + p(esc(T.ps)) + p(esc(T.ps2)) + p(a(BOOK_URL, T.psLink)) + `</div>`;
   const text = [
-    strip(T.hello), strip(T.promised), `${T.open}: ${o.viewUrl}`,
-    T.insideH + "\n" + T.inside.map((x) => "- " + strip(x)).join("\n"),
-    `${T.bonusLink}: ${o.bonusUrl}`,
-    o.previousUrl ? `${prevT} ${o.previousUrl}` : "",
-    `${T.level} ${story}`,
-    `${T.loss ? strip(T.loss) + " " : ""}${T.bottom} ${bottom}`,
-    T.start,
-    strip(T.bye),
-    `${T.ps} ${T.psLink} ${BOOK_URL}`,
+    greeting(lang, o.salutation, o.lastName, o.firstName), T.promised, `${T.tap}\n>> ${T.link} <<\n${o.viewUrl}`,
+    T.insideH + "\n" + T.inside.map((x) => "- " + x).join("\n"), T.note.replace(/<[^>]+>/g, ""),
+    o.previousUrl ? `${T.prev} ${o.previousUrl}` : "",
+    L.when, L.role, L.problem, L.why, L.feel, `${T.next} ${o.viewUrl}`,
+    SIGNOFF[lang].replace("<br>", "\n"),
+    `${T.ps}\n\n${T.ps2}\n\n${T.psLink} ${BOOK_URL}`,
     `${unsubLabel(lang)}: ${o.unsubscribeUrl}`,
   ].filter(Boolean).join("\n\n");
+  void o.bonusUrl; // the bonus lives in the viewer (second tab)
   return { subject: T.subject, html: shell(lang, body, unsubFooter(lang, o.unsubscribeUrl)), text };
 }
 
@@ -302,7 +302,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
   };
   const m = S[lang][n];
   if (!m) return null;
-  const html = shell(lang, m.lines.map(p).join("") + btn(BOOK_URL, m.cta), unsubFooter(lang, o.unsubscribeUrl));
-  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${BOOK_URL}`, `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
+  const html = shell(lang, m.lines.map(p).join("") + btn(BOOK_URL, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
+  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${BOOK_URL}`, BYE[lang].replace("<br>", "
+"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
   return { subject: m.subject, html, text };
 }
