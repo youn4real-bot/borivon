@@ -185,12 +185,12 @@ describe("content + emails", () => {
   it("delivery mail: level in subject, fit P.S., unsubscribe link, Anrede", () => {
     const r = scoreRoadmap(struggling);
     for (const l of LANGS) {
-      const m = deliveryMail({ lang: l, salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u" });
+      const m = deliveryMail({ lang: l, salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u", viewUrl: "https://x/v", bonusUrl: "https://x/b" });
       expect(m.html).toContain("https://x/u");
       expect(m.text).toContain("https://x/u");
       expect(m.text).not.toMatch(/<[a-z]/);
     }
-    const m = deliveryMail({ lang: "de", salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u" });
+    const m = deliveryMail({ lang: "de", salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u", viewUrl: "https://x/v", bonusUrl: "https://x/b" });
     expect(m.subject).toContain("Stufe 1");
     expect(m.html).toContain("Prüfen Sie hier, ob Ihre Einrichtung passt");
     expect(m.html).toContain("Hallo Herr Kaya,");
@@ -216,11 +216,12 @@ describe("content + emails", () => {
 
 describe("the PDF", () => {
   for (const lang of LANGS) {
-    it(`renders 11 A4 pages in ${lang}`, async () => {
+    it(`renders the acquisition.com-style roadmap in ${lang}`, async () => {
       const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang, name: "Frau Müller", facility: "Seniorenzentrum Am Park", date: new Date("2026-10-21") });
       expect(bytes.length).toBeGreaterThan(20_000);
       const doc = await PDFDocument.load(bytes);
-      expect(doc.getPageCount()).toBe(11);
+      const { roadmapPageCount } = await import("../lib/roadmap/pdf");
+      expect(doc.getPageCount()).toBe(roadmapPageCount(scoreRoadmap(struggling).level));
     }, 30_000);
   }
 });
@@ -380,7 +381,7 @@ describe("per type + bonus", () => {
     const r = scoreRoadmap(struggling);
     const m = followupMail(1, { lang: "de", salutation: "frau", lastName: "A", result: r, unsubscribeUrl: "u", facilityType: "home_care" });
     expect(m?.html).toContain("Touren");
-    const d = deliveryMail({ lang: "de", salutation: "frau", lastName: "A", facility: "Haus", result: r, unsubscribeUrl: "u" });
+    const d = deliveryMail({ lang: "de", salutation: "frau", lastName: "A", facility: "Haus", result: r, unsubscribeUrl: "u", viewUrl: "https://x/v", bonusUrl: "https://x/b" });
     expect(d.html).toContain("Agentur-Check");
     expect(d.text).not.toMatch(/<[a-z]/);
   });
@@ -418,5 +419,36 @@ describe("calculator (PDF page 4 button)", () => {
     const { roadmapLeadChips } = await import("../lib/roadmap/leadSummary");
     const v = Object.fromEntries(roadmapLeadChips({ calc: { salary: 5200, agency: 4400, units: 2, perUnit: 4800, growth: 3 } }, "de").map((c) => [c.k, c.v]));
     expect(v.Rechner).toBe("Gehalt 5.200 € · Leihkräfte 4.400 € · 2 Plätze/Stelle · 4.800 € pro Platz · +3 Wachstum");
+  });
+});
+
+describe("the Fahrplan on the website", () => {
+  it("every level and language: page count right, every button inside its page", async () => {
+    const { pdfLinks } = await import("../lib/roadmap/hosted");
+    const { roadmapPageCount } = await import("../lib/roadmap/pdf");
+    for (const a of [struggling, healthy, { ...struggling, openPosts: 2, leftLastYear: 3, agency: "mid" as const }]) {
+      for (const lang of LANGS) {
+        const r = scoreRoadmap(a);
+        const bytes = await renderRoadmapPdf({ result: r, lang, name: "Frau Müller-Lüdenscheidt", facility: "Seniorenzentrum Am Stadtpark Nord", date: new Date("2026-11-08") });
+        expect((await PDFDocument.load(bytes)).getPageCount()).toBe(roadmapPageCount(r.level));
+        const links = await pdfLinks(bytes);
+        expect(links.length).toBeGreaterThanOrEqual(2);
+        for (const l of links) expect(l.y + l.h).toBeLessThan(0.93); // clear of the footer
+      }
+    }
+  }, 120_000);
+  it("finds every link in the PDF so the viewer can make it clickable", async () => {
+    const { pdfLinks } = await import("../lib/roadmap/hosted");
+    const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang: "de", name: "", facility: "Haus", date: new Date("2026-11-08"), calcUrl: "https://borivon.com/fahrplan/rechner?o=9" });
+    const links = await pdfLinks(bytes);
+    expect(links.some((l) => l.url === "https://borivon.com/fahrplan/rechner?o=9")).toBe(true);
+    expect(links.some((l) => l.url === "https://borivon.com/book/clinic")).toBe(true);
+    for (const l of links) { expect(l.x).toBeGreaterThanOrEqual(0); expect(l.y + l.h).toBeLessThan(0.93); }
+  }, 30_000);
+  it("the mail links to the website instead of attaching", () => {
+    const m = deliveryMail({ lang: "de", salutation: "frau", lastName: "M", facility: "Haus", result: scoreRoadmap(struggling), unsubscribeUrl: "u", viewUrl: "https://borivon.com/fahrplan/plan?id=1", bonusUrl: "https://b" });
+    expect(m.html).toContain("https://borivon.com/fahrplan/plan?id=1");
+    expect(m.html).toContain("Fahrplan öffnen");
+    expect(m.html).not.toContain("Anhang");
   });
 });

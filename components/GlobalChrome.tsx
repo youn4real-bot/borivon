@@ -137,6 +137,8 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   // ships its OWN minimal header, so suppress the global navbar/chrome here, same
   // route-only escape hatch as /u and /v2 (LAW #1: never an auth-state read).
   const isAffiliate = pathname === "/affiliate" || pathname.startsWith("/affiliate/");
+  // /fahrplan/plan is the hosted Fahrplan PDF: its own slim header, no site navbar.
+  const isPlan = pathname === "/fahrplan/plan";
 
   return (
     <ThemeProvider>
@@ -149,7 +151,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           {/* .bv-chrome wrapper lets the affiliate subdomain hide ALL global
               chrome (navbar + flag strip + actions bar) via one CSS rule set by
               the no-flash host script in the <head> — see app/layout.tsx. */}
-          {!isV2 && !isUpload && !isAffiliate && (
+          {!isV2 && !isUpload && !isAffiliate && !isPlan && (
             <div className="bv-chrome">
             <Navbar
               hideThemeLang={isPortal}

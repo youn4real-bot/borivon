@@ -10,6 +10,7 @@ import { setListSubscribed, removeFromList, listAccess } from "@/lib/roadmap/res
 import { tokensEnabled } from "@/lib/roadmap/token";
 import { asSalutation } from "@/lib/roadmap/consent";
 import { deliverRoadmap, unsubscribeLink, leadLang } from "@/lib/roadmap/delivery";
+import { deleteHosted } from "@/lib/roadmap/hosted";
 import type { RoadmapResult } from "@/lib/roadmap/score";
 import { costPerOpenPost, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
 
@@ -125,6 +126,7 @@ export async function GET(req: NextRequest) {
     const d = current.get(row.id)!;
     if (!isExpired(d, row.created_at, now)) continue;
     if (row.email && !row.email.endsWith("@invalid") && d.list?.state) await removeFromList(row.email);
+    await deleteHosted(row.id); // the stored PDFs carry name + house
     const level = (d.result as { level?: number } | undefined)?.level;
     const { error: anErr } = await db.from("leads").update({
       email: `anonymized-${row.id}@invalid`, name: "", phone: "",

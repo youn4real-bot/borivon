@@ -95,7 +95,7 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
  * of their level, then a P.S. that frames the call as "see if you fit", never
  * as a sale. Marketing from here on, so it carries the unsubscribe link.
  */
-export function deliveryMail(o: Addressee & { lang: Lang; facility: string; result: RoadmapResult; unsubscribeUrl: string }): Mail {
+export function deliveryMail(o: Addressee & { lang: Lang; facility: string; result: RoadmapResult; unsubscribeUrl: string; viewUrl: string; bonusUrl: string }): Mail {
   const { lang, result } = o;
   const lvl = pick(LEVELS[result.level].name, lang);
   const St = STAGES[result.level];
@@ -106,7 +106,8 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
     de: {
       subject: `Ihr Pflege-Fahrplan (Stufe ${result.level}: ${lvl})`,
       hello,
-      promised: `wie versprochen: Hier ist Ihr persönlicher Pflege-Fahrplan${fac ? ` für ${fac}` : ""}. Ihr Fahrplan und ein Bonus sind als PDF im Anhang.`,
+      promised: `wie versprochen: Hier ist Ihr persönlicher Pflege-Fahrplan${fac ? ` für ${fac}` : ""}. Er liegt online für Sie bereit, ohne Download.`,
+      open: "Fahrplan öffnen", bonusLink: "Bonus öffnen: der Agentur-Check",
       insideH: "Darin finden Sie:",
       inside: [
         "auf welcher der 5 Stufen Ihre Einrichtung steht, und was Sie das im Jahr kostet",
@@ -117,7 +118,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       level: `Sie sind auf Stufe ${result.level} von 5: ${esc(lvl)}.`,
       loss: result.totalYear > 0 ? `Leere Stellen und Kündigungen kosten Sie etwa <b>${loss} im Jahr</b>.` : "",
       bottom: "Unterm Strich:",
-      start: "Fangen Sie mit Seite 6 an (Ihr Plan). Drucken Sie Seite 7 aus (die 90-Tage-Liste).",
+      start: "Fangen Sie bei „So sieht Erfolg aus“ an. Drucken Sie den 90-Tage-Plan aus.",
       bye: "Viele Grüße<br>Ihr Borivon-Team",
       ps: "P.S. Viele Einrichtungen bleiben auf ihrer Stufe hängen, weil zu viel auf einmal brennt. Wir arbeiten pro Runde mit höchstens 10 Einrichtungen.",
       psLink: "Prüfen Sie hier, ob Ihre Einrichtung passt.",
@@ -125,7 +126,8 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
     en: {
       subject: `Your nurse staffing roadmap (level ${result.level}: ${lvl})`,
       hello,
-      promised: `as promised: here is your personal roadmap${fac ? ` for ${fac}` : ""}. Your roadmap and a bonus are attached as PDFs.`,
+      promised: `as promised: here is your personal roadmap${fac ? ` for ${fac}` : ""}. It is ready for you online, no download needed.`,
+      open: "Open my roadmap", bonusLink: "Open the bonus: the agency check",
       insideH: "Inside you will find:",
       inside: [
         "which of the 5 levels your facility is on, and what that costs you a year",
@@ -136,7 +138,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       level: `You are on level ${result.level} of 5: ${esc(lvl)}.`,
       loss: result.totalYear > 0 ? `Empty posts and resignations cost you about <b>${loss} a year</b>.` : "",
       bottom: "Bottom line:",
-      start: "Start with page 6 (your plan). Print page 7 (the 90-day checklist).",
+      start: "Start with “What success looks like”. Print the 90-day plan.",
       bye: "Best regards<br>The Borivon team",
       ps: "P.S. Many facilities get stuck on their level because too much is on fire at once. We work with at most 10 employers per group.",
       psLink: "See if your facility is a fit.",
@@ -144,7 +146,8 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
     fr: {
       subject: `Votre plan infirmier (niveau ${result.level} : ${lvl})`,
       hello,
-      promised: `comme promis : voici votre plan personnel${fac ? ` pour ${fac}` : ""}. Votre plan et un bonus sont en pièces jointes (PDF).`,
+      promised: `comme promis : voici votre plan personnel${fac ? ` pour ${fac}` : ""}. Il vous attend en ligne, sans téléchargement.`,
+      open: "Ouvrir mon plan", bonusLink: "Ouvrir le bonus : le check agence",
       insideH: "Vous y trouverez :",
       inside: [
         "à quel niveau sur 5 se trouve votre établissement, et ce que cela vous coûte par an",
@@ -155,7 +158,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       level: `Vous êtes au niveau ${result.level} sur 5 : ${esc(lvl)}.`,
       loss: result.totalYear > 0 ? `Les postes vides et les départs vous coûtent environ <b>${loss} par an</b>.` : "",
       bottom: "En résumé :",
-      start: "Commencez par la page 6 (votre plan). Imprimez la page 7 (la liste de 90 jours).",
+      start: "Commencez par « À quoi ressemble la réussite ». Imprimez le plan de 90 jours.",
       bye: "Bien cordialement<br>L'équipe Borivon",
       ps: "P.S. Beaucoup d'établissements restent bloqués à leur niveau, car trop de choses brûlent en même temps. Nous travaillons avec 10 employeurs au maximum par groupe.",
       psLink: "Vérifiez ici si votre établissement correspond.",
@@ -171,15 +174,17 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
     `<div style="font-size:14px;line-height:1.5;color:#9a978f">${esc(pick(LEVELS[result.level].line, lang))}</div>` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;border-collapse:separate"><tr>${segs}</tr></table></div>`;
   const list = `<ul style="font-size:15px;line-height:1.6;margin:0 0 18px;padding-left:20px">${T.inside.map((x) => `<li>${x}</li>`).join("")}</ul>`;
-  const body = card + p(T.hello) + p(T.promised) + p(`<b>${T.insideH}</b>`) + list +
+  const body = card + p(T.hello) + p(T.promised) + btn(o.viewUrl, T.open) + p(`<b>${T.insideH}</b>`) + list +
+    p(`<a href="${esc(o.bonusUrl)}" style="color:#9c7a27;font-weight:bold">${esc(T.bonusLink)} →</a>`) +
     p(`<b>${T.level}</b> ${esc(story)}`) +
     p(`${T.loss ? T.loss + " " : ""}${T.bottom} <b>${esc(bottom)}</b>`) + p(T.start) +
     p(T.bye) +
     `<p style="font-size:14px;line-height:1.6;margin:22px 0 0;padding-top:16px;border-top:1px solid #ebe6da;color:#4a4a4a">${T.ps} <a href="${BOOK_URL}" style="color:#9c7a27;font-weight:bold">${T.psLink}</a></p>`;
   const strip = (x: string) => x.replace(/<br>/g, "\n").replace(/<[^>]+>/g, "");
   const text = [
-    strip(T.hello), strip(T.promised),
+    strip(T.hello), strip(T.promised), `${T.open}: ${o.viewUrl}`,
     T.insideH + "\n" + T.inside.map((x) => "- " + strip(x)).join("\n"),
+    `${T.bonusLink}: ${o.bonusUrl}`,
     `${T.level} ${story}`,
     `${T.loss ? strip(T.loss) + " " : ""}${T.bottom} ${bottom}`,
     T.start,
@@ -210,7 +215,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "ob eine Pflegekraft bleibt, entscheidet sich oft in der ersten Woche. Drei Dinge machen den Unterschied:",
         "<b>1.</b> Jemand holt sie ab. <b>2.</b> Die Wohnung ist fertig, bevor sie kommt. <b>3.</b> Jeden Tag 10 Minuten: Wie war es heute?",
         firstWeek,
-        "Den ganzen 90-Tage-Plan finden Sie auf Seite 7 Ihres Fahrplans.",
+        "Den ganzen 90-Tage-Plan finden Sie in Ihrem Fahrplan.",
       ], cta: "Fragen? Kurz sprechen" },
       { subject: "So rechnet sich eine Pflegekraft, die bleibt", lines: [
         hello,
@@ -236,7 +241,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "whether a nurse stays is often decided in the first week. Three things make the difference:",
         "<b>1.</b> Someone picks her up. <b>2.</b> The flat is ready before she arrives. <b>3.</b> 10 minutes every day: how was today?",
         firstWeek,
-        "The full 90-day plan is on page 7 of your roadmap.",
+        "The full 90-day plan is in your roadmap.",
       ], cta: "Questions? Let's talk" },
       { subject: "What a nurse who stays is worth", lines: [
         hello,
@@ -262,7 +267,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "qu'une infirmière reste se décide souvent la première semaine. Trois choses font la différence :",
         "<b>1.</b> Quelqu'un vient la chercher. <b>2.</b> Le logement est prêt avant son arrivée. <b>3.</b> 10 minutes chaque jour : comment ça s'est passé ?",
         firstWeek,
-        "Le plan complet de 90 jours est à la page 7 de votre plan.",
+        "Le plan complet de 90 jours est dans votre plan.",
       ], cta: "Des questions ? Parlons-en" },
       { subject: "Ce que vaut une infirmière qui reste", lines: [
         hello,

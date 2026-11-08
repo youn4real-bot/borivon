@@ -8,14 +8,12 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { sendRoadmapDeliveryEmail, sendAdminAlertEmail } from "@/lib/email";
-import { renderRoadmapPdf } from "./pdf";
-import { renderAgencyCheckPdf } from "./bonusPdf";
 import { deliveryMail } from "./emails";
 import { scoreRoadmap, normalizeAnswers, type RoadmapAnswers } from "./score";
 import { LANGS, type Lang } from "./content";
-import { asSalutation, addressName } from "./consent";
+import { asSalutation } from "./consent";
+import { renderFor, storeHosted, viewLink } from "./hosted";
 import { signLeadToken } from "./token";
-import { calcUrl } from "./calc";
 import { MAX_DELIVERY_ATTEMPTS, type RoadmapDetails } from "./leadState";
 
 type Db = ReturnType<typeof getServiceSupabase>;
@@ -46,18 +44,14 @@ export async function deliverRoadmap(db: Db, lead: { id: string; email: string; 
   const facility = String(d.facility ?? "");
   let ok = false;
   try {
-    const answers = normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>);
-    const result = scoreRoadmap(answers);
-    const calc = await calcUrl({ lang, facilityType: answers.facilityType, openPosts: answers.openPosts, leftLastYear: answers.leftLastYear, leadId: lead.id });
-    const [pdf, bonus] = await Promise.all([
-      renderRoadmapPdf({ result, lang, name: addressName(lang, salutation, lastName), facility, date: new Date(), calcUrl: calc }),
-      renderAgencyCheckPdf(lang),
-    ]);
+    // Rendered once, kept on the website (R2); the mail only links to it.
+    const result = scoreRoadmap(normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>));
+    const [pdf, bonus] = await Promise.all([renderFor(lead.id, d, "plan"), renderFor(lead.id, d, "bonus")]);
+    await Promise.all([storeHosted(lead.id, "plan", pdf), storeHosted(lead.id, "bonus", bonus)]);
     const unsubscribeUrl = await unsubscribeLink(lead.id);
-    const m = deliveryMail({ lang, salutation, lastName, facility, result, unsubscribeUrl });
-    const fname = (lang === "de" ? "Pflege-Fahrplan" : lang === "fr" ? "Plan-infirmier" : "Nurse-staffing-roadmap") + "-Borivon.pdf";
-    const bonusName = (lang === "de" ? "Agentur-Check" : lang === "fr" ? "Check-agence" : "Agency-check") + "-Borivon.pdf";
-    ok = await sendRoadmapDeliveryEmail({ to: lead.email, subject: m.subject, html: m.html, text: m.text, pdf, filename: fname, unsubscribeUrl, extra: [{ filename: bonusName, pdf: bonus }] });
+    const [viewUrl, bonusUrl] = await Promise.all([viewLink(lead.id, lang, "plan"), viewLink(lead.id, lang, "bonus")]);
+    const m = deliveryMail({ lang, salutation, lastName, facility, result, unsubscribeUrl, viewUrl, bonusUrl });
+    ok = await sendRoadmapDeliveryEmail({ to: lead.email, subject: m.subject, html: m.html, text: m.text, unsubscribeUrl });
   } catch (e) { console.error("[roadmap] pdf/email failed:", e instanceof Error ? e.message : e); }
 
   const next: RoadmapDetails = { ...d, delivery: { attempts, lastAttemptAt: attemptAt, sentAt: ok ? new Date().toISOString() : null } };

@@ -607,8 +607,9 @@ export async function sendRoadmapConfirmEmail(o: { to: string; subject: string; 
  * Returns true only if Resend accepted it.
  */
 export async function sendRoadmapDeliveryEmail(o: {
-  to: string; subject: string; html: string; text: string; pdf: Uint8Array; filename: string; unsubscribeUrl: string;
-  /** more PDFs in the same mail (the Fahrplan bonus) */
+  to: string; subject: string; html: string; text: string; unsubscribeUrl: string;
+  /** optional attachments; since 2026-11-08 the Fahrplan lives on the website and the mail only links to it */
+  pdf?: Uint8Array; filename?: string;
   extra?: { filename: string; pdf: Uint8Array }[];
 }): Promise<boolean> {
   return deliver({
@@ -622,7 +623,7 @@ export async function sendRoadmapDeliveryEmail(o: {
       "List-Unsubscribe": `<${o.unsubscribeUrl}>`,
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     },
-    attachments: [{ filename: o.filename, content: Buffer.from(o.pdf) }, ...(o.extra ?? []).map((x) => ({ filename: x.filename, content: Buffer.from(x.pdf) }))],
+    ...(o.pdf && o.filename ? { attachments: [{ filename: o.filename, content: Buffer.from(o.pdf) }, ...(o.extra ?? []).map((x) => ({ filename: x.filename, content: Buffer.from(x.pdf) }))] } : {}),
   });
 }
 
