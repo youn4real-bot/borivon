@@ -385,3 +385,38 @@ describe("per type + bonus", () => {
     expect(d.text).not.toMatch(/<[a-z]/);
   });
 });
+
+describe("calculator (PDF page 4 button)", () => {
+  it("the page uses the same money model and minimum salary as the server", async () => {
+    const { readFileSync } = await import("fs");
+    const { COST_MODEL, AGENCY_RATE, ONBOARDING_HOURS, ONBOARDING_RATE, REPLACEMENT_COST } = await import("../lib/roadmap/score");
+    const { MIN_SALARY_MONTH } = await import("../lib/roadmap/calc");
+    const page = readFileSync("content/pflege/rechner.html", "utf8");
+    for (const [k, m] of Object.entries(COST_MODEL)) {
+      expect(page).toContain(`${k}: { agency: ${m.agencyHours * AGENCY_RATE}, units: ${m.lossUnits}, perUnit: ${m.lossPerUnit} }`);
+    }
+    expect(page).toContain("var MIN_RATE = 21.03;");
+    expect(page).toContain("var EMPLOYER_SHARE = 21;");
+    expect(Math.round(21.03 * 40 * 52 / 12 * 1.21)).toBe(MIN_SALARY_MONTH);
+    expect(page).toContain(`var DEP_FIXED = ${ONBOARDING_HOURS} * ${ONBOARDING_RATE} + ${REPLACEMENT_COST};`);
+  });
+  it("the personal link carries the answers and a signed token", async () => {
+    process.env.DL_TOKEN_SECRET = "test-secret-0123456789abcdef";
+    const { calcUrl } = await import("../lib/roadmap/calc");
+    const u = new URL(await calcUrl({ lang: "de", facilityType: "care_home", openPosts: 4, leftLastYear: 6, leadId: "lead-1" }));
+    expect(u.pathname).toBe("/fahrplan/rechner");
+    expect(u.searchParams.get("o")).toBe("4");
+    expect(await verifyLeadToken("calc", "lead-1", u.searchParams.get("t")!)).toBe(true);
+    expect(new URL(await calcUrl({ lang: "en", facilityType: "care_home", openPosts: 1, leftLastYear: 0 })).searchParams.get("t")).toBeNull();
+  });
+  it("saves only known, clamped numbers", async () => {
+    const { cleanCalc } = await import("../lib/roadmap/calc");
+    expect(cleanCalc({ salary: 5000, units: 99, open: -3, evil: "<script>", perUnit: "4600" })).toEqual({ salary: 5000, units: 20, open: 0 });
+    expect(cleanCalc(null)).toEqual({});
+  });
+  it("the admin sees what they set", async () => {
+    const { roadmapLeadChips } = await import("../lib/roadmap/leadSummary");
+    const v = Object.fromEntries(roadmapLeadChips({ calc: { salary: 5200, agency: 4400, units: 2, perUnit: 4800, growth: 3 } }, "de").map((c) => [c.k, c.v]));
+    expect(v.Rechner).toBe("Gehalt 5.200 € · Leihkräfte 4.400 € · 2 Plätze/Stelle · 4.800 € pro Platz · +3 Wachstum");
+  });
+});

@@ -153,6 +153,15 @@ ${s.slice(cut).trim()}
   pages.FAHRPLAN_HTML = s;
 }
 
+// ── Fahrplan-Rechner (the calculator behind the button on PDF page 4) ──
+{
+  let s = fs.readFileSync(path.join(SRC, "rechner.html"), "utf8");
+  const i = s.indexOf("<!--HEAD-->");
+  if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in rechner.html"); }
+  else s = s.slice(0, i) + head("Ihr Rechner zum Pflege-Fahrplan · Borivon", "Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.", "https://www.borivon.com/fahrplan/rechner") + s.slice(i + "<!--HEAD-->".length);
+  pages.RECHNER_HTML = s;
+}
+
 // sanity: nothing may still reach outside servers
 for (const [name, s] of Object.entries(pages)) {
   const f = name;
@@ -170,6 +179,8 @@ if (problems) { console.error(problems + " problem(s)"); process.exit(1); }
 fs.writeFileSync(path.join(OUT, "index.html"), pages.HOME_HTML);
 fs.writeFileSync(path.join(OUT, "plattform.html"), pages.PLATTFORM_HTML);
 fs.writeFileSync(path.join(OUT, "fahrplan.html"), pages.FAHRPLAN_HTML);
+fs.mkdirSync(path.join(OUT, "fahrplan"), { recursive: true });
+fs.writeFileSync(path.join(OUT, "fahrplan", "rechner.html"), pages.RECHNER_HTML);
 for (const old of [path.join(OUT, "pflege.html"), path.join(OUT, "pflege", "plattform.html")]) fs.rmSync(old, { force: true });
 console.log("public/index.html, public/plattform.html, public/fahrplan.html");
 console.log("ok" + (withVoices ? " (with testimonials)" : ""));

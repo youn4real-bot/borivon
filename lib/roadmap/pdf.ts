@@ -55,6 +55,8 @@ export type RoadmapPdfInput = {
   /** who it is for, as addressed: "Frau Müller" ("" = no name on the cover) */
   name: string;
   facility: string;
+  /** the personal calculator link for the page-4 button (lib/roadmap/calc.ts); a generic one when missing */
+  calcUrl?: string;
   date: Date;
 };
 
@@ -269,7 +271,17 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       icon(page, ic, M, y - 1, 18, on(PAPER));
       y = para(s, txt, M + 30, y, W - 30, F.reg, 10, MUTED, 1.55) + 10;
     }
-    para(s, t.ownNumbers, M, y + 6, W, F.semi, 10.5, INK);
+    // "Your numbers are different?" → the calculator (founder 2026-11-08)
+    y = para(s, t.ownNumbers, M, y + 8, W, F.semi, 11.5, INK, 1.5) + 4;
+    const cb = t.calcBtn, cbw = measure(cb, F.semi, 12.5) + 52, cbh = 40;
+    s.roundedRect(M, y, cbw, cbh, 20, { fill: GOLD });
+    s.text(cb, M + 26, y + 13, F.semi, 12.5, hexColor("#131312"));
+    const calcLink = input.calcUrl || `https://borivon.com/fahrplan/rechner?lang=${lang}&f=${result.facilityType}`;
+    const ca = doc.context.register(doc.context.obj({
+      Type: "Annot", Subtype: "Link", Rect: [M, PH - y - cbh, M + cbw, PH - y], Border: [0, 0, 0],
+      A: { Type: "Action", S: "URI", URI: PDFString.of(calcLink) },
+    }));
+    page.node.set(PDFName.of("Annots"), doc.context.obj([ca]));
   }
 
   // ── 5 · area by area ──────────────────────────────────────────────────────

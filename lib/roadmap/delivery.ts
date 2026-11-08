@@ -15,6 +15,7 @@ import { scoreRoadmap, normalizeAnswers, type RoadmapAnswers } from "./score";
 import { LANGS, type Lang } from "./content";
 import { asSalutation, addressName } from "./consent";
 import { signLeadToken } from "./token";
+import { calcUrl } from "./calc";
 import { MAX_DELIVERY_ATTEMPTS, type RoadmapDetails } from "./leadState";
 
 type Db = ReturnType<typeof getServiceSupabase>;
@@ -45,9 +46,11 @@ export async function deliverRoadmap(db: Db, lead: { id: string; email: string; 
   const facility = String(d.facility ?? "");
   let ok = false;
   try {
-    const result = scoreRoadmap(normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>));
+    const answers = normalizeAnswers((d.answers ?? {}) as Partial<RoadmapAnswers>);
+    const result = scoreRoadmap(answers);
+    const calc = await calcUrl({ lang, facilityType: answers.facilityType, openPosts: answers.openPosts, leftLastYear: answers.leftLastYear, leadId: lead.id });
     const [pdf, bonus] = await Promise.all([
-      renderRoadmapPdf({ result, lang, name: addressName(lang, salutation, lastName), facility, date: new Date() }),
+      renderRoadmapPdf({ result, lang, name: addressName(lang, salutation, lastName), facility, date: new Date(), calcUrl: calc }),
       renderAgencyCheckPdf(lang),
     ]);
     const unsubscribeUrl = await unsubscribeLink(lead.id);

@@ -64,6 +64,12 @@ const LBL: Record<string, L3> = {
   confirmed: { de: "bestätigt", en: "confirmed", fr: "confirmé" },
   pdfSent: { de: "PDF gesendet", en: "PDF sent", fr: "PDF envoyé" },
   pdfOpen: { de: "PDF offen", en: "PDF pending", fr: "PDF en attente" },
+  calc: { de: "Rechner", en: "Calculator", fr: "Calculateur" },
+  salary: { de: "Gehalt", en: "salary", fr: "salaire" },
+  places: { de: "Plätze/Stelle", en: "places/post", fr: "places/poste" },
+  perPlace: { de: "pro Platz", en: "per place", fr: "par place" },
+  agencyM: { de: "Leihkräfte", en: "agency", fr: "intérim" },
+  grow: { de: "Wachstum", en: "growth", fr: "croissance" },
   unsub: { de: "abgemeldet", en: "unsubscribed", fr: "désinscrit" },
   mails: { de: "Mails", en: "emails", fr: "e-mails" },
   source: { de: "Quelle", en: "Source", fr: "Source" },
@@ -116,6 +122,18 @@ export function roadmapLeadChips(details: unknown, lang: Lang): Chip[] {
     : str(c.confirmedAt) ? `${t("confirmed")} · ${pdf} · ${sent}/4 ${t("mails")}`
     : t("waiting");
   out.push({ k: t("status"), v: status });
+  // what they set in the calculator behind PDF page 4
+  const cc = obj(d.calc);
+  if (num(cc.salary) !== null) {
+    const parts = [
+      `${t("salary")} ${euro(num(cc.salary)!, lang)}`,
+      num(cc.agency) !== null ? `${t("agencyM")} ${euro(num(cc.agency)!, lang)}` : "",
+      num(cc.units) !== null ? `${num(cc.units)} ${t("places")}` : "",
+      num(cc.perUnit) !== null ? `${euro(num(cc.perUnit)!, lang)} ${t("perPlace")}` : "",
+      num(cc.growth) ? `+${num(cc.growth)} ${t("grow")}` : "",
+    ].filter(Boolean);
+    out.push({ k: t("calc"), v: parts.join(" · ") });
+  }
   if (str(d.heardFrom)) out.push({ k: t("source"), v: str(d.heardFrom) });
   if (str(d.role)) out.push({ k: t("role"), v: str(d.role) });
   if (str(d.lang)) out.push({ k: t("lang"), v: str(d.lang).toUpperCase() });

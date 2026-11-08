@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ihr Rechner zum Pflege-Fahrplan · Borivon</title>
+<meta name="description" content="Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.">
+<link rel="canonical" href="https://www.borivon.com/fahrplan/rechner">
+<link rel="icon" href="/favicon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Ihr Rechner zum Pflege-Fahrplan · Borivon">
+<meta property="og:description" content="Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.">
+<meta property="og:url" content="https://www.borivon.com/fahrplan/rechner">
+<meta property="og:image" content="https://www.borivon.com/pflege/assets/nurse.jpg">
+<meta name="theme-color" content="#0e0e10">
+<style>
+@font-face { font-family: "Playfair Display"; font-style: normal; font-weight: 500 700; font-display: swap; src: url(/pflege/assets/playfair-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Playfair Display"; font-style: normal; font-weight: 500 700; font-display: swap; src: url(/pflege/assets/playfair-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Playfair Display"; font-style: italic; font-weight: 400 700; font-display: swap; src: url(/pflege/assets/playfair-italic-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Playfair Display"; font-style: italic; font-weight: 400 700; font-display: swap; src: url(/pflege/assets/playfair-italic-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/lexend-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/lexend-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+</style>
+
+<style>
+:root {
+  --bg: #0e0e10; --panel: #151518; --line: rgba(238,236,234,0.09);
+  --fg: #eeecea; --muted: #8f8c85; --gold: #c9a240; --ok: #7fb58c; --red: #e5664a;
+  --font-display: "Playfair Display", Georgia, serif; --font-body: "Lexend", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow-x: clip; }
+a { color: inherit; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px clamp(16px, 3vw, 32px); border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--font-display); font-style: italic; font-size: 1.35rem; text-decoration: none; }
+.brand span { color: var(--gold); font-style: normal; }
+.top .t { font-size: 0.85rem; color: var(--muted); margin-left: 14px; }
+.langs { display: flex; gap: 2px; }
+.langs button { background: none; border: 0; padding: 6px 8px; font-size: 0.75rem; letter-spacing: 0.06em; color: var(--muted); }
+.langs button[aria-pressed="true"] { color: var(--gold); }
+
+.grid { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 62px); }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .side { order: 2; border-right: 0; border-top: 1px solid var(--line); } }
+
+/* left: compact inputs */
+.side { border-right: 1px solid var(--line); padding: 8px 20px 24px; }
+.row { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.row .l { font-size: 0.78rem; color: var(--muted); line-height: 1.35; }
+.row .v { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.row .v b { font-weight: 600; font-size: 1.05rem; }
+.step { display: flex; gap: 4px; }
+.step button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: transparent; font-size: 1rem; line-height: 1; }
+.step button:hover, .edit:hover { border-color: var(--gold); color: var(--gold); }
+.edit { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 5px 10px; font-size: 0.75rem; color: var(--muted); }
+.more { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.03); }
+.row.open .more { display: grid; gap: 8px; }
+.more label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: var(--muted); }
+.more input { width: 96px; text-align: right; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); font-size: 0.9rem; -moz-appearance: textfield; }
+.more input::-webkit-outer-spin-button, .more input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.more input:focus { outline: none; border-color: var(--gold); }
+.more .note { font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
+.how { margin-top: 18px; font-size: 0.75rem; line-height: 1.6; color: var(--muted); }
+
+/* right: the money */
+.main { padding: clamp(20px, 3vw, 40px); display: flex; flex-direction: column; min-width: 0; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.loss .k { font-size: 0.95rem; color: var(--muted); }
+.loss .n { font-family: var(--font-display); font-weight: 600; color: var(--red); font-size: clamp(3rem, 2rem + 5vw, 6.2rem); line-height: 1; letter-spacing: -0.02em; margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+.loss .d { font-size: 1rem; color: var(--fg); }
+.loss .d b { color: var(--red); }
+.yrs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.yrs button { background: none; border: 0; padding: 7px 14px; border-radius: 999px; font-size: 0.82rem; color: var(--muted); }
+.yrs button[aria-pressed="true"] { background: var(--fg); color: #131312; font-weight: 600; }
+.chartbox { flex: 1; min-height: 320px; margin: 22px 0 12px; position: relative; }
+svg.chart { display: block; width: 100%; height: 100%; min-height: 320px; }
+.gain { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--line); }
+.gain .k { font-size: 0.9rem; color: var(--muted); }
+.gain .k b { display: block; font-family: var(--font-display); font-weight: 600; font-size: 1.9rem; color: var(--ok); margin-top: 2px; }
+.btn { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 999px; background: var(--gold); color: #131312; font-weight: 600; text-decoration: none; }
+footer { text-align: center; font-size: 0.78rem; color: var(--muted); padding: 18px 16px 32px; border-top: 1px solid var(--line); }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div><a class="brand" href="/">Borivon<span>.</span></a><span class="t" id="ttl"></span></div>
+  <div class="langs" role="group" aria-label="Sprache"><button type="button" data-lang="de">DE</button><button type="button" data-lang="en">EN</button><button type="button" data-lang="fr">FR</button></div>
+</header>
+<div class="grid">
+  <aside class="side" id="side"></aside>
+  <main class="main" id="main"></main>
+</div>
+<footer><a href="/impressum">Impressum</a> · <a href="/datenschutz" id="privLink">Datenschutz</a> · contact@borivon.com</footer>
+
+<script>
+(function () {
+  // Same money model as lib/roadmap/score.ts COST_MODEL (keep in sync; tested).
+  var MODEL = {
+    hospital: { agency: 4400, units: 1, perUnit: 15600 },
+    care_home: { agency: 4400, units: 2, perUnit: 4600 },
+    home_care: { agency: 4400, units: 4, perUnit: 1300 }
+  };
+  var MIN_RATE = 21.03;      // Pflegemindestlohn Fachkraft, € per hour (from 07/2026)
+  var EMPLOYER_SHARE = 21;   // % on top of the gross: social insurance the employer pays
+  var AGENCY_RATE = 55;      // € per agency hour
+  var DEP_FIXED = 120 * 45 + 8000; // lost onboarding + the next search (score.ts)
+
+  var T = {
+    de: {
+      ttl: "Rechner zum Fahrplan",
+      lossK: "Das verlieren Sie in {y} ohne neue Pflegekräfte", perDay: "Jeden Tag: {d}. Auch heute.",
+      gainK: "Mit besetzten Stellen gewinnen Sie in {y}, nach Gehalt",
+      yrs: ["1 Jahr", "2 Jahre", "3 Jahre"], yrsIn: ["1 Jahr", "2 Jahren", "3 Jahren"],
+      lineRed: "Ohne Pflegekräfte", lineGreen: "Mit Pflegekräften",
+      open: "Offene Stellen", left: "Gehen pro Jahr", grow: "Mehr Pflegekräfte, um zu wachsen",
+      salary: "Eine Pflegekraft kostet Sie im Jahr", agency: "Leihkräfte pro offener Stelle, im Monat",
+      places: { hospital: "Ein gesperrtes Bett bringt nicht", care_home: "Leere Plätze pro offener Stelle", home_care: "Abgelehnte Patienten pro Stelle" },
+      edit: "ändern", close: "fertig",
+      rate: "Stundenlohn (€)", hours: "Stunden pro Woche", share: "Arbeitgeberanteil (%)",
+      salaryNote: "Start: Pflegemindestlohn 21,03 € und 21 % Sozialabgaben, die Sie als Arbeitgeber zahlen.",
+      agHours: "Leihstunden pro Monat", agRate: "Preis pro Stunde (€)",
+      units: "Anzahl", perUnit: { hospital: "Erlös pro Bett und Monat (€)", care_home: "Erlös pro Platz und Monat (€)", home_care: "Erlös pro Patient und Monat (€)" },
+      unitNote: { hospital: "Start: rund 650 € pro Tag, 80 % belegt.", care_home: "Start: Eigenanteil Ø 3.364 € (vdek, 07/2026) + Pflegekasse Pflegegrad 3.", home_care: "Start: Branchendurchschnitt." },
+      unitWord: { hospital: "Bett", care_home: "Plätze", home_care: "Patienten" }, per: "à",
+      how: "Ohne: jede offene Stelle kostet Leihkräfte und leere Plätze. Wer geht, kostet 3 Monate davon, die Einarbeitung (5.400 €) und die neue Suche (8.000 €). Mit: jede besetzte Stelle spart die Leihkräfte und füllt die Plätze, minus Gehalt.",
+      cta: "Zahlen mit uns durchgehen"
+    },
+    en: {
+      ttl: "Calculator for your roadmap",
+      lossK: "What you lose in {y} without new nurses", perDay: "Every day: {d}. Today too.",
+      gainK: "With filled posts you gain in {y}, after salary",
+      yrs: ["1 year", "2 years", "3 years"], yrsIn: ["1 year", "2 years", "3 years"],
+      lineRed: "Without nurses", lineGreen: "With nurses",
+      open: "Open posts", left: "Leave per year", grow: "Extra nurses to grow",
+      salary: "One nurse costs you per year", agency: "Agency staff per open post, per month",
+      places: { hospital: "Closed beds per open post", care_home: "Empty places per open post", home_care: "Patients turned away per post" },
+      edit: "edit", close: "done",
+      rate: "Hourly wage (€)", hours: "Hours per week", share: "Employer share (%)",
+      salaryNote: "Start: care minimum wage €21.03 and 21 % social insurance you pay as employer.",
+      agHours: "Agency hours per month", agRate: "Price per hour (€)",
+      units: "Number", perUnit: { hospital: "Revenue per bed per month (€)", care_home: "Revenue per place per month (€)", home_care: "Revenue per patient per month (€)" },
+      unitNote: { hospital: "Start: about €650 a day, 80 % occupied.", care_home: "Start: average own share €3,364 (vdek, 07/2026) + care insurance level 3.", home_care: "Start: sector average." },
+      unitWord: { hospital: "bed", care_home: "places", home_care: "patients" }, per: "at",
+      how: "Without: every open post costs agency staff and empty places. Each nurse who leaves costs 3 months of that, the onboarding (€5,400) and the next search (€8,000). With: every filled post saves the agency staff and fills the places, minus salary.",
+      cta: "Go through the numbers with us"
+    },
+    fr: {
+      ttl: "Calculateur de votre plan",
+      lossK: "Ce que vous perdez en {y} sans nouvelles infirmières", perDay: "Chaque jour : {d}. Aujourd'hui aussi.",
+      gainK: "Avec des postes pourvus, vous gagnez en {y}, après salaire",
+      yrs: ["1 an", "2 ans", "3 ans"], yrsIn: ["1 an", "2 ans", "3 ans"],
+      lineRed: "Sans infirmières", lineGreen: "Avec infirmières",
+      open: "Postes vacants", left: "Départs par an", grow: "Infirmières en plus pour grandir",
+      salary: "Une infirmière vous coûte par an", agency: "Intérim par poste vacant, par mois",
+      places: { hospital: "Lits fermés par poste vacant", care_home: "Places vides par poste vacant", home_care: "Patients refusés par poste" },
+      edit: "modifier", close: "ok",
+      rate: "Salaire horaire (€)", hours: "Heures par semaine", share: "Charges patronales (%)",
+      salaryNote: "Départ : salaire minimum des soins 21,03 € et 21 % de charges que vous payez comme employeur.",
+      agHours: "Heures d'intérim par mois", agRate: "Prix de l'heure (€)",
+      units: "Nombre", perUnit: { hospital: "Recette par lit et par mois (€)", care_home: "Recette par place et par mois (€)", home_care: "Recette par patient et par mois (€)" },
+      unitNote: { hospital: "Départ : environ 650 € par jour, occupé à 80 %.", care_home: "Départ : reste à charge moyen 3 364 € (vdek, 07/2026) + assurance dépendance degré 3.", home_care: "Départ : moyenne du secteur." },
+      unitWord: { hospital: "lit", care_home: "places", home_care: "patients" }, per: "à",
+      how: "Sans : chaque poste vacant coûte de l'intérim et des places vides. Chaque départ coûte 3 mois de cela, l'intégration (5 400 €) et la nouvelle recherche (8 000 €). Avec : chaque poste pourvu économise l'intérim et remplit les places, moins le salaire.",
+      cta: "Revoir les chiffres avec nous"
+    }
+  };
+
+  var q = new URLSearchParams(location.search);
+  var lang = T[q.get("lang")] ? q.get("lang") : "de";
+  var type = MODEL[q.get("f")] ? q.get("f") : "care_home";
+  var M = MODEL[type];
+  var num = function (k, d, max) { var v = parseFloat(q.get(k)); return isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : d; };
+  // Everything the visitor can change. Salary and agency are built from their parts.
+  var V = { open: num("o", 3, 60), left: num("l", 4, 60), growth: 0,
+    rate: MIN_RATE, hours: 40, share: EMPLOYER_SHARE,
+    agHours: M.agency / AGENCY_RATE, agRate: AGENCY_RATE,
+    units: M.units, perUnit: M.perUnit };
+  var years = 3, openRow = null;
+  var lead = { id: q.get("id") || "", t: q.get("t") || "" };
+  var side = document.getElementById("side"), main = document.getElementById("main");
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  var LOC = { de: "de-DE", en: "en-GB", fr: "fr-FR" };
+  function eur(n) {
+    var v = Math.round(Math.abs(n)), s = v.toLocaleString(LOC[lang]).replace(/[  ]/g, " ");
+    return lang === "en" ? "€" + s : s + " €";
+  }
+  function salaryMonth() { return V.rate * V.hours * 52 / 12 * (1 + V.share / 100); }
+  function calc() {
+    var agency = V.agHours * V.agRate, sal = salaryMonth();
+    var lossPerPost = agency + V.units * V.perUnit;
+    var depCost = 3 * lossPerPost + DEP_FIXED;
+    return {
+      redMonth: V.open * lossPerPost + V.left * depCost / 12,
+      greenMonth: V.open * (lossPerPost - sal) + V.growth * (V.units * V.perUnit - sal),
+      agency: agency, salYear: sal * 12
+    };
+  }
+
+  function chart(c) {
+    var W = 900, H = 460, pt = 16, pb = 34, n = years * 12;
+    var top = Math.max(c.greenMonth * n, 1), bot = Math.max(c.redMonth * n, 1), span = top + bot;
+    var zero = pt + (H - pt - pb) * top / span;
+    var x = function (m) { return W * m / n; };
+    var y = function (v) { return zero - (H - pt - pb) * v / span; };
+    var red = "", green = "";
+    for (var m = 0; m <= n; m++) {
+      red += (m ? "L" : "M") + x(m).toFixed(1) + " " + y(-c.redMonth * m).toFixed(1);
+      green += (m ? "L" : "M") + x(m).toFixed(1) + " " + y(c.greenMonth * m).toFixed(1);
+    }
+    var grid = "";
+    for (var yr = 1; yr <= years; yr++) {
+      grid += '<line x1="' + x(yr * 12) + '" x2="' + x(yr * 12) + '" y1="' + pt + '" y2="' + (H - pb) + '" stroke="rgba(238,236,234,0.06)"/>' +
+        '<text x="' + (x(yr * 12) - (yr === years ? 2 : 0)) + '" y="' + (H - 10) + '" fill="#8f8c85" font-size="13" text-anchor="' + (yr === years ? "end" : "middle") + '">' + esc(T[lang].yrs[yr - 1]) + '</text>';
+    }
+    var t = T[lang];
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + esc(t.lineRed + ", " + t.lineGreen) + '">' +
+      '<defs><linearGradient id="rg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e5664a" stop-opacity="0.05"/><stop offset="1" stop-color="#e5664a" stop-opacity="0.45"/></linearGradient></defs>' +
+      grid +
+      '<path d="' + red + ' L' + x(n) + ' ' + zero + ' L0 ' + zero + 'Z" fill="url(#rg)"/>' +
+      '<path d="' + green + ' L' + x(n) + ' ' + zero + ' L0 ' + zero + 'Z" fill="rgba(127,181,140,0.12)"/>' +
+      '<line x1="0" x2="' + W + '" y1="' + zero + '" y2="' + zero + '" stroke="rgba(238,236,234,0.3)" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + green + '" fill="none" stroke="#7fb58c" stroke-width="2.5" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + red + '" fill="none" stroke="#e5664a" stroke-width="4" vector-effect="non-scaling-stroke"/>' +
+      '</svg>';
+  }
+
+  function stepRow(key, label) {
+    return '<div class="row"><div class="l">' + esc(label) + '</div><div class="v"><b id="v_' + key + '">' + V[key] + '</b>' +
+      '<span class="step"><button type="button" data-inc="' + key + '" data-d="-1" aria-label="−">−</button><button type="button" data-inc="' + key + '" data-d="1" aria-label="+">+</button></span></div></div>';
+  }
+  function field(key, label, step) {
+    return '<label>' + esc(label) + '<input type="number" inputmode="decimal" step="' + step + '" min="0" data-k="' + key + '" value="' + V[key] + '"></label>';
+  }
+  function editRow(id, label, valueHtml, fields) {
+    var t = T[lang];
+    return '<div class="row' + (openRow === id ? " open" : "") + '" data-row="' + id + '"><div class="l">' + esc(label) + '</div>' +
+      '<div class="v"><b id="v_' + id + '">' + valueHtml + '</b><button type="button" class="edit" data-edit="' + id + '">' + esc(openRow === id ? t.close : t.edit) + '</button></div>' +
+      '<div class="more">' + fields + '</div></div>';
+  }
+
+  function renderSide() {
+    var t = T[lang], c = calc();
+    side.innerHTML =
+      stepRow("open", t.open) + stepRow("left", t.left) +
+      editRow("salary", t.salary, esc(eur(c.salYear)),
+        field("rate", t.rate, "0.01") + field("hours", t.hours, "1") + field("share", t.share, "0.5") + '<div class="note">' + esc(t.salaryNote) + '</div>') +
+      editRow("agency", t.agency, esc(eur(c.agency)),
+        field("agHours", t.agHours, "1") + field("agRate", t.agRate, "1")) +
+      editRow("places", t.places[type], esc(fmtUnits()),
+        field("units", t.units, "0.5") + field("perUnit", t.perUnit[type], "50") + '<div class="note">' + esc(t.unitNote[type]) + '</div>') +
+      stepRow("growth", t.grow) +
+      '<p class="how">' + esc(t.how) + '</p>';
+  }
+  function fmtUnits() { var t = T[lang]; return String(V.units).replace(".", lang === "en" ? "." : ",") + " " + t.unitWord[type] + " " + t.per + " " + eur(V.perUnit); }
+
+  function renderMain() {
+    var t = T[lang], c = calc(), n = years * 12;
+    var red = c.redMonth * n, green = c.greenMonth * n;
+    main.innerHTML =
+      '<div class="head"><div class="loss"><div class="k">' + esc(t.lossK.replace("{y}", t.yrsIn[years - 1])) + '</div>' +
+        '<div class="n">−' + esc(eur(red)) + '</div>' +
+        '<div class="d">' + esc(t.perDay).replace("{d}", "<b>−" + esc(eur(c.redMonth * 12 / 365)) + "</b>") + '</div></div>' +
+        '<div class="yrs" role="group">' + t.yrs.map(function (l, i) { return '<button type="button" data-y="' + (i + 1) + '" aria-pressed="' + (years === i + 1) + '">' + esc(l) + '</button>'; }).join("") + '</div></div>' +
+      '<div class="chartbox">' + chart(c) + '</div>' +
+      '<div class="gain"><div class="k">' + esc(t.gainK.replace("{y}", t.yrsIn[years - 1])) + '<b>' + (green < 0 ? "−" : "+") + esc(eur(green)) + '</b></div>' +
+        '<a class="btn" href="/book/clinic" id="bookBtn">' + esc(t.cta) + ' →</a></div>';
+  }
+  function render() {
+    var t = T[lang];
+    document.documentElement.lang = lang;
+    document.getElementById("ttl").textContent = t.ttl;
+    document.getElementById("privLink").setAttribute("href", lang === "de" ? "/datenschutz" : "/privacy-policy");
+    document.querySelectorAll(".langs button").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-lang") === lang ? "true" : "false"); });
+    renderSide(); renderMain();
+  }
+  /** After typing: refresh the numbers without re-drawing the inputs (keeps focus). */
+  function refresh() {
+    var c = calc();
+    var s = document.getElementById("v_salary"); if (s) s.textContent = eur(c.salYear);
+    var a = document.getElementById("v_agency"); if (a) a.textContent = eur(c.agency);
+    var p = document.getElementById("v_places"); if (p) p.textContent = fmtUnits();
+    renderMain(); save();
+  }
+
+  // The founder sees the numbers they set (admin leads page), only with a valid personal link.
+  var saveTimer = null;
+  function save() {
+    if (!lead.id || !lead.t) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      var c = calc();
+      try {
+        fetch("/api/roadmap/calc", { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true,
+          body: JSON.stringify({ id: lead.id, t: lead.t, values: { open: V.open, left: V.left, growth: V.growth, salary: Math.round(c.salYear / 12), agency: Math.round(c.agency), units: V.units, perUnit: V.perUnit } }) });
+      } catch (e) {}
+    }, 1500);
+  }
+
+  side.addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    if (b.hasAttribute("data-inc")) {
+      var k = b.getAttribute("data-inc");
+      V[k] = Math.max(0, Math.min(k === "growth" ? 100 : 60, V[k] + parseInt(b.getAttribute("data-d"), 10)));
+      document.getElementById("v_" + k).textContent = V[k];
+      renderMain(); save(); return;
+    }
+    if (b.hasAttribute("data-edit")) { var id = b.getAttribute("data-edit"); openRow = openRow === id ? null : id; renderSide(); return; }
+  });
+  side.addEventListener("input", function (e) {
+    var k = e.target.getAttribute("data-k"); if (!k) return;
+    var v = parseFloat(String(e.target.value).replace(",", "."));
+    if (!isFinite(v) || v < 0) return;
+    V[k] = Math.min(v, k === "share" ? 60 : k === "hours" ? 60 : 100000);
+    refresh();
+  });
+  main.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-y]"); if (b) { years = +b.getAttribute("data-y"); renderMain(); return; }
+    if (e.target.closest("#bookBtn")) { try { localStorage.setItem("borivon-lang", lang); } catch (x) {} }
+  });
+  document.querySelectorAll(".langs button").forEach(function (b) {
+    b.addEventListener("click", function () { lang = b.getAttribute("data-lang"); render(); });
+  });
+  render();
+})();
+</script>
+</body>
+</html>
