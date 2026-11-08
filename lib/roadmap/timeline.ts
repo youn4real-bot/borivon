@@ -6,6 +6,7 @@
  * fast-track procedure (beschleunigtes Fachkräfteverfahren):
  *   office  · recognition decision "soll innerhalb von zwei Monaten" (§ 14a Abs. 3 BQFG, § 81a AufenthG)
  *   visa    · appointment within 3 weeks + decision "in der Regel innerhalb von drei Wochen" (§ 31a AufenthV)
+ * Borivon runs EVERY placement through § 81a and recommends it to every employer (founder 2026-11-08).
  * The rest is our own planning value. FOUNDER: adjust find/papers/arrive to what you see in practice.
  */
 import type { L } from "./content";
@@ -82,7 +83,7 @@ export const TL: Record<keyof L, {
     late: "Für den {date} ist es zu knapp. Wenn Sie diese Woche starten, kann sie am {first} anfangen.", lateBig: "Frühestens: {first}",
     asap: "Wenn Sie diese Woche starten, kann Ihre erste Fachkraft am {first} anfangen.", asapBig: "Erster Arbeitstag: {first}",
     weeks: "Wochen", week: "Woche",
-    fast: "Schneller geht es mit der Anerkennungspartnerschaft: Die Fachkraft reist schon mit Deutsch A2 ein und macht die Anerkennung hier, während sie bei Ihnen arbeitet.",
+    fast: "Wir stellen jede Fachkraft über das beschleunigte Fachkräfteverfahren (§ 81a) ein, und wir empfehlen es jeder Einrichtung. Nur damit gibt es feste Fristen für Behörde und Visum. Dieser Zeitplan rechnet damit.",
     lawNote: "Behörde: soll in 2 Monaten entscheiden. Visum: Termin in 3 Wochen, Entscheidung meist in 3 Wochen (beschleunigtes Fachkräfteverfahren). Die übrigen Zeiten sind typische Werte.",
     b2: "Sie wollen nur B2: Das kostet ca. 12 Wochen mehr. Mit B1 zum Start sind Sie schneller.",
   },
@@ -93,7 +94,7 @@ export const TL: Record<keyof L, {
     late: "{date} is too soon. If you begin this week, she can start on {first}.", lateBig: "Earliest: {first}",
     asap: "If you begin this week, your first nurse can start on {first}.", asapBig: "First working day: {first}",
     weeks: "weeks", week: "week",
-    fast: "Faster with a recognition partnership: the nurse arrives with German A2 and does the recognition here while working for you.",
+    fast: "We hire every nurse through the fast-track procedure for skilled workers (§ 81a), and we recommend it to every facility. Only this route has fixed deadlines for the office and the visa. This timeline is based on it.",
     lawNote: "Office: should decide within 2 months. Visa: appointment within 3 weeks, decision usually within 3 weeks (fast-track procedure). The other times are typical values.",
     b2: "You only accept B2: that adds about 12 weeks. Starting with B1 is faster.",
   },
@@ -104,7 +105,7 @@ export const TL: Record<keyof L, {
     late: "Le {date}, c'est trop tôt. Si vous démarrez cette semaine, elle peut commencer le {first}.", lateBig: "Au plus tôt : {first}",
     asap: "Si vous démarrez cette semaine, votre première infirmière peut commencer le {first}.", asapBig: "Premier jour : {first}",
     weeks: "semaines", week: "semaine",
-    fast: "Plus rapide avec un partenariat de reconnaissance : l'infirmière arrive avec un allemand A2 et fait la reconnaissance ici, en travaillant chez vous.",
+    fast: "Nous recrutons chaque infirmière via la procédure accélérée (§ 81a), et nous la recommandons à chaque établissement. Seule cette voie fixe des délais pour l'administration et le visa. Ce calendrier en tient compte.",
     lawNote: "Administration : doit décider en 2 mois. Visa : rendez-vous sous 3 semaines, décision en général sous 3 semaines (procédure accélérée). Les autres durées sont des valeurs typiques.",
     b2: "Vous n'acceptez que le B2 : cela ajoute environ 12 semaines. Avec le B1, c'est plus rapide.",
   },
