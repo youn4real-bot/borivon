@@ -244,6 +244,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         hello,
         "Sie haben jetzt Ihren Fahrplan. Viele wollen den nächsten Schritt nicht allein gehen.",
         "Dafür gibt es unseren <b>Workshop in Marokko</b>: 2 Tage mit mir. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte persönlich kennen, die zu diesem Plan passen. Sie fahren mit einem fertigen Plan nach Hause.",
+        "Die nächsten Termine: <b>6.–7. Februar</b> und <b>22.–23. Mai 2027</b>, jeweils Samstag und Sonntag.",
         "<b>3.000 € pro Platz.</b> Bringen Sie gern Kolleginnen oder Kollegen mit. Es gibt nur 10 Plätze pro Termin.",
       ], cta: "Platz anfragen" },
     ],
