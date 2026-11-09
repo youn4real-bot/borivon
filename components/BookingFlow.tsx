@@ -268,7 +268,8 @@ export function BookingFlow({
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("+212 ");
+  // German-only calendar (the workshop) → German facilities → +49; everyone else starts on Morocco.
+  const [phone, setPhone] = useState(forceLang === "de" ? "+49 " : "+212 ");
   const [company, setCompany] = useState("");
   const [selections, setSelections] = useState<Selections>({});
 
