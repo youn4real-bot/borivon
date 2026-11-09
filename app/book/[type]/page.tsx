@@ -22,7 +22,10 @@ import { loadEventType } from "@/lib/bookingEventTypes";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ type: string }> };
+type Params = {
+  params: Promise<{ type: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { type } = await params;
@@ -42,10 +45,13 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   };
 }
 
-export default async function BookTypePage({ params }: Params) {
+export default async function BookTypePage({ params, searchParams }: Params) {
   const { type } = await params;
   const et = await loadEventType(type);
   if (!et) notFound();
+  // ?embed=1: the frame on borivon.com/workshop. Decided here so the first paint is already the
+  // embedded layout (no summary rail popping out after the JS loads).
+  const embedded = (await searchParams).embed === "1";
   // the workshop calendar (shown inside borivon.com/workshop) is German only, like the page around it
-  return <BookingFlow initialKind={et.kind} eventType={et.slug} headline={et.title} blurb={et.blurb} forceLang={et.slug === "workshop" ? "de" : undefined} />;
+  return <BookingFlow initialKind={et.kind} eventType={et.slug} headline={et.title} blurb={et.blurb} forceLang={et.slug === "workshop" ? "de" : undefined} embedded={embedded} />;
 }

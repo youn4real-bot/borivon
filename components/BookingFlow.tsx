@@ -32,7 +32,7 @@
  * Trilingual inline (LAW #19).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLang } from "@/components/LangContext";
 import { PhoneInput } from "@/components/PhoneInput";
 import { QUESTIONS, type Selections } from "@/lib/booking";
@@ -219,7 +219,10 @@ export function BookingFlow({
   headline,
   blurb,
   forceLang,
+  embedded: embeddedProp,
 }: {
+  /** Rendered inside /workshop (?embed=1): no summary rail, tight padding, from the first paint. */
+  embedded?: boolean;
   initialKind?: Kind;
   eventType?: string;
   headline?: { en: string; de: string; fr: string };
@@ -227,8 +230,45 @@ export function BookingFlow({
   /** Always this language, whatever the browser says (the workshop calendar is German only). */
   forceLang?: "en" | "de" | "fr";
 } = {}) {
-  // Shown inside another page (the /workshop calendar)? Then no fade-ins (see globals.css).
-  useEffect(() => { if (typeof window !== "undefined" && window.self !== window.top) document.documentElement.classList.add("bv-embedded"); }, []);
+  // Shown inside another page (the /workshop calendar)? The page around it says what this is, so no
+  // summary rail, and the parent page does the scrolling (reveal). ?embed=1 decides it on the server.
+  const [framed, setFramed] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.self !== window.top) {
+      document.documentElement.classList.add("bv-embedded");
+      setFramed(true);
+    }
+  }, []);
+  const embedded = !!embeddedProp || framed;
+  // Safety net for the fade-ins inside a frame: if the browser freezes them (a hidden or throttled
+  // frame), drop them instead of leaving buttons invisible. Two strikes, so a fade that only just
+  // started is never mistaken for a frozen one.
+  useEffect(() => {
+    if (!embedded) return;
+    let seen = new WeakSet<Animation>();
+    const id = window.setInterval(() => {
+      const next = new WeakSet<Animation>();
+      for (const el of document.querySelectorAll<HTMLElement>(".bv-enter, .bv-enter-soft, .bv-confirm-row")) {
+        for (const a of el.getAnimations?.() ?? []) {
+          if (a.playState === "running" && !a.currentTime) {
+            if (seen.has(a)) { document.documentElement.classList.add("bv-noanim"); window.clearInterval(id); return; }
+            next.add(a);
+          }
+        }
+      }
+      seen = next;
+    }, 1200);
+    return () => window.clearInterval(id);
+  }, [embedded]);
+  // Times list: two columns below md, one column beside the calendar from md up (the classes below).
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia("(min-width: 768px)");
+    const on = () => setWide(m.matches);
+    on();
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
   const { lang: ctxLang } = useLang();
   const lang = forceLang ?? ctxLang;
   const T = useCallback((en: string, de: string, fr: string) => tr(lang, en, de, fr), [lang]);
@@ -526,7 +566,7 @@ export function BookingFlow({
       // "Confirm" and are never told it worked. tabIndex={-1} + autofocus moves
       // the caret here so the confirmation is the next thing announced.
       <main
-        className="mx-auto px-5 pt-[120px] pb-20 bv-page-bottom bv-enter"
+        className={`mx-auto px-5 ${embedded ? "pt-5 pb-5" : "pt-[120px] pb-20"} bv-page-bottom bv-enter`}
         style={{ maxWidth: 560 }}
         role="status"
         aria-live="polite"
@@ -606,6 +646,20 @@ export function BookingFlow({
   const tzLine = tz ? zoneName(tz) : T("Your local time", "Ihre Ortszeit", "Votre heure locale");
   const noTimes = !accepting || !days.length;
 
+  /* The choice, echoed back. Once a time is held this is the thing the visitor keeps glancing at
+     while they fill in the form: in the summary rail, or (embedded, no rail) on top of the form. */
+  const chosenChip = at != null ? (
+    <div
+      className="flex items-start gap-2.5 p-3 bv-enter-soft"
+      style={{ borderRadius: 12, background: "var(--gdim)", border: "1px solid var(--border-gold)" }}
+    >
+      <CalendarDays size={15} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 2 }} aria-hidden />
+      <p className="text-[13.5px]" style={{ color: "var(--w)", lineHeight: 1.5 }}>
+        {new Date(at).toLocaleString(loc, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", ...(tz ? { timeZone: tz } : {}) })}
+      </p>
+    </div>
+  ) : null;
+
   /* ── the left rail: what am I signing up for? ── */
   const summary = (
     <aside
@@ -641,19 +695,7 @@ export function BookingFlow({
         </li>
       </ul>
 
-      {/* The choice, echoed back. Once a time is held this is the thing the
-          visitor keeps glancing at while they fill in the form. */}
-      {at != null && (
-        <div
-          className="flex items-start gap-2.5 mt-4 p-3 bv-enter-soft"
-          style={{ borderRadius: 12, background: "var(--gdim)", border: "1px solid var(--border-gold)" }}
-        >
-          <CalendarDays size={15} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 2 }} aria-hidden />
-          <p className="text-[13.5px]" style={{ color: "var(--w)", lineHeight: 1.5 }}>
-            {new Date(at).toLocaleString(loc, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", ...(tz ? { timeZone: tz } : {}) })}
-          </p>
-        </div>
-      )}
+      {chosenChip && <div className="mt-4">{chosenChip}</div>}
 
       <p className="text-[13px] mt-4" style={{ color: "var(--w3)", lineHeight: 1.6 }}>
         {/* Say the three things a hesitant visitor needs BEFORE they commit: it
@@ -809,6 +851,21 @@ export function BookingFlow({
   );
 
   /* ── the times column ── */
+  const slotList = selectedDay?.slots ?? [];
+  const chosenIdx = slotList.findIndex((x) => x.at === at);
+  // Two columns: the last cell of the chosen time's row gets the Confirm row after it.
+  const confirmAfter = chosenIdx < 0 || wide ? -1 : Math.min(chosenIdx + (chosenIdx % 2 === 0 ? 1 : 0), slotList.length - 1);
+  const confirmBtn = (
+    <button
+      type="button"
+      onClick={() => setStep(2)}
+      className="bv-btn bv-btn-primary bv-tap flex-1 bv-enter-soft"
+      // solid gold + dark ink: the theme colours turned this into pale gold with white text (unreadable)
+      style={{ minHeight: 44, background: "var(--gold)", color: "#131312", fontWeight: 600, borderRadius: 10 }}
+    >
+      {T("Confirm", "Bestätigen", "Confirmer")}
+    </button>
+  );
   const times = (
     <div className="min-w-0 scroll-mt-4" ref={timesRef}>
       {/* aria-live, like the month title: picking a day swaps this whole list
@@ -868,14 +925,16 @@ export function BookingFlow({
         style={{ listStyle: "none", padding: 0, margin: 0 }}
         aria-labelledby="bv-times-title"
       >
-        {(selectedDay?.slots ?? []).map((s) => {
+        {slotList.map((s, i) => {
           const on = at === s.at;
           // Two columns on a phone — a 16-slot day is ~820px of identical 44px
-          // rows in one column, which is most of a second screen. The chosen row
-          // spans both so the time and its Confirm still sit side by side under
-          // the thumb.
+          // rows in one column, which is most of a second screen. The Confirm
+          // opens as its own full-width row UNDER the chosen time's row: making
+          // the chosen cell span both columns pushed a right-column time onto a
+          // new row and left a hole where it had been.
           return (
-            <li key={s.at} className={`flex gap-2 ${on ? "col-span-2 md:col-span-1" : ""}`}>
+            <Fragment key={s.at}>
+            <li className="flex gap-2">
               <button
                 type="button"
                 onClick={() => { setAt(on ? null : s.at); setErr(null); }}
@@ -897,19 +956,11 @@ export function BookingFlow({
               </button>
               {/* Calendly's move: choosing a time SPLITS the row and puts the
                   commit right under the thumb, instead of scrolling the page
-                  to a button somewhere else. */}
-              {on && (
-                <button
-                  type="button"
-                  onClick={() => setStep(2)}
-                  className="bv-btn bv-btn-primary bv-tap flex-1 bv-enter-soft"
-                  // solid gold + dark ink: the theme colours turned this into pale gold with white text (unreadable)
-                  style={{ minHeight: 44, background: "var(--gold)", color: "#131312", fontWeight: 600, borderRadius: 10 }}
-                >
-                  {T("Confirm", "Bestätigen", "Confirmer")}
-                </button>
-              )}
+                  to a button somewhere else. (One column: in place.) */}
+              {on && wide && confirmBtn}
             </li>
+            {i === confirmAfter && <li className="col-span-2 flex bv-confirm-row">{confirmBtn}</li>}
+            </Fragment>
           );
         })}
       </ul>
@@ -918,13 +969,15 @@ export function BookingFlow({
 
   return (
     // pt clears the fixed 58px top bar (the old py-14 = 56px sat the step tabs under its edge).
-    <main className="mx-auto px-5 pt-[104px] pb-14 bv-page-bottom bv-enter" style={{ maxWidth: 1040 }}>
+    <main className={`mx-auto px-5 ${embedded ? "pt-5 pb-5" : "pt-[104px] pb-14"} bv-page-bottom bv-enter`} style={{ maxWidth: 1040 }}>
       {/* Two panes on a wide screen, one column on a phone. The inline
           grid-template only bites once `display:grid` is switched on at lg. */}
-      <div className="lg:grid lg:gap-8" style={{ gridTemplateColumns: "300px minmax(0, 1fr)" }}>
+      <div className={embedded ? undefined : "lg:grid lg:gap-8"} style={embedded ? undefined : { gridTemplateColumns: "300px minmax(0, 1fr)" }}>
         {/* On a narrow screen this stacks FIRST — the reassurance has to be
-            read before the calendar, not after it. */}
-        <div className="mb-6 lg:mb-0">{summary}</div>
+            read before the calendar, not after it. Embedded (/workshop) the page
+            around it already says all this, and the rail only pushed the calendar
+            down and made it jump whenever a time was picked or dropped. */}
+        {!embedded && <div className="mb-6 lg:mb-0">{summary}</div>}
 
         <div className="min-w-0" ref={panelRef}>
           {/* step rail */}
@@ -1053,6 +1106,7 @@ export function BookingFlow({
           {/* ── step 2 · details ── */}
           {step === 2 && (
             <div className="bv-enter-soft grid gap-4">
+              {embedded && chosenChip}
               <div>
                 <label className="bv-label" htmlFor="bk-name">{T("Full name", "Vollständiger Name", "Nom complet")}</label>
                 <input

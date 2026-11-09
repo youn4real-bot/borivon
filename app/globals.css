@@ -503,9 +503,15 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 
 .bv-enter      { animation: bvFadeRise 0.32s var(--ease-out) both; }
 .bv-enter-soft { animation: bvFadeIn   0.24s var(--ease-out) both; }
-/* Embedded booking calendar (inside /workshop): the browser may never run these fade-ins in a frame,
-   leaving buttons and the details form at opacity 0. Show them at once. */
-html.bv-embedded .bv-enter, html.bv-embedded .bv-enter-soft, html.bv-embedded .bv-enter-stagger > * { animation: none !important; opacity: 1 !important; transform: none !important; }
+/* Embedded booking calendar (inside /workshop): the fade-ins run (no fill, so nothing waits at opacity 0).
+   If a browser ever freezes them in the frame, BookingFlow adds .bv-noanim and they are dropped. */
+html.bv-embedded .bv-enter, html.bv-embedded .bv-enter-soft { animation-fill-mode: none !important; }
+html.bv-embedded .bv-enter-stagger > * { animation: none !important; opacity: 1 !important; transform: none !important; }
+html.bv-noanim .bv-enter, html.bv-noanim .bv-enter-soft, html.bv-noanim .bv-confirm-row { animation: none !important; opacity: 1 !important; transform: none !important; max-height: none !important; }
+/* The Confirm row under a chosen time (two-column times) opens instead of popping in. */
+.bv-confirm-row { animation: bvConfirmRow 0.26s var(--ease-out); overflow: hidden; }
+@keyframes bvConfirmRow { from { max-height: 0; opacity: 0; } to { max-height: 64px; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .bv-confirm-row { animation: none; } }
 /* Embedded there is no navbar/footer to clear, and the frame grows to fit (no inner scroll). */
 html.bv-embedded main { padding-top: 20px !important; padding-bottom: 20px !important; }
 html.bv-embedded, html.bv-embedded body { min-height: 0 !important; height: auto !important; }
