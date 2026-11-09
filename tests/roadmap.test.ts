@@ -192,7 +192,7 @@ describe("content + emails", () => {
     }
     const m = deliveryMail({ lang: "de", salutation: "herr", lastName: "Kaya", facility: "Haus", result: r, unsubscribeUrl: "https://x/u", viewUrl: "https://x/v", bonusUrl: "https://x/b" });
     expect(m.subject).toContain("Stufe 1");
-    expect(m.html).toContain("Workshop in Marokko"); // the soft P.S.
+    expect(m.html).toContain("Workshop in Casablanca"); // the soft P.S. (our conference rooms, founder 2026-11-09)
     expect(m.html).toContain("https://borivon.com/email-logo.png"); // logo in the signature
     expect(m.html).toContain("/impressum");
     expect(m.html).toContain("Hallo Herr Kaya,");

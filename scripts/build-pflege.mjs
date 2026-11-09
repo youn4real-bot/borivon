@@ -167,7 +167,7 @@ ${s.slice(cut).trim()}
   let s = fs.readFileSync(path.join(SRC, "workshop.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in workshop.html"); }
-  else s = s.slice(0, i) + head("Workshop in Marokko · Borivon", "2 Tage in Marokko mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, nur 10 Plätze.", "https://www.borivon.com/workshop") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Workshop in Casablanca · Borivon", "2 Tage in unseren Konferenzräumen in Casablanca, Marokko, mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, nur 10 Plätze.", "https://www.borivon.com/workshop") + s.slice(i + "<!--HEAD-->".length);
   pages.WORKSHOP_HTML = s;
 }
 

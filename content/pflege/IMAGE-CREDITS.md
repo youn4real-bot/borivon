@@ -12,7 +12,6 @@ Downloaded 2026-11-09, self-hosted in public/pflege/assets/ws (no third-party re
 - morocco-hassan.webp — https://images.unsplash.com/photo-1780663684974-297689cbb95c
 - objection-flight.webp — https://images.unsplash.com/photo-1507812984078-917a274065be
 - founder-arches.webp — https://images.unsplash.com/photo-1762380371792-9a94903663ca
-- date-koutoubia.webp — https://images.unsplash.com/photo-1597212618440-806262de4f6b
 - date-palms.webp — https://images.unsplash.com/photo-1664961789371-5a05656ef318
 - fac-carehome.webp — https://images.unsplash.com/photo-1773227055624-07b515ba87c5
 - fac-clinic.webp — https://images.unsplash.com/photo-1691139601099-932c01ec198b
@@ -27,3 +26,4 @@ Downloaded 2026-11-09, self-hosted in public/pflege/assets/ws (no third-party re
 - fac-home.webp — https://images.unsplash.com/photo-1758691462321-9b6c98c40f7e
 
 Rule (founder 2026-11-09): a photo must match its text. Where the text is about Moroccans, no stock faces (they never look Moroccan): show the point instead (bilingual Moroccan sign, hands, airport).
+- date-casa-hassan.webp — https://images.unsplash.com/photo-1664961789336-b70397e0aa8b

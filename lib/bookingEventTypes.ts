@@ -100,9 +100,9 @@ const BUILT_IN: Record<string, BookingEventType> = {
     week: { 1: WORKSHOP_HOURS, 2: WORKSHOP_HOURS, 3: WORKSHOP_HOURS, 4: WORKSHOP_HOURS, 5: WORKSHOP_HOURS },
     tz: "Europe/Berlin",
     title: {
-      en: "Workshop in Morocco — request a seat",
-      de: "Workshop in Marokko — Platz anfragen",
-      fr: "Atelier au Maroc — demander une place",
+      en: "Workshop in Casablanca — request a seat",
+      de: "Workshop in Casablanca — Platz anfragen",
+      fr: "Atelier à Casablanca — demander une place",
     },
     blurb: {
       en: "30 minutes: we check whether your facility qualifies for a seat in the workshop.",
