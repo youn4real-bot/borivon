@@ -75,21 +75,22 @@ function Viewer() {
 
   const tab = (k: "plan" | "bonus", label: string) => (
     <button type="button" onClick={() => setDoc(k)} aria-pressed={doc === k}
-      style={{ background: doc === k ? "#eeecea" : "transparent", color: doc === k ? "#131312" : "#9a978f", border: 0, borderRadius: 999, padding: "7px 14px", fontSize: 13, fontWeight: doc === k ? 600 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>
+      style={{ background: doc === k ? "#f4efe4" : "transparent", color: doc === k ? "#15130f" : "#a59e90", border: 0, borderRadius: 3, padding: "7px 14px", fontSize: 13, fontWeight: doc === k ? 500 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>
       {label}
     </button>
   );
 
   return (
-    <div style={{ background: "#0e0e10", minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px clamp(12px,3vw,28px)", borderBottom: "1px solid rgba(238,236,234,0.09)", flexWrap: "wrap" }}>
-        <a href="/" style={{ fontFamily: "var(--font-serif-v), Georgia, serif", fontStyle: "italic", fontSize: 22, color: "#eeecea", textDecoration: "none" }}>
-          Borivon<span style={{ color: "#c9a240", fontStyle: "normal" }}>.</span>
+    // borivon.com look (content/pflege/bv.css): a night reading room, paper accents, square corners
+    <div style={{ background: "#12110e", minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px clamp(12px,3vw,28px)", borderBottom: "1px solid #2c2924", flexWrap: "wrap" }}>
+        <a href="/" style={{ fontFamily: "var(--font-serif-v), Georgia, serif", fontStyle: "italic", fontWeight: 500, fontSize: 24, color: "#f4efe4", textDecoration: "none" }}>
+          Borivon<span style={{ color: "#d4b676", fontStyle: "normal" }}>.</span>
         </a>
-        <div style={{ display: "flex", gap: 2, border: "1px solid rgba(238,236,234,0.09)", borderRadius: 999, padding: 3 }}>
+        <div style={{ display: "flex", gap: 2, border: "1px solid #2c2924", borderRadius: 4, padding: 3 }}>
           {tab("plan", T.plan)}{tab("bonus", T.bonus)}
         </div>
-        <a href={`${base}&dl=1`} style={{ background: "#c9a240", color: "#131312", borderRadius: 999, padding: "9px 16px", fontSize: 13, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
+        <a href={`${base}&dl=1`} style={{ background: "#f4efe4", color: "#15130f", borderRadius: 3, padding: "10px 16px", fontSize: 13, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap" }}>
           ↓ {T.dl}
         </a>
       </header>
