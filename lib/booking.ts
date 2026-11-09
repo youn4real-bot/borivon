@@ -21,6 +21,11 @@ export type Availability = {
   minNoticeHours: number;
   /** How far ahead the page offers. */
   horizonDays: number;
+  /** At most this many OPEN days, today included. Closed weekdays and blackouts
+   *  are skipped, not counted, so "3 days, Mon–Fri" offers Fri, Mon, Tue on a
+   *  Friday. `horizonDays` still caps the reach (the routes fetch the busy
+   *  calendar for exactly that long), so it must span the weekend gap. */
+  openDays?: number;
   /** Business timezone offset in minutes (Casablanca = UTC+1). Kept explicit
    *  rather than reading the server's clock, which on Workers is UTC. Used as
    *  the fallback when `tz` is not set. */
@@ -150,6 +155,7 @@ export function generateSlots(opts: {
     ? busy.map((b) => ({ start: b.start - pad, end: b.end + pad }))
     : busy;
   const closed = new Set(av.blackoutDates ?? []);
+  let open = 0;
 
   for (let d = 0; d <= av.horizonDays; d++) {
     const base = now + d * DAY;
@@ -166,6 +172,8 @@ export function generateSlots(opts: {
     const Y = shifted.getUTCFullYear(), M = shifted.getUTCMonth(), D = shifted.getUTCDate();
     // Days off (holidays, Aïd, travel) — offer nothing at all.
     if (closed.has(`${Y}-${String(M + 1).padStart(2, "0")}-${String(D).padStart(2, "0")}`)) continue;
+    // An open day counts even when its last slot has passed: "today" is one of the days.
+    if (av.openDays && ++open > av.openDays) break;
     let dayStartUtc = Date.UTC(Y, M, D) - off * MIN;
     if (av.tz) {
       // `base` is "now + d days", which can still land on the near side of a

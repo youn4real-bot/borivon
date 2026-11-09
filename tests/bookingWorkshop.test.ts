@@ -13,7 +13,8 @@ import { whenLine } from "../lib/email";
 
 /**
  * The workshop calendar (founder 2026-11-09): 30-minute calls, 3 hours each
- * morning (09–12) and evening (17–20) in GERMAN time, every day, today + 2 days.
+ * morning (09–12) and evening (17–20) in GERMAN time, Monday to Friday, at most
+ * 3 working days with today included (the weekend is skipped, not counted).
  * A booking blocks exactly its own 30 minutes.
  */
 const berlin = (iso: string) => {
@@ -37,22 +38,49 @@ async function workshopAv(): Promise<Availability> {
 }
 
 describe("workshop calendar", () => {
-  it("is 30 minutes, no buffer, German time, today + 2 days", async () => {
+  it("is 30 minutes, no buffer, German time, 3 working days", async () => {
     const av = await workshopAv();
     expect(av.slotMinutes).toBe(30);
     expect(av.bufferMinutes).toBe(0);
-    expect(av.horizonDays).toBe(2);
+    expect(av.openDays).toBe(3);
     expect(av.tz).toBe("Europe/Berlin");
   });
 
-  it("offers 09:00–11:30 and 17:00–19:30 German time on 3 days, weekend included", async () => {
+  it("offers 09:00–11:30 and 17:00–19:30 German time, Monday to Friday only", async () => {
     const av = await workshopAv();
     const now = berlin("2026-11-13 06:00"); // Friday morning
     const slots = generateSlots({ now, availability: av, busy: [] });
     const days = [...new Set(slots.map(dayOf))];
-    expect(days).toEqual(["2026-11-13", "2026-11-14", "2026-11-15"]); // Fri, Sat, Sun — nothing on day 4
+    expect(days).toEqual(["2026-11-13", "2026-11-16", "2026-11-17"]); // Fri, Mon, Tue — weekend skipped
     const fri = slots.filter((s) => dayOf(s) === "2026-11-13").map(label);
     expect(fri).toEqual(["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30"]);
+  });
+
+  it("3 working days from any day of the week, today included", async () => {
+    const av = await workshopAv();
+    const cases: [string, string[]][] = [
+      ["2026-11-09 06:00", ["2026-11-09", "2026-11-10", "2026-11-11"]], // Mon → Mon Tue Wed
+      ["2026-11-11 06:00", ["2026-11-11", "2026-11-12", "2026-11-13"]], // Wed → Wed Thu Fri
+      ["2026-11-12 06:00", ["2026-11-12", "2026-11-13", "2026-11-16"]], // Thu → Thu Fri Mon
+      ["2026-11-14 06:00", ["2026-11-16", "2026-11-17", "2026-11-18"]], // Sat → Mon Tue Wed
+      ["2026-11-15 06:00", ["2026-11-16", "2026-11-17", "2026-11-18"]], // Sun → Mon Tue Wed
+      ["2026-11-13 18:00", ["2026-11-16", "2026-11-17"]], // Fri evening: today is used up but still counts
+    ];
+    for (const [now, want] of cases) {
+      const days = [...new Set(generateSlots({ now: berlin(now), availability: av, busy: [] }).map(dayOf))];
+      expect(days, now).toEqual(want);
+    }
+  });
+
+  it("never offers a slot past the busy-calendar window the routes fetch", async () => {
+    const av = await workshopAv();
+    // the routes read Google Calendar + bookings for now … now + (horizonDays + 1) days
+    for (let h = 0; h < 7 * 24; h++) {
+      const now = berlin("2026-11-09 00:00") + h * 3_600_000;
+      const slots = generateSlots({ now, availability: av, busy: [] });
+      expect(slots.length).toBeGreaterThan(0);
+      expect(Math.max(...slots) + 30 * 60_000).toBeLessThanOrEqual(now + (av.horizonDays + 1) * 86_400_000);
+    }
   });
 
   it("stays on German hours across summer time", async () => {

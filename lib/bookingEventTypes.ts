@@ -31,11 +31,13 @@ export type BookingEventType = {
   week?: Record<number, string[]>;
   /** Code-only: the IANA zone `week` is written in (default: Morocco, the global row's zone). */
   tz?: string;
+  /** Code-only: at most this many open days, today included (closed days skipped, not counted). */
+  openDays?: number;
   title: { en: string; de: string; fr: string };
   blurb: { en: string; de: string; fr: string };
 };
 
-/** Workshop calls (founder 2026-11-09): 3 hours each morning and evening, German time, every day. */
+/** Workshop calls (founder 2026-11-09): 3 hours each morning and evening, German time, Mon–Fri. */
 const WORKSHOP_HOURS = ["09:00-12:00", "17:00-20:00"];
 
 /**
@@ -91,9 +93,11 @@ const BUILT_IN: Record<string, BookingEventType> = {
   workshop: {
     slug: "workshop", kind: "clinic", active: true,
     // founder: 30-min calls; a booking blocks exactly its 30 minutes (no buffer);
-    // book at most 3 days ahead (today + 2, the loop is inclusive), so today needs a short notice.
-    slotMinutes: 30, bufferMinutes: 0, minNoticeHours: 2, horizonDays: 2,
-    week: { 0: WORKSHOP_HOURS, 1: WORKSHOP_HOURS, 2: WORKSHOP_HOURS, 3: WORKSHOP_HOURS, 4: WORKSHOP_HOURS, 5: WORKSHOP_HOURS, 6: WORKSHOP_HOURS },
+    // 3 days max, today included, so today needs a short notice. Weekends off: the weekend is
+    // skipped, not counted (Friday offers Fri, Mon, Tue). horizonDays 4 = the longest reach
+    // (Fri→Tue, Sat→Wed) and the busy-calendar window the routes derive from it.
+    slotMinutes: 30, bufferMinutes: 0, minNoticeHours: 2, horizonDays: 4, openDays: 3,
+    week: { 1: WORKSHOP_HOURS, 2: WORKSHOP_HOURS, 3: WORKSHOP_HOURS, 4: WORKSHOP_HOURS, 5: WORKSHOP_HOURS },
     tz: "Europe/Berlin",
     title: {
       en: "Workshop in Morocco — request a seat",
@@ -162,6 +166,7 @@ function fromRow(row: Row): BookingEventType | null {
     // hours + zone are code-only; a stored row for a built-in keeps them
     ...(base?.week ? { week: base.week } : {}),
     ...(base?.tz ? { tz: base.tz } : {}),
+    ...(base?.openDays ? { openDays: base.openDays } : {}),
     title: {
       en: pick("title_en", fbTitle.en),
       de: pick("title_de", fbTitle.de),
@@ -214,7 +219,7 @@ export async function loadEventType(slug: string): Promise<BookingEventType | nu
  */
 export function overlayEventType<T extends {
   slotMinutes: number; bufferMinutes?: number; minNoticeHours: number; horizonDays: number;
-  week?: Record<number, string[]>; tz?: string; tzOffsetMinutes?: number;
+  week?: Record<number, string[]>; tz?: string; tzOffsetMinutes?: number; openDays?: number;
 }>(av: T, et: BookingEventType | null): T {
   if (!et) return av;
   return {
@@ -224,6 +229,7 @@ export function overlayEventType<T extends {
     ...(et.minNoticeHours !== null ? { minNoticeHours: et.minNoticeHours } : {}),
     ...(et.horizonDays !== null ? { horizonDays: et.horizonDays } : {}),
     ...(et.week ? { week: et.week } : {}),
+    ...(et.openDays ? { openDays: et.openDays } : {}),
     // Its own zone: the per-day offset (generateSlots) and the day grouping both follow it.
     ...(et.tz ? { tz: et.tz, tzOffsetMinutes: zoneOffsetMinutes(et.tz) } : {}),
   };
