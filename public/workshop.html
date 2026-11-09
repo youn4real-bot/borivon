@@ -118,6 +118,10 @@ a.date:hover{transform:translateY(-2px);box-shadow:0 14px 30px -20px rgba(60,45,
 .date.sold b{color:#8a8d96}
 .date.sold .pill{border-color:#424553;color:#8a8d96;font-weight:600}
 .date .tag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:#ad2b2b;color:#fff;border-radius:999px;padding:10px 18px;font-size:.82rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;line-height:1}
+.price{margin:44px auto 0;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
+.price b{font-family:var(--display);font-weight:600;font-size:clamp(2.4rem,1.8rem + 2vw,3.2rem);line-height:1;color:var(--ink);font-variant-numeric:lining-nums}
+.price span{font-weight:500;font-size:1.05rem;color:var(--ink)}
+.price em{font-style:normal;color:var(--soft);font-size:.95rem}
 .price-line{text-align:center;margin-top:22px;color:var(--soft)}
 .price-line b{color:var(--ink);font-weight:500}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,48px);align-items:start}
@@ -261,14 +265,14 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 
 <section class="cream2">
  <div class="w">
-  <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Marokko</em></h2><p style="font-size:1.15rem;line-height:1.7">Der Raum hat Platz für 10 Personen.<br>3.000 € pro Platz. Das ist gerade offen:</p></div>
+  <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Marokko</em></h2><p style="font-size:1.15rem;line-height:1.7">Der Raum hat Platz für 10 Personen.<br>3.000 € pro Person. Das ist gerade offen:</p></div>
   <div class="dates">
    <div class="date sold"><span class="tag">Ausgebucht</span><b>28.–29. Nov</b><span class="pill">0 Plätze frei</span></div>
    <a class="date" href="#termin"><b>6.–7. Feb 2027</b><span class="pill">Offen</span></a>
    <a class="date" href="#termin"><b>22.–23. Mai 2027</b><span class="pill">Offen</span></a>
    <a class="date" href="#termin"><b>28.–29. Aug 2027</b><span class="pill">Offen</span></a>
   </div>
-  <p class="price-line">Bringen Sie gern Kolleginnen und Kollegen mit. <b>Jede Person bucht einen eigenen Platz.</b></p>
+  <div class="price"><b>3.000 €</b><span>pro Person, nicht pro Einrichtung</span><em>Sie kommen zu viert? 4 Plätze = 12.000 €</em></div>
  </div>
 </section>
 
@@ -300,7 +304,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
    <details><summary>Warum in Marokko und nicht in Deutschland?</summary><p>Weil Sie am zweiten Tag die Pflegekräfte persönlich kennenlernen. Das geht nur dort, wo sie sind.</p></details>
    <details><summary>Ich kann nicht zwei Tage weg.</summary><p>Dann ist genau das der Grund zu kommen. Ein Haus, das zwei Tage nicht ohne Sie läuft, braucht einen Plan.</p></details>
    <details><summary>Passt meine Einrichtung?</summary><p>Das prüfen wir im kurzen Gespräch. Nicht jede Einrichtung passt, und wir nehmen nur 10 pro Termin.</p></details>
-   <details><summary>Was kostet es?</summary><p>3.000 € pro Person. Kolleginnen und Kollegen können mitkommen, jede Person bucht einen eigenen Platz.</p></details>
+   <details><summary>Was kostet es?</summary><p>3.000 € pro Person, nicht pro Einrichtung. Kommen Sie zu viert, sind es 4 Plätze: 12.000 €.</p></details>
    <details><summary>Wo und wann?</summary><p>In Marokko, alle 3 Monate, immer Samstag und Sonntag. Die nächsten Termine: 6.–7. Februar, 22.–23. Mai und 28.–29. August 2027.</p></details>
   </div>
  </div>

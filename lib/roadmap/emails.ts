@@ -245,7 +245,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "Sie haben jetzt Ihren Fahrplan. Viele wollen den nächsten Schritt nicht allein gehen.",
         "Dafür gibt es unseren <b>Workshop in Marokko</b>: 2 Tage mit mir. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte persönlich kennen, die zu diesem Plan passen. Sie fahren mit einem fertigen Plan nach Hause.",
         "Die nächsten Termine: <b>6.–7. Februar</b> und <b>22.–23. Mai 2027</b>, jeweils Samstag und Sonntag.",
-        "<b>3.000 € pro Platz.</b> Bringen Sie gern Kolleginnen oder Kollegen mit. Es gibt nur 10 Plätze pro Termin.",
+        "<b>3.000 € pro Person</b>, nicht pro Einrichtung. Nur 10 Plätze pro Termin.",
       ], cta: "Platz anfragen" },
     ],
     en: [
@@ -272,7 +272,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         hello,
         "you have your roadmap now. Many don't want to take the next step alone.",
         "That is what our <b>workshop in Morocco</b> is for: 2 days with me. On day one we find your biggest hurdle and build your plan. On day two you meet the nurses who fit that plan, in person. You go home with a finished plan.",
-        "<b>€3,000 per seat.</b> Feel free to bring colleagues. There are only 10 seats per date.",
+        "<b>€3,000 per person</b>, not per facility. Only 10 seats per date.",
       ], cta: "Request a seat" },
     ],
     fr: [
@@ -299,7 +299,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         hello,
         "vous avez maintenant votre plan. Beaucoup ne veulent pas faire la prochaine étape seuls.",
         "C'est le but de notre <b>atelier au Maroc</b> : 2 jours avec moi. Le premier jour, nous trouvons votre plus gros obstacle et construisons votre plan. Le deuxième, vous rencontrez en personne les infirmières qui correspondent à ce plan. Vous repartez avec un plan prêt.",
-        "<b>3 000 € par place.</b> Venez avec des collègues si vous voulez. Seulement 10 places par date.",
+        "<b>3 000 € par personne</b>, pas par établissement. Seulement 10 places par date.",
       ], cta: "Demander une place" },
     ],
   };
