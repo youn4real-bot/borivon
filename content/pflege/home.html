@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="de">
+<head>
+<!--HEAD-->
+<!--BV-->
+<style>
+/* Home page only (borivon.com/). Founder 2026-11-09: the main website is for free, huge value, like
+   acquisition.com: the free Fahrplan first, the workshop as the one paid step. No nurse sales talk.
+   Shared look: /pflege/assets/bv.css. */
+.hero2{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(40px,6vw,110px);align-items:center}
+@media (max-width:900px){.hero2{grid-template-columns:1fr}}
+.hero2 .for{margin-top:clamp(28px,3.4vw,44px)}
+/* the Fahrplan pages, fanned like a printed stack */
+.stack{position:relative;width:100%;max-width:520px;aspect-ratio:1/1.08;margin:0 auto}
+.stack img{position:absolute;top:4%;left:17%;width:66%;height:auto;border-radius:2px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.05),0 34px 60px -30px rgba(32,26,16,.5);transition:transform 1.5s var(--ease) .25s}
+.stack img:nth-child(1){transform:rotate(-2deg)}
+.stack img:nth-child(2){transform:rotate(1deg)}
+.stack.in img:nth-child(1){transform:translate(-23%,7%) rotate(-8deg)}
+.stack.in img:nth-child(2){transform:translate(21%,9%) rotate(6deg)}
+.stack.in img:nth-child(3){transform:translate(0,-1%) rotate(-1deg)}
+@media (max-width:900px){.stack{max-width:400px;margin-top:8px}}
+@media (prefers-reduced-motion:reduce){.stack img{transition:none}}
+/* the five levels, as a staircase */
+.steps5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:end}
+.st{display:flex;flex-direction:column;min-height:calc(190px + var(--n) * 58px);padding:24px 20px 22px;border:1px solid var(--line);border-radius:4px;background:var(--white);transition:clip-path 1.2s var(--ease),transform .6s var(--ease)}
+.st .n{font:400 clamp(2.6rem,1.9rem + 1.6vw,3.7rem)/1 var(--serif);color:var(--gold-d);font-variant-numeric:lining-nums}
+.st h3{margin:auto 0 8px;padding-top:20px;font:500 clamp(1.45rem,1.2rem + .6vw,1.8rem)/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)}
+.st p{margin:0;font-size:.96rem;line-height:1.5;color:var(--ink2)}
+.st.top{background:var(--night);border-color:var(--night)}
+.st.top .n{color:var(--gold-l)}.st.top h3{color:#f6f1e6}.st.top p{color:var(--on-night2)}
+.js .steps5 .st{clip-path:inset(100% 0 0 0)}
+.js .steps5.in .st{clip-path:inset(0 0 0 0)}
+.steps5.in .st:nth-child(2){transition-delay:.12s}.steps5.in .st:nth-child(3){transition-delay:.24s}.steps5.in .st:nth-child(4){transition-delay:.36s}.steps5.in .st:nth-child(5){transition-delay:.48s}
+.steps-foot{display:flex;flex-wrap:wrap;align-items:center;gap:18px 32px;margin-top:clamp(36px,4vw,56px)}
+.steps-foot p{margin:0;font-size:1.05rem;color:var(--ink2)}
+@media (max-width:900px){.steps5{grid-template-columns:1fr;gap:10px}.st{min-height:0;display:grid;grid-template-columns:64px 1fr;column-gap:14px;align-items:baseline;padding:20px 18px}.st .n{grid-row:1 / span 2;font-size:2.6rem}.st h3{margin:0 0 4px;padding:0}}
+@media (prefers-reduced-motion:reduce){.js .steps5 .st{clip-path:none}}
+/* free value: cards */
+.free{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(16px,1.8vw,26px)}
+@media (max-width:1100px){.free{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.free{grid-template-columns:1fr}}
+.fc{display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:6px;background:var(--white);color:inherit;text-decoration:none;transition:transform .7s var(--ease),box-shadow .7s var(--ease)}
+.fc:hover{transform:translateY(-4px);box-shadow:0 28px 56px -34px rgba(32,26,16,.45)}
+.fc .vis{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--paper2)}
+.fc .vis img{display:block;width:100%;height:100%;object-fit:cover;transition:transform 1.4s var(--ease)}
+.fc:hover .vis img{transform:scale(1.04)}
+.fc .vis.doc{display:flex;align-items:flex-end;justify-content:center;padding-top:22px}
+.fc .vis.doc img{width:62%;height:auto;object-fit:contain;box-shadow:0 22px 40px -24px rgba(32,26,16,.5);transform-origin:bottom}
+.fc:hover .vis.doc img{transform:translateY(-6px)}
+.fc .vis.num{display:flex;flex-direction:column;justify-content:center;padding:0 26px;background:var(--paper2)}
+.fc .vis.num b{font:400 clamp(2.2rem,1.7rem + 1.6vw,3.3rem)/1 var(--serif);letter-spacing:-.02em;color:var(--ink);font-variant-numeric:lining-nums}
+.fc .vis.num span{margin-top:10px;font-size:.92rem;color:var(--mute)}
+.fc .bd{display:flex;flex:1;flex-direction:column;padding:24px 24px 26px}
+.fc .tag{display:flex;align-items:center;gap:9px;margin:0 0 14px;font:500 11.5px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--gold-d)}
+.fc .tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--gold)}
+.fc h3{margin:0 0 10px;font:500 1.7rem/1.08 var(--serif);letter-spacing:-.012em;color:var(--ink)}
+.fc p{margin:0 0 22px;font-size:.98rem;color:var(--ink2)}
+.fc .go{display:flex;align-items:center;gap:10px;margin-top:auto;font-weight:500;color:var(--ink)}
+.fc .go .ar{transition:transform .6s var(--ease)}
+.fc:hover .go .ar{transform:translateX(5px)}
+.fc.paid{border-color:var(--night);background:var(--night)}
+.fc.paid .tag{color:var(--gold-l)}.fc.paid .tag::before{background:var(--gold-l)}
+.fc.paid h3{color:#f6f1e6}.fc.paid p{color:var(--on-night2)}.fc.paid .go{color:#fff}
+/* inside the Fahrplan */
+.page1{position:relative;max-width:440px;margin-top:44px}
+.page1 img{display:block;width:100%;height:auto;border-radius:2px;box-shadow:0 1px 0 rgba(0,0,0,.05),0 40px 70px -36px rgba(32,26,16,.5)}
+@media (max-width:900px){.page1{max-width:340px}}
+.ws-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:24px 40px;margin-top:clamp(28px,3vw,40px)}
+.ws-row .meta{flex:1 1 520px;max-width:720px}
+</style>
+</head>
+<body>
+
+<a class="bar" href="/workshop"><b class="lg"><i></i>Workshop in Casablanca <span>· 2 Tage mit Youness Taoufiq · alle 3 Monate · Termine ansehen</span></b><b class="sm"><i></i>Workshop in Casablanca <span>· Termine ansehen</span></b></a>
+
+<nav class="nav" aria-label="Borivon">
+ <div class="c">
+  <a class="logo" href="/" aria-current="page">Borivon<b>.</b></a>
+  <div class="links"><a href="/fahrplan">Fahrplan</a><a href="/fahrplan/rechner">Rechner</a><a href="/workshop">Workshop</a><a href="#gruender">Über uns</a><a href="/portal">Portal</a></div>
+  <a class="btn" href="/fahrplan"><span>Kostenloser Fahrplan</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+ </div>
+</nav>
+
+<main>
+<header class="hero">
+ <div class="c">
+  <div class="hero2">
+   <div>
+    <h1 class="h1" data-split><span class="kick">Gesundheitseinrichtungen in Deutschland:</span><span class="main">Pflegekräfte, die kommen. <em>Und bleiben.</em></span></h1>
+    <p class="for" data-r>Ihr kostenloser Pflege-Fahrplan zeigt Ihnen, wo Ihre Einrichtung steht, was leere Stellen Sie kosten und was Sie als Nächstes tun. <b>Damit Pflegekräfte kommen. Und bleiben.</b></p>
+    <div data-r><a class="btn" href="/fahrplan"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+    <p class="status"><i></i>Kostenlos · ca. 2 Minuten · per E-Mail</p></div>
+   </div>
+   <div class="stack" data-r aria-hidden="true">
+    <img src="/pflege/assets/home/fp-plan.webp" alt="" width="900" height="1273" decoding="async">
+    <img src="/pflege/assets/home/fp-steps.webp" alt="" width="900" height="1273" decoding="async">
+    <img src="/pflege/assets/home/fp-cover.webp" alt="" width="900" height="1273" decoding="async" fetchpriority="high">
+   </div>
+  </div>
+  <div class="lede">
+   <p class="lbl" data-r>Borivon</p>
+   <p data-r>Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+  </div>
+ </div>
+</header>
+
+<div class="marq" aria-label="Für jede Einrichtung, die Pflegekräfte braucht">
+ <div class="t"><span>Kliniken und Krankenhäuser</span><span>Pflegeheime und Altenheime</span><span>Ambulante Pflegedienste</span><span>Reha-Kliniken</span><span>Intensivpflege</span><span>Tages- und Kurzzeitpflege</span><span>Hospize und Palliativpflege</span><span>Psychiatrie</span><span>Dialyse</span><span>Eingliederungshilfe</span><span>Betreutes Wohnen</span><span>Träger mit mehreren Standorten</span><span aria-hidden="true">Kliniken und Krankenhäuser</span><span aria-hidden="true">Pflegeheime und Altenheime</span><span aria-hidden="true">Ambulante Pflegedienste</span><span aria-hidden="true">Reha-Kliniken</span><span aria-hidden="true">Intensivpflege</span><span aria-hidden="true">Tages- und Kurzzeitpflege</span><span aria-hidden="true">Hospize und Palliativpflege</span><span aria-hidden="true">Psychiatrie</span><span aria-hidden="true">Dialyse</span><span aria-hidden="true">Eingliederungshilfe</span><span aria-hidden="true">Betreutes Wohnen</span><span aria-hidden="true">Träger mit mehreren Standorten</span></div>
+</div>
+
+<section class="sec">
+ <div class="c split">
+  <div class="stick">
+   <p class="lbl">Das Problem</p>
+   <h2 class="h2" data-split>Zwei Probleme. <em>Ein Plan.</em></h2>
+   <figure class="media tall" data-m><div class="pi"><img data-px src="/pflege/assets/ws3/problem.webp" alt="Leerer Flur in einer Klinik" width="1200" height="1500" loading="lazy" decoding="async"></div></figure>
+  </div>
+  <div>
+   <p class="small">Vielleicht kennen Sie das:</p>
+   <ul class="lines">
+    <li data-line>Pflegekräfte kommen nicht.</li>
+    <li data-line>Oder sie kommen, und gehen wieder.</li>
+    <li data-line>Jede leere Stelle kostet Sie jeden Monat Geld.</li>
+    <li data-line>Ihr Team springt ein, bis die Guten müde werden.</li>
+    <li data-line>Und keiner sagt Ihnen, was zuerst dran ist.</li>
+   </ul>
+   <p class="after" data-r>Der Fahrplan sagt es Ihnen. Für Ihre Einrichtung, mit Ihren Zahlen, Schritt für Schritt. <b>Kostenlos.</b></p>
+   <p data-r style="margin:30px 0 0"><a class="tlink" href="/fahrplan">Kostenlosen Fahrplan holen <svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></p>
+  </div>
+ </div>
+</section>
+
+<section class="sec alt">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Die fünf Stufen</p><h2 class="h2" data-split>Wo steht <em>Ihre Einrichtung?</em></h2></div>
+   <p class="hp" data-r>Jede Einrichtung steht auf einer von fünf Stufen. Der Fahrplan zeigt Ihnen Ihre. Und den Weg zur nächsten.</p>
+  </div>
+  <div class="steps5" data-r>
+   <div class="st" style="--n:0"><span class="n">1</span><h3>Retten</h3><p>Jeden Tag fehlen Leute.</p></div>
+   <div class="st" style="--n:1"><span class="n">2</span><h3>Füllen</h3><p>Sie besetzen Stellen, eine nach der anderen.</p></div>
+   <div class="st" style="--n:2"><span class="n">3</span><h3>Halten</h3><p>Alles besetzt. Jede Kündigung wirft Sie zurück.</p></div>
+   <div class="st" style="--n:3"><span class="n">4</span><h3>Planen</h3><p>Sie wissen früh, wer kommt.</p></div>
+   <div class="st top" style="--n:4"><span class="n">5</span><h3>Anziehen</h3><p>Pflegekräfte wollen zu Ihnen. Und sie bleiben.</p></div>
+  </div>
+  <div class="steps-foot" data-r>
+   <a class="btn" href="/fahrplan"><span>Meine Stufe herausfinden</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <p>Kostenlos · ca. 2 Minuten</p>
+  </div>
+ </div>
+</section>
+
+<section class="sec">
+ <div class="c split">
+  <div class="stick">
+   <p class="lbl">Der Fahrplan</p>
+   <h2 class="h2" data-split>Was in Ihrem <em>Fahrplan steht</em></h2>
+   <figure class="page1" data-r><img src="/pflege/assets/home/fp-numbers.webp" alt="Eine Seite aus dem Fahrplan: Ihre Zahlen" width="900" height="1273" loading="lazy" decoding="async"></figure>
+  </div>
+  <ol class="rows">
+   <li data-r><span>01</span><p><b>Ihre Stufe</b><small>Wo Ihre Einrichtung heute steht, auf fünf Stufen: Retten, Füllen, Halten, Planen, Anziehen.</small></p></li>
+   <li data-r><span>02</span><p><b>Ihre Zahlen</b><small>Was leere Stellen Sie im Monat und im Jahr kosten. Und was eine Pflegekraft Ihnen bringt.</small></p></li>
+   <li data-r><span>03</span><p><b>Ihr Zeitplan</b><small>Bis wann Sie starten müssen, damit die erste Pflegekraft rechtzeitig da ist.</small></p></li>
+   <li data-r><span>04</span><p><b>Ihre nächsten Schritte</b><small>Checklisten bis zur nächsten Stufe. Zum Abhaken.</small></p></li>
+   <li data-r><span>05</span><p><b>Ihr 90-Tage-Plan</b><small>Was in den ersten 90 Tagen passiert, damit sie bleibt.</small></p></li>
+   <li data-r><span>+</span><p><b>Bonus: Der Agentur-Check</b><small>10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.</small></p></li>
+  </ol>
+ </div>
+</section>
+
+<section class="sec alt" id="kostenlos">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Kostenlos</p><h2 class="h2" data-split>Erst geben wir. <em>Kostenlos.</em></h2></div>
+   <p class="hp" data-r>Das bekommen Sie von uns, bevor Sie einen Euro ausgeben. Ohne Anruf.</p>
+  </div>
+  <div class="free">
+   <a class="fc" href="/fahrplan" data-r><div class="vis doc"><img src="/pflege/assets/home/fp-cover.webp" alt="" width="900" height="1273" loading="lazy" decoding="async"></div><div class="bd"><p class="tag">Kostenlos</p><h3>Der Pflege-Fahrplan</h3><p>Ihre Stufe, Ihre Zahlen, Ihr Zeitplan und Ihr 90-Tage-Plan. Als PDF, für Ihre Einrichtung.</p><span class="go">Fahrplan holen <svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></span></div></a>
+   <a class="fc" href="/fahrplan/rechner" data-r><div class="vis num"><b>Ihre Zahlen.</b><span>Pro Monat · pro Jahr · über 3 Jahre</span></div><div class="bd"><p class="tag">Kostenlos</p><h3>Der Rechner</h3><p>Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen.</p><span class="go">Rechner öffnen <svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></span></div></a>
+   <a class="fc" href="/fahrplan" data-r><div class="vis doc"><img src="/pflege/assets/home/ac-cover.webp" alt="" width="900" height="1273" loading="lazy" decoding="async"></div><div class="bd"><p class="tag">Kostenlos, zum Fahrplan</p><h3>Der Agentur-Check</h3><p>10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.</p><span class="go">Mit dem Fahrplan <svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></span></div></a>
+   <a class="fc paid" href="/workshop" data-r><div class="vis"><img src="/pflege/assets/ws3/hero-tall.webp" alt="" width="1000" height="1250" loading="lazy" decoding="async"></div><div class="bd"><p class="tag">Live vor Ort</p><h3>Der Workshop in Casablanca</h3><p>2 Tage mit Youness Taoufiq: Ihr Plan. Und die Pflegekräfte dazu.</p><span class="go">Zum Workshop <svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></span></div></a>
+  </div>
+ </div>
+</section>
+
+<section class="sec">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Der nächste Schritt</p><h2 class="h2" data-split>Der Workshop <em>in Casablanca</em></h2></div>
+   <p class="hp" data-r>Hat Ihnen der Fahrplan geholfen? Dann können wir noch mehr für Sie tun: zwei Tage an Ihrem Plan, und die Pflegekräfte dazu.</p>
+  </div>
+  <div class="hmedia" data-m style="margin-top:0">
+   <div class="pi"><picture><source media="(max-width:720px)" srcset="/pflege/assets/ws3/hero-tall.webp"><img data-px src="/pflege/assets/ws3/hero-wide.webp" alt="Casablanca bei Sonnenuntergang, die Hassan-II.-Moschee" width="2400" height="1050" loading="lazy" decoding="async"></picture></div>
+   <div class="say">
+    <p><span>Kommen Sie mit leeren Stellen.</span><span>Fahren Sie mit einem Plan nach Hause.</span><em>Und mit den Pflegekräften dafür.</em></p>
+    <ul><li>Tag 1 · Ihr Plan</li><li>Tag 2 · Ihre Pflegekräfte</li></ul>
+   </div>
+  </div>
+  <div class="ws-row">
+   <dl class="meta" data-r>
+    <div><dt>Zeit</dt><dd>2&nbsp;×&nbsp;8 Stunden mit Youness Taoufiq</dd></div>
+    <div><dt>Ort</dt><dd>Unsere Konferenzräume in Casablanca</dd></div>
+    <div><dt>Plätze</dt><dd>20 pro Workshop</dd></div>
+    <div><dt>Termine</dt><dd>Alle 3 Monate, Samstag und Sonntag</dd></div>
+   </dl>
+   <div data-r><a class="btn" href="/workshop"><span>Zum Workshop</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
+  </div>
+ </div>
+</section>
+
+<section class="sec alt" id="gruender">
+ <div class="c founder">
+  <figure class="fp" data-r><div class="media sq"><img src="/pflege/assets/ws/founder-youness-v2.webp" alt="Youness Taoufiq, Gründer von Borivon" width="476" height="476" loading="lazy" decoding="async"></div><figcaption>Youness Taoufiq · Gründer, Casablanca</figcaption></figure>
+  <div>
+   <p class="lbl">Der Gründer</p>
+   <h2 class="h2" data-split>Youness Taoufiq</h2>
+   <p class="fx" data-r>Youness Taoufiq ist Gründer von Borivon. Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+   <p class="fx" data-r>Mit dem Fahrplan sehen Sie Ihren nächsten Schritt. Im Workshop gehen Sie ihn mit ihm, an einem Tisch in Casablanca.</p>
+   <p class="sig" data-r>Youness Taoufiq</p>
+  </div>
+ </div>
+</section>
+
+<section class="sec">
+ <div class="c split">
+  <div class="stick"><p class="lbl">Fragen</p><h2 class="h2" data-split>Fragen, die Einrichtungen <em>stellen</em></h2></div>
+  <div class="faq">
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was ist der Pflege-Fahrplan?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p>Ein PDF für Ihre Einrichtung. Sie beantworten ein paar Fragen, das dauert ca. 2 Minuten.</p>
+    <p>Dann sehen Sie Ihre Stufe von 1 bis 5, was leere Stellen Sie kosten, Ihren Zeitplan und Ihren 90-Tage-Plan.</p>
+   </div></div></div></div>
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was kostet der Fahrplan?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p>Nichts. Kein Abo, kein Anruf.</p>
+   </div></div></div></div>
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Für wen ist das?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p><b>Sie brauchen Pflegekräfte? Dann für Sie.</b></p>
+    <p>Krankenhaus, Klinik, Reha, Altenheim, Pflegeheim, ambulanter Pflegedienst, Intensivpflege, Tages- und Kurzzeitpflege, Hospiz, Psychiatrie, Dialyse, Eingliederungshilfe, betreutes Wohnen. Groß oder klein. Und jede andere Einrichtung, die Pflegekräfte braucht.</p>
+   </div></div></div></div>
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was passiert mit meinen Angaben?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p>Sie bekommen den Fahrplan per E-Mail. Vorher bestätigen Sie einmal Ihre Adresse.</p>
+    <p>Ihre Angaben bleiben bei uns. Mehr dazu in der <a href="/datenschutz">Datenschutzerklärung</a>.</p>
+   </div></div></div></div>
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was ist der Workshop in Casablanca?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p>Zwei Tage in unseren Konferenzräumen in Casablanca, mit Youness Taoufiq.</p>
+    <p>Tag 1: Ihr Plan. Tag 2: Sie lernen die Pflegekräfte kennen, die zu Ihrem Plan passen.</p>
+    <p><a href="/workshop">Alles zum Workshop</a></p>
+   </div></div></div></div>
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Wer steht hinter Borivon?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p>Youness Taoufiq, Gründer.</p>
+    <p>Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+   </div></div></div></div>
+  </div>
+ </div>
+</section>
+
+<section class="final">
+ <div class="fbg"><img data-px src="/pflege/assets/ws3/final.webp" alt="" width="2400" height="1350" loading="lazy" decoding="async"></div>
+ <div class="c">
+  <h2 class="h2" data-split>Ihr Fahrplan. <em>In ca. 2 Minuten.</em></h2>
+  <p data-r>Kostenlos, für Ihre Einrichtung.</p>
+  <div data-r><a class="btn light" href="/fahrplan"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
+ </div>
+</section>
+</main>
+
+<footer class="foot">
+ <div class="c">
+  <a class="logo" href="/">Borivon<b>.</b></a>
+  <p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+  <div class="fl"><a href="/fahrplan">Kostenloser Fahrplan</a><a href="/fahrplan/rechner">Rechner</a><a href="/workshop">Workshop</a><a href="/portal">Portal</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="#" data-consent-open>Datenschutz-Einstellungen</a></div>
+  <p class="copy">© Borivon LLC</p>
+ </div>
+</footer>
+
+<a class="mcta" href="/fahrplan"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+
+<script src="/pflege/assets/t.js"></script>
+<!--BVJS-->
+</body>
+</html>

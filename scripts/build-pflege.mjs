@@ -25,12 +25,30 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 const SRC = path.join(ROOT, "content", "pflege");
 const OUT = path.join(ROOT, "public");
 const withVoices = process.argv.includes("--with-voices");
 const pages = {};
+
+// ── shared design system: content/pflege/bv.css + bv.js → public/pflege/assets, cache-busted (?v=hash) ──
+// A page opts in with <!--BV--> in its <head> and <!--BVJS--> before </body>.
+const BV = {};
+for (const f of ["bv.css", "bv.js"]) {
+  const src = fs.readFileSync(path.join(SRC, f), "utf8");
+  fs.writeFileSync(path.join(OUT, "pflege", "assets", f), src);
+  BV[f] = `/pflege/assets/${f}?v=${crypto.createHash("sha1").update(src).digest("hex").slice(0, 8)}`;
+}
+const BV_HEAD = `<script>document.documentElement.classList.add('js');setTimeout(function(){if(!window.__bvMotion)document.documentElement.classList.remove('js')},2500);</script>
+<link rel="preload" href="/pflege/assets/fonts/ebgaramond-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/pflege/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/pflege/assets/fonts/ebgaramond-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="${BV["bv.css"]}">`;
+function bv(s) {
+  return s.replace("<!--BV-->", BV_HEAD).replace("<!--BVJS-->", `<script src="${BV["bv.js"]}"></script>`);
+}
 
 const FONTS = `
 @font-face { font-family: "Playfair Display"; font-style: normal; font-weight: 500 700; font-display: swap; src: url(/pflege/assets/playfair-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
@@ -41,9 +59,10 @@ const FONTS = `
 @font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/lexend-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 `;
 
+// Home = free value first, the workshop is the one paid step (founder 2026-11-09). No nurse sales talk.
 const META = {
-  title: "Pflegefachkräfte, die bleiben · Borivon",
-  description: "Pflegefachkräfte für Altenheime und Pflegeheime, direkt vom Sprachinstitut. Ein Interview, wir machen den Rest. 3-Monats-Bleibegarantie, eigenes Portal mit jedem Schritt live.",
+  title: "Borivon · Pflegekräfte gewinnen und halten",
+  description: "Der kostenlose Pflege-Fahrplan für Gesundheitseinrichtungen: Ihre Stufe, was leere Stellen Sie kosten, Ihr Zeitplan und Ihr 90-Tage-Plan, damit Pflegekräfte bleiben. In ca. 2 Minuten.",
 };
 
 let problems = 0;
@@ -71,13 +90,14 @@ function sharedLinks(s) {
 // Structured data for the home page (borivon.com/ since 2026-10-20). No price, ever.
 const HOME_LD = JSON.stringify({
   "@context": "https://schema.org",
-  "@type": "EmploymentAgency",
+  "@type": "Organization",
   name: "Borivon",
   legalName: "Borivon LLC",
   url: "https://www.borivon.com/",
   logo: "https://borivon.com/logo.png",
-  image: "https://www.borivon.com/pflege/assets/nurse.jpg",
-  description: "Borivon bringt geprüfte Pflegefachkräfte in deutsche Altenheime: Deutsch, Anerkennung, Visum und Ankommen aus einer Hand. Mit Bleibegarantie.",
+  image: "https://www.borivon.com/pflege/assets/fahrplan-og.png",
+  // the motto, word for word (it is how Borivon describes itself everywhere)
+  description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
   email: "contact@borivon.com",
   areaServed: ["DE"],
   availableLanguage: ["German", "French", "English", "Arabic"],
@@ -104,33 +124,17 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
 `;
 }
 
-// ── offer page ───────────────────────────────────────────────────────────────
+// ── home page (borivon.com/) ────────────────────────────────────────────────
+// Since 2026-11-09: free value (the Fahrplan, the calculator) and the workshop as the one paid step,
+// like acquisition.com. The old placement sales page (angebot.html) is gone.
 {
-  let s = fs.readFileSync(path.join(SRC, "angebot.html"), "utf8");
-  s = sharedLinks(s);
-  s = swap(s, 'href="plattform.html"', 'href="/plattform"', "tour link");
-  s = s.replace(/<title>[^<]*<\/title>\n?/, "");
-  s = s.replace(/<div class="draft"[^>]*>[^<]*<\/div>\n?/, "");
-  s = s.replace(/<img src="data:image\/jpeg;base64,[^"]+"/, '<img src="/pflege/assets/nurse.jpg"');
-  if (!withVoices) {
-    const v0 = s.indexOf("  <!-- VOICES -->"), v1 = s.indexOf("  <!-- NOT FOR EVERYONE -->");
-    if (v0 > 0 && v1 > v0) s = s.slice(0, v0) + s.slice(v1); else { problems++; console.error("NOT FOUND: voices section"); }
-    s = swap(s, '      <a href="#stimmen" data-t="nav_voices">Stimmen</a>\n', "", "voices nav link");
-  }
-  // the fragment's own <style> blocks become part of <head>; everything after is the body
-  const cut = s.lastIndexOf("</style>", s.indexOf("<header")) + "</style>".length;
-  const doc = `<!doctype html>
-<html lang="de">
-<head>
-<script>if(location.hostname.indexOf("affiliates.")===0)location.replace("/affiliate"+location.search)</script>
-${head(META.title, META.description, "https://www.borivon.com/")}${s.slice(0, cut).trim()}
-</head>
-<body>
-${s.slice(cut).trim()}
-</body>
-</html>
-`;
-  pages.HOME_HTML = doc;
+  let s = fs.readFileSync(path.join(SRC, "home.html"), "utf8");
+  const i = s.indexOf("<!--HEAD-->");
+  if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in home.html"); }
+  // the affiliates host shares this page: the first thing in <head> sends it to /affiliate
+  else s = s.slice(0, i) + `<script>if(location.hostname.indexOf("affiliates.")===0)location.replace("/affiliate"+location.search)</script>
+` + head(META.title, META.description, "https://www.borivon.com/", "https://www.borivon.com/pflege/assets/fahrplan-og.png") + s.slice(i + "<!--HEAD-->".length);
+  pages.HOME_HTML = bv(s);
 }
 
 // ── platform tour ────────────────────────────────────────────────────────────
@@ -168,7 +172,7 @@ ${s.slice(cut).trim()}
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in workshop.html"); }
   else s = s.slice(0, i) + head("Workshop in Casablanca · Borivon", "2 Tage in unseren Konferenzräumen in Casablanca, Marokko, mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, 20 Plätze.", "https://www.borivon.com/workshop") + s.slice(i + "<!--HEAD-->".length);
-  pages.WORKSHOP_HTML = s;
+  pages.WORKSHOP_HTML = bv(s);
 }
 
 // sanity: nothing may still reach outside servers
