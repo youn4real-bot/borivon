@@ -8,6 +8,7 @@ import { clientIp } from "@/lib/roadmap/consent";
 import { deliverRoadmap, leadLang } from "@/lib/roadmap/delivery";
 import { lastDelivered, supersedeOlder } from "@/lib/roadmap/repeat";
 import { keepAlive } from "@/lib/keepAlive";
+import { trackServer } from "@/lib/track/server";
 
 /**
  * /api/roadmap/confirm?id=&t= — the double opt-in link from the first mail.
@@ -83,6 +84,8 @@ export async function POST(req: NextRequest) {
     d = { ...d, consent: { ...(d.consent ?? {}), confirmedAt: at, confirmIp: clientIp(req.headers) } };
     const { error } = await x.db.from("leads").update({ details: d }).eq("id", x.id);
     if (error) return linkPage(x.lang, "…", T.err, 500, { label: T.btn });
+    const confirmed = d;
+    keepAlive(() => trackServer(req, { path: "/fahrplan/bestaetigt", src: String(((confirmed as Record<string, unknown>).track as { src?: unknown } | undefined)?.src ?? ""), lid: x.id }, [{ type: "confirm", lead_id: x.id }]));
     // double opt-in done: now (and only now) on the Resend list, subscribed
     if (x.email) {
       const r = await setListSubscribed(x.email, true, fetch, { lastName: String(d.lastName ?? "") });

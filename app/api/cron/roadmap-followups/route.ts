@@ -12,6 +12,7 @@ import { asSalutation } from "@/lib/roadmap/consent";
 import { deliverRoadmap, unsubscribeLink, leadLang } from "@/lib/roadmap/delivery";
 import { deleteHosted } from "@/lib/roadmap/hosted";
 import { scoreRoadmap, normalizeAnswers, type RoadmapAnswers } from "@/lib/roadmap/score";
+import { pruneTrackEvents } from "@/lib/track/server";
 
 /**
  * Daily 09:30 UTC (morning in Germany), four jobs for the Fahrplan leads:
@@ -139,5 +140,7 @@ export async function GET(req: NextRequest) {
   }
 
   console.warn(`[roadmap-followups] delivered=${delivered} undelivered=${undelivered} sent=${sent} failed=${failed} listAccess=${access.status ?? "none"} listed=${listed} listFailed=${listFailed} pending=${pending.length} anonymized=${anonymized}`);
-  return NextResponse.json({ ok: true, delivered, undelivered, sent, failed, list: { access: access.status ?? null, synced: listed, failed: listFailed, pending: pending.length }, anonymized });
+  // analytics retention (privacy policy section 12): events older than 14 months are deleted
+  const pruned = await pruneTrackEvents();
+  return NextResponse.json({ ok: true, delivered, undelivered, sent, failed, list: { access: access.status ?? null, synced: listed, failed: listFailed, pending: pending.length }, anonymized, pruned });
 }

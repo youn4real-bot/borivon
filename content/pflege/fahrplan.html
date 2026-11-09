@@ -99,6 +99,7 @@ select,input[type=text],input[type=email],input[type=date]{font:inherit;font-wei
  <div class="foot"><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></div>
 </div>
 
+<script src="/pflege/assets/t.js"></script>
 <script>
 (function () {
 var P={home:'M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5',clinic:'M4 4h16v16H4zM12 8v8M8 12h8',car:'M3 16V8h11v8M14 11h4l3 3v2h-7M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
@@ -239,8 +240,9 @@ function cheer(c,next){var t=T[lang],d=document.createElement('div');d.className
  document.body.appendChild(d);setTimeout(function(){d.remove();next()},1100)}
 function visual(v){if(!v)return '';if(typeof v==='string')return ic(v);if('lvl' in v)return '<span class="lvl" aria-hidden="true">'+[1,2,3,4].map(function(n){return '<b class="'+(n<=v.lvl?'f':'')+'" style="height:'+(6+n*5)+'px"></b>'}).join('')+'</span>';if(v.b)return '<span class="badge" aria-hidden="true">'+v.b+'</span>';return ''}
 
+function tr(){if(window.bvTrack)window.bvTrack.apply(null,arguments)}
 function render(){
- var t=T[lang],q=cur();document.documentElement.lang=lang;
+ var t=T[lang],q=cur();document.documentElement.lang=lang;tr('q_view',q.id,i);
  dots();
  var title=q.type==='contact'?q.q:esc(typeof q.q==='function'?q.q(A):q.q);
  var h='<div class="screen">'+(i===0&&!hist.length?'<p class="intro">'+esc(t.intro)+'</p>':'')+'<div class="qi">'+ic(q.ic)+'</div><h2>'+title+'</h2>'+(q.sub?'<p class="qsub">'+esc(q.sub)+'</p>':'');
@@ -260,17 +262,17 @@ function render(){
  if(q.type!=='contact'){var nb=q.multi||q.type;h+='<div class="row"><button type="button" class="back" id="bk" aria-label="'+esc(t.back)+'"'+(hist.length?'':' style="visibility:hidden"')+'>←</button>'+(nb?'<button type="button" class="btn" id="nx">'+esc(t.next)+'</button>':'')+'</div>'}
  if(i===0)h+='<p class="priv">'+ic('shield')+'<span>'+esc(t.priv)+' <a href="/datenschutz" target="_blank" rel="noopener">'+esc(t.privacyLink)+'</a></span></p>';
  app.innerHTML=h+'</div>';$('bk').onclick=back;var nx=$('nx');
- if(q.type==='select'||q.type==='date'){var f=$('f'),up=function(){nx.disabled=!f.value};f.oninput=f.onchange=up;up();nx.onclick=function(){A[q.id]=f.value;go(nextIdx(i))}}
+ if(q.type==='select'||q.type==='date'){var f=$('f'),up=function(){nx.disabled=!f.value};f.oninput=f.onchange=up;up();nx.onclick=function(){A[q.id]=f.value;tr('q_answer',q.id,q.type==='date'?'date':f.value);go(nextIdx(i))}}
  else if(q.multi){nx.disabled=!(A[q.id]||[]).length;
   // multi-choice: toggle in place, no re-render, no animation (only Weiter moves on)
   app.querySelectorAll('.opt').forEach(function(b){b.onclick=function(){var v=(A[q.id]||[]).slice(),k=b.getAttribute('data-v');
    if(k==='none')v=v.indexOf(k)>=0?[]:[k];else{v=v.filter(function(x){return x!=='none'});v=v.indexOf(k)>=0?v.filter(function(x){return x!==k}):v.concat([k])}
    A[q.id]=v;app.querySelectorAll('.opt').forEach(function(x){var on=v.indexOf(x.getAttribute('data-v'))>=0;x.classList.toggle('on',on);x.setAttribute('aria-pressed',on)});nx.disabled=!v.length}});
-  nx.onclick=function(){go(nextIdx(i))}}
+  nx.onclick=function(){tr('q_answer',q.id,(A[q.id]||[]).join(','));go(nextIdx(i))}}
  else if(q.type==='contact'){var cc=A.kontakt;
   app.querySelectorAll('.pill').forEach(function(b){b.onclick=function(){cc.anrede=b.getAttribute('data-a');app.querySelectorAll('.pill').forEach(function(x){x.classList.toggle('on',x===b);x.setAttribute('aria-checked',x===b)})}});
   $('cf').onsubmit=function(e){e.preventDefault();submit()}}
- else app.querySelectorAll('.opt').forEach(function(b){b.onclick=function(){A[q.id]=b.getAttribute('data-v');b.classList.add('on');setTimeout(function(){go(nextIdx(i))},220)}});
+ else app.querySelectorAll('.opt').forEach(function(b){b.onclick=function(){A[q.id]=b.getAttribute('data-v');tr('q_answer',q.id,A[q.id]);b.classList.add('on');setTimeout(function(){go(nextIdx(i))},220)}});
 }
 
 function showErr(m){err=m;var el=$('c-err');if(el)el.textContent=m}
@@ -289,7 +291,7 @@ function submit(){
  busy=true;err='';
  var answers={v:2,art:A.art,rolle:A.rolle,standorte:A.standorte,land:A.land,plaetze:A.plaetze,bedarf:A.bedarf,leasing:A.leasing,erfahrung:A.erfahrung,
   grund:A.erfahrung==='failed'?(A.grund||[]):[],start:A.start,datum:A.start==='date'?(A.datum||''):'',haben:(A.haben||[]).filter(function(x){return x!=='none'}),wer:A.wer};
- var req=fetch('/api/roadmap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:lang,salutation:c.anrede,firstName:c.vor,lastName:c.nach,email:c.mail,consent:c.consent===true,website:$('c-web').value,answers:answers})})
+ var req=fetch('/api/roadmap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lang:lang,salutation:c.anrede,firstName:c.vor,lastName:c.nach,email:c.mail,consent:c.consent===true,website:$('c-web').value,answers:answers,track:window.bvTrackContext||{}})})
   .then(function(r){if(r.status===429)throw new Error('many');if(!r.ok)return r.json().then(function(j){throw new Error((j&&j.error)||'fail')},function(){throw new Error('fail')});return r.json()});
  building(req);
 }

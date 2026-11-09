@@ -33,6 +33,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { track, trackPayload } from "@/lib/track/client";
 import { useLang } from "@/components/LangContext";
 import { PhoneInput } from "@/components/PhoneInput";
 import { QUESTIONS, type Selections } from "@/lib/booking";
@@ -344,6 +345,8 @@ export function BookingFlow({
   }, [eventType]);
 
   useEffect(() => { void loadSlots(); }, [loadSlots]);
+  // analytics: the calendar was seen (founder's funnel: workshop page → calendar → booking)
+  useEffect(() => { track("book_view", eventType ?? "book"); }, [eventType]);
 
   // Show the time in THEIR timezone name, so nobody assumes it's their own
   // clock. Every label on this page is in `tz`: the visitor's own zone by
@@ -477,6 +480,7 @@ export function BookingFlow({
   }
 
   function pickDay(k: string) {
+    track("book_day", k);
     setDayKey(k);
     setFocusKey(k);
     setAt(null);
@@ -525,6 +529,8 @@ export function BookingFlow({
           lang,
           // ...and in the clock they picked the time in.
           ...(tz ? { tz } : {}),
+          // where this visit came from (post / PDF / mail), for the founder's analytics
+          track: trackPayload(),
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -858,7 +864,7 @@ export function BookingFlow({
   const confirmBtn = (
     <button
       type="button"
-      onClick={() => setStep(2)}
+      onClick={() => { track("book_details"); setStep(2); }}
       className="bv-btn bv-btn-primary bv-tap flex-1 bv-enter-soft"
       // solid gold + dark ink: the theme colours turned this into pale gold with white text (unreadable)
       style={{ minHeight: 44, background: "var(--gold)", color: "#131312", fontWeight: 600, borderRadius: 10 }}
@@ -937,7 +943,7 @@ export function BookingFlow({
             <li className="flex gap-2">
               <button
                 type="button"
-                onClick={() => { setAt(on ? null : s.at); setErr(null); }}
+                onClick={() => { if (!on) track("book_time", s.label); setAt(on ? null : s.at); setErr(null); }}
                 aria-pressed={on}
                 className="bv-tap flex-1 flex items-center justify-center gap-1.5 text-[14px]"
                 style={{

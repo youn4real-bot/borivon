@@ -9215,6 +9215,20 @@ export default function AdminPage() {
             </button>
           )}
 
+          {/* ── Besucher & Quellen — the founder's own traffic + funnel analytics. SUPREME ONLY. ── */}
+          {roleResolved && isSuperAdmin && (
+            <button onClick={() => router.push("/portal/admin/traffic")}
+              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
+              style={{ borderTop: "1px solid var(--border)" }}>
+              <BarChart3 size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+              <span className="flex-1 text-left min-w-0">
+                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Besucher & Quellen" : lang === "fr" ? "Visiteurs & sources" : "Visitors & sources"}</span>
+                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Links, Klicks, Fahrplan, Workshop, Buchungen" : lang === "fr" ? "Liens, clics, plan, atelier, réservations" : "Links, clicks, roadmap, workshop, bookings"}</span>
+              </span>
+              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            </button>
+          )}
+
           {/* ── Employer shortlists — curate candidates + share a read-only link. ── */}
           {roleResolved && (
             <button onClick={() => router.push("/portal/admin/shortlists")}

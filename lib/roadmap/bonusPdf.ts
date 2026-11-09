@@ -24,7 +24,7 @@ const LINE = hexColor("#e7e1d4");
 const INK = hexColor("#1c1c1e");
 const MUTED = hexColor("#6d6a63");
 const GREEN = hexColor("#3f7a52");
-const BOOK_URL = "https://borivon.com/workshop#termin";
+const BOOK_URL = "https://borivon.com/workshop?via=pdf#termin";
 
 export const AGENCY_CHECK: { q: L; a: L }[] = [
   { q: { de: "Wie prüfen Sie das Deutsch?", en: "How do you check their German?", fr: "Comment vérifiez-vous l'allemand ?" },

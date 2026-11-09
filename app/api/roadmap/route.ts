@@ -16,6 +16,7 @@ import { keepAlive } from "@/lib/keepAlive";
 import { isFormV2, normalizeForm, toModel, facilityLine, formSummaryDe } from "@/lib/roadmap/form";
 import { findConfirmedPrior, supersedeOlder } from "@/lib/roadmap/repeat";
 import { deliverRoadmap } from "@/lib/roadmap/delivery";
+import { readTrack, trackServer } from "@/lib/track/server";
 
 /**
  * POST /api/roadmap — the free Pflege-Fahrplan (borivon.com/fahrplan).
@@ -76,8 +77,11 @@ export async function POST(req: NextRequest) {
   const ip = clientIp(req.headers);
   // Same email, already confirmed before → no second confirm mail (lib/roadmap/repeat.ts)
   const prior = form ? await findConfirmedPrior(db, email) : null;
+  // where this visitor came from (tracked link / utm / referrer), for the founder's analytics
+  const track = readTrack(body.track);
   const details = {
     source: "roadmap",
+    track,
     lang, salutation, firstName, lastName, facility, heardFrom,
     ...(form ? { form } : {}),
     ...(prior?.delivered ? { previousLeadId: prior.id } : {}),
@@ -106,6 +110,7 @@ export async function POST(req: NextRequest) {
 
   // 2 · the confirm mail, then 3 · tell the founder — both after the response
   keepAlive(async () => {
+    await trackServer(req, { ...track, path: "/fahrplan", lid: id }, [{ type: "form_submit", name: `Stufe ${result.level}`, lead_id: id }]);
     let mailed = false;
     if (prior) {
       // known, confirmed address: the new plan goes straight out, the old series stops

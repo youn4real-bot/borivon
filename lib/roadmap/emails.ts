@@ -14,10 +14,12 @@ import type { RoadmapResult, FacilityType, Level } from "./score";
 import { FACILITY } from "./types";
 import { formatEuro } from "./pdf";
 import { greeting, type Salutation } from "./consent";
+import { upcomingOpenDates, dateRangeLabel } from "@/lib/workshopDates";
 
 export const BOOK_URL = "https://borivon.com/book/clinic";
 /** The workshop in Morocco (content/pflege/workshop.html): the P.S., the last tip mail, the PDF last page. */
-export const WORKSHOP_URL = "https://borivon.com/workshop";
+// ?via=mail: the founder's analytics credits workshop visits (and bookings) to the mails
+export const WORKSHOP_URL = "https://borivon.com/workshop?via=mail";
 /** Who the mail is for: Anrede + Nachname (no first name since 2026-11-07). */
 export type Addressee = { salutation: Salutation; lastName: string; firstName?: string };
 
@@ -223,6 +225,14 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
 export function followupMail(n: number, o: Addressee & { lang: Lang; result: RoadmapResult; unsubscribeUrl: string; facilityType?: FacilityType }): Mail | null {
   const { lang } = o;
   const firstWeek = esc(pick(FACILITY[o.facilityType ?? "care_home"].firstWeek, lang));
+  // The next open workshop dates, from the one list (lib/workshopDates): a mail never names a date that has passed.
+  const next = upcomingOpenDates().slice(0, 2).map((d) => `<b>${esc(dateRangeLabel(d, lang))}</b>`);
+  const both = (and: string) => (next.length === 2 ? `${next[0]} ${and} ${next[1]}` : next[0] ?? "");
+  const datesLine = !next.length ? "" : {
+    de: `${next.length === 2 ? "Die nächsten Termine" : "Der nächste Termin"}: ${both("und")}, jeweils Samstag und Sonntag.`,
+    en: `${next.length === 2 ? "The next dates" : "The next date"}: ${both("and")}, Saturday and Sunday.`,
+    fr: `${next.length === 2 ? "Les prochaines dates" : "La prochaine date"} : ${both("et")}, samedi et dimanche.`,
+  }[lang];
   const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
   const per = formatEuro(o.result.perNurseMonth, lang);
   const three = formatEuro(o.result.perNurseMonth * 3, lang);
@@ -251,8 +261,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         hello,
         "Sie haben jetzt Ihren Fahrplan. Viele wollen den nächsten Schritt nicht allein gehen.",
         "Dafür gibt es unseren <b>Workshop in Marokko</b>: 2 Tage mit mir. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte persönlich kennen, die zu diesem Plan passen. Sie fahren mit einem fertigen Plan nach Hause.",
-        "Die nächsten Termine: <b>6.–7. Februar</b> und <b>22.–23. Mai 2027</b>, jeweils Samstag und Sonntag.",
-        "<b>3.000 € pro Person</b>, nicht pro Einrichtung. Nur 10 Plätze pro Termin.",
+        datesLine,
+        "3.000 € pro Person. Nur 10 Plätze pro Termin.",
       ], cta: "Platz anfragen" },
     ],
     en: [
@@ -279,7 +289,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         hello,
         "you have your roadmap now. Many don't want to take the next step alone.",
         "That is what our <b>workshop in Morocco</b> is for: 2 days with me. On day one we find your biggest hurdle and build your plan. On day two you meet the nurses who fit that plan, in person. You go home with a finished plan.",
-        "<b>€3,000 per person</b>, not per facility. Only 10 seats per date.",
+        datesLine,
+        "€3,000 per person. Only 10 seats per date.",
       ], cta: "Request a seat" },
     ],
     fr: [
@@ -306,7 +317,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         hello,
         "vous avez maintenant votre plan. Beaucoup ne veulent pas faire la prochaine étape seuls.",
         "C'est le but de notre <b>atelier au Maroc</b> : 2 jours avec moi. Le premier jour, nous trouvons votre plus gros obstacle et construisons votre plan. Le deuxième, vous rencontrez en personne les infirmières qui correspondent à ce plan. Vous repartez avec un plan prêt.",
-        "<b>3 000 € par personne</b>, pas par établissement. Seulement 10 places par date.",
+        datesLine,
+        "3 000 € par personne. Seulement 10 places par date.",
       ], cta: "Demander une place" },
     ],
   };
@@ -314,7 +326,8 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
   if (!m) return null;
   // no discovery calls (founder 2026-11-08): every tip mail points to the workshop
   const url = WORKSHOP_URL;
-  const html = shell(lang, m.lines.map(p).join("") + btn(url, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
-  const text = [...m.lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${url}`, BYE[lang].replace("<br>", "\n"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
+  const lines = m.lines.filter(Boolean);
+  const html = shell(lang, lines.map(p).join("") + btn(url, m.cta) + p(BYE[lang]), unsubFooter(lang, o.unsubscribeUrl));
+  const text = [...lines.map((l) => l.replace(/<[^>]+>/g, "")), `${m.cta}: ${url}`, BYE[lang].replace("<br>", "\n"), `${unsubLabel(lang)}: ${o.unsubscribeUrl}`].join("\n\n");
   return { subject: m.subject, html, text };
 }

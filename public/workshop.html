@@ -195,7 +195,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 </head>
 <body>
 
-<div class="bar"><b class="lg"><i></i>2-Tages-Workshop vor Ort <span>· Marokko · November ausgebucht, 6.–7. Feb 2027 jetzt offen</span></b><b class="sm"><i></i>Workshop Marokko <span>· 6.–7. Feb 2027 offen</span></b></div>
+<div class="bar"><b class="lg"><i></i>2-Tages-Workshop vor Ort <span id="bar-lg">· Marokko · November ausgebucht, 6.–7. Feb 2027 jetzt offen</span></b><b class="sm"><i></i>Workshop Marokko <span id="bar-sm">· 6.–7. Feb 2027 offen</span></b></div>
 
 <header class="hero">
  <div class="w">
@@ -314,10 +314,10 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
   <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Marokko</em></h2><p style="font-size:1.15rem;line-height:1.7">Der Raum hat Platz für 10 Personen.<br>Das ist gerade offen:</p></div>
   <div class="gal"><img src="/pflege/assets/ws/date-koutoubia.webp" alt="Marrakesch mit dem Atlas" loading="lazy" decoding="async"><img src="/pflege/assets/ws/date-lanterns.webp" alt="Laternen auf dem Markt" loading="lazy" decoding="async"><img src="/pflege/assets/ws/date-spices.webp" alt="Gewürze auf dem Markt" loading="lazy" decoding="async"><img src="/pflege/assets/ws/date-palms.webp" alt="Palmenallee" loading="lazy" decoding="async"></div>
   <div class="dates">
-   <div class="date sold"><span class="tag">Ausgebucht</span><b>28.–29. Nov</b><span class="pill">0 Plätze frei</span></div>
-   <a class="date" href="#termin"><b>6.–7. Feb 2027</b><span class="pill">8 Plätze frei</span></a>
-   <a class="date" href="#termin"><b>22.–23. Mai 2027</b><span class="pill">Offen</span></a>
-   <a class="date" href="#termin"><b>28.–29. Aug 2027</b><span class="pill">Offen</span></a>
+   <div class="date sold" data-start="2026-11-28" data-end="2026-11-29"><span class="tag">Ausgebucht</span><b>28.–29. Nov</b><span class="pill">0 Plätze frei</span></div>
+   <a class="date" href="#termin" data-start="2027-02-06" data-end="2027-02-07"><b>6.–7. Feb 2027</b><span class="pill">8 Plätze frei</span></a>
+   <a class="date" href="#termin" data-start="2027-05-22" data-end="2027-05-23"><b>22.–23. Mai 2027</b><span class="pill">Offen</span></a>
+   <a class="date" href="#termin" data-start="2027-08-28" data-end="2027-08-29"><b>28.–29. Aug 2027</b><span class="pill">Offen</span></a>
   </div>
  </div>
 </section>
@@ -383,7 +383,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Wo und wann?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>In Marokko. Alle 3 Monate, immer Samstag und Sonntag.</p>
-    <p>Die nächsten Termine: 6.–7. Februar, 22.–23. Mai und 28.–29. August 2027.</p>
+    <p id="faq-dates">Die nächsten Termine: 6.–7. Februar, 22.–23. Mai und 28.–29. August 2027.</p>
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was kostet es?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>3.000 € pro Person.</p>
@@ -407,7 +407,42 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 </section>
 
 <footer><p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>© Borivon LLC <a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></footer>
+<script src="/pflege/assets/t.js"></script>
 <script>
+/* The calendar frame gets this visit's context, so a booking is credited to the post / the PDF that
+   brought it (and counted as the same visit). */
+(function(){
+  var f=document.querySelector('.cal iframe'); if(!f) return;
+  var q=new URLSearchParams(location.search), p=new URLSearchParams(), c=window.bvTrackContext;
+  ['src','via','lid','utm_source','utm_medium','utm_campaign','utm_content'].forEach(function(k){ var v=q.get(k); if(v) p.set(k,v.slice(0,80)); });
+  if(c){ p.set('sid',c.sid); if(c.ref) p.set('ref',c.ref.slice(0,200)); }
+  var s=p.toString(); if(s) f.setAttribute('src',f.getAttribute('src')+'&'+s);
+})();
+/* Dates stay true by themselves: a workshop that has started drops off the page, and the top bar
+   and the FAQ name the next open dates. Same dates as lib/workshopDates.ts (a test keeps them in sync). */
+(function(){
+  var M=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+  var today=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Berlin",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+  [].slice.call(document.querySelectorAll(".date[data-start]")).forEach(function(c){ if(c.getAttribute("data-start")<=today) c.remove(); });
+  var left=[].slice.call(document.querySelectorAll(".date[data-start]"));
+  var open=left.filter(function(c){ return !c.classList.contains("sold"); });
+  var sold=left.filter(function(c){ return c.classList.contains("sold"); });
+  function parts(c){ var a=c.getAttribute("data-start").split("-"), b=c.getAttribute("data-end").split("-"); return { d1:+a[2], d2:+b[2], m:M[+a[1]-1], y:a[0] }; }
+  function long(c){ var p=parts(c); return p.d1+".–"+p.d2+". "+p.m+" "+p.y; }
+  function short(c){ return c.querySelector("b").textContent.trim(); }
+  var lg=document.getElementById("bar-lg"), sm=document.getElementById("bar-sm"), fq=document.getElementById("faq-dates");
+  if(open.length){
+    if(lg) lg.textContent="· Marokko · "+(sold.length?sold.map(function(c){ return parts(c).m; }).join(", ")+" ausgebucht, ":"")+short(open[0])+" jetzt offen";
+    if(sm) sm.textContent="· "+short(open[0])+" offen";
+  } else {
+    if(lg) lg.textContent="· Marokko · neue Termine folgen";
+    if(sm) sm.textContent="· neue Termine folgen";
+  }
+  if(fq){
+    var l=open.map(long);
+    fq.textContent=l.length>1?"Die nächsten Termine: "+l.slice(0,-1).join(", ")+" und "+l[l.length-1]+".":l.length?"Der nächste Termin: "+l[0]+".":"Neue Termine folgen bald.";
+  }
+})();
 /* FAQ: a click folds an answer away (or back open). */
 document.querySelectorAll('.qh').forEach(function(b){
   b.addEventListener('click',function(){

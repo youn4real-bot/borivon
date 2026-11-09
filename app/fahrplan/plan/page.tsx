@@ -4,6 +4,19 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PdfViewer } from "@/components/PdfViewer";
 import type { PageOverlayFn } from "@/components/PdfViewer";
+import { track, setTrackLead } from "@/lib/track/client";
+
+/** Our workshop / site links inside the PDF carry where they came from, so the visit (and a booking)
+ *  is credited to this Fahrplan and its lead in the founder's analytics. */
+function tagged(url: string, leadId: string): string {
+  try {
+    const u = new URL(url);
+    if (!/(^|.)borivon.com$/.test(u.hostname)) return url;
+    u.searchParams.set("via", "pdf");
+    if (/^[0-9a-f-]{36}$/i.test(leadId)) u.searchParams.set("lid", leadId);
+    return u.toString();
+  } catch { return url; }
+}
 
 /**
  * borivon.com/fahrplan/plan?id=&t=&lang= — the Fahrplan ON the website (founder
@@ -27,6 +40,7 @@ function Viewer() {
   const [links, setLinks] = useState<Link[]>([]);
   const [failed, setFailed] = useState(false);
   const T = TXT[lang];
+  useEffect(() => { setTrackLead(id); }, [id]);
   const base = `/api/roadmap/view?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}${doc === "bonus" ? "&doc=bonus" : ""}`;
 
   useEffect(() => {
@@ -41,11 +55,12 @@ function Viewer() {
   const overlay: PageOverlayFn = useMemo(() => ({ pageNum, dispW, dispH }) => (
     <>
       {links.filter((l) => l.page === pageNum).map((l, i) => (
-        <a key={i} href={l.url} target="_blank" rel="noopener" aria-label={l.url}
+        <a key={i} href={tagged(l.url, id)} target="_blank" rel="noopener" aria-label={l.url}
+          onClick={() => track("pdf_cta", `${doc} p${pageNum}`, l.url)}
           style={{ position: "absolute", left: l.x * dispW, top: l.y * dispH, width: l.w * dispW, height: l.h * dispH, cursor: "pointer", pointerEvents: "auto" }} />
       ))}
     </>
-  ), [links]);
+  ), [links, id, doc]);
 
   if (!id || !t || failed) {
     return (

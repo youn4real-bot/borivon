@@ -5,6 +5,8 @@ import { verifyLeadToken } from "@/lib/roadmap/token";
 import { parseDetails } from "@/lib/roadmap/leadState";
 import { getHosted, pdfLinks, fileName, type HostedDoc } from "@/lib/roadmap/hosted";
 import { LANGS, type Lang } from "@/lib/roadmap/content";
+import { trackServer } from "@/lib/track/server";
+import { keepAlive } from "@/lib/keepAlive";
 
 /**
  * GET /api/roadmap/view?id=&t=[&doc=bonus][&links=1][&dl=1]
@@ -33,6 +35,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ links: await pdfLinks(bytes) }, { headers: { "Cache-Control": "private, max-age=300" } });
   }
   const lang: Lang = LANGS.includes(d.lang as Lang) ? (d.lang as Lang) : "de";
+  const dl = sp.get("dl") === "1";
+  keepAlive(() => trackServer(req, { path: "/fahrplan/plan", src: String(((d as Record<string, unknown>).track as { src?: unknown } | undefined)?.src ?? ""), lid: id }, [{ type: dl ? "pdf_download" : "pdf_open", name: doc, lead_id: id }]));
   return new Response(Buffer.from(bytes), {
     headers: {
       "Content-Type": "application/pdf",

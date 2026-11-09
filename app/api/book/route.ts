@@ -9,6 +9,7 @@ import { sendBookingConfirmedEmail } from "@/lib/email";
 import { clipText } from "@/lib/clipText";
 import { loadBookingConfig, newManageToken } from "@/lib/bookingConfig";
 import { loadEventType, overlayEventType, looksLikeSlug } from "@/lib/bookingEventTypes";
+import { readTrack, trackServer } from "@/lib/track/server";
 import {
   generateSlots, groupByDay, slotLabel, looksLikeEmail,
   followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections, validTimeZone,
@@ -379,6 +380,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "booking_failed" }, { status: 500 });
   }
   const bookingId = ins.data?.id as number;
+  // analytics: a booked call, credited to the post / PDF / mail that brought the visit
+  const visit = readTrack(body?.track);
+  keepAlive(() => trackServer(req, { ...visit, path: visit.path || `/book/${etSlug ?? "book"}` }, [{ type: "book_done", name: etSlug ?? String(kind) }]));
 
   const TITLES: Record<BookingKind, string> = {
     nurse: `Borivon — ${name} (nurse, work in Germany)`,
