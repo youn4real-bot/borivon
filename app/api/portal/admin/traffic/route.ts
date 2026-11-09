@@ -49,7 +49,8 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT CASE WHEN type='pdf_cta' THEN lead_id END) AS pdfCta,
         COUNT(DISTINCT CASE WHEN type='view' AND path='/workshop' THEN sid END) AS workshop,
         COUNT(DISTINCT CASE WHEN type='book_time' THEN sid END) AS bookPick,
-        SUM(type='book_done') AS bookings
+        SUM(type='book_done') AS bookings,
+        COUNT(DISTINCT CASE WHEN type='consent' THEN value END) AS consents
       FROM track_events WHERE at >= ?`, [since], errors, "totals"),
     rows(db, `SELECT ${SOURCE} AS source,
         SUM(type='click') AS clicks,

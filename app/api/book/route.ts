@@ -444,14 +444,14 @@ export async function POST(req: NextRequest) {
           weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
           timeZone: av.tz ?? BORIVON_TZ,
         }).format(new Date(at)) + (av.tz ? ` (${av.tz.split("/").pop()?.replace(/_/g, " ")})` : "");
+        // No personal data to Telegram (no data processing contract, servers outside the EU): the
+        // facility and the time only. Name, email, phone and answers are in the calendar event + portal.
         await tgSend(chatId, [
           `New booking — ${kind}`,
-          `${company || name}${company ? ` (${name})` : ""}`,
+          company || "(private person)",
           when,
-          email,
-          phone || null,
-          answers || null,
-        ].filter(Boolean).join("\n"));
+          "Details: borivon.com/portal/admin/bookings",
+        ].join("\n"));
       }
     } catch (e) {
       console.error("[book] telegram ping failed:", e instanceof Error ? e.message : e);

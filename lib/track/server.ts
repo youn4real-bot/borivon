@@ -36,6 +36,7 @@ export const EVENT_TYPES = [
   "book_details", // the details step was reached
   "book_done",    // a call was booked (server)
   "leave",        // the page was left (value = ms on page)
+  "consent",      // "Akzeptieren" on the banner: proof of consent (value = consent id), Art. 7(1) DSGVO
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 const TYPE_SET = new Set<string>(EVENT_TYPES);
@@ -166,6 +167,8 @@ const clip = (v: unknown, n: number) => (typeof v === "string" ? v : v == null ?
 export type VisitContext = {
   path?: string; src?: string; utm?: string; ref?: string; sid?: string;
   lid?: string; lang?: string; screen?: string;
+  /** Only with consent: the random browser id (bv_vid) that recognises a returning visitor. */
+  vid?: string;
 };
 export type InEvent = { type: string; name?: unknown; value?: unknown; ago?: unknown; lead_id?: unknown };
 
@@ -174,7 +177,10 @@ export async function buildRows(h: Headers, ctx: VisitContext, events: InEvent[]
   const ua = h.get("user-agent") ?? "";
   if (isBot(ua)) return [];
   const ip = h.get("cf-connecting-ip") ?? (h.get("x-forwarded-for") ?? "").split(",")[0].trim();
-  const [visitor, geo] = await Promise.all([visitorId(ip, ua, now), geoOf(h)]);
+  // with consent the browser's own random id (returning visitors); otherwise the daily-changing hash
+  const consentVid = /^[0-9a-f]{32}$/.test(ctx.vid ?? "") ? (ctx.vid as string).slice(0, 16) : "";
+  const [daily, geo] = await Promise.all([consentVid ? Promise.resolve("") : visitorId(ip, ua, now), geoOf(h)]);
+  const visitor = consentVid ? `v${consentVid}` : daily;
   const { device, os, browser } = parseUa(ua);
   const lead = /^[0-9a-f-]{36}$/i.test(ctx.lid ?? "") ? (ctx.lid as string) : "";
   return events
@@ -245,5 +251,6 @@ export function readTrack(v: unknown): VisitContext {
   return {
     src: clip(o.src, 60), utm: clip(o.utm, 200), ref: clip(o.ref, 300), sid: clip(o.sid, 40),
     lid: clip(o.lid, 40), path: clip(o.path, 120), lang: clip(o.lang, 16), screen: clip(o.screen, 16),
+    vid: clip(o.vid, 32),
   };
 }

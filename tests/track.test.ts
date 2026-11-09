@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { anonymizeIp, isBot, parseUa, refHost, buildRows, insertRows, readTrack, visitorId } from "../lib/track/server";
 import { setD1Runner } from "../lib/d1/client";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 /** First-party analytics (founder 2026-11-09): legal by construction, so these rules are pinned. */
 const CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
@@ -55,6 +57,28 @@ describe("enrichment", () => {
     expect(JSON.stringify(rows)).not.toContain("secret@x.de");
     expect(JSON.stringify(rows)).not.toContain("203.0.113.77");
     expect(await buildRows(new Headers({ "user-agent": "curl/8.0" }), {}, [{ type: "view" }])).toEqual([]);
+  });
+});
+
+describe("consent", () => {
+  it("with consent the browser's random id recognises a returning visitor; without, the id changes daily", async () => {
+    const h = new Headers({ "user-agent": CHROME, "cf-connecting-ip": "203.0.113.77" });
+    const vid = "0123456789abcdef0123456789abcdef";
+    const withId = await buildRows(h, readTrack({ vid, sid: "s" }), [{ type: "view" }], Date.parse("2026-11-09T10:00:00Z"));
+    const later = await buildRows(h, readTrack({ vid, sid: "s2" }), [{ type: "view" }], Date.parse("2026-12-24T10:00:00Z"));
+    expect(withId[0].visitor).toBe("v0123456789abcdef");
+    expect(later[0].visitor).toBe(withId[0].visitor);
+    const noId = await buildRows(h, readTrack({ vid: "not-a-real-id", sid: "s3" }), [{ type: "view" }]);
+    expect(noId[0].visitor).toMatch(/^[0-9a-f]{16}$/);
+  });
+  it("the beacon drops everything sent without the consent flag", async () => {
+    const src = readFileSync(path.join(__dirname, "..", "app", "api", "t", "route.ts"), "utf8");
+    expect(src).toContain("if (body.c !== 1) return NO_CONTENT();");
+    const js = readFileSync(path.join(__dirname, "..", "public", "pflege", "assets", "t.js"), "utf8");
+    // the page script sends nothing until start(), and start() only runs on "Akzeptieren" or a stored yes
+    expect(js).toMatch(/if \(!queue\.length \|\| !started\) return;/);
+    expect(js).toMatch(/if \(c && c\.s === 1\) start\(\);/);
+    expect(js).toContain('data-c="0">Ablehnen</button><button type="button" data-c="1">Akzeptieren</button>');
   });
 });
 

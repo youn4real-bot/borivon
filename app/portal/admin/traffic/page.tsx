@@ -168,6 +168,10 @@ export default function TrafficPage() {
           ))}
         </div>
         <p className="text-[11px] mt-2" style={{ color: "var(--w3)" }}>Balken = Besucher pro Tag · gold = mit Anfrage · grün = mit Buchung</p>
+        <p className="text-[12px] mt-2" style={{ color: "var(--w2)" }}>
+          Besucher, Seiten, Quiz und Felder zählen nur, wer im Datenschutz-Hinweis zugestimmt hat ({n(t.consents)} Zustimmungen).
+          Link-Klicks, Anfragen, Bestätigungen, PDF und Buchungen zählen immer alle.
+        </p>
       </section>
 
       {/* tracked links */}

@@ -305,7 +305,8 @@ async function notifyFounder(headline: string, row: Row, at: number, tz?: string
     const when = new Intl.DateTimeFormat("en-GB", {
       weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: tz ?? BORIVON_TZ,
     }).format(new Date(at)) + (tz ? ` (${tz.split("/").pop()?.replace(/_/g, " ")})` : "");
-    await tgSend(chatId, [headline, row.company || row.name, when].join("\n"));
+    // No personal data to Telegram (no data processing contract, servers outside the EU): facility + time only.
+    await tgSend(chatId, [headline, row.company || "(private person)", when, "Details: borivon.com/portal/admin/bookings"].join("\n"));
   } catch { /* a missed ping must never fail the change itself */ }
 }
 
