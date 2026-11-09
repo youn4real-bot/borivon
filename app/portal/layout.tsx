@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { preconnect } from "react-dom";
 
 /**
  * Portal layout — providers + navbar + bug button live in the root layout
@@ -25,5 +26,10 @@ export const metadata: Metadata = {
 };
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  // Logged-in app only (not the public pages): open the connection to the login service early.
+  // Supabase is a listed processor; Google profile photos load here anyway for Google sign-ins.
+  const supa = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (supa) preconnect(supa, { crossOrigin: "anonymous" });
+  preconnect("https://lh3.googleusercontent.com", { crossOrigin: "anonymous" });
   return <>{children}</>;
 }

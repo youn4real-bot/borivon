@@ -25,9 +25,9 @@ const YEAR = new Date().getFullYear(); // computed once → no SSR/hydration yea
 
 // Flag picker (matches the old site: flagcdn SVGs). gb flag for English.
 const LANGS: { code: Lang; flag: string; label: string }[] = [
-  { code: "fr", flag: "https://flagcdn.com/fr.svg", label: "Français" },
-  { code: "en", flag: "https://flagcdn.com/gb.svg", label: "English" },
-  { code: "de", flag: "https://flagcdn.com/de.svg", label: "Deutsch" },
+  { code: "fr", flag: "/flags/fr.svg", label: "Français" },
+  { code: "en", flag: "/flags/gb.svg", label: "English" },
+  { code: "de", flag: "/flags/de.svg", label: "Deutsch" },
 ];
 
 function Wordmark() {

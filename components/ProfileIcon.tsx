@@ -17,9 +17,9 @@ import { Sun, Moon } from "lucide-react";
 import type { Lang } from "@/lib/translations";
 
 const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
-  { code: "fr", flagSrc: "https://flagcdn.com/fr.svg", label: "Français" },
-  { code: "en", flagSrc: "https://flagcdn.com/gb.svg", label: "English" },
-  { code: "de", flagSrc: "https://flagcdn.com/de.svg", label: "Deutsch" },
+  { code: "fr", flagSrc: "/flags/fr.svg", label: "Français" },
+  { code: "en", flagSrc: "/flags/gb.svg", label: "English" },
+  { code: "de", flagSrc: "/flags/de.svg", label: "Deutsch" },
 ];
 
 // Cap an avatar data URL to ~maxW px before upload. The crop modal outputs a

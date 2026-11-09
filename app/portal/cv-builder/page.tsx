@@ -669,7 +669,7 @@ function formatPhoneNumber(digits: string): string {
 function CountryFlag({ iso, size = 22 }: { iso: string; size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={`https://flagcdn.com/${iso}.svg`} alt={iso}
+    <img src={`/flags/${iso}.svg`} alt={iso}
       width={size} height={size * 0.72} style={{ display: "inline-block", borderRadius: "3px", objectFit: "cover", flexShrink: 0 }} />
   );
 }

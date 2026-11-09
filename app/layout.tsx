@@ -157,14 +157,10 @@ export default function RootLayout({
         {/* Typography zone before first paint: public pages get the /pflege headline
             type, /portal stays Lexend (lib/siteZone.ts; GlobalChrome keeps it in sync). */}
         <script dangerouslySetInnerHTML={{ __html: SITE_ZONE_BOOT }} />
-        {/* Resource hints — let the browser open TCP+TLS to our hot origins
-            during HTML parse, before any subresource is actually requested.
-            Saves ~100-300ms on the first Supabase / Drive proxy call. */}
-        <link rel="preconnect" href={process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://supabase.co"} crossOrigin="anonymous" />
-        <link rel="dns-prefetch" href={process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://supabase.co"} />
-        <link rel="preconnect" href="https://lh3.googleusercontent.com" crossOrigin="anonymous" />
-        <link rel="dns-prefetch" href="https://lh3.googleusercontent.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* No preconnects to other companies here: a preconnect alone hands the visitor's IP to
+            that server (the German "Google Fonts" rulings), and these pages are public, e.g. the
+            /workshop calendar. Fonts are bundled by next/font. The portal adds its own hints
+            (app/portal/layout.tsx) for logged-in users. */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

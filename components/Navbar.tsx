@@ -19,9 +19,9 @@ const PORTAL_NAV_T = {
 } as const;
 
 const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
-  { code: "fr", flagSrc: "https://flagcdn.com/fr.svg", label: "Français" },
-  { code: "en", flagSrc: "https://flagcdn.com/gb.svg", label: "English" },
-  { code: "de", flagSrc: "https://flagcdn.com/de.svg", label: "Deutsch" },
+  { code: "fr", flagSrc: "/flags/fr.svg", label: "Français" },
+  { code: "en", flagSrc: "/flags/gb.svg", label: "English" },
+  { code: "de", flagSrc: "/flags/de.svg", label: "Deutsch" },
 ];
 
 export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: ReactNode; leftExtra?: ReactNode; hideThemeLang?: boolean }) {
