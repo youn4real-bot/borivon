@@ -133,6 +133,7 @@ a.date:hover{transform:translateY(-2px);box-shadow:0 14px 30px -20px rgba(60,45,
 .sh{font-size:clamp(2rem,1.3rem + 2.6vw,3.2rem);margin:12px 0 18px}
 .sp{color:var(--soft);margin:0 0 14px}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}
+.tiles .all{grid-column:1/-1;border:1px solid var(--gold);font-weight:500}
 .tiles span{background:var(--card);border-radius:12px;padding:18px 14px;text-align:center;font-size:.95rem;box-shadow:0 6px 20px -14px rgba(60,45,20,.35)}
 .calcol{position:sticky;top:20px}
 .calhead{background:var(--card);border-radius:16px;padding:22px 24px;margin-bottom:12px;box-shadow:0 10px 30px -18px rgba(60,45,20,.35)}
@@ -165,6 +166,31 @@ a.date:hover{transform:translateY(-2px);box-shadow:0 14px 30px -20px rgba(60,45,
 .final .btn{margin-top:32px}
 footer{background:#000;color:#8a847a;font-size:.8rem;text-align:center;padding:26px 16px}
 footer a{color:#8a847a;margin:0 10px;text-decoration:none}
+.motto{max-width:660px;margin:0 auto 14px;color:#c8c1b4;font-size:.9rem;line-height:1.6}
+
+/* Photos (Unsplash License, self-hosted): vivid, matched to the text. */
+.vsl .vbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:75% 30%}
+.vsl::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(11,10,8,.9) 0%,rgba(11,10,8,.62) 45%,rgba(11,10,8,.04) 100%)}
+.vsl .in{z-index:1}
+@media (max-width:640px){.vsl::after{background:linear-gradient(180deg,rgba(11,10,8,.55) 0%,rgba(11,10,8,.9) 60%)}}
+.card{overflow:hidden}
+.card .ci{display:block;width:calc(100% + 52px);max-width:none;margin:-26px -26px 18px;aspect-ratio:16/10;object-fit:cover}
+.band{position:relative;overflow:hidden}
+.band .bandbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.3}
+.band .w{position:relative}
+.stats .si{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:12px;margin:0 0 18px}
+.ob{display:block;width:100%;margin:30px auto 0;aspect-ratio:14/5;object-fit:cover;border-radius:16px}
+.gal{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:34px}
+.gal img{display:block;width:100%;aspect-ratio:3/2;object-fit:cover;border-radius:12px}
+@media (max-width:720px){.gal{grid-template-columns:repeat(2,1fr)}}
+.facs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}
+.facs figure{margin:0;position:relative;border-radius:12px;overflow:hidden}
+.facs img{display:block;width:100%;aspect-ratio:3/2;object-fit:cover}
+.facs figcaption{position:absolute;left:8px;bottom:8px;background:rgba(13,12,10,.72);color:#fff;font-size:.78rem;padding:4px 10px;border-radius:999px}
+.final{position:relative;overflow:hidden}
+.final .finbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.7}
+.final::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,12,10,.3),rgba(13,12,10,.72))}
+.final .w{position:relative;z-index:1}
 </style>
 </head>
 <body>
@@ -177,6 +203,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
   <h1><span class="gold-text">Gesundheitseinrichtungen in Deutschland:</span><span class="h1b">Ihr Personal-Plan in 2 Tagen. <em>Und die Pflegekräfte dazu.</em></span></h1>
   <p class="for">Klinik, Altenheim, ambulanter Pflegedienst oder jede andere Einrichtung:<br><b>Sie brauchen Pflegekräfte? Dann ist dieser Workshop für Sie.</b></p>
   <div class="vsl">
+   <img class="vbg" src="/pflege/assets/ws/hero-nurse.webp" alt="" fetchpriority="high">
    <div class="in">
     <div class="big"><span>Kommen Sie mit leeren Stellen.</span><span>Fahren Sie mit einem Plan nach Hause.</span><span><em>Und mit den Pflegekräften dafür.</em></span></div>
     <div class="steps"><span>Tag 1: Ihr Plan</span><span>Tag 2: Ihre Pflegekräfte</span><span>mit Youness Taoufiq</span><span>nur 10 Plätze</span></div>
@@ -184,13 +211,13 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
   </div>
   <a class="btn" href="#termin">Platz anfragen</a>
   <p class="trust"><b>Nur 10 Plätze</b> pro Workshop · alle 3 Monate</p>
-  <p class="intro">Ihr Haus läuft, aber jede leere Stelle kostet Sie jeden Monat Geld und Nerven. Zwei Tage mit Youness Taoufiq, Gründer von Borivon. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte kennen, die zu diesem Plan passen.</p>
+  <p class="intro">Ihre Einrichtung läuft, aber jede leere Stelle kostet Sie jeden Monat Geld und Nerven. Zwei Tage mit Youness Taoufiq, Gründer von Borivon. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte kennen, die zu diesem Plan passen.</p>
  </div>
 </header>
 
 <section class="cream">
  <div class="w two">
-  <div class="photo"><img src="/pflege/assets/nurse.jpg" alt="Pflegefachkraft"></div>
+  <div class="photo"><img src="/pflege/assets/ws/empty-corridor.webp" alt="Leerer Flur in einer Klinik" loading="lazy" decoding="async"></div>
   <div>
    <div class="lead2">Sie suchen nicht zu wenig. Sie suchen <em style="color:var(--gold-d)">ohne Plan.</em></div>
    <p class="sym-h">Typische Anzeichen:</p>
@@ -211,10 +238,10 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
  <div class="w">
   <div class="sec-h"><div class="caps">Die vier Bereiche</div><h2>Personal läuft über <em style="color:var(--gold-d)">vier Bereiche.</em></h2><p>Wir gehen alle vier mit Ihnen durch und sagen Ihnen, welcher zuerst dran ist.</p></div>
   <div class="cards">
-   <div class="card"><div class="n">01</div><h3>Stellen besetzen</h3><p>Sie besetzen eine Stelle nach der anderen. Jede ist ein neuer Kraftakt, und keiner weiß, wann die nächste frei wird.</p></div>
-   <div class="card"><div class="n">02</div><h3>Papiere &amp; Zeitplan</h3><p>Anerkennung und Visum dauern, und niemand sagt Ihnen, wo es gerade hängt und wann die Neue wirklich anfängt.</p></div>
-   <div class="card"><div class="n">03</div><h3>Ankommen &amp; Einarbeitung</h3><p>Die Neue ist da, aber Wohnung, Ansprechperson und die ersten Wochen sind nicht vorbereitet.</p></div>
-   <div class="card"><div class="n">04</div><h3>Bleiben</h3><p>Ohne Plan für die ersten 90 Tage geht sie in der Probezeit wieder. Und alles beginnt von vorn.</p></div>
+   <div class="card"><img class="ci" src="/pflege/assets/ws/area-team.webp" alt="Team bespricht Bewerbungen" loading="lazy" decoding="async"><div class="n">01</div><h3>Stellen besetzen</h3><p>Sie besetzen eine Stelle nach der anderen. Jede ist ein neuer Kraftakt, und keiner weiß, wann die nächste frei wird.</p></div>
+   <div class="card"><img class="ci" src="/pflege/assets/ws/area-passport.webp" alt="Reisepass mit Stempeln" loading="lazy" decoding="async"><div class="n">02</div><h3>Papiere &amp; Zeitplan</h3><p>Anerkennung und Visum dauern, und niemand sagt Ihnen, wo es gerade hängt und wann die Neue wirklich anfängt.</p></div>
+   <div class="card"><img class="ci" src="/pflege/assets/ws/area-flight.webp" alt="Blick aus dem Flugzeugfenster" loading="lazy" decoding="async"><div class="n">03</div><h3>Ankommen &amp; Einarbeitung</h3><p>Die Neue ist da, aber Wohnung, Ansprechperson und die ersten Wochen sind nicht vorbereitet.</p></div>
+   <div class="card"><img class="ci" src="/pflege/assets/ws/area-stay.webp" alt="Pflegekraft lacht mit einer Bewohnerin" loading="lazy" decoding="async"><div class="n">04</div><h3>Bleiben</h3><p>Ohne Plan für die ersten 90 Tage geht sie in der Probezeit wieder. Und alles beginnt von vorn.</p></div>
   </div>
  </div>
 </section>
@@ -225,7 +252,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
    <div>
     <div class="sec-h" style="text-align:left;margin-bottom:26px"><h2>Was die zwei Tage <em style="color:var(--gold-d)">abdecken</em></h2></div>
     <ul class="ticks">
-     <li>Wo Ihr Haus steht: Ihre Stufe von 1 bis 5, und was die leeren Stellen Sie im Jahr kosten.</li>
+     <li>Wo Ihre Einrichtung steht: Ihre Stufe von 1 bis 5, und was die leeren Stellen Sie im Jahr kosten.</li>
      <li>Ihre größte Hürde, und welche danach kommt.</li>
      <li>Ihr Zeitplan: bis wann Sie starten müssen, damit die erste Pflegekraft rechtzeitig da ist.</li>
      <li>Was Ihr Team vorbereitet: Wohnung, Ansprechperson, die ersten 90 Tage.</li>
@@ -235,24 +262,25 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
     </ul>
    </div>
    <div>
-    <div class="photo"><img src="/pflege/assets/nurse.jpg" alt="" style="object-position:40% 30%"></div>
+    <div class="photo"><img src="/pflege/assets/ws/workshop-table.webp" alt="Arbeit am Tisch" loading="lazy" decoding="async"></div>
    </div>
   </div>
   <div class="bonus">
-   <img src="/pflege/assets/nurse.jpg" alt="Pflegefachkraft">
-   <div><div class="caps">Tag 2 · nur in Marokko</div><h3>Der Plan steht. Jetzt die Menschen dazu.</h3><p>Sie sitzen den Pflegekräften gegenüber, die zu Ihrem Plan passen. Sie sprechen mit ihnen und sehen selbst, wer zu Ihrem Haus passt. Das bekommen Sie in keinem Seminar in Deutschland.</p></div>
+   <img src="/pflege/assets/ws/bonus-nurse.webp" alt="Pflegekraft mit Stethoskop" loading="lazy" decoding="async">
+   <div><div class="caps">Tag 2 · nur in Marokko</div><h3>Der Plan steht. Jetzt die Menschen dazu.</h3><p>Sie sitzen den Pflegekräften gegenüber, die zu Ihrem Plan passen. Sie sprechen mit ihnen und sehen selbst, wer zu Ihrer Einrichtung passt. Das bekommen Sie in keinem Seminar in Deutschland.</p></div>
   </div>
  </div>
 </section>
 
 <section class="band">
+ <img class="bandbg" src="/pflege/assets/ws/morocco-hassan.webp" alt="" loading="lazy" decoding="async">
  <div class="w">
   <h2>Warum <em>Marokko?</em></h2>
   <p>Sie wollen zwei Dinge: eine Pflegekraft, die richtig gut ist. Und die bleibt.</p>
   <div class="stats">
-   <div><span class="caps">Gutes Deutsch</span><b class="gold-text">2–3</b><span>Sprachen sprechen die meisten Marokkaner schon. Wer mehrere Sprachen kann, lernt die nächste schneller. Auch Deutsch.</span></div>
-   <div><span class="caps">Gute Pflege</span><b class="gold-text">3 Jahre</b><span>Pflegestudium, mit Praxis in der Klinik. Sie kennt ihr Handwerk.</span></div>
-   <div><span class="caps">Sie bleibt</span><b class="gold-text">3,5 h</b><span>bis zur Familie. Und Familie ist der Hauptgrund, warum Zugewanderte zurückgehen.</span></div>
+   <div><img class="si" src="/pflege/assets/ws/why-language.webp" alt="Unterricht" loading="lazy" decoding="async"><span class="caps">Gutes Deutsch</span><b class="gold-text">2–3</b><span>Sprachen sprechen die meisten Marokkaner schon. Wer mehrere Sprachen kann, lernt die nächste schneller. Auch Deutsch.</span></div>
+   <div><img class="si" src="/pflege/assets/ws/why-nursing.webp" alt="Pflege-Ausbildung am Patientenbett" loading="lazy" decoding="async"><span class="caps">Gute Pflege</span><b class="gold-text">3 Jahre</b><span>Pflegestudium, mit Praxis in der Klinik. Sie kennt ihr Handwerk.</span></div>
+   <div><img class="si" src="/pflege/assets/ws/why-family.webp" alt="Großmutter umarmt ihr Enkelkind" loading="lazy" decoding="async"><span class="caps">Sie bleibt</span><b class="gold-text">3,5 h</b><span>bis zur Familie. Und Familie ist der Hauptgrund, warum Zugewanderte zurückgehen.</span></div>
   </div>
   <p class="src">Quellen: Volkszählung Marokko 2024 (HCP): 99,2 % der Lesekundigen lesen und schreiben Arabisch, 57,7 % auch Französisch, rund 20 % Englisch; rund 92 % sprechen Darija. Mehrsprachige lernen weitere Sprachen leichter: J. Cenoz, Language Teaching 46 (2013). Pflegestudium in Marokko: 3 Jahre (Licence, ISPITS, seit der Reform 2013). Rückkehrgründe: IAB-Befragung 2025, rund 50.000 Zugewanderte. Flug Frankfurt–Casablanca ca. 3,5 Stunden.</p>
  </div>
@@ -261,19 +289,20 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 <section class="cream2">
  <div class="narrow obj">
   <div class="caps" style="color:var(--gold-d)">„Ich kann nicht zwei Tage weg“</div>
-  <div class="q" style="margin-top:12px">Die meisten, die kommen, hätten es fast nicht getan.</div>
-  <p>Dienstplan, Personalnot, keiner, der vertritt. Das ist ein echtes Problem. Und genau das Problem, das diese zwei Tage lösen. Ein Haus, das zwei Tage nicht ohne Sie läuft, läuft auch zwei Wochen nicht ohne Sie.</p>
+  <div class="q" style="margin-top:12px">Genau deshalb sollten Sie kommen.</div>
+  <p>Dienstplan, Personalnot, keiner, der vertritt. Das ist ein echtes Problem. Und genau das Problem, das diese zwei Tage lösen. Eine Einrichtung, die zwei Tage nicht ohne Sie läuft, läuft auch zwei Wochen nicht ohne Sie.</p>
   <div class="strip caps">Marokko · alle 3 Monate · 2 Tage · 10 Plätze</div>
+  <img class="ob" src="/pflege/assets/ws/objection-flight.webp" alt="Flugzeugflügel im Abendrot" loading="lazy" decoding="async">
  </div>
 </section>
 
 <section class="cream">
  <div class="w two founder">
-  <div class="photo" style="aspect-ratio:1/1"><img src="/pflege/assets/nurse.jpg" alt="" style="object-position:50% 20%"></div>
+  <div class="photo" style="aspect-ratio:1/1"><img src="/pflege/assets/ws/founder-arches.webp" alt="Marokkanische Bögen und Fliesen" loading="lazy" decoding="async"></div>
   <div>
    <div class="caps" style="color:var(--gold-d);margin-bottom:10px">Der Gründer</div>
    <h2>Youness Taoufiq</h2>
-   <p>Youness Taoufiq ist Gründer von Borivon. Borivon bringt Pflegefachkräfte aus Marokko in deutsche Pflegeheime, Kliniken und Pflegedienste.</p>
+   <p>Youness Taoufiq ist Gründer von Borivon. Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
    <p>Im Workshop sitzen Sie mit ihm an einem Tisch. Er gibt Ihnen keine fünfzig Dinge mit. Er findet mit Ihnen die eine Hürde, die Sie gerade bremst, baut mit Ihnen den Plan und stellt Ihnen die Pflegekräfte dafür vor.</p>
    <div class="sig">Youness Taoufiq</div>
   </div>
@@ -283,6 +312,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 <section class="cream2">
  <div class="w">
   <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Marokko</em></h2><p style="font-size:1.15rem;line-height:1.7">Der Raum hat Platz für 10 Personen.<br>Das ist gerade offen:</p></div>
+  <div class="gal"><img src="/pflege/assets/ws/date-koutoubia.webp" alt="Marrakesch mit dem Atlas" loading="lazy" decoding="async"><img src="/pflege/assets/ws/date-lanterns.webp" alt="Laternen auf dem Markt" loading="lazy" decoding="async"><img src="/pflege/assets/ws/date-spices.webp" alt="Gewürze auf dem Markt" loading="lazy" decoding="async"><img src="/pflege/assets/ws/date-palms.webp" alt="Palmenallee" loading="lazy" decoding="async"></div>
   <div class="dates">
    <div class="date sold"><span class="tag">Ausgebucht</span><b>28.–29. Nov</b><span class="pill">0 Plätze frei</span></div>
    <a class="date" href="#termin"><b>6.–7. Feb 2027</b><span class="pill">8 Plätze frei</span></a>
@@ -298,9 +328,10 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
    <div class="caps" style="color:var(--gold-d)">Der Workshop</div>
    <h2 class="sh">Einrichtungen <em style="color:var(--gold-d)">wie Ihre</em></h2>
    <p class="sp"><b>Sie brauchen Pflegekräfte? Dann ist dieser Workshop für Sie.</b></p>
-   <p class="sp">Der Weg ist derselbe, egal ob Heim, Klinik oder Pflegedienst. Wir setzen Sie mit Häusern Ihrer Größe zusammen.</p>
+   <p class="sp">Der Weg ist derselbe, für jede Einrichtung. Wir setzen Sie mit Einrichtungen Ihrer Größe zusammen.</p>
+   <div class="facs"><figure><img src="/pflege/assets/ws/fac-clinic.webp" alt="Pflegekraft in der Klinik" loading="lazy" decoding="async"><figcaption>Klinik</figcaption></figure><figure><img src="/pflege/assets/ws/fac-carehome.webp" alt="Pflege im Altenheim" loading="lazy" decoding="async"><figcaption>Altenheim</figcaption></figure><figure><img src="/pflege/assets/ws/fac-ambulant.webp" alt="Blutdruck messen" loading="lazy" decoding="async"><figcaption>Ambulant</figcaption></figure></div>
    <div class="tiles">
-    <span>Pflegeheime</span><span>Kliniken und Krankenhäuser</span><span>Ambulante Pflegedienste</span><span>Reha-Kliniken</span><span>Eingliederungshilfe</span><span>Intensivpflege</span><span>Tagespflege</span><span>Betreutes Wohnen</span><span>Träger mit mehreren Standorten</span><span>Und viele mehr</span>
+    <span>Kliniken und Krankenhäuser</span><span>Pflegeheime und Altenheime</span><span>Ambulante Pflegedienste</span><span>Reha-Kliniken</span><span>Intensivpflege</span><span>Tages- und Kurzzeitpflege</span><span>Hospize und Palliativpflege</span><span>Psychiatrie</span><span>Dialyse</span><span>Eingliederungshilfe</span><span>Betreutes Wohnen</span><span>Träger mit mehreren Standorten</span><span class="all">Und jede andere Einrichtung, die Pflegekräfte braucht</span>
    </div>
   </div>
   <div class="calcol">
@@ -315,27 +346,22 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
   <div class="sec-h"><h2>Fragen, die Einrichtungen <em style="color:var(--gold-d)">vorher stellen</em></h2></div>
   <div class="faq">
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was passiert an den zwei Tagen?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
-    <p>Kein Seminar. Zwei Tage Arbeit an Ihrem Haus.</p>
-    <p>Keine Folien, keine Motivationsreden. Nur Ihr Haus und Ihr Plan.</p>
-    <p>Tag 1: Wo steht Ihr Haus? Was bremst Sie gerade am meisten? Dann bauen wir Ihren Plan, Schritt für Schritt, mit Datum.</p>
-    <p>Sie sitzen mit Häusern Ihrer Größe am Tisch.</p>
+    <p>Kein Seminar. Zwei Tage Arbeit an Ihrer Einrichtung.</p>
+    <p>Keine Folien, keine Motivationsreden. Nur Ihre Einrichtung und Ihr Plan.</p>
+    <p>Tag 1: Wo steht Ihre Einrichtung? Was bremst Sie gerade am meisten? Dann bauen wir Ihren Plan, Schritt für Schritt, mit Datum.</p>
+    <p>Sie sitzen mit Einrichtungen Ihrer Größe am Tisch.</p>
     <p>Tag 2: Sie lernen die Pflegekräfte kennen, die zu Ihrem Plan passen. Und führen Ihre Gespräche selbst.</p>
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was nehme ich mit?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>Einen fertigen Plan. Mit Datum für jeden Schritt.</p>
-    <p>Gebaut für Ihr Haus: Ihre Größe, Ihre offenen Stellen, Ihre größte Hürde.</p>
+    <p>Gebaut für Ihre Einrichtung: Ihre Größe, Ihre offenen Stellen, Ihre größte Hürde.</p>
     <p>Und Ihren eigenen Eindruck von den Pflegekräften, mit denen Sie ihn umsetzen.</p>
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Passt das zu meiner Einrichtung?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p><b>Sie brauchen Pflegekräfte? Dann ja.</b></p>
-    <p>Klinik, Altenheim, ambulanter Pflegedienst, Reha, Intensivpflege, Tagespflege, Eingliederungshilfe, betreutes Wohnen. Groß oder klein.</p>
-    <p>Wir setzen Sie mit Häusern Ihrer Größe zusammen. So bleibt es konkret.</p>
-    <p>Im kurzen Gespräch klären wir, wo Ihr Haus steht, und bestätigen Ihren Platz.</p>
-   </div></div></div></div>
-   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was kostet ein Platz?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
-    <p><b>3.000 € pro Person</b>, nicht pro Einrichtung.</p>
-    <p>Kommen Sie zu viert, sind es 4 Plätze: 12.000 €.</p>
-    <p>Nur 10 Plätze pro Termin. So hat jedes Haus Zeit am Tisch.</p>
+    <p>Krankenhaus, Klinik, Reha, Altenheim, Pflegeheim, ambulanter Pflegedienst, Intensivpflege, Tages- und Kurzzeitpflege, Hospiz, Psychiatrie, Dialyse, Eingliederungshilfe, betreutes Wohnen. Groß oder klein. Und jede andere Einrichtung, die Pflegekräfte braucht.</p>
+    <p>Wir setzen Sie mit Einrichtungen Ihrer Größe zusammen. So bleibt es konkret.</p>
+    <p>Im kurzen Gespräch klären wir, wo Ihre Einrichtung steht, und bestätigen Ihren Platz.</p>
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Warum in Marokko und nicht in Deutschland?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>Weil die Pflegekräfte dort sind.</p>
@@ -343,7 +369,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Ich kann nicht zwei Tage weg.<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>Dann ist genau das der Grund zu kommen.</p>
-    <p>Ein Haus, das zwei Tage nicht ohne Sie läuft, braucht einen Plan.</p>
+    <p>Eine Einrichtung, die zwei Tage nicht ohne Sie läuft, braucht einen Plan.</p>
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Wir hatten schon eine Agentur. Hat nicht geklappt.<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>Darum ist das hier keine Agentur.</p>
@@ -359,11 +385,20 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
     <p>In Marokko. Alle 3 Monate, immer Samstag und Sonntag.</p>
     <p>Die nächsten Termine: 6.–7. Februar, 22.–23. Mai und 28.–29. August 2027.</p>
    </div></div></div></div>
+   <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was kostet es?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
+    <p>3.000 € pro Person.</p>
+    <p>Das erlaubt uns zwei Dinge:</p>
+    <p>1) Die Runde bleibt klein und stark: höchstens 10 Personen, alle brauchen wirklich Pflegekräfte.</p>
+    <p>2) Youness Taoufiq arbeitet selbst mit Ihnen an Ihrem Plan.</p>
+    <p>Hat Ihnen der kostenlose Fahrplan nichts gebracht, kommen Sie nicht.</p>
+    <p>Hat er geholfen, können wir noch mehr für Sie tun.</p>
+   </div></div></div></div>
   </div>
  </div>
 </section>
 
 <section class="final">
+ <img class="finbg" src="/pflege/assets/ws/final-sunset.webp" alt="" loading="lazy" decoding="async">
  <div class="w">
   <h2>Bereit für Ihren Plan <em>und Ihre Pflegekräfte?</em></h2>
   <p>Sie brauchen Pflegekräfte?<br>Dann sind diese zwei Tage für Sie.</p>
@@ -371,7 +406,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
  </div>
 </section>
 
-<footer>© Borivon LLC <a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></footer>
+<footer><p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>© Borivon LLC <a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></footer>
 <script>
 /* FAQ: a click folds an answer away (or back open). */
 document.querySelectorAll('.qh').forEach(function(b){
@@ -415,7 +450,8 @@ document.querySelectorAll('.qh').forEach(function(b){
   var f=document.querySelector('.cal iframe'); if(!f) return;
   function fit(){ try{
     var d=f.contentDocument, m=d&&d.querySelector('main'); if(!m) return;
-    var h=Math.ceil(m.offsetTop+m.offsetHeight)+8, cur=parseFloat(f.style.height)||f.offsetHeight;
+    var y=0, n=m; while(n){ y+=n.offsetTop; n=n.offsetParent; }
+    var h=Math.ceil(y+m.offsetHeight)+8, cur=parseFloat(f.style.height)||f.offsetHeight;
     if(h>320&&Math.abs(h-cur)>2) f.style.height=h+'px';
   }catch(e){} }
   f.addEventListener('load',function(){

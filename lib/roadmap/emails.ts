@@ -43,6 +43,12 @@ const DISCLAIMER: Record<Lang, string> = {
   en: "This message and your roadmap are for information only and are not legal or business advice. All numbers are estimates based on your answers. Results depend on many factors. We make no promise of any specific outcome.",
   fr: "Ce message et votre plan sont fournis à titre d'information uniquement et ne constituent pas un conseil juridique ou professionnel. Tous les chiffres sont des estimations basées sur vos réponses. Les résultats dépendent de nombreux facteurs. Nous ne garantissons aucun résultat précis.",
 };
+/** The company motto (founder 2026-11-09): word for word, everywhere. Borivon helps facilities; it does not "bring nurses". */
+const MOTTO: Record<Lang, string> = {
+  de: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
+  en: "Borivon helps healthcare facilities win and keep nurses from abroad, because good care must never be a luxury.",
+  fr: "Borivon aide les établissements de santé à recruter et à fidéliser des infirmiers venus de l’étranger, car de bons soins ne doivent jamais être un luxe.",
+};
 function shell(lang: Lang, bodyHtml: string, footerExtra = ""): string {
   const legal = lang === "de" ? ["Impressum", "Datenschutz"] : lang === "fr" ? ["Mentions légales", "Confidentialité"] : ["Legal notice", "Privacy"];
   const muted = "color:#5b6573";
@@ -51,6 +57,7 @@ function shell(lang: Lang, bodyHtml: string, footerExtra = ""): string {
 ${bodyHtml}
 <div style="margin-top:56px;text-align:center">
 <img src="https://borivon.com/email-logo.png" alt="Borivon." width="170" height="55" style="display:inline-block;border:0;outline:none;text-decoration:none" />
+<p style="font-size:13px;line-height:1.6;margin:14px auto 0;max-width:440px;color:#1c1c1e">${MOTTO[lang]}</p>
 <p style="font-size:12px;line-height:1.6;margin:14px 0 0;${muted}">Borivon LLC, 30 N Gould St Ste R,<br>Sheridan, WY 82801, USA</p>
 <p style="font-size:12px;line-height:1.6;margin:12px 0 0;${muted}"><a href="https://borivon.com/impressum" style="${muted}">${legal[0]}</a> · <a href="https://borivon.com/datenschutz" style="${muted}">${legal[1]}</a>${footerExtra}</p>
 <p style="font-size:11px;line-height:1.6;margin:16px auto 0;max-width:460px;${muted}">${DISCLAIMER[lang]}</p>
