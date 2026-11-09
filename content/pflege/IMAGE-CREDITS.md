@@ -22,3 +22,4 @@ Downloaded 2026-11-09, self-hosted in public/pflege/assets/ws (no third-party re
 
 Rule (founder 2026-11-09): a photo must match its text. Where the text is about Moroccans, no stock faces (they never look Moroccan): show the point instead (bilingual Moroccan sign, hands, airport).
 - area-papers.webp — https://images.unsplash.com/photo-1583521214690-73421a1829a9
+- founder-youness.webp — the founder's own photo (2026-11-09), cropped so the two women behind are not in it, calm warm grade. Not Unsplash.
