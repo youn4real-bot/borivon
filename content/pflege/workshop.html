@@ -23,6 +23,8 @@ h1 em,h2 em,.big em{font-style:italic;font-weight:500;color:var(--gold)}
 .bar{background:#000;color:#e9e4da;text-align:center;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;font-weight:500;padding:10px 16px}
 .bar i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--gold);margin-right:10px;vertical-align:1px}
 .bar span{color:#9a948a}
+.bar b{font-weight:inherit}.bar .sm{display:none}
+@media (max-width:640px){.bar .lg{display:none}.bar .sm{display:inline}}
 .hero{background:radial-gradient(70% 60% at 50% 0%,rgba(201,162,64,.16),transparent 70%),linear-gradient(180deg,#1a150e 0%,var(--night) 70%);color:#fff;text-align:center;padding:28px 0 64px}
 .logo{font-family:var(--display);font-style:italic;font-weight:600;font-size:1.55rem;color:#fff;text-decoration:none}
 .logo b{color:var(--gold);font-style:normal}
@@ -87,14 +89,15 @@ h1 em,h2 em,.big em{font-style:italic;font-weight:500;color:var(--gold)}
 .founder p{color:var(--soft);margin:0 0 14px}
 .sig{font-family:var(--display);font-style:italic;font-size:1.6rem;margin-top:18px}
 .dates{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:8px}
-@media (max-width:900px){.dates{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:480px){.dates{grid-template-columns:1fr}}
-.date{background:var(--card);border-radius:16px;padding:22px;text-align:center;box-shadow:0 10px 30px -18px rgba(60,45,20,.35);border:1.5px solid transparent}
-.date.open{border-color:var(--gold)}
-.date.sold{opacity:.55}.date.sold b{text-decoration:line-through;text-decoration-thickness:1.5px}.date.sold .st{color:#a33}
-.date .st{font-size:.72rem;letter-spacing:.14em;font-weight:500;color:var(--gold-d)}
-.date b{display:block;font-family:var(--display);font-weight:600;font-size:1.4rem;margin:8px 0 4px}
-.date span{color:var(--soft);font-size:.9rem}
+@media (max-width:900px){.dates{grid-template-columns:repeat(2,1fr);row-gap:22px}}
+.date{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#fff;border:1px solid var(--gold-d);border-radius:12px;padding:28px 16px;text-align:center;text-decoration:none;color:var(--ink);transition:transform .15s,box-shadow .15s}
+a.date:hover{transform:translateY(-2px);box-shadow:0 12px 28px -18px rgba(60,45,20,.45)}
+.date b{font-family:var(--display);font-weight:600;font-size:1.35rem;line-height:1.15}
+.date .pill{border:1px solid var(--gold-d);border-radius:20px;padding:7px 16px;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-d)}
+.date.sold{background:#fafafa;border-color:#e4e8ee;opacity:.6}
+.date.sold b{color:#8a8d96}
+.date.sold .pill{border-color:#424553;color:#8a8d96}
+.date .tag{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#ad2b2b;color:#fff;border-radius:20px;padding:4px 12px;font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 .price-line{text-align:center;margin-top:22px;color:var(--soft)}
 .price-line b{color:var(--ink);font-weight:500}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,48px);align-items:start}
@@ -126,7 +129,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 </head>
 <body>
 
-<div class="bar"><i></i>2-Tages-Workshop vor Ort <span>· Marokko · alle 3 Monate · nur 10 Plätze</span></div>
+<div class="bar"><b class="lg"><i></i>2-Tages-Workshop vor Ort <span>· Marokko · November ausgebucht, 6.–7. Feb 2027 jetzt offen</span></b><b class="sm"><i></i>Workshop Marokko <span>· 6.–7. Feb 2027 offen</span></b></div>
 
 <header class="hero">
  <div class="w">
@@ -238,12 +241,12 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 
 <section class="cream2">
  <div class="w">
-  <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Marokko</em></h2><p>Nur 10 Plätze pro Workshop. 3.000 € pro Platz.</p></div>
+  <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Marokko</em></h2><p>Der Raum hat Platz für 10 Personen. 3.000 € pro Platz. Das ist gerade offen:</p></div>
   <div class="dates">
-   <div class="date sold"><div class="st">AUSGEBUCHT</div><b>28.–29. November 2026</b><span>Sa + So</span></div>
-   <div class="date open"><div class="st">NÄCHSTER TERMIN</div><b>6.–7. Februar 2027</b><span>Sa + So · 10 Plätze</span></div>
-   <div class="date"><div class="st">OFFEN</div><b>22.–23. Mai 2027</b><span>Sa + So · 10 Plätze</span></div>
-   <div class="date"><div class="st">OFFEN</div><b>28.–29. August 2027</b><span>Sa + So · 10 Plätze</span></div>
+   <div class="date sold"><span class="tag">Ausgebucht</span><b>28.–29. Nov 2026</b><span class="pill">0 Plätze frei</span></div>
+   <a class="date" href="#termin"><b>6.–7. Feb 2027</b><span class="pill">Offen</span></a>
+   <a class="date" href="#termin"><b>22.–23. Mai 2027</b><span class="pill">Offen</span></a>
+   <a class="date" href="#termin"><b>28.–29. Aug 2027</b><span class="pill">Offen</span></a>
   </div>
   <p class="price-line">Bringen Sie gern Kolleginnen und Kollegen mit. <b>Jede Person bucht einen eigenen Platz.</b></p>
  </div>
