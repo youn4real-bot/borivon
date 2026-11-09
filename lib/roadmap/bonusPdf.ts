@@ -3,28 +3,31 @@
  * acquisition.com roadmap, give something extra right after they submit).
  * "Der Agentur-Check": 10 questions to ask ANY agency before bringing nurses
  * from abroad, and what a good answer sounds like. It positions Borivon as the
- * adviser, not a vendor, and every question is one Borivon answers on the call.
+ * adviser, not a vendor. It is a value asset: the only next step it names is the
+ * workshop, softly (founder 2026-11-09: no calls, the workshop is the one paid step).
  *
- * Same look as lib/roadmap/pdf.ts (site colours, Playfair headings drawn as
- * outlines, Lexend body). 2 A4 pages. 5th-grade words. No claims about
- * Borivon, no statistics: only questions and what good looks like.
+ * Same look as lib/roadmap/pdf.ts (borivon.com since 2026-11-09: warm paper, EB Garamond
+ * headings drawn as outlines, Inter text, hairlines). 2 A4 pages. 5th-grade words.
+ * No claims about Borivon, no statistics: only questions and what good looks like.
  */
 import { PDFDocument, PageSizes, PDFName, PDFString, type PDFPage, type RGB } from "pdf-lib";
 import { embedFonts, hexColor, Surface, wrapText, measure, type DocFont } from "@/lib/pdflib/render";
 import { pick, type L, type Lang } from "./content";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
 
-const NIGHT = hexColor("#0e0e10");
-const FG = hexColor("#eeecea");
-const MUTED_NIGHT = hexColor("#9a978f");
-const GOLD = hexColor("#c9a240");
-const GOLD_SOFT = hexColor("#efe7d2");
-const PAPER = hexColor("#f6f4ef");
-const LINE = hexColor("#e7e1d4");
-const INK = hexColor("#1c1c1e");
-const MUTED = hexColor("#6d6a63");
-const GREEN = hexColor("#3f7a52");
-const BOOK_URL = "https://borivon.com/workshop?via=pdf#termin";
+// borivon.com tokens (content/pflege/bv.css)
+const NIGHT = hexColor("#12110e");
+const FG = hexColor("#f4efe4");
+const MUTED_NIGHT = hexColor("#a59e90");
+const GOLD = hexColor("#a8843a");
+const GOLD_D = hexColor("#8a6a28");
+const GOLD_L = hexColor("#d4b676");
+const PAPER = hexColor("#f4f1ea");
+const LINE = hexColor("#ddd6c8");
+const INK = hexColor("#15130f");
+const MUTED = hexColor("#837c6f");
+const GAIN = hexColor("#46684b");
+const WORKSHOP_URL = "https://borivon.com/workshop?via=pdf";
 
 export const AGENCY_CHECK: { q: L; a: L }[] = [
   { q: { de: "Wie prüfen Sie das Deutsch?", en: "How do you check their German?", fr: "Comment vérifiez-vous l'allemand ?" },
@@ -50,9 +53,9 @@ export const AGENCY_CHECK: { q: L; a: L }[] = [
 ];
 
 const T: Record<Lang, Record<string, string>> = {
-  de: { eyebrow: "Bonus · zu Ihrem Fahrplan", title: "Der Agentur-Check", sub: "10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.", good: "Gute Antwort", ctaH: "Stellen Sie uns die 10 Fragen.", ctaP: "In 30 Minuten beantworten wir alle. Und wir sagen Ihnen ehrlich, ob Ihre Einrichtung zu uns passt.", btn: "Prüfen, ob meine Einrichtung passt", page: "Seite" },
-  en: { eyebrow: "Bonus · with your roadmap", title: "The agency check", sub: "10 questions to ask before you bring nurses from abroad. And how to spot a good answer.", good: "Good answer", ctaH: "Ask us the 10 questions.", ctaP: "In 30 minutes we answer all of them. And we tell you honestly whether your facility is a fit.", btn: "Check if we are a fit", page: "Page" },
-  fr: { eyebrow: "Bonus · avec votre plan", title: "Le check agence", sub: "10 questions à poser avant de faire venir des infirmières de l'étranger. Et comment reconnaître une bonne réponse.", good: "Bonne réponse", ctaH: "Posez-nous les 10 questions.", ctaP: "En 30 minutes, nous répondons à toutes. Et nous vous disons honnêtement si votre établissement correspond.", btn: "Vérifier si nous correspondons", page: "Page" },
+  de: { eyebrow: "Bonus · zu Ihrem Fahrplan", title: "Der Agentur-Check", sub: "10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.", good: "Gute Antwort", ctaH: "Der nächste Schritt: der Workshop in Casablanca.", ctaP: "Zwei Tage an Ihrem Plan, mit Youness Taoufiq. Am zweiten Tag lernen Sie die Pflegekräfte kennen, die zu Ihrem Plan passen.", btn: "Mehr zum Workshop", page: "Seite" },
+  en: { eyebrow: "Bonus · with your roadmap", title: "The agency check", sub: "10 questions to ask before you bring nurses from abroad. And how to spot a good answer.", good: "Good answer", ctaH: "The next step: the workshop in Casablanca.", ctaP: "Two days on your plan, with Youness Taoufiq. On day two you meet the nurses who fit your plan.", btn: "More about the workshop", page: "Page" },
+  fr: { eyebrow: "Bonus · avec votre plan", title: "Le check agence", sub: "10 questions à poser avant de faire venir des infirmières de l'étranger. Et comment reconnaître une bonne réponse.", good: "Bonne réponse", ctaH: "La prochaine étape : le workshop à Casablanca.", ctaP: "Deux jours sur votre plan, avec Youness Taoufiq. Le deuxième jour, vous rencontrez les infirmières qui correspondent à votre plan.", btn: "En savoir plus sur le workshop", page: "Page" },
 };
 
 export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
@@ -61,9 +64,9 @@ export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
   doc.setTitle(`${t.title} · Borivon`);
   doc.setAuthor("Borivon");
   doc.setCreator("borivon.com");
-  const f = await embedFonts(doc, ["Lexend-Regular.ttf", "Lexend-SemiBold.ttf"]);
-  const reg: DocFont = f["Lexend-Regular.ttf"], semi: DocFont = f["Lexend-SemiBold.ttf"];
-  const [H, HI] = await Promise.all([loadVectorFont("pflege/assets/playfair-latin.woff2", 0.012), loadVectorFont("pflege/assets/playfair-italic-latin.woff2")]);
+  const f = await embedFonts(doc, ["Inter-Regular-pdf.ttf", "Inter-Medium-pdf.ttf", "Inter-SemiBold-pdf.ttf"]);
+  const reg: DocFont = f["Inter-Regular-pdf.ttf"], med: DocFont = f["Inter-Medium-pdf.ttf"], semi: DocFont = f["Inter-SemiBold-pdf.ttf"];
+  const [H, HI] = await Promise.all([loadVectorFont("fonts/EBGaramond-Medium-pdf.ttf"), loadVectorFont("fonts/EBGaramond-Italic-pdf.ttf")]);
   const [PW, PH] = PageSizes.A4;
   const M = 60, W = PW - 2 * M;
   let pageNo = 0;
@@ -81,31 +84,33 @@ export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
     pageNo++;
     const s = new Surface(page, PH);
     s.rect(0, 0, PW, PH, dark ? NIGHT : PAPER);
-    HI.draw(page, PH, "Borivon", M, 31, 17, dark ? FG : INK);
-    H.draw(page, PH, ".", M + HI.measure("Borivon", 17), 31, 17, GOLD);
+    HI.draw(page, PH, "Borivon", M, 30, 17, dark ? FG : INK);
+    H.draw(page, PH, ".", M + HI.measure("Borivon", 17), 30, 17, GOLD);
+    s.hline(M, PW - M, PH - 54, LINE, 0.8);
     const pn = String(pageNo).padStart(2, "0");
-    s.text(pn, PW - M - measure(pn, semi, 8), PH - 44, semi, 8, MUTED);
-    s.text("borivon.com", M, PH - 44, reg, 8, MUTED);
+    s.text(pn, PW - M - measure(pn, med, 8.5, 0.6), PH - 42, med, 8.5, MUTED, 0.6);
+    s.text("borivon.com", M, PH - 42, reg, 8.5, MUTED);
     return { page, s };
   };
   const question = (page: PDFPage, s: Surface, i: number, y: number) => {
     const item = AGENCY_CHECK[i];
     const n = String(i + 1);
-    s.roundedRect(M, y, 32, 32, 16, { fill: GOLD });
-    s.text(n, M + 16 - measure(n, semi, 12) / 2, y + 10, semi, 12, hexColor("#131312"));
-    y = disp(page, H, pick(item.q, lang), M + 50, y + 2, W - 50, 17, INK, 1.18) + 6;
-    s.text(t.good.toUpperCase(), M + 50, y, semi, 7, GREEN, 1.6);
-    y = para(s, pick(item.a, lang), M + 50, y + 14, W - 50, reg, 11.5, INK) + 16;
+    H.draw(page, PH, n.padStart(2, "0"), M, y + 1, 20, GOLD_D, -0.2);
+    y = disp(page, H, pick(item.q, lang), M + 50, y + 2, W - 50, 18.5, INK, 1.16) + 6;
+    s.roundedRect(M + 50, y + 2.2, 5, 5, 2.5, { fill: GAIN });
+    s.text(t.good.toUpperCase(), M + 61, y, med, 7, GAIN, 1.1);
+    y = para(s, pick(item.a, lang), M + 50, y + 15, W - 50, reg, 11.3, INK) + 16;
     return y;
   };
 
   // page 1: title block + questions 1–5
   {
     const { page, s } = newPage();
-    s.rect(0, 70, PW, 168, NIGHT);
-    s.text(t.eyebrow.toUpperCase(), M, 106, semi, 7.5, GOLD, 1.7);
-    disp(page, H, t.title, M, 126, W, 38, FG);
-    para(s, t.sub, M, 180, W, reg, 12.5, MUTED_NIGHT, 1.6);
+    s.rect(0, 70, PW, 176, NIGHT);
+    s.roundedRect(M, 106 + 2.2, 5, 5, 2.5, { fill: GOLD_L });
+    s.text(t.eyebrow.toUpperCase(), M + 12, 106, med, 7.5, GOLD_L, 1.2);
+    disp(page, H, t.title, M, 124, W, 42, FG);
+    para(s, t.sub, M, 184, W, reg, 12, MUTED_NIGHT, 1.6);
     let y = 270;
     for (let i = 0; i < 5; i++) {
       y = question(page, s, i, y);
@@ -121,18 +126,21 @@ export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
       if (i < 9) { s.hline(M + 50, M + W, y - 8, LINE, 0.8); y += 8; }
     }
     y += 14;
-    const bh = 40;
-    const textEnd = 58 + wrapText(t.ctaP, reg, 11.5, W - 56).length * 11.5 * 1.55;
-    const ch = textEnd + 18 + bh + 26;
-    s.roundedRect(M, y, W, ch, 20, { fill: GOLD_SOFT });
-    disp(page, H, t.ctaH, M + 28, y + 26, W - 56, 21, INK);
-    para(s, t.ctaP, M + 28, y + 58, W - 56, reg, 11.5, INK);
-    const bw = measure(t.btn, semi, 12.5) + 52, by = y + textEnd + 18;
-    s.roundedRect(M + 28, by, bw, bh, 20, { fill: GOLD });
-    s.text(t.btn, M + 54, by + 13, semi, 12.5, hexColor("#131312"));
+    // a soft close on a night card: the workshop, nothing else
+    const bh = 38;
+    const hEnd = 30 + wrapVector(t.ctaH, H, 21, W - 56, -0.02 * 21).length * 21 * 1.12;
+    const textEnd = hEnd + 8 + wrapText(t.ctaP, reg, 11, W - 56).length * 11 * 1.55;
+    const ch = textEnd + 20 + bh + 28;
+    s.roundedRect(M, y, W, ch, 6, { fill: NIGHT });
+    disp(page, H, t.ctaH, M + 28, y + 30, W - 56, 21, FG);
+    para(s, t.ctaP, M + 28, y + hEnd + 8, W - 56, reg, 11, MUTED_NIGHT);
+    const lw = measure(t.btn, semi, 12), bw = lw + 24 + 16 + 22, by = y + textEnd + 20;
+    s.roundedRect(M + 28, by, bw, bh, 3, { fill: PAPER });
+    s.text(t.btn, M + 50, by + 13, semi, 12, INK);
+    page.drawSvgPath("M 0 0 L 15 0 M 10.5 -4.5 L 15 0 L 10.5 4.5", { x: M + 50 + lw + 12, y: PH - (by + bh / 2), borderColor: GOLD_D, borderWidth: 1.3 });
     const link = doc.context.register(doc.context.obj({
       Type: "Annot", Subtype: "Link", Rect: [M + 28, PH - by - bh, M + 28 + bw, PH - by], Border: [0, 0, 0],
-      A: { Type: "Action", S: "URI", URI: PDFString.of(BOOK_URL) },
+      A: { Type: "Action", S: "URI", URI: PDFString.of(WORKSHOP_URL) },
     }));
     page.node.set(PDFName.of("Annots"), doc.context.obj([link]));
   }

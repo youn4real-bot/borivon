@@ -106,7 +106,13 @@ export async function embedFonts(
   const out: Record<string, DocFont> = {};
   for (const f of files) {
     const bytes = await loadPublicAsset(`fonts/${f}`);
-    const pdf = await doc.embedFont(bytes, { subset: true });
+    // Inter + EB Garamond (Google static TTFs) come out garbled from pdf-lib's subsetter (measured
+    // 2026-11-09: scattered letters); Lexend subsets fine. Those embed whole, as small Latin-only
+    // files (public/fonts/*-pdf.ttf: Google Fonts ?text= subsets, ~60 KB, kerning kept).
+    // Contextual alternates off for those: Inter swaps the hyphen in "90-Tage" for a form whose
+    // width pdf-lib does not see, which leaves a gap.
+    const whole = /^(Inter|EBGaramond)-/.test(f);
+    const pdf = await doc.embedFont(bytes, whole ? { subset: false, features: { calt: false } } : { subset: true });
     out[f] = wrapDocFont(pdf);
   }
   return out;
