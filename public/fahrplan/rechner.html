@@ -14,6 +14,12 @@
 <meta property="og:image" content="https://www.borivon.com/pflege/assets/nurse.jpg">
 <meta name="theme-color" content="#0e0e10">
 <style>
+@font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 400 800; font-display: swap; src: url(/pflege/assets/fonts/ebgaramond-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 400 800; font-display: swap; src: url(/pflege/assets/fonts/ebgaramond-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "EB Garamond"; font-style: italic; font-weight: 400 800; font-display: swap; src: url(/pflege/assets/fonts/ebgaramond-italic-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "EB Garamond"; font-style: italic; font-weight: 400 800; font-display: swap; src: url(/pflege/assets/fonts/ebgaramond-italic-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/fonts/inter-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/fonts/inter-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: "Playfair Display"; font-style: normal; font-weight: 500 700; font-display: swap; src: url(/pflege/assets/playfair-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Playfair Display"; font-style: normal; font-weight: 500 700; font-display: swap; src: url(/pflege/assets/playfair-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: "Playfair Display"; font-style: italic; font-weight: 400 700; font-display: swap; src: url(/pflege/assets/playfair-italic-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
@@ -24,9 +30,10 @@
 
 <style>
 :root {
-  --bg: #0e0e10; --panel: #151518; --line: rgba(238,236,234,0.09);
-  --fg: #eeecea; --muted: #8f8c85; --gold: #c9a240; --ok: #7fb58c; --red: #e5664a;
-  --font-display: "Playfair Display", Georgia, serif; --font-body: "Lexend", "Segoe UI", system-ui, sans-serif;
+  /* borivon.com look since 2026-11-09 (content/pflege/bv.css): warm paper, EB Garamond, Inter */
+  --bg: #f4f1ea; --panel: #fbfaf6; --line: #ddd6c8;
+  --fg: #15130f; --muted: #837c6f; --gold: #a8843a; --ok: #46684b; --red: #9a4a33;
+  --font-display: "EB Garamond", Georgia, serif; --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; overflow-x: clip; }
@@ -34,7 +41,7 @@ a { color: inherit; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px clamp(16px, 3vw, 32px); border-bottom: 1px solid var(--line); }
-.brand { font-family: var(--font-display); font-style: italic; font-size: 1.35rem; text-decoration: none; }
+.brand { font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: 1.5rem; letter-spacing: -0.01em; text-decoration: none; }
 .brand span { color: var(--gold); font-style: normal; }
 .top .t { font-size: 0.85rem; color: var(--muted); margin-left: 14px; }
 .langs { display: flex; gap: 2px; }
@@ -51,15 +58,15 @@ button { cursor: pointer; }
 .row .v { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
 .row .v b { font-weight: 600; font-size: 1.05rem; }
 .step { display: flex; gap: 4px; }
-.step button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: transparent; font-size: 1rem; line-height: 1; }
-.step button:hover, .edit:hover { border-color: var(--gold); color: var(--gold); }
-.edit { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 5px 10px; font-size: 0.75rem; color: var(--muted); }
-.more { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.03); }
+.step button { width: 32px; height: 32px; border-radius: 4px; border: 1px solid var(--line); background: transparent; font-size: 1rem; line-height: 1; }
+.step button:hover, .edit:hover { border-color: var(--fg); color: var(--fg); }
+.edit { border: 1px solid var(--line); background: transparent; border-radius: 4px; padding: 5px 10px; font-size: 0.75rem; color: var(--muted); }
+.more { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 4px; background: #ebe6db; }
 .row.open .more { display: grid; gap: 8px; }
 .more label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: var(--muted); }
-.more input { width: 96px; text-align: right; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); font-size: 0.9rem; -moz-appearance: textfield; }
+.more input { width: 96px; text-align: right; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); font-size: 0.9rem; -moz-appearance: textfield; }
 .more input::-webkit-outer-spin-button, .more input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.more input:focus { outline: none; border-color: var(--gold); }
+.more input:focus { outline: none; border-color: var(--fg); }
 .more .note { font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
 .how { margin-top: 18px; font-size: 0.75rem; line-height: 1.6; color: var(--muted); }
 
@@ -67,18 +74,19 @@ button { cursor: pointer; }
 .main { padding: clamp(20px, 3vw, 40px); display: flex; flex-direction: column; min-width: 0; }
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .loss .k { font-size: 0.95rem; color: var(--muted); }
-.loss .n { font-family: var(--font-display); font-weight: 600; color: var(--red); font-size: clamp(3rem, 2rem + 5vw, 6.2rem); line-height: 1; letter-spacing: -0.02em; margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+.loss .n { font-family: var(--font-display); font-weight: 500; color: var(--red); font-size: clamp(3rem, 2rem + 5vw, 6.2rem); line-height: 1; letter-spacing: -0.02em; margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
 .loss .d { font-size: 1rem; color: var(--fg); }
 .loss .d b { color: var(--red); }
-.yrs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
-.yrs button { background: none; border: 0; padding: 7px 14px; border-radius: 999px; font-size: 0.82rem; color: var(--muted); }
-.yrs button[aria-pressed="true"] { background: var(--fg); color: #131312; font-weight: 600; }
+.yrs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 4px; padding: 3px; }
+.yrs button { background: none; border: 0; padding: 7px 14px; border-radius: 2px; font-size: 0.82rem; color: var(--muted); }
+.yrs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 500; }
 .chartbox { flex: 1; min-height: 320px; margin: 22px 0 12px; position: relative; }
 svg.chart { display: block; width: 100%; height: 100%; min-height: 320px; }
 .gain { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--line); }
 .gain .k { font-size: 0.9rem; color: var(--muted); }
-.gain .k b { display: block; font-family: var(--font-display); font-weight: 600; font-size: 1.9rem; color: var(--ok); margin-top: 2px; }
-.btn { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 999px; background: var(--gold); color: #131312; font-weight: 600; text-decoration: none; }
+.gain .k b { display: block; font-family: var(--font-display); font-weight: 500; font-size: 1.9rem; color: var(--ok); margin-top: 2px; }
+.btn { display: inline-flex; align-items: center; min-height: 52px; padding: 0 24px; border-radius: 3px; background: var(--fg); color: var(--bg); font-weight: 500; text-decoration: none; transition: background .4s; }
+.btn:hover { background: #2c271f; }
 footer { text-align: center; font-size: 0.78rem; color: var(--muted); padding: 18px 16px 32px; border-top: 1px solid var(--line); }
 footer a { color: var(--muted); }
 </style>
@@ -212,18 +220,18 @@ footer a { color: var(--muted); }
     }
     var grid = "";
     for (var yr = 1; yr <= years; yr++) {
-      grid += '<line x1="' + x(yr * 12) + '" x2="' + x(yr * 12) + '" y1="' + pt + '" y2="' + (H - pb) + '" stroke="rgba(238,236,234,0.06)"/>' +
-        '<text x="' + (x(yr * 12) - (yr === years ? 2 : 0)) + '" y="' + (H - 10) + '" fill="#8f8c85" font-size="13" text-anchor="' + (yr === years ? "end" : "middle") + '">' + esc(T[lang].yrs[yr - 1]) + '</text>';
+      grid += '<line x1="' + x(yr * 12) + '" x2="' + x(yr * 12) + '" y1="' + pt + '" y2="' + (H - pb) + '" stroke="rgba(21,19,15,0.07)"/>' +
+        '<text x="' + (x(yr * 12) - (yr === years ? 2 : 0)) + '" y="' + (H - 10) + '" fill="#837c6f" font-size="13" text-anchor="' + (yr === years ? "end" : "middle") + '">' + esc(T[lang].yrs[yr - 1]) + '</text>';
     }
     var t = T[lang];
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + esc(t.lineRed + ", " + t.lineGreen) + '">' +
-      '<defs><linearGradient id="rg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e5664a" stop-opacity="0.05"/><stop offset="1" stop-color="#e5664a" stop-opacity="0.45"/></linearGradient></defs>' +
+      '<defs><linearGradient id="rg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9a4a33" stop-opacity="0.05"/><stop offset="1" stop-color="#9a4a33" stop-opacity="0.45"/></linearGradient></defs>' +
       grid +
       '<path d="' + red + ' L' + x(n) + ' ' + zero + ' L0 ' + zero + 'Z" fill="url(#rg)"/>' +
-      '<path d="' + green + ' L' + x(n) + ' ' + zero + ' L0 ' + zero + 'Z" fill="rgba(127,181,140,0.12)"/>' +
-      '<line x1="0" x2="' + W + '" y1="' + zero + '" y2="' + zero + '" stroke="rgba(238,236,234,0.3)" vector-effect="non-scaling-stroke"/>' +
-      '<path d="' + green + '" fill="none" stroke="#7fb58c" stroke-width="2.5" vector-effect="non-scaling-stroke"/>' +
-      '<path d="' + red + '" fill="none" stroke="#e5664a" stroke-width="4" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + green + ' L' + x(n) + ' ' + zero + ' L0 ' + zero + 'Z" fill="rgba(70,104,75,0.10)"/>' +
+      '<line x1="0" x2="' + W + '" y1="' + zero + '" y2="' + zero + '" stroke="rgba(21,19,15,0.3)" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + green + '" fill="none" stroke="#46684b" stroke-width="2.5" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + red + '" fill="none" stroke="#9a4a33" stroke-width="4" vector-effect="non-scaling-stroke"/>' +
       '</svg>';
   }
 
@@ -326,6 +334,6 @@ footer a { color: var(--muted); }
   render();
 })();
 </script>
-<script src="/pflege/assets/t.js" defer></script>
+<script src="/pflege/assets/t.js?v=db731a92" defer></script>
 </body>
 </html>

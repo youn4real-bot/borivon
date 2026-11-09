@@ -92,12 +92,12 @@
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") send(true); else left = false; });
 
   /* ── the choice ── */
-  var css = "#bv-consent{position:fixed;left:0;right:0;bottom:0;z-index:2147483000;display:flex;justify-content:center;padding:0 12px 12px;pointer-events:none;font-family:Lexend,'Segoe UI',system-ui,sans-serif}" +
-    "#bv-consent .c{pointer-events:auto;max-width:620px;width:100%;background:#fff;color:#16140f;border:1px solid #e6dccb;border-radius:18px;box-shadow:0 20px 60px -20px rgba(0,0,0,.45);padding:20px 20px 16px;font-size:15px;line-height:1.55}" +
-    "#bv-consent h2{margin:0 0 6px;font:600 17px/1.3 Lexend,'Segoe UI',system-ui,sans-serif}" +
-    "#bv-consent p{margin:0 0 14px;color:#4a463e}#bv-consent a{color:#8a6a1f}" +
-    "#bv-consent .b{display:flex;gap:10px}#bv-consent button{flex:1;cursor:pointer;font:600 15px Lexend,'Segoe UI',system-ui,sans-serif;padding:13px 10px;border-radius:999px;border:1.5px solid #16140f;background:#fff;color:#16140f}" +
-    "#bv-consent button:hover{background:#f4eee3}#bv-consent .l{margin:12px 0 0;font-size:13px;text-align:center}" +
+  var css = "#bv-consent{position:fixed;left:0;right:0;bottom:0;z-index:2147483000;display:flex;justify-content:center;padding:0 12px 12px;pointer-events:none;font-family:Inter,'Segoe UI',system-ui,sans-serif}" +
+    "#bv-consent .c{pointer-events:auto;max-width:620px;width:100%;background:#fbfaf6;color:#15130f;border:1px solid #ddd6c8;border-radius:6px;box-shadow:0 26px 60px -24px rgba(0,0,0,.42);padding:20px 20px 16px;font-size:15px;line-height:1.55}" +
+    "#bv-consent h2{margin:0 0 6px;font:500 21px/1.2 'EB Garamond',Georgia,serif;letter-spacing:-.01em}" +
+    "#bv-consent p{margin:0 0 14px;color:#3b372f}#bv-consent a{color:#8a6a28}" +
+    "#bv-consent .b{display:flex;gap:10px}#bv-consent button{flex:1;cursor:pointer;font:500 15px Inter,'Segoe UI',system-ui,sans-serif;padding:13px 10px;border-radius:3px;border:1px solid #15130f;background:#fbfaf6;color:#15130f}" +
+    "#bv-consent button:hover{background:#f4f1ea}#bv-consent .l{margin:12px 0 0;font-size:13px;text-align:center}" +
     "@media (max-width:520px){#bv-consent{padding:0}#bv-consent .c{border-radius:18px 18px 0 0}}";
   function showBanner() {
     if (document.getElementById("bv-consent")) return;
