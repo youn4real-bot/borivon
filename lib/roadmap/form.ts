@@ -190,7 +190,7 @@ export function formSummaryDe(f: FormV2): [string, string][] {
     ["Bundesland", f.land ? LAND[f.land] : "–"],
     ["Größe", f.plaetze],
     ["Bedarf 12 Mon.", f.bedarf],
-    ["Leasingkräfte", f.leasing],
+    ["Leihkräfte", f.leasing],
     ["Ausland", ERF_DE[f.erfahrung]],
   ];
   if (f.grund.length) rows.push(["Schiefgelaufen", f.grund.map((k) => GRUND[k].de).join(", ")]);

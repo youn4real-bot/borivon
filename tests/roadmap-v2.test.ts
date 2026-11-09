@@ -119,7 +119,7 @@ describe("relevance (founder: only what they told us)", () => {
     const { painsFor } = await import("../lib/roadmap/visual");
     const f = normalizeForm({ bedarf: "6-10", leasing: "3-5", erfahrung: "failed", grund: ["papers", "left"], haben: ["flat", "mentor", "plan"], start: "12m" });
     const de = painsFor(f, today).map((p) => p.b.de);
-    expect(de).toEqual(["6 bis 10 Fachkräfte fehlen", "Neue gingen wieder", "Papiere dauerten ewig", "3 bis 5 Leasingkräfte im Haus"]);
+    expect(de).toEqual(["6 bis 10 Fachkräfte fehlen", "Neue gingen wieder", "Papiere dauerten ewig", "3 bis 5 Leihkräfte bei Ihnen"]);
   });
   it("the Stufe follows the answers: urgent → 1, healthy → 5", () => {
     const urgent = scoreRoadmap(toModel(normalizeForm({ art: "hospital", plaetze: "200+", bedarf: "100+", leasing: "6+", erfahrung: "failed", haben: [] })));

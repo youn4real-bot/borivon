@@ -24,7 +24,7 @@ export const PLAYBOOK: Record<Level, Play> = {
       ],
       papers: [
         x("Keiner weiß, wo die Papiere gerade stehen.", "Nobody knows where the papers are.", "Personne ne sait où en sont les papiers."),
-        x("Eine Person im Haus kümmert sich um alle Papiere.", "One person in the house handles all papers.", "Une seule personne gère tous les papiers."),
+        x("Eine Person in Ihrer Einrichtung kümmert sich um alle Papiere.", "One person in the house handles all papers.", "Une seule personne gère tous les papiers."),
         x("Eine Liste: wer, welcher Schritt, welches Datum.", "One list: who, which step, which date.", "Une liste : qui, quelle étape, quelle date."),
       ],
       arrive: [
@@ -111,7 +111,7 @@ export const PLAYBOOK: Record<Level, Play> = {
         x("3 bis 5 auf einmal", "3 to 5 at once", "3 à 5 à la fois"),
         x("Feste Termine im Jahr", "Fixed dates in the year", "Des dates fixes dans l'année"),
         x("Ein Partner für alles", "One partner for everything", "Un partenaire pour tout"),
-        x("Eine Ansprechperson im Haus", "One contact in the house", "Un interlocuteur dans la maison")] },
+        x("Eine Ansprechperson in der Einrichtung", "One contact in the house", "Un interlocuteur dans la maison")] },
       { t: x("Rückwärts planen", "Plan backwards", "Planifier à rebours"), items: [
         x("Ersten Arbeitstag festlegen", "Fix the first working day", "Fixer le premier jour"),
         x("Papiere rückwärts planen", "Plan the papers backwards", "Planifier les papiers à rebours"),
