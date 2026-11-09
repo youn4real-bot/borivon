@@ -11,7 +11,7 @@ import { loadBookingConfig, newManageToken } from "@/lib/bookingConfig";
 import { loadEventType, overlayEventType, looksLikeSlug } from "@/lib/bookingEventTypes";
 import {
   generateSlots, groupByDay, slotLabel, looksLikeEmail,
-  followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections,
+  followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections, validTimeZone,
   type BookingKind, type Interval,
 } from "@/lib/booking";
 
@@ -222,8 +222,10 @@ export async function GET(req: NextRequest) {
     // bookable hours — and it is the same midday-resolved offset generateSlots
     // used to place them, so the labels cannot disagree with the times. Doing
     // it per slot meant ~160 timezone resolutions on every page load.
+    // The zone the hours are written in (the workshop: German time).
+    tz: av.tz ?? BORIVON_TZ,
     days: groupByDay(slots, av.tzOffsetMinutes).map((d) => {
-      const dayOffset = d.slots.length ? zoneOffsetMinutes(BORIVON_TZ, d.slots[0]) : av.tzOffsetMinutes;
+      const dayOffset = d.slots.length ? zoneOffsetMinutes(av.tz ?? BORIVON_TZ, d.slots[0]) : av.tzOffsetMinutes;
       return {
         day: d.day,
         slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, dayOffset) })),
@@ -276,6 +278,8 @@ export async function POST(req: NextRequest) {
   const company = clipText(String(body?.company ?? "").trim(), 160) || null;
   // Page language, whitelisted. Anything else falls back to English.
   const lang: "fr" | "en" | "de" = body?.lang === "de" ? "de" : body?.lang === "fr" ? "fr" : "en";
+  // The zone the visitor saw the times in, so the confirmation states the same clock.
+  const viewTz = validTimeZone(body?.tz);
 
   if (!isKind(kind)) return NextResponse.json({ error: "bad_kind" }, { status: 400 });
   // Tap-only answers. Whitelisted against the catalog, so the one public write
@@ -418,6 +422,7 @@ export async function POST(req: NextRequest) {
       try {
         await sendBookingConfirmedEmail({
           to: email, name, startsAt: new Date(at).toISOString(), meetLink: meet, manageToken, lang,
+          ...(viewTz ? { tz: viewTz } : {}),
         });
       } catch (e) {
         console.error("[book] confirmation email failed:", e instanceof Error ? e.message : e);
@@ -430,10 +435,11 @@ export async function POST(req: NextRequest) {
     try {
       const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
       if (chatId) {
+        // In the zone the type's hours are set in (workshop → German time), named when it isn't Morocco.
         const when = new Intl.DateTimeFormat("en-GB", {
           weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-          timeZone: BORIVON_TZ,
-        }).format(new Date(at));
+          timeZone: av.tz ?? BORIVON_TZ,
+        }).format(new Date(at)) + (av.tz ? ` (${av.tz.split("/").pop()?.replace(/_/g, " ")})` : "");
         await tgSend(chatId, [
           `New booking — ${kind}`,
           `${company || name}${company ? ` (${name})` : ""}`,

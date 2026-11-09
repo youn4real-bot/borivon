@@ -24,7 +24,7 @@ const LINE = hexColor("#e7e1d4");
 const INK = hexColor("#1c1c1e");
 const MUTED = hexColor("#6d6a63");
 const GREEN = hexColor("#3f7a52");
-const BOOK_URL = "https://borivon.com/book/clinic";
+const BOOK_URL = "https://borivon.com/workshop#termin";
 
 export const AGENCY_CHECK: { q: L; a: L }[] = [
   { q: { de: "Wie prüfen Sie das Deutsch?", en: "How do you check their German?", fr: "Comment vérifiez-vous l'allemand ?" },
@@ -50,9 +50,9 @@ export const AGENCY_CHECK: { q: L; a: L }[] = [
 ];
 
 const T: Record<Lang, Record<string, string>> = {
-  de: { eyebrow: "Bonus · zu Ihrem Fahrplan", title: "Der Agentur-Check", sub: "10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.", good: "Gute Antwort", ctaH: "Stellen Sie uns die 10 Fragen.", ctaP: "In 15 Minuten beantworten wir alle. Und wir sagen Ihnen ehrlich, ob Ihre Einrichtung zu uns passt.", btn: "Prüfen, ob meine Einrichtung passt", page: "Seite" },
-  en: { eyebrow: "Bonus · with your roadmap", title: "The agency check", sub: "10 questions to ask before you bring nurses from abroad. And how to spot a good answer.", good: "Good answer", ctaH: "Ask us the 10 questions.", ctaP: "In 15 minutes we answer all of them. And we tell you honestly whether your facility is a fit.", btn: "Check if we are a fit", page: "Page" },
-  fr: { eyebrow: "Bonus · avec votre plan", title: "Le check agence", sub: "10 questions à poser avant de faire venir des infirmières de l'étranger. Et comment reconnaître une bonne réponse.", good: "Bonne réponse", ctaH: "Posez-nous les 10 questions.", ctaP: "En 15 minutes, nous répondons à toutes. Et nous vous disons honnêtement si votre établissement correspond.", btn: "Vérifier si nous correspondons", page: "Page" },
+  de: { eyebrow: "Bonus · zu Ihrem Fahrplan", title: "Der Agentur-Check", sub: "10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.", good: "Gute Antwort", ctaH: "Stellen Sie uns die 10 Fragen.", ctaP: "In 30 Minuten beantworten wir alle. Und wir sagen Ihnen ehrlich, ob Ihre Einrichtung zu uns passt.", btn: "Prüfen, ob meine Einrichtung passt", page: "Seite" },
+  en: { eyebrow: "Bonus · with your roadmap", title: "The agency check", sub: "10 questions to ask before you bring nurses from abroad. And how to spot a good answer.", good: "Good answer", ctaH: "Ask us the 10 questions.", ctaP: "In 30 minutes we answer all of them. And we tell you honestly whether your facility is a fit.", btn: "Check if we are a fit", page: "Page" },
+  fr: { eyebrow: "Bonus · avec votre plan", title: "Le check agence", sub: "10 questions à poser avant de faire venir des infirmières de l'étranger. Et comment reconnaître une bonne réponse.", good: "Bonne réponse", ctaH: "Posez-nous les 10 questions.", ctaP: "En 30 minutes, nous répondons à toutes. Et nous vous disons honnêtement si votre établissement correspond.", btn: "Vérifier si nous correspondons", page: "Page" },
 };
 
 export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {

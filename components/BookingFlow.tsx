@@ -142,11 +142,12 @@ function weekdayNames(loc: string): { short: string; long: string }[] {
  * derived from these instants, never from the server's day strings, or a
  * visitor in Auckland would see a day light up that has nothing on it for them.
  */
-function localDays(instants: number[], lang: string): { key: string; weekday: string; date: string; slots: { at: number; label: string }[] }[] {
+function localDays(instants: number[], lang: string, tz?: string): { key: string; weekday: string; date: string; slots: { at: number; label: string }[] }[] {
   const loc = locOf(lang);
+  const zone = tz ? { timeZone: tz } : {};
   const byDay = new Map<string, number[]>();
   for (const at of instants) {
-    const key = keyOf(new Date(at));
+    const key = keyIn(at, tz);
     if (!byDay.has(key)) byDay.set(key, []);
     byDay.get(key)!.push(at);
   }
@@ -156,14 +157,37 @@ function localDays(instants: number[], lang: string): { key: string; weekday: st
       const first = new Date(list[0]);
       return {
         key,
-        weekday: first.toLocaleDateString(loc, { weekday: "short" }),
-        date: first.toLocaleDateString(loc, { day: "numeric", month: "short" }),
+        weekday: first.toLocaleDateString(loc, { weekday: "short", ...zone }),
+        date: first.toLocaleDateString(loc, { day: "numeric", month: "short", ...zone }),
         slots: list.sort((a, b) => a - b).map((at) => ({
           at,
-          label: new Date(at).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }),
+          label: new Date(at).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", ...zone }),
         })),
       };
     });
+}
+
+/**
+ * "YYYY-MM-DD" of an instant in the clock the page shows. Default = the visitor's
+ * own; the faint switch under the times can pick another (e.g. German time).
+ */
+const KEY_FMT = new Map<string, Intl.DateTimeFormat>();
+function keyIn(at: number, tz?: string): string {
+  if (!tz) return keyOf(new Date(at));
+  try {
+    let f = KEY_FMT.get(tz);
+    if (!f) { f = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }); KEY_FMT.set(tz, f); }
+    const p = Object.fromEntries(f.formatToParts(new Date(at)).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}`;
+  } catch { return keyOf(new Date(at)); }
+}
+
+/** Zones offered first in the switch: where our callers are, then the rest of the world. */
+const COMMON_ZONES = ["Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Africa/Casablanca", "Europe/London", "Europe/Paris"];
+function allZones(own: string): string[] {
+  let rest: string[] = [];
+  try { rest = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? []; } catch { /* old browser: common ones only */ }
+  return [...new Set([own, ...COMMON_ZONES, ...rest].filter(Boolean))];
 }
 
 /**
@@ -267,18 +291,38 @@ export function BookingFlow({
   useEffect(() => { void loadSlots(); }, [loadSlots]);
 
   // Show the time in THEIR timezone name, so nobody assumes it's their own
-  // clock. Every label on this page is already in the visitor's own zone.
+  // clock. Every label on this page is in `tz`: the visitor's own zone by
+  // default, or the one they picked in the faint switch under the times.
+  const [ownTz, setOwnTz] = useState("");
+  const [zonePick, setZonePick] = useState(false);
   useEffect(() => {
-    try { setTz(Intl.DateTimeFormat().resolvedOptions().timeZone ?? ""); } catch { /* older browser */ }
+    try {
+      const own = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+      setOwnTz(own); setTz(own);
+    } catch { /* older browser */ }
   }, []);
+  const changeTz = (z: string) => { setTz(z); setZonePick(false); setDayKey(null); setAt(null); };
+  // "Berlin · GMT+1" per zone, built only while the switch is open (~400 zones).
+  const zoneOptions = useMemo(() => {
+    if (!zonePick) return [];
+    return allZones(ownTz).map((z) => {
+      const city = z.split("/").pop()?.replace(/_/g, " ") || z;
+      let off = "";
+      try {
+        off = new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "shortOffset" })
+          .formatToParts(new Date()).find((p) => p.type === "timeZoneName")?.value ?? "";
+      } catch { /* unnamed offset: city alone */ }
+      return { z, label: `${z === ownTz ? "✓ " : ""}${city}${off ? ` · ${off}` : ""}` };
+    });
+  }, [zonePick, ownTz]);
 
-  const days = useMemo(() => localDays(instants, lang), [instants, lang]);
+  const days = useMemo(() => localDays(instants, lang, tz || undefined), [instants, lang, tz]);
   const byKey = useMemo(() => new Map(days.map((d) => [d.key, d])), [days]);
 
   /* Month bounds. Past months are unreachable; so is anything beyond the last
      day the API actually offered — an arrow that leads to a guaranteed-empty
      month is a dead end dressed up as progress. */
-  const todayAnchor = useMemo(() => anchorOfDate(new Date()), []);
+  const todayAnchor = useMemo(() => anchorOfDate(parseKey(keyIn(Date.now(), tz || undefined))), [tz]);
   const availAnchors = useMemo(
     () => [...new Set(days.map((d) => anchorOfDate(parseKey(d.key))))].sort((a, b) => a - b),
     [days],
@@ -424,6 +468,8 @@ export function BookingFlow({
           // So the confirmation, reminder and any cancellation come back in the
           // language they actually booked in.
           lang,
+          // ...and in the clock they picked the time in.
+          ...(tz ? { tz } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -484,7 +530,7 @@ export function BookingFlow({
           </h1>
           {chosen && (
             <p className="text-[15px] mb-1" style={{ color: "var(--w2)" }}>
-              {chosen.toLocaleString(loc, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+              {chosen.toLocaleString(loc, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", ...(tz ? { timeZone: tz } : {}) })}
             </p>
           )}
           {/* The address the invite actually went to, echoed back — a typo'd
@@ -495,7 +541,9 @@ export function BookingFlow({
             <strong style={{ color: "var(--w)", fontWeight: 600 }}>{email.trim()}</strong>
           </p>
           <p className="text-[13px] mb-6" style={{ color: "var(--w3)" }}>
-            {T("Times shown in your local timezone.", "Zeiten in Ihrer lokalen Zeitzone.", "Horaires affichés dans votre fuseau horaire.")}
+            {tz && tz !== ownTz
+              ? `${T("Time zone", "Zeitzone", "Fuseau horaire")}: ${tz.split("/").pop()?.replace(/_/g, " ")}`
+              : T("Times shown in your local timezone.", "Zeiten in Ihrer lokalen Zeitzone.", "Horaires affichés dans votre fuseau horaire.")}
           </p>
           <div
             className="flex items-start gap-3 text-left p-4"
@@ -570,7 +618,9 @@ export function BookingFlow({
         <li className="flex items-start gap-2.5 text-[13.5px]" style={{ color: "var(--w2)" }}>
           <Globe size={15} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 2 }} aria-hidden />
           <span>
-            {T("Times in your timezone", "Zeiten in Ihrer Zeitzone", "Horaires dans votre fuseau")}
+            {tz && tz !== ownTz
+              ? T("Times in", "Zeiten in", "Horaires en")
+              : T("Times in your timezone", "Zeiten in Ihrer Zeitzone", "Horaires dans votre fuseau")}
             <span className="block text-[12.5px]" style={{ color: "var(--w3)" }}>{tzLine}</span>
           </span>
         </li>
@@ -585,7 +635,7 @@ export function BookingFlow({
         >
           <CalendarDays size={15} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 2 }} aria-hidden />
           <p className="text-[13.5px]" style={{ color: "var(--w)", lineHeight: 1.5 }}>
-            {new Date(at).toLocaleString(loc, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+            {new Date(at).toLocaleString(loc, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", ...(tz ? { timeZone: tz } : {}) })}
           </p>
         </div>
       )}
@@ -758,8 +808,41 @@ export function BookingFlow({
       <p className="flex items-start gap-1.5 text-[12px] mb-3" style={{ color: "var(--w3)" }}>
         <Globe size={12} style={{ flexShrink: 0, marginTop: 2 }} aria-hidden />
         <span>
-          {T(`${slotMinutes} min · your time`, `${slotMinutes} Min. · Ihre Zeit`, `${slotMinutes} min · votre heure`)}
-          {tz ? ` · ${tzLine}` : ""}
+          {tz && tz !== ownTz
+            ? T(`${slotMinutes} min`, `${slotMinutes} Min.`, `${slotMinutes} min`)
+            : T(`${slotMinutes} min · your time`, `${slotMinutes} Min. · Ihre Zeit`, `${slotMinutes} min · votre heure`)}
+          {/* The zone name doubles as a quiet switch: same colour as the line, no
+              underline until hovered. Their own clock stays the default. */}
+          {tz ? (
+            <>
+              {" · "}
+              {zonePick ? (
+                <select
+                  autoFocus
+                  value={tz}
+                  onChange={(e) => changeTz(e.target.value)}
+                  onBlur={() => setZonePick(false)}
+                  aria-label={T("Time zone", "Zeitzone", "Fuseau horaire")}
+                  className="bg-transparent text-[12px] max-w-[60vw]"
+                  style={{ color: "var(--w3)", border: "none", outline: "none", padding: 0 }}
+                >
+                  {zoneOptions.map((o) => (
+                    <option key={o.z} value={o.z}>{o.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setZonePick(true)}
+                  className="hover:underline"
+                  style={{ color: "inherit", background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", textUnderlineOffset: 2 }}
+                  title={T("Change time zone", "Zeitzone ändern", "Changer de fuseau")}
+                >
+                  {tzLine}
+                </button>
+              )}
+            </>
+          ) : null}
         </span>
       </p>
       {/* The list only becomes its own scroll region once it sits BESIDE the

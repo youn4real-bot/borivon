@@ -6,7 +6,8 @@ import { keepAlive } from "@/lib/keepAlive";
 import { getAdminUserId, tgSend } from "@/lib/telegram";
 import { sendBookingChangedEmail } from "@/lib/email";
 import { loadBookingConfig, looksLikeManageToken } from "@/lib/bookingConfig";
-import { generateSlots, groupByDay, slotLabel, followUpsFor, zoneOffsetMinutes, type BookingKind, type Interval } from "@/lib/booking";
+import { loadEventType, overlayEventType, looksLikeSlug } from "@/lib/bookingEventTypes";
+import { generateSlots, groupByDay, slotLabel, followUpsFor, zoneOffsetMinutes, validTimeZone, type BookingKind, type Interval } from "@/lib/booking";
 
 /**
  * SELF-SERVICE booking management — the "reschedule or cancel" link.
@@ -34,7 +35,16 @@ type Row = {
   calendar_event_id: string | null;
   /** The language they booked in. Null for admin-entered bookings → English. */
   lang: "fr" | "en" | "de" | null;
+  /** Which link it came through (e.g. "workshop"): decides hours, length and clock. */
+  event_type?: string | null;
 };
+
+/** The type's own rules (the workshop: German hours, 30 min), or the global ones. */
+async function availabilityFor(row: Row) {
+  const { availability, accepting } = await loadBookingConfig();
+  const et = row.event_type && looksLikeSlug(row.event_type) ? await loadEventType(row.event_type) : null;
+  return { av: overlayEventType(availability, et), accepting, et };
+}
 
 const NOT_FOUND = NextResponse.json({ error: "not_found" }, { status: 404 });
 
@@ -52,6 +62,9 @@ const BASE_COLS = "id,kind,name,email,company,starts_at,ends_at,status,meet_link
  */
 async function findByToken(token: string): Promise<Row | null> {
   const db = getServiceSupabase();
+  // event_type is optional too (booking_event_types.sql): it must never cost the lookup.
+  const full = await db.from("bookings").select(`${BASE_COLS},lang,event_type`).eq("manage_token", token).maybeSingle();
+  if (!full.error) return (full.data as Row | null) ?? null;
   const withLang = await db.from("bookings").select(`${BASE_COLS},lang`).eq("manage_token", token).maybeSingle();
   if (!withLang.error) return (withLang.data as Row | null) ?? null;
 
@@ -103,7 +116,7 @@ export async function GET(req: NextRequest) {
   const row = await findByToken(token);
   if (!row) return NOT_FOUND;
 
-  const { availability: av } = await loadBookingConfig();
+  const { av } = await availabilityFor(row);
   const now = Date.now();
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
   const slotMs = av.slotMinutes * 60_000;
@@ -127,7 +140,7 @@ export async function GET(req: NextRequest) {
     slotMinutes: av.slotMinutes,
     days: groupByDay(slots, av.tzOffsetMinutes).map((d) => ({
       day: d.day,
-      slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, zoneOffsetMinutes(BORIVON_TZ, s)) })),
+      slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, zoneOffsetMinutes(av.tz ?? BORIVON_TZ, s)) })),
     })),
   });
 }
@@ -153,6 +166,10 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getServiceSupabase();
+  const { av, accepting, et } = await availabilityFor(row);
+  // The clock they are looking at, so the email repeats it (shape-checked: public input).
+  const viewTz = validTimeZone(body?.tz) ?? undefined;
+  const founderTz = et?.tz;
 
   /* ─────────────────────────────── cancel ──────────────────────────────── */
   if (action === "cancel") {
@@ -170,11 +187,13 @@ export async function POST(req: NextRequest) {
         try {
           await sendBookingChangedEmail({
             to: row.email, name: row.name, startsAt: row.starts_at, cancelled: true, manageToken: token,
-            lang: row.lang ?? undefined,
+            lang: row.lang ?? undefined, tz: viewTz,
+            // a workshop call is re-booked on the workshop page, never on the general /book
+            ...(row.event_type === "workshop" ? { rebookPath: "/workshop#termin" } : {}),
           });
         } catch { /* the booking is already cancelled; the email is a courtesy */ }
       }
-      await notifyFounder(`Booking cancelled — ${row.kind}`, row, Date.parse(row.starts_at));
+      await notifyFounder(`Booking cancelled — ${row.kind}`, row, Date.parse(row.starts_at), founderTz);
       // Their follow-up chase is meaningless now. Drop the ones still pending.
       await dropFollowUps(row);
     });
@@ -185,7 +204,6 @@ export async function POST(req: NextRequest) {
   const at = Number(body?.at);
   if (!Number.isFinite(at)) return NextResponse.json({ error: "bad_slot" }, { status: 400 });
 
-  const { availability: av, accepting } = await loadBookingConfig();
   if (!accepting) return NextResponse.json({ error: "not_accepting" }, { status: 409 });
 
   const now = Date.now();
@@ -265,11 +283,11 @@ export async function POST(req: NextRequest) {
       try {
         await sendBookingChangedEmail({
           to: row.email, name: row.name, startsAt: new Date(at).toISOString(), cancelled: false, manageToken: token,
-          lang: row.lang ?? undefined,
+          lang: row.lang ?? undefined, tz: viewTz,
         });
       } catch { /* the move already stands; the email is a courtesy */ }
     }
-    await notifyFounder(`Booking moved — ${row.kind}`, row, at);
+    await notifyFounder(`Booking moved — ${row.kind}`, row, at, founderTz);
     // Re-arm the chase around the NEW time.
     await dropFollowUps(row);
     await addFollowUps(row, at);
@@ -280,13 +298,13 @@ export async function POST(req: NextRequest) {
 
 /* ── shared bits ──────────────────────────────────────────────────────────── */
 
-async function notifyFounder(headline: string, row: Row, at: number): Promise<void> {
+async function notifyFounder(headline: string, row: Row, at: number, tz?: string): Promise<void> {
   try {
     const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
     if (!chatId) return;
     const when = new Intl.DateTimeFormat("en-GB", {
-      weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: BORIVON_TZ,
-    }).format(new Date(at));
+      weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: tz ?? BORIVON_TZ,
+    }).format(new Date(at)) + (tz ? ` (${tz.split("/").pop()?.replace(/_/g, " ")})` : "");
     await tgSend(chatId, [headline, row.company || row.name, when].join("\n"));
   } catch { /* a missed ping must never fail the change itself */ }
 }

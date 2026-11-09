@@ -105,6 +105,12 @@ export function zoneOffsetMinutes(tz: string, at: number = Date.now()): number {
   }
 }
 
+/** An IANA zone the runtime knows, or null. Public input, so shape-checked before Intl sees it. */
+export function validTimeZone(v: unknown): string | null {
+  if (typeof v !== "string" || v.length > 64 || !/^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+){0,2}$/.test(v)) return null;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: v }); return v; } catch { return null; }
+}
+
 /** "HH:MM" → minutes past midnight, or null if malformed. */
 export function parseHm(hm: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hm.trim());

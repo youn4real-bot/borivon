@@ -92,7 +92,8 @@ export function BookingManage({ token }: { token: string }) {
       const r = await fetch("/api/book/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action, ...(action === "reschedule" ? { at } : {}) }),
+        // tz: this page shows the visitor's own clock, so the email repeats that clock
+        body: JSON.stringify({ token, action, tz: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } })(), ...(action === "reschedule" ? { at } : {}) }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {

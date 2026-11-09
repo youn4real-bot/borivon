@@ -1,5 +1,5 @@
 import { getServiceSupabase } from "@/lib/supabase";
-import type { BookingKind } from "@/lib/booking";
+import { zoneOffsetMinutes, type BookingKind } from "@/lib/booking";
 
 /**
  * Booking EVENT TYPES — the Calendly idea of "one shareable link per kind of
@@ -27,9 +27,16 @@ export type BookingEventType = {
   bufferMinutes: number | null;
   minNoticeHours: number | null;
   horizonDays: number | null;
+  /** Code-only: this type's own working hours, read in `tz` (replaces the global week). */
+  week?: Record<number, string[]>;
+  /** Code-only: the IANA zone `week` is written in (default: Morocco, the global row's zone). */
+  tz?: string;
   title: { en: string; de: string; fr: string };
   blurb: { en: string; de: string; fr: string };
 };
+
+/** Workshop calls (founder 2026-11-09): 3 hours each morning and evening, German time, every day. */
+const WORKSHOP_HOURS = ["09:00-12:00", "17:00-20:00"];
 
 /**
  * The three that always exist. Also the fallback copy when a DB row leaves the
@@ -83,17 +90,20 @@ const BUILT_IN: Record<string, BookingEventType> = {
   // workshop seat. /workshop → "Platz anfragen" → this calendar. Code-only: no DB row needed.
   workshop: {
     slug: "workshop", kind: "clinic", active: true,
-    // founder: book at most 3 days ahead, otherwise they forget the call
-    slotMinutes: 15, bufferMinutes: null, minNoticeHours: null, horizonDays: 2, // today + 2 = 3 days (loop is inclusive)
+    // founder: 30-min calls; a booking blocks exactly its 30 minutes (no buffer);
+    // book at most 3 days ahead (today + 2, the loop is inclusive), so today needs a short notice.
+    slotMinutes: 30, bufferMinutes: 0, minNoticeHours: 2, horizonDays: 2,
+    week: { 0: WORKSHOP_HOURS, 1: WORKSHOP_HOURS, 2: WORKSHOP_HOURS, 3: WORKSHOP_HOURS, 4: WORKSHOP_HOURS, 5: WORKSHOP_HOURS, 6: WORKSHOP_HOURS },
+    tz: "Europe/Berlin",
     title: {
       en: "Workshop in Morocco — request a seat",
       de: "Workshop in Marokko — Platz anfragen",
       fr: "Atelier au Maroc — demander une place",
     },
     blurb: {
-      en: "15 minutes: we check whether your facility qualifies for a seat in the workshop.",
-      de: "15 Minuten: Wir prüfen, ob Ihre Einrichtung für einen Platz im Workshop in Frage kommt.",
-      fr: "15 minutes : nous vérifions si votre établissement peut obtenir une place à l'atelier.",
+      en: "30 minutes: we check whether your facility qualifies for a seat in the workshop.",
+      de: "30 Minuten: Wir prüfen, ob Ihre Einrichtung für einen Platz im Workshop in Frage kommt.",
+      fr: "30 minutes : nous vérifions si votre établissement peut obtenir une place à l'atelier.",
     },
   },
 };
@@ -149,6 +159,9 @@ function fromRow(row: Row): BookingEventType | null {
     bufferMinutes: num(row.buffer_minutes, 0, 120),
     minNoticeHours: num(row.min_notice_hours, 0, 720),
     horizonDays: num(row.horizon_days, 1, 90),
+    // hours + zone are code-only; a stored row for a built-in keeps them
+    ...(base?.week ? { week: base.week } : {}),
+    ...(base?.tz ? { tz: base.tz } : {}),
     title: {
       en: pick("title_en", fbTitle.en),
       de: pick("title_de", fbTitle.de),
@@ -201,6 +214,7 @@ export async function loadEventType(slug: string): Promise<BookingEventType | nu
  */
 export function overlayEventType<T extends {
   slotMinutes: number; bufferMinutes?: number; minNoticeHours: number; horizonDays: number;
+  week?: Record<number, string[]>; tz?: string; tzOffsetMinutes?: number;
 }>(av: T, et: BookingEventType | null): T {
   if (!et) return av;
   return {
@@ -209,6 +223,9 @@ export function overlayEventType<T extends {
     ...(et.bufferMinutes !== null ? { bufferMinutes: et.bufferMinutes } : {}),
     ...(et.minNoticeHours !== null ? { minNoticeHours: et.minNoticeHours } : {}),
     ...(et.horizonDays !== null ? { horizonDays: et.horizonDays } : {}),
+    ...(et.week ? { week: et.week } : {}),
+    // Its own zone: the per-day offset (generateSlots) and the day grouping both follow it.
+    ...(et.tz ? { tz: et.tz, tzOffsetMinutes: zoneOffsetMinutes(et.tz) } : {}),
   };
 }
 

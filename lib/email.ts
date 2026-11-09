@@ -458,14 +458,23 @@ export async function sendDocReminderEmail(
  * up, which is the single biggest lever on no-shows.
  * ---------------------------------------------------------------------------- */
 
-/** Long local date+time, in the recipient's language. */
-function whenLine(startsAt: string, lang: "fr" | "en" | "de"): string {
+/**
+ * Long date+time, in the recipient's language AND clock, with the clock named.
+ * `tz` = the zone they saw the times in when booking. Without it: German bookers
+ * (German facilities, the workshop) get German time, everyone else Morocco time.
+ */
+export function whenLine(startsAt: string, lang: "fr" | "en" | "de", tz?: string): string {
   const loc = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
+  const zone = tz || (lang === "de" ? "Europe/Berlin" : "Africa/Casablanca");
+  const city = zone.split("/").pop()?.replace(/_/g, " ") ?? zone;
+  const label = zone === "Africa/Casablanca" ? (lang === "de" ? "Marokko" : lang === "fr" ? "Maroc" : "Morocco")
+    : zone === "Europe/Berlin" ? (lang === "de" ? "deutsche Zeit" : lang === "fr" ? "heure allemande" : "German time")
+    : city;
   try {
     return new Intl.DateTimeFormat(loc, {
       weekday: "long", day: "numeric", month: "long",
-      hour: "2-digit", minute: "2-digit", timeZone: "Africa/Casablanca",
-    }).format(new Date(startsAt)) + (lang === "de" ? " (Marokko)" : lang === "fr" ? " (Maroc)" : " (Morocco)");
+      hour: "2-digit", minute: "2-digit", timeZone: zone,
+    }).format(new Date(startsAt)) + ` (${label})`;
   } catch { return startsAt; }
 }
 
@@ -481,7 +490,7 @@ function manageBlock(token: string, lang: "fr" | "en" | "de"): string {
 
 export async function sendBookingConfirmedEmail(opts: {
   to: string; name: string; startsAt: string; meetLink: string | null;
-  manageToken: string; lang?: "fr" | "en" | "de";
+  manageToken: string; lang?: "fr" | "en" | "de"; tz?: string;
 }): Promise<void> {
   const r = getResend(); if (!r) return;
   const lang = opts.lang ?? "en";
@@ -500,7 +509,7 @@ export async function sendBookingConfirmedEmail(opts: {
           ${T("Hi", "Hallo", "Bonjour")} ${esc(opts.name)},
         </p>
         <p style="margin:0 0 18px;font-size:16px;color:#fff;font-weight:600;">
-          ${esc(whenLine(opts.startsAt, lang))}
+          ${esc(whenLine(opts.startsAt, lang, opts.tz))}
         </p>
         ${opts.meetLink ? `
         <a href="${esc(opts.meetLink)}" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
@@ -555,7 +564,9 @@ export async function sendBookingReminderEmail(opts: {
 
 export async function sendBookingChangedEmail(opts: {
   to: string; name: string; startsAt: string; cancelled: boolean;
-  manageToken: string; lang?: "fr" | "en" | "de";
+  manageToken: string; lang?: "fr" | "en" | "de"; tz?: string;
+  /** Where "book another time" leads (a workshop call → the workshop calendar). */
+  rebookPath?: string;
 }): Promise<void> {
   const r = getResend(); if (!r) return;
   const lang = opts.lang ?? "en";
@@ -580,11 +591,11 @@ export async function sendBookingChangedEmail(opts: {
               "Ihr Termin wurde abgesagt. Sie können jederzeit einen neuen buchen.",
               "Votre rendez-vous a été annulé. Vous pouvez en réserver un autre quand vous voulez.")}
         </p>
-        <a href="${BASE}/book" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+        <a href="${BASE}${esc(opts.rebookPath ?? "/book")}" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
           ${T("Book another time", "Neuen Termin buchen", "Réserver un autre créneau")} →
         </a>` : `
         <p style="margin:0 0 18px;font-size:16px;color:#fff;font-weight:600;">
-          ${esc(whenLine(opts.startsAt, lang))}
+          ${esc(whenLine(opts.startsAt, lang, opts.tz))}
         </p>
         <p style="margin:0;font-size:13px;color:#a0a09a;line-height:1.6;">
           ${T("Your calendar invitation has been updated.", "Ihre Kalendereinladung wurde aktualisiert.", "Votre invitation a été mise à jour.")}
