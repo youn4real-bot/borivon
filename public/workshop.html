@@ -22,321 +22,475 @@
 @font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/lexend-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 </style>
 
+<script>document.documentElement.classList.add('js');setTimeout(function(){if(!window.__bvMotion)document.documentElement.classList.remove('js')},2500);</script>
+<link rel="preload" href="/pflege/assets/fonts/ebgaramond-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/pflege/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/pflege/assets/fonts/ebgaramond-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-/* Workshop page = the acquisition.com Scaling Workshop page layout, 1:1, for care facilities (founder 2026-11-08).
-   The message: 2 days of tactical work on THEIR staffing hurdles, building their plan with them.
-   Meeting nurses on site is only a bonus. Fonts = borivon.com: Playfair Display headings (gold italics), Lexend body. */
-:root{--night:#0d0c0a;--cream:#f4eee3;--cream2:#faf7f1;--card:#ffffff;--ink:#16140f;--soft:#5f5a50;--line:#e6dccb;
---gold:#c9a240;--gold-d:#a8822c;--gold-grad:linear-gradient(92deg,#f0d18c 0%,#c9a240 45%,#e7bf6a 100%);
---font:"Lexend","Segoe UI",system-ui,sans-serif;--display:"Playfair Display","Times New Roman",Georgia,serif}
+/* Workshop page, premium edition (founder 2026-11-09: "screams premium, not AI slop, not overwhelming").
+   Look: editorial consulting sites (warm paper, one big serif, hairlines, real whitespace, calm motion).
+   Fonts: EB Garamond (headlines) + Inter (text), both OFL, self-hosted: no third-party request.
+   Copy is the founder's, word for word. Motion stays quiet and switches off for "reduce motion". */
+@font-face{font-family:"EB Garamond";font-style:normal;font-weight:400 800;font-display:swap;src:url(/pflege/assets/fonts/ebgaramond-latin.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"EB Garamond";font-style:normal;font-weight:400 800;font-display:swap;src:url(/pflege/assets/fonts/ebgaramond-latin-ext.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C4,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"EB Garamond";font-style:italic;font-weight:400 800;font-display:swap;src:url(/pflege/assets/fonts/ebgaramond-italic-latin.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"EB Garamond";font-style:italic;font-weight:400 800;font-display:swap;src:url(/pflege/assets/fonts/ebgaramond-italic-latin-ext.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C4,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url(/pflege/assets/fonts/inter-latin.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url(/pflege/assets/fonts/inter-latin-ext.woff2) format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C4,U+2113,U+2C60-2C7F,U+A720-A7FF}
+
+:root{
+ --paper:#f4f1ea;--paper2:#ebe6db;--white:#fbfaf6;
+ --ink:#15130f;--ink2:#3b372f;--mute:#837c6f;--faint:#c2bbad;--line:#ddd6c8;--line2:#cfc7b7;
+ --night:#12110e;--on-night:#e9e4d8;--on-night2:#a59e90;--night-line:#2c2924;
+ --gold:#a8843a;--gold-d:#8a6a28;--gold-l:#d4b676;
+ --serif:"EB Garamond","Iowan Old Style","Palatino Linotype",Georgia,serif;
+ --sans:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+ --ease:cubic-bezier(.16,1,.3,1);
+}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--night);color:var(--ink);font-family:var(--font);font-weight:300;font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink2);font:400 17px/1.65 var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+::selection{background:#e6d6ae;color:var(--ink)}
 a{color:inherit}
-h1,h2,h3{margin:0;font-family:var(--display);font-weight:600;letter-spacing:-.01em;line-height:1.08;text-wrap:balance}
-h1 em,h2 em,.big em{font-style:italic;font-weight:500;color:var(--gold)}
-.w{max-width:1080px;margin:0 auto;padding:0 20px}
-.narrow{max-width:760px;margin:0 auto;padding:0 20px}
-.gold-text{background:var(--gold-grad);-webkit-background-clip:text;background-clip:text;color:transparent}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;font-family:var(--font);font-weight:500;font-size:1.05rem;color:#1a160e;background:var(--gold-grad);border-radius:999px;padding:18px 42px;box-shadow:0 14px 34px -12px rgba(201,162,64,.6);transition:transform .15s}
-.btn:hover{transform:translateY(-1px)}
-.caps{font-size:.76rem;letter-spacing:.14em;text-transform:uppercase;font-weight:500}
-.bar{background:#000;color:#e9e4da;text-align:center;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;font-weight:500;padding:10px 16px}
-.bar i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--gold);margin-right:10px;vertical-align:1px}
-.bar span{color:#9a948a}
+img{max-width:100%}
+.c{max-width:1320px;margin:0 auto;padding:0 clamp(20px,4.4vw,64px)}
+@media (max-width:560px){main p,main li{-webkit-hyphens:auto;hyphens:auto}}
+
+/* type */
+.h2{margin:0;font:500 clamp(2.15rem,1.3rem + 3.6vw,4.4rem)/1.02 var(--serif);letter-spacing:-.022em;color:var(--ink);text-wrap:balance}
+.h2 em,.h1 em{font-style:italic;font-weight:400;color:var(--gold-d)}
+.lbl{display:flex;align-items:center;gap:12px;margin:0 0 24px;font:500 12px/1 var(--sans);letter-spacing:.17em;text-transform:uppercase;color:var(--gold-d)}
+.lbl::before{content:"";width:28px;height:1px;background:currentColor;opacity:.75}
+.lbl.light{color:var(--gold-l)}
+.ar{width:20px;height:10px;flex:none;overflow:visible}
+.ar path{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* buttons: ink, square-ish, the arrow slides */
+.btn{position:relative;display:inline-flex;align-items:center;gap:16px;height:58px;padding:0 26px 0 28px;overflow:hidden;background:var(--ink);color:var(--paper);border-radius:3px;font:500 16px/1 var(--sans);letter-spacing:.005em;text-decoration:none;isolation:isolate}
+.btn::before{content:"";position:absolute;inset:0;z-index:-1;background:#2c271f;transform:translateY(101%);transition:transform .6s var(--ease)}
+.btn:hover::before{transform:none}
+.btn .ar{color:var(--gold-l);transition:transform .6s var(--ease)}
+.btn:hover .ar{transform:translateX(5px)}
+.btn:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.btn.light{background:var(--paper);color:var(--ink)}
+.btn.light::before{background:#fff}
+.btn.light .ar{color:var(--gold-d)}
+
+/* top bar + nav */
+.bar{background:var(--night);color:#cfc8b9;text-align:center;font:500 11px/1.4 var(--sans);letter-spacing:.14em;text-transform:uppercase;padding:11px 16px}
+.bar i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--gold-l);margin-right:11px;vertical-align:1px;animation:pulse 2.6s infinite}
+.bar span{color:#8f887b}
 .bar b{font-weight:inherit}.bar .sm{display:none}
 @media (max-width:640px){.bar .lg{display:none}.bar .sm{display:inline}}
-.hero{background:radial-gradient(70% 60% at 50% 0%,rgba(201,162,64,.16),transparent 70%),linear-gradient(180deg,#1a150e 0%,var(--night) 70%);color:#fff;text-align:center;padding:28px 0 64px}
-.logo{font-family:var(--display);font-style:italic;font-weight:600;font-size:1.55rem;color:#fff;text-decoration:none}
-.logo b{color:var(--gold);font-style:normal}
-.hero h1{font-size:clamp(1.4rem,6.6vw,4.6rem);margin-top:18px} /* vw-sized so "Gesundheitseinrichtungen" fits on a phone */
-.hero .h1b{display:block;color:#fff;font-size:clamp(1.4rem,1rem + 2vw,2.3rem);margin-top:12px}
-.for{max-width:760px;margin:20px auto 0;color:#cfc8bb;font-size:clamp(1rem,.92rem + .4vw,1.2rem);line-height:1.55}
-.for b{color:#fff;font-weight:500}
-.sp b{color:var(--ink);font-weight:500}
-.vsl{position:relative;max-width:860px;margin:34px auto 0;aspect-ratio:16/9;border-radius:18px;overflow:hidden;background:radial-gradient(80% 90% at 80% 10%,rgba(201,162,64,.22),transparent 60%),linear-gradient(160deg,#1d1912,#0b0a08);box-shadow:0 40px 100px -30px rgba(0,0,0,.9);border:1px solid rgba(201,162,64,.28)}
-.vsl .in{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;text-align:left;padding:clamp(22px,5vw,60px)}
-.vsl .big{font-family:var(--display);font-weight:600;font-size:clamp(1.45rem,.7rem + 3.1vw,3.1rem);line-height:1.04;letter-spacing:-.015em;color:#fff}
-.vsl .big span{display:block}
-@media (max-width:640px){.vsl{aspect-ratio:auto}.vsl .in{position:relative;inset:auto;padding:30px 22px}}
-.vsl .steps{display:flex;flex-wrap:wrap;gap:10px;margin-top:clamp(16px,3vw,30px)}
-.vsl .steps span{border:1px solid rgba(201,162,64,.4);color:#e9dfc8;border-radius:999px;padding:7px 14px;font-size:clamp(.72rem,.6rem + .4vw,.9rem)}
-.hero .btn{margin-top:34px}
-.trust{margin-top:16px;font-size:.88rem;color:#b9b2a6}
-.trust b{color:#fff;font-weight:500}
-.intro{max-width:720px;margin:34px auto 0;color:#e6e0d4;font-size:1.08rem}
-.cream{background:var(--cream);padding:clamp(64px,8vw,104px) 0}
-.cream2{background:var(--cream2);padding:clamp(64px,8vw,104px) 0}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,56px);align-items:center}
-@media (max-width:820px){.two{grid-template-columns:1fr}}
-.photo{border-radius:16px;overflow:hidden;aspect-ratio:4/3.4;box-shadow:0 30px 70px -30px rgba(0,0,0,.35)}
-.photo img{width:100%;height:100%;object-fit:cover;object-position:60% 25%;display:block}
-.lead2{font-family:var(--display);font-size:clamp(1.7rem,1.2rem + 1.8vw,2.5rem);font-weight:600;line-height:1.15}
-.sym-h{margin:26px 0 12px;color:var(--soft)}
-.sym{list-style:none;margin:0;padding:0 0 0 18px;border-left:2px solid var(--line);display:grid;gap:14px}
-.sym li{color:#2c2820}
-.after{margin-top:26px;color:var(--soft)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(212,182,118,.55)}70%{box-shadow:0 0 0 7px rgba(212,182,118,0)}100%{box-shadow:0 0 0 0 rgba(212,182,118,0)}}
+.nav{position:sticky;top:0;z-index:50;background:rgba(244,241,234,.97);border-bottom:1px solid transparent;transition:transform .55s var(--ease),border-color .4s}
+.nav.solid{border-bottom-color:var(--line)}
+.nav.hide{transform:translateY(-101%)}
+.nav .c{display:flex;align-items:center;justify-content:space-between;height:70px}
+.logo{font:italic 500 1.65rem/1 var(--serif);letter-spacing:-.01em;color:var(--ink);text-decoration:none}
+.logo b{font-style:normal;color:var(--gold)}
+.nav .btn{height:44px;padding:0 18px 0 20px;font-size:14.5px;gap:12px}
+@media (max-width:420px){.nav .btn{padding:0 14px;font-size:14px}.nav .btn .ar{display:none}}
+
+/* hero */
+.hero{padding:clamp(52px,8vw,120px) 0 0}
+.h1{margin:0;font-family:var(--serif);font-weight:500;color:var(--ink);letter-spacing:-.03em}
+.h1 .kick{display:block;margin:0 0 .55em;font-weight:400;font-size:clamp(1.3rem,.95rem + 1.6vw,2.3rem);line-height:1.15;letter-spacing:-.012em;color:var(--ink2)}
+.h1 .main{display:block;font-size:clamp(2.5rem,1rem + 6.4vw,7.6rem);line-height:.97;text-wrap:balance}
+.h1 em{display:block}
+.hero-row{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:clamp(36px,7vw,128px);align-items:end;margin-top:clamp(44px,5.5vw,80px)}
+@media (max-width:900px){.hero-row{grid-template-columns:1fr}}
+.for{margin:0 0 30px;max-width:31em;font-size:clamp(1.05rem,.98rem + .3vw,1.22rem);line-height:1.6;color:var(--ink2)}
+.for b{display:block;margin-top:6px;color:var(--ink);font-weight:500}
+.status{display:flex;align-items:center;gap:10px;margin:18px 0 0;font-size:14px;color:var(--mute)}
+.status i{flex:none;width:7px;height:7px;border-radius:50%;background:var(--gold)}
+.meta{display:grid;grid-template-columns:1fr 1fr;column-gap:32px;margin:0}
+.meta div{border-top:1px solid var(--line2);padding:15px 0 17px}
+.meta div:nth-last-child(-n+2){border-bottom:1px solid var(--line2)}
+.meta dt{font-size:13px;color:var(--mute);margin:0 0 5px}
+.meta dd{margin:0;color:var(--ink);font-size:1.02rem;line-height:1.4}
+@media (max-width:560px){.meta{grid-template-columns:1fr}.meta div:nth-last-child(2){border-bottom:0}}
+.hmedia{position:relative;margin:clamp(52px,6vw,92px) 0 0;aspect-ratio:16/7;overflow:hidden;border-radius:4px;background:#3a2a1b}
+.hmedia picture,.hmedia .pi{position:absolute;inset:0}
+.hmedia img{display:block;width:100%;height:100%;object-fit:cover}
+.hmedia .pi::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(18,17,14,.74) 0%,rgba(18,17,14,.38) 42%,rgba(18,17,14,0) 72%),linear-gradient(0deg,rgba(18,17,14,.42),rgba(18,17,14,0) 55%)}
+.say{position:absolute;left:clamp(22px,4.4vw,72px);right:22px;bottom:clamp(24px,4.4vw,64px);z-index:1;color:#fff}
+.say p{margin:0;max-width:15em;font:500 clamp(1.55rem,.9rem + 2.4vw,3.2rem)/1.07 var(--serif);letter-spacing:-.016em}
+.say p span{display:block}
+.say p em{display:block;font-style:italic;font-weight:400;color:var(--gold-l)}
+.say ul{display:flex;flex-wrap:wrap;gap:10px 30px;margin:24px 0 0;padding:0;list-style:none;font:500 11.5px/1.2 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:#ece4d3}
+.say li::before{content:"";display:inline-block;width:18px;height:1px;margin-right:10px;vertical-align:middle;background:var(--gold-l)}
+@media (max-width:720px){.hmedia{aspect-ratio:4/5}.hmedia .pi::after{background:linear-gradient(0deg,rgba(18,17,14,.86) 0%,rgba(18,17,14,.42) 52%,rgba(18,17,14,.04) 100%)}}
+.lede{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:24px 40px;padding:clamp(60px,8vw,128px) 0 clamp(64px,8vw,128px)}
+.lede p:not(.lbl){margin:0;font:400 clamp(1.45rem,1rem + 1.6vw,2.4rem)/1.28 var(--serif);letter-spacing:-.012em;color:var(--ink);text-wrap:pretty}
+.lede .lbl{margin-top:.9em}
+@media (max-width:900px){.lede{grid-template-columns:1fr}}
+
+/* the facility ticker */
+.marq{overflow:hidden;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:24px 0;white-space:nowrap}
+.marq .t{display:inline-flex;animation:marq 70s linear infinite;will-change:transform}
+.marq span{display:inline-flex;align-items:center;font:italic 400 clamp(1.35rem,1rem + 1.2vw,2.1rem)/1.1 var(--serif);color:var(--ink);padding-right:30px}
+.marq span::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--gold);margin-left:30px}
+.marq:hover .t{animation-play-state:paused}
+@keyframes marq{to{transform:translateX(-50%)}}
+
+/* sections */
+.sec{padding:clamp(92px,11vw,172px) 0}
+.sec.alt{background:var(--paper2)}
+.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(44px,7vw,128px);align-items:start}
+@media (min-width:901px){.stick{position:sticky;top:112px}}
+@media (max-width:900px){.split{grid-template-columns:1fr}}
+.head2{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,4fr);gap:28px 48px;align-items:end;margin-bottom:clamp(52px,6vw,92px)}
+.hp{margin:0;max-width:30em;font-size:1.1rem;color:var(--ink2)}
+@media (max-width:900px){.head2{grid-template-columns:1fr}}
+.media{position:relative;margin:0;overflow:hidden;border-radius:4px;background:#d8cfbe}
+.media .pi{width:100%;height:100%}
+.media img{display:block;width:100%;height:100%;object-fit:cover}
+.media.tall{aspect-ratio:4/5;max-width:540px;margin-top:44px}
+.media.sq{aspect-ratio:1/1}
+.media.wide{aspect-ratio:4/3;background:#2a2620}
+
+/* problem: the six signs light up one by one */
+.small{margin:0 0 18px;font-size:14px;color:var(--mute)}
+.lines{list-style:none;margin:0;padding:0}
+.lines li{padding:.3em 0;font:500 clamp(1.55rem,1rem + 1.9vw,2.65rem)/1.14 var(--serif);letter-spacing:-.018em;color:var(--ink);transition:color .8s var(--ease)}
+.js .lines li{color:var(--faint)}
+.js .lines li.on{color:var(--ink)}
+.after{margin:44px 0 0;max-width:34em;font-size:1.13rem}
 .after b{color:var(--ink);font-weight:500}
-.sec-h{text-align:center;margin-bottom:clamp(30px,4vw,48px)}
-.sec-h .caps{color:var(--gold-d)}
-.sec-h h2{font-size:clamp(2rem,1.3rem + 2.6vw,3.2rem);margin-top:12px}
-.sec-h p{color:var(--soft);margin:12px auto 0;max-width:560px}
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media (max-width:720px){.cards{grid-template-columns:1fr}}
-.card{background:var(--card);border-radius:16px;padding:26px 26px 24px;box-shadow:0 10px 30px -18px rgba(60,45,20,.35)}
-.card .n{font-family:var(--display);font-style:italic;font-weight:600;font-size:1.8rem;color:var(--gold-d);line-height:1}
-.card h3{font-family:var(--font);font-weight:500;font-size:.84rem;letter-spacing:.12em;text-transform:uppercase;margin:10px 0 10px}
-.card p{margin:0;color:var(--soft)}
-.ticks{list-style:none;margin:0;padding:0;display:grid;gap:16px}
-.ticks li{display:grid;grid-template-columns:22px 1fr;gap:12px;color:#2c2820}
-.ticks li::before{content:"✓";color:var(--gold-d);font-weight:600}
-.bonus{display:grid;grid-template-columns:160px 1fr;gap:22px;align-items:center;background:var(--card);border:1.5px dashed var(--gold);border-radius:18px;padding:18px;margin-top:30px}
-@media (max-width:560px){.bonus{grid-template-columns:1fr}}
-.bonus img{width:100%;aspect-ratio:1/1;object-fit:cover;object-position:50% 20%;border-radius:12px;display:block}
-.bonus .caps{color:var(--gold-d)}
-.bonus h3{font-size:1.5rem;margin:6px 0 6px}
-.bonus p{margin:0;color:var(--soft)}
-.band{background:var(--night);color:#fff;padding:clamp(64px,8vw,100px) 0;text-align:center}
-.band h2{font-size:clamp(2rem,1.3rem + 2.6vw,3.1rem)}
-.band p{color:#c8c1b4;max-width:640px;margin:18px auto 0}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:44px}
-@media (max-width:720px){.stats{grid-template-columns:1fr}}
-.stats div{border-top:1px solid rgba(201,162,64,.35);padding-top:20px}
-.stats .caps{display:block;margin:0 0 14px;color:var(--gold);font-size:.76rem}
-.stats b{display:block;font-family:var(--display);font-size:clamp(2.8rem,2rem + 2.4vw,3.9rem);font-weight:600;line-height:1}
-.stats span{display:block;margin-top:10px;color:#c8c1b4;font-size:.95rem}
-.src{margin:30px auto 0;font-size:.72rem;color:#7d776c;max-width:720px}
+
+/* four areas */
+.areas{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(20px,2.4vw,36px)}
+@media (min-width:1101px){.areas article:nth-child(even){margin-top:76px}}
+@media (max-width:1100px){.areas{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:52px}}
+@media (max-width:600px){.areas{grid-template-columns:1fr}.areas .media.sq{aspect-ratio:16/11}}
+.areas .no{display:block;margin:24px 0 10px;font:500 12.5px/1 var(--sans);letter-spacing:.14em;color:var(--gold-d)}
+.areas h3{margin:0 0 10px;font:500 clamp(1.45rem,1.2rem + .6vw,1.85rem)/1.12 var(--serif);letter-spacing:-.01em;color:var(--ink)}
+.areas p{margin:0;font-size:1rem;color:var(--ink2)}
+
+/* the two days */
+.rows{list-style:none;margin:0;padding:0}
+.rows li{display:grid;grid-template-columns:52px 1fr;gap:10px;padding:23px 0 25px;border-top:1px solid var(--line2)}
+.rows li:last-child{border-bottom:1px solid var(--line2)}
+.rows span{font:500 12.5px/2.1 var(--sans);letter-spacing:.14em;color:var(--gold-d)}
+.rows p{margin:0;font-size:clamp(1.06rem,1rem + .3vw,1.24rem);line-height:1.5;color:var(--ink)}
+.bonus{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);margin-top:clamp(72px,9vw,132px);overflow:hidden;border-radius:4px;background:var(--night);color:var(--on-night)}
+.bonus .media{border-radius:0;min-height:360px;background:#2a2620}
+.bonus .bt{align-self:center;padding:clamp(30px,5.4vw,80px)}
+.bonus h3{margin:0 0 18px;font:500 clamp(1.85rem,1.2rem + 2.2vw,3.2rem)/1.05 var(--serif);letter-spacing:-.016em;color:#f6f1e6}
+.bonus p{margin:0;max-width:33em;font-size:1.08rem;color:var(--on-night2)}
+@media (max-width:820px){.bonus{grid-template-columns:1fr}.bonus .media{min-height:0;aspect-ratio:16/10}}
+
+/* why Morocco */
+.dark{background:var(--night);color:var(--on-night)}
+.dark .h2{color:#f4efe4}
+.dark .h2 em{color:var(--gold-l)}
+.dark .hp{color:var(--on-night2)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(28px,3vw,52px)}
+@media (max-width:820px){.stats{grid-template-columns:1fr;row-gap:56px}}
+.stats .cap{margin:28px 0 10px;font:500 12px/1 var(--sans);letter-spacing:.17em;text-transform:uppercase;color:var(--gold-l)}
+.stats b{display:block;font:400 clamp(3.4rem,2.2rem + 3.6vw,6rem)/1 var(--serif);letter-spacing:-.025em;color:#fff;font-variant-numeric:lining-nums}
+.stats .tx{margin:16px 0 0;font-size:1rem;color:var(--on-night2)}
+.src{margin:clamp(56px,7vw,96px) 0 0;max-width:880px;font-size:12.5px;line-height:1.65;color:#7c7568}
+
+/* the objection, big */
 .obj{text-align:center}
-.obj .q{font-family:var(--display);font-size:clamp(1.8rem,1.3rem + 2vw,2.7rem);font-weight:600;line-height:1.15}
-.obj p{color:var(--soft);max-width:620px;margin:16px auto 0}
-.obj .a{font-family:var(--display);font-weight:600;font-size:clamp(1.25rem,1.05rem + .8vw,1.6rem);line-height:1.3;color:var(--gold-d);margin:14px auto 0}
-.strip{margin-top:34px;text-align:center;color:var(--gold-d)}
-/* The founder: his own photo (two women cropped out, warm calm grade), a gold frame set behind it, a name tag. */
-.fphoto{position:relative;margin:0 auto;width:100%;max-width:440px}
-.fphoto::before{content:"";position:absolute;inset:18px -18px -18px 18px;border:1.5px solid var(--gold);border-radius:20px}
-.fphoto img{position:relative;display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:20px;box-shadow:0 34px 80px -34px rgba(0,0,0,.55)}
-.fphoto figcaption{position:absolute;left:16px;bottom:16px;background:rgba(13,12,10,.78);color:#fff;font-size:.82rem;line-height:1.3;padding:8px 14px;border-radius:999px}
-.fphoto figcaption b{color:var(--gold);font-weight:500}
-@media (max-width:820px){.fphoto{max-width:360px;margin:0 auto 34px}}
-.founder h2{font-size:clamp(2rem,1.3rem + 2.2vw,2.8rem);margin-bottom:16px}
-.founder p{color:var(--soft);margin:0 0 14px}
-.sig{font-family:var(--display);font-style:italic;font-size:1.6rem;margin-top:18px}
-.dates{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:50px}
-@media (max-width:900px){.dates{grid-template-columns:repeat(2,1fr);row-gap:22px}}
-.date{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;min-height:220px;background:#fff;border:1px solid #a87a1f;border-radius:12px;padding:36px 18px;text-align:center;text-decoration:none;color:#131628;transition:transform .15s,box-shadow .15s}
-a.date:hover{transform:translateY(-2px);box-shadow:0 14px 30px -20px rgba(60,45,20,.5)}
-.date b{font-family:var(--font);font-weight:600;font-size:clamp(1.5rem,1.1rem + 1vw,1.95rem);line-height:1.08;letter-spacing:-.01em}
-.date .pill{border:1px solid #a87a1f;border-radius:999px;padding:14px 24px;font-size:.95rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a87a1f;line-height:1}
-.date.sold{background:#fafafa;border-color:#e4e8ee;opacity:.6;justify-content:flex-start;padding-top:44px}
-.date.sold b{color:#8a8d96}
-.date.sold .pill{border-color:#424553;color:#8a8d96;font-weight:600}
-.date .tag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:#ad2b2b;color:#fff;border-radius:999px;padding:10px 18px;font-size:.82rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;line-height:1}
-.price{margin:44px auto 0;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
-.price b{font-family:var(--display);font-weight:600;font-size:clamp(2.4rem,1.8rem + 2vw,3.2rem);line-height:1;color:var(--ink);font-variant-numeric:lining-nums}
-.price span{font-weight:500;font-size:1.05rem;color:var(--ink)}
-.price em{font-style:normal;color:var(--soft);font-size:.95rem}
-.price-line{text-align:center;margin-top:22px;color:var(--soft)}
-.price-line b{color:var(--ink);font-weight:500}
-.split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,48px);align-items:start}
-@media (max-width:860px){.split{grid-template-columns:1fr}}
-.sh{font-size:clamp(2rem,1.3rem + 2.6vw,3.2rem);margin:12px 0 18px}
-.sp{color:var(--soft);margin:0 0 14px}
-.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}
-.tiles .all{grid-column:1/-1;border:1px solid var(--gold);font-weight:500}
-.tiles span{background:var(--card);border-radius:12px;padding:18px 14px;text-align:center;font-size:.95rem;box-shadow:0 6px 20px -14px rgba(60,45,20,.35)}
-.calcol{position:sticky;top:20px}
-.calhead{background:var(--card);border-radius:16px;padding:22px 24px;margin-bottom:12px;box-shadow:0 10px 30px -18px rgba(60,45,20,.35)}
-.calhead h3{font-size:1.5rem}
-.calhead p{margin:8px 0 0;color:var(--soft)}
-.cal{background:var(--card);border-radius:16px;overflow:hidden;box-shadow:0 20px 50px -25px rgba(60,45,20,.4)}
+.obj .q{margin:0 auto;max-width:13em;font:500 clamp(2.5rem,1.2rem + 5.4vw,6.8rem)/1 var(--serif);letter-spacing:-.032em;color:var(--ink);text-wrap:balance}
+.obj .a{margin:30px 0 0;font:italic 400 clamp(1.55rem,1.1rem + 1.7vw,2.6rem)/1.15 var(--serif);color:var(--gold-d)}
+.obj .t{margin:28px auto 0;max-width:37em;font-size:1.12rem;color:var(--ink2)}
+.obj .strip{margin:38px 0 0;font:500 12px/1.6 var(--sans);letter-spacing:.17em;text-transform:uppercase;color:var(--mute)}
+.strip-img{aspect-ratio:8/3;margin-top:clamp(60px,7.5vw,112px)}
+@media (max-width:720px){.strip-img{aspect-ratio:16/9}}
+
+/* founder */
+.founder{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:clamp(44px,7vw,128px);align-items:center}
+.fp{margin:0;width:100%;max-width:430px}
+.fp figcaption{margin-top:14px;font-size:13.5px;color:var(--mute)}
+.founder .h2{margin-bottom:28px}
+.founder .fx{margin:0 0 16px;max-width:34em;font-size:1.13rem}
+.sig{margin:28px 0 0;font:italic 400 2.1rem/1 var(--serif);color:var(--ink)}
+@media (max-width:900px){.founder{grid-template-columns:1fr}.fp{max-width:380px}}
+
+/* dates */
+.dates{border-top:1px solid var(--line2)}
+.date{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,4fr) minmax(0,3fr) 32px;align-items:center;gap:20px;padding:28px 6px;border-bottom:1px solid var(--line2);color:var(--ink);text-decoration:none;transition:background .5s var(--ease),padding .5s var(--ease)}
+.date b{font:500 clamp(1.65rem,1.2rem + 1.5vw,2.7rem)/1 var(--serif);letter-spacing:-.016em;font-variant-numeric:lining-nums}
+.date .dm{font-size:.98rem;color:var(--mute)}
+.date .pill{display:flex;align-items:center;gap:10px;font:500 12.5px/1.2 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--gold-d)}
+.date .pill::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--gold)}
+.date .ar{justify-self:end;color:var(--ink);transition:transform .6s var(--ease)}
+a.date:hover{background:var(--white);padding-left:22px;padding-right:22px}
+a.date:hover .ar{transform:translateX(6px)}
+.date.sold b{color:var(--faint);text-decoration:line-through;text-decoration-thickness:1px}
+.date.sold .dm{color:var(--faint)}
+.date.sold .pill{color:var(--mute)}
+.date.sold .pill::before{background:var(--faint)}
+@media (max-width:720px){.date{grid-template-columns:1fr 24px;row-gap:10px;padding:24px 2px}.date .dm,.date .pill{grid-column:1}.date .ar{grid-column:2;grid-row:1 / span 3}}
+
+/* booking */
+@media (min-width:901px){.book{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.sp{margin:24px 0 0;max-width:33em;font-size:1.1rem}
+.sp b{color:var(--ink);font-weight:500}
+.facs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:38px}
+.facs figure{margin:0}
+.facs .media{aspect-ratio:3/2}
+.facs figcaption{margin-top:10px;font-size:13.5px;color:var(--mute)}
+.flist{display:grid;grid-template-columns:1fr 1fr;column-gap:28px;margin:34px 0 0;padding:0;list-style:none}
+.flist li{padding:12px 0;border-top:1px solid var(--line2);font-size:.98rem;color:var(--ink)}
+.flist li.all{grid-column:1 / -1;padding:18px 0;border-bottom:1px solid var(--line2);font:italic 400 1.4rem/1.3 var(--serif)}
+@media (max-width:560px){.flist{grid-template-columns:1fr}}
+.calcol{position:sticky;top:100px}
+@media (max-width:900px){.calcol{position:static}}
+.calhead{margin-bottom:18px}
+.calhead h3{margin:0;font:500 clamp(1.6rem,1.3rem + .8vw,2rem)/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)}
+.calhead p{margin:10px 0 0;font-size:1rem;color:var(--ink2)}
+.cal{overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:6px}
 .cal iframe{display:block;width:100%;height:880px;border:0;transition:height .35s cubic-bezier(.25,.46,.45,.94)}
-/* FAQ = the acquisition.com/em accordion: dark bar, centered bold question, + turns into ×,
-   short answer lines under it. All open by default; a click folds one away. */
-.faq{max-width:880px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;box-shadow:0 10px 30px -18px rgba(60,45,20,.35)}
-.qa+.qa{margin-top:32px}
-.qh{position:relative;display:block;width:100%;margin:0;border:0;border-radius:8px;background:var(--ink);color:#fff;cursor:pointer;padding:22px 56px;font-family:var(--font);font-weight:600;font-size:clamp(1.12rem,.95rem + .7vw,1.45rem);line-height:1.3;text-align:center;transition:background .3s}
-.qh:hover{background:#2a2419}
-.qh:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
-.qh i{position:absolute;right:20px;top:50%;width:18px;height:18px;margin-top:-9px;transition:transform .4s cubic-bezier(.25,.46,.45,.94)}
-.qh i::before,.qh i::after{content:"";position:absolute;left:0;top:8px;width:18px;height:2px;border-radius:2px;background:var(--gold)}
+
+/* FAQ: hairline list, all answers open, a click folds one away */
+.faq{border-top:1px solid var(--line2)}
+.qa{border-bottom:1px solid var(--line2)}
+.qh{position:relative;display:block;width:100%;margin:0;padding:30px 60px 30px 0;border:0;background:none;cursor:pointer;text-align:left;font:500 clamp(1.4rem,1.1rem + 1vw,2rem)/1.18 var(--serif);letter-spacing:-.012em;color:var(--ink);transition:color .3s}
+.qh:hover{color:var(--gold-d)}
+.qh:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
+.qh i{position:absolute;right:6px;top:50%;width:18px;height:18px;margin-top:-9px}
+.qh i::before,.qh i::after{content:"";position:absolute;left:0;top:8.25px;width:18px;height:1.5px;background:currentColor;transition:transform .5s var(--ease)}
 .qh i::after{transform:rotate(90deg)}
-.qa.open .qh i{transform:rotate(45deg)}
-.qb{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .4s cubic-bezier(.25,.46,.45,.94),opacity .4s cubic-bezier(.25,.46,.45,.94)}
+.qa.open .qh i::after{transform:rotate(0deg)}
+.qb{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .55s var(--ease),opacity .55s var(--ease)}
 .qa.open .qb{grid-template-rows:1fr;opacity:1}
 .qb>div{overflow:hidden;min-height:0}
-.qb .in{display:flex;flex-direction:column;gap:14px;padding:24px 16px 6px}
-.qb p{margin:0;font-size:1.15rem;line-height:1.6;color:#2c2820;font-weight:400}
-.qb b{color:var(--ink);font-weight:600}
-@media (max-width:640px){.faq{padding:12px}.qh{padding:18px 48px}.qb .in{padding:18px 6px 4px}.qb p{font-size:1.05rem}}
-@media (prefers-reduced-motion:reduce){.qb,.qh i{transition:none}}
-.final{background:radial-gradient(60% 70% at 50% 100%,rgba(201,162,64,.16),transparent 70%),var(--night);color:#fff;text-align:center;padding:clamp(72px,9vw,120px) 0}
-.final h2{font-size:clamp(2.2rem,1.4rem + 3vw,3.6rem)}
-.final p{color:#c8c1b4;margin:16px 0 0}
-.final .btn{margin-top:32px}
-footer{background:#000;color:#8a847a;font-size:.8rem;text-align:center;padding:26px 16px}
-footer a{color:#8a847a;margin:0 10px;text-decoration:none}
-.motto{max-width:660px;margin:0 auto 14px;color:#c8c1b4;font-size:.9rem;line-height:1.6}
+.qb .in{display:flex;flex-direction:column;gap:10px;max-width:40em;padding:0 0 32px}
+.qb p{margin:0;font-size:1.08rem;line-height:1.6;color:var(--ink2)}
+.qb b{color:var(--ink);font-weight:500}
 
-/* Photos (Unsplash License, self-hosted): vivid, matched to the text. */
-.vsl .vbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:70% 50%}
-.vsl::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(11,10,8,.9) 0%,rgba(11,10,8,.62) 45%,rgba(11,10,8,.04) 100%)}
-.vsl .in{z-index:1}
-@media (max-width:640px){.vsl::after{background:linear-gradient(180deg,rgba(11,10,8,.55) 0%,rgba(11,10,8,.9) 60%)}}
-.card{overflow:hidden}
-.card .ci{display:block;width:calc(100% + 52px);max-width:none;margin:-26px -26px 18px;aspect-ratio:16/10;object-fit:cover}
-.band{position:relative;overflow:hidden}
-.band .bandbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.3}
-.band .w{position:relative}
-.stats .si{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:12px;margin:0 0 18px}
-.ob{display:block;width:100%;margin:30px auto 0;aspect-ratio:14/5;object-fit:cover;border-radius:16px}
-.facs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}
-.facs figure{margin:0;position:relative;border-radius:12px;overflow:hidden}
-.facs img{display:block;width:100%;aspect-ratio:3/2;object-fit:cover}
-.facs figcaption{position:absolute;left:8px;bottom:8px;background:rgba(13,12,10,.72);color:#fff;font-size:.78rem;padding:4px 10px;border-radius:999px}
-.final{position:relative;overflow:hidden}
-.final .finbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.7}
-.final::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,12,10,.3),rgba(13,12,10,.72))}
-.final .w{position:relative;z-index:1}
+/* final call */
+.final{position:relative;overflow:hidden;padding:clamp(128px,16vw,250px) 0;background:var(--night);color:var(--on-night);text-align:center}
+.final .fbg{position:absolute;inset:0}
+.final .fbg img{display:block;width:100%;height:100%;object-fit:cover;opacity:.46}
+.final::after{content:"";position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 50%,rgba(18,17,14,.25),rgba(18,17,14,.88))}
+.final .c{position:relative;z-index:1}
+.final .h2{max-width:12em;margin:0 auto;color:#f6f1e6;font-size:clamp(2.45rem,1.3rem + 4.8vw,6.2rem);line-height:1}
+.final .h2 em{display:block;color:var(--gold-l)}
+.final p{margin:28px 0 40px;font-size:1.15rem;color:var(--on-night)}
+
+/* footer */
+.foot{padding:clamp(76px,9vw,124px) 0 42px;background:var(--night);color:var(--on-night2);border-top:1px solid var(--night-line)}
+.foot .logo{font-size:clamp(2.5rem,1.7rem + 3vw,4.2rem);color:#f4efe4}
+.motto{margin:24px 0 0;max-width:31em;font:italic 400 clamp(1.25rem,1.05rem + .75vw,1.7rem)/1.35 var(--serif);color:var(--on-night)}
+.fl{display:flex;flex-wrap:wrap;gap:10px 28px;margin-top:52px;padding-top:24px;border-top:1px solid var(--night-line)}
+.fl a{font-size:14px;color:var(--on-night2);text-decoration:none;transition:color .3s}
+.fl a:hover{color:#fff}
+.copy{margin:18px 0 0;font-size:13px;color:#6f695e}
+
+/* phone: the button stays in reach */
+.mcta{position:fixed;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:60;display:none;align-items:center;justify-content:space-between;height:56px;padding:0 22px;border-radius:4px;background:var(--ink);color:var(--paper);font:500 16px/1 var(--sans);text-decoration:none;box-shadow:0 18px 40px -16px rgba(0,0,0,.55);transform:translateY(150%);visibility:hidden;transition:transform .6s var(--ease),visibility 0s .6s}
+.mcta .ar{color:var(--gold-l)}
+.mcta.show{transform:none;visibility:visible;transition:transform .6s var(--ease)}
+@media (max-width:900px){.mcta{display:flex}}
+
+/* motion: only when JS runs, and never with "reduce motion" */
+.wd{display:inline-block;overflow:hidden;vertical-align:top;padding:.16em .05em .3em;margin:-.16em -.05em -.3em}
+.wd>span{display:inline-block}
+.js [data-split] .wd>span{transform:translate3d(0,112%,0);transition:transform 1.1s var(--ease);transition-delay:calc(var(--i,0) * 38ms)}
+.js [data-split].in .wd>span{transform:none}
+.js [data-r]{opacity:0;transform:translate3d(0,26px,0);transition:opacity 1s var(--ease),transform 1.1s var(--ease);transition-delay:calc(var(--d,0) * 90ms)}
+.js [data-r].in{opacity:1;transform:none}
+/* photos open from below: the clip sits on the inner layer (a clipped-away element never counts as "seen") */
+.js .hmedia[data-m],.js .media[data-m]{background:none}
+.js [data-m] .pi{clip-path:inset(100% 0 0 0);transform:scale(1.16);transition:clip-path 1.35s var(--ease),transform 1.9s var(--ease)}
+.js [data-m].in .pi{clip-path:inset(0 0 0 0);transform:none}
+.js .say{opacity:0;transform:translate3d(0,18px,0);transition:opacity 1s var(--ease) .55s,transform 1.1s var(--ease) .55s}
+.js .hmedia.in .say{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+ .bar i{animation:none}.marq .t{animation:none}
+ .js [data-split] .wd>span,.js [data-r],.js [data-m] .pi,.js .say{transform:none!important;opacity:1!important;clip-path:none!important;transition:none!important}
+ .js .lines li{color:var(--ink)}
+}
+
+/* the consent banner (t.js) in this page's type, buttons stay equal */
+html #bv-consent,html #bv-consent button{font-family:var(--sans)}
+html #bv-consent h2{font:500 1.35rem/1.2 var(--serif);color:var(--ink)}
+html #bv-consent .c{border-radius:6px;border-color:var(--line);box-shadow:0 26px 60px -24px rgba(0,0,0,.42)}
+html #bv-consent button{font-weight:500;border-radius:3px}
 </style>
 </head>
 <body>
 
 <div class="bar"><b class="lg"><i></i>2-Tages-Workshop vor Ort <span id="bar-lg">· Casablanca, Marokko · November ausgebucht, 6.–7. Feb 2027 jetzt offen</span></b><b class="sm"><i></i>Workshop Casablanca <span id="bar-sm">· 6.–7. Feb 2027 offen</span></b></div>
 
-<header class="hero">
- <div class="w">
+<nav class="nav" aria-label="Workshop">
+ <div class="c">
   <a class="logo" href="/">Borivon<b>.</b></a>
-  <h1><span class="gold-text">Gesundheitseinrichtungen in Deutschland:</span><span class="h1b">Ihr Personal-Plan in 2 Tagen. <em>Und die Pflegekräfte dazu.</em></span></h1>
-  <p class="for">Klinik, Altenheim, ambulanter Pflegedienst oder jede andere Einrichtung:<br><b>Sie brauchen Pflegekräfte? Dann ist dieser Workshop für Sie.</b></p>
-  <div class="vsl">
-   <img class="vbg" src="/pflege/assets/ws/hero-plan.webp" alt="" fetchpriority="high">
-   <div class="in">
-    <div class="big"><span>Kommen Sie mit leeren Stellen.</span><span>Fahren Sie mit einem Plan nach Hause.</span><span><em>Und mit den Pflegekräften dafür.</em></span></div>
-    <div class="steps"><span>Tag 1: Ihr Plan</span><span>Tag 2: Ihre Pflegekräfte</span><span>2 × 8 Stunden mit Youness Taoufiq</span><span>20 Plätze</span></div>
+  <a class="btn" href="#termin"><span>Platz anfragen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+ </div>
+</nav>
+
+<main>
+<header class="hero">
+ <div class="c">
+  <h1 class="h1" data-split><span class="kick">Gesundheitseinrichtungen in Deutschland:</span><span class="main">Ihr Personal-Plan in 2&nbsp;Tagen. <em>Und die Pflegekräfte dazu.</em></span></h1>
+  <div class="hero-row">
+   <div>
+    <p class="for" data-r>Klinik, Altenheim, ambulanter Pflegedienst oder jede andere Einrichtung: <b>Sie brauchen Pflegekräfte? Dann ist dieser Workshop für Sie.</b></p>
+    <div data-r><a class="btn" href="#termin"><span>Platz anfragen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+    <p class="status"><i></i><span id="hero-next">20 Plätze pro Workshop · alle 3 Monate · in Casablanca</span></p></div>
+   </div>
+   <dl class="meta" data-r>
+    <div><dt>Zeit</dt><dd>2&nbsp;×&nbsp;8 Stunden mit Youness Taoufiq</dd></div>
+    <div><dt>Ort</dt><dd>Unsere Konferenzräume in Casablanca</dd></div>
+    <div><dt>Plätze</dt><dd>20 pro Workshop</dd></div>
+    <div><dt>Termine</dt><dd>Alle 3 Monate, Samstag und Sonntag</dd></div>
+   </dl>
+  </div>
+  <div class="hmedia" data-m>
+   <div class="pi"><picture><source media="(max-width:720px)" srcset="/pflege/assets/ws3/hero-tall.webp"><img data-px src="/pflege/assets/ws3/hero-wide.webp" alt="Casablanca bei Sonnenuntergang, die Hassan-II.-Moschee" width="2400" height="1050" fetchpriority="high"></picture></div>
+   <div class="say">
+    <p><span>Kommen Sie mit leeren Stellen.</span><span>Fahren Sie mit einem Plan nach Hause.</span><em>Und mit den Pflegekräften dafür.</em></p>
+    <ul><li>Tag 1 · Ihr Plan</li><li>Tag 2 · Ihre Pflegekräfte</li></ul>
    </div>
   </div>
-  <a class="btn" href="#termin">Platz anfragen</a>
-  <p class="trust">20 Plätze pro Workshop · alle 3 Monate · in Casablanca</p>
-  <p class="intro">Ihre Einrichtung läuft, aber jede leere Stelle kostet Sie jeden Monat Geld und Nerven. Zwei Tage mit Youness Taoufiq, Gründer von Borivon, in unseren Konferenzräumen in Casablanca. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte kennen, die zu diesem Plan passen.</p>
+  <div class="lede">
+   <p class="lbl" data-r>Der Workshop</p>
+   <p data-r>Ihre Einrichtung läuft, aber jede leere Stelle kostet Sie jeden Monat Geld und Nerven. Zwei Tage mit Youness Taoufiq, Gründer von Borivon, in unseren Konferenzräumen in Casablanca. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte kennen, die zu diesem Plan passen.</p>
+  </div>
  </div>
 </header>
 
-<section class="cream">
- <div class="w two">
-  <div class="photo"><img src="/pflege/assets/ws/empty-corridor.webp" alt="Leerer Flur in einer Klinik" loading="lazy" decoding="async"></div>
+<div class="marq" aria-label="Für jede Einrichtung, die Pflegekräfte braucht">
+ <div class="t"><span>Kliniken und Krankenhäuser</span><span>Pflegeheime und Altenheime</span><span>Ambulante Pflegedienste</span><span>Reha-Kliniken</span><span>Intensivpflege</span><span>Tages- und Kurzzeitpflege</span><span>Hospize und Palliativpflege</span><span>Psychiatrie</span><span>Dialyse</span><span>Eingliederungshilfe</span><span>Betreutes Wohnen</span><span>Träger mit mehreren Standorten</span><span aria-hidden="true">Kliniken und Krankenhäuser</span><span aria-hidden="true">Pflegeheime und Altenheime</span><span aria-hidden="true">Ambulante Pflegedienste</span><span aria-hidden="true">Reha-Kliniken</span><span aria-hidden="true">Intensivpflege</span><span aria-hidden="true">Tages- und Kurzzeitpflege</span><span aria-hidden="true">Hospize und Palliativpflege</span><span aria-hidden="true">Psychiatrie</span><span aria-hidden="true">Dialyse</span><span aria-hidden="true">Eingliederungshilfe</span><span aria-hidden="true">Betreutes Wohnen</span><span aria-hidden="true">Träger mit mehreren Standorten</span></div>
+</div>
+
+<section class="sec">
+ <div class="c split">
+  <div class="stick">
+   <p class="lbl">Das Problem</p>
+   <h2 class="h2" data-split>Sie suchen nicht zu wenig. Sie suchen <em>ohne Plan.</em></h2>
+   <figure class="media tall" data-m><div class="pi"><img data-px src="/pflege/assets/ws3/problem.webp" alt="Leerer Flur in einer Klinik" width="1200" height="1500" loading="lazy" decoding="async"></div></figure>
+  </div>
   <div>
-   <div class="lead2">Sie suchen nicht zu wenig. Sie suchen <em style="color:var(--gold-d)">ohne Plan.</em></div>
-   <p class="sym-h">Typische Anzeichen:</p>
-   <ul class="sym">
-    <li>Stellen bleiben monatelang leer.</li>
-    <li>Bewerbungen kommen, aber nicht die richtigen.</li>
-    <li>Ihr Team springt ständig ein, und die Guten werden müde.</li>
-    <li>Eine Agentur hat Lebensläufe geschickt. Eine Pflegekraft kam nie an.</li>
-    <li>Neue gehen in der Probezeit wieder.</li>
-    <li>Sie haben zehn Baustellen und wissen nicht, welche zuerst dran ist.</li>
+   <p class="small">Typische Anzeichen:</p>
+   <ul class="lines">
+    <li data-line>Stellen bleiben monatelang leer.</li>
+    <li data-line>Bewerbungen kommen, aber nicht die richtigen.</li>
+    <li data-line>Ihr Team springt ständig ein, und die Guten werden müde.</li>
+    <li data-line>Eine Agentur hat Lebensläufe geschickt. Eine Pflegekraft kam nie an.</li>
+    <li data-line>Neue gehen in der Probezeit wieder.</li>
+    <li data-line>Sie haben zehn Baustellen und wissen nicht, welche zuerst dran ist.</li>
    </ul>
-   <p class="after">Das sind nicht sechs Probleme. Es ist eins: Es fehlt ein Plan, der sagt, was zuerst kommt, und die richtigen Menschen dafür. <b>Beides bekommen Sie in diesen zwei Tagen.</b></p>
+   <p class="after" data-r>Das sind nicht sechs Probleme. Es ist eins: Es fehlt ein Plan, der sagt, was zuerst kommt, und die richtigen Menschen dafür. <b>Beides bekommen Sie in diesen zwei Tagen.</b></p>
   </div>
  </div>
 </section>
 
-<section class="cream2">
- <div class="w">
-  <div class="sec-h"><div class="caps">Die vier Bereiche</div><h2>Personal läuft über <em style="color:var(--gold-d)">vier Bereiche.</em></h2><p>Wir gehen alle vier mit Ihnen durch und sagen Ihnen, welcher zuerst dran ist.</p></div>
-  <div class="cards">
-   <div class="card"><img class="ci" src="/pflege/assets/ws/area-team.webp" alt="Team bespricht Bewerbungen" loading="lazy" decoding="async"><div class="n">01</div><h3>Stellen besetzen</h3><p>Sie besetzen eine Stelle nach der anderen. Jede ist ein neuer Kraftakt, und keiner weiß, wann die nächste frei wird.</p></div>
-   <div class="card"><img class="ci" src="/pflege/assets/ws/area-papers.webp" alt="Aktenstapel im Büro" loading="lazy" decoding="async"><div class="n">02</div><h3>Papiere &amp; Zeitplan</h3><p>Anerkennung und Visum dauern, und niemand sagt Ihnen, wo es gerade hängt und wann die Neue wirklich anfängt.</p></div>
-   <div class="card"><img class="ci" src="/pflege/assets/ws/area-flight.webp" alt="Blick aus dem Flugzeugfenster" loading="lazy" decoding="async"><div class="n">03</div><h3>Ankommen &amp; Einarbeitung</h3><p>Die Neue ist da, aber Wohnung, Ansprechperson und die ersten Wochen sind nicht vorbereitet.</p></div>
-   <div class="card"><img class="ci" src="/pflege/assets/ws/area-stay.webp" alt="Pflegekraft lacht mit einer Bewohnerin" loading="lazy" decoding="async"><div class="n">04</div><h3>Bleiben</h3><p>Ohne Plan für die ersten 90 Tage geht sie in der Probezeit wieder. Und alles beginnt von vorn.</p></div>
+<section class="sec alt">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Die vier Bereiche</p><h2 class="h2" data-split>Personal läuft über <em>vier Bereiche.</em></h2></div>
+   <p class="hp" data-r>Wir gehen alle vier mit Ihnen durch und sagen Ihnen, welcher zuerst dran ist.</p>
+  </div>
+  <div class="areas">
+   <article data-r><figure class="media sq"><img src="/pflege/assets/ws3/area-team.webp" alt="Team bespricht Bewerbungen" width="1000" height="1000" loading="lazy" decoding="async"></figure><span class="no">01</span><h3>Stellen besetzen</h3><p>Sie besetzen eine Stelle nach der anderen. Jede ist ein neuer Kraftakt, und keiner weiß, wann die nächste frei wird.</p></article>
+   <article data-r><figure class="media sq"><img src="/pflege/assets/ws3/area-papers.webp" alt="Aktenstapel im Büro" width="1000" height="1000" loading="lazy" decoding="async"></figure><span class="no">02</span><h3>Papiere &amp; Zeitplan</h3><p>Anerkennung und Visum dauern, und niemand sagt Ihnen, wo es gerade hängt und wann die Neue wirklich anfängt.</p></article>
+   <article data-r><figure class="media sq"><img src="/pflege/assets/ws3/area-flight.webp" alt="Blick aus dem Flugzeugfenster" width="1000" height="1000" loading="lazy" decoding="async"></figure><span class="no">03</span><h3>Ankommen &amp; Einarbeitung</h3><p>Die Neue ist da, aber Wohnung, Ansprechperson und die ersten Wochen sind nicht vorbereitet.</p></article>
+   <article data-r><figure class="media sq"><img src="/pflege/assets/ws3/area-stay.webp" alt="Pflegekraft lacht mit einer Bewohnerin" width="1000" height="1000" loading="lazy" decoding="async"></figure><span class="no">04</span><h3>Bleiben</h3><p>Ohne Plan für die ersten 90 Tage geht sie in der Probezeit wieder. Und alles beginnt von vorn.</p></article>
   </div>
  </div>
 </section>
 
-<section class="cream">
- <div class="w">
-  <div class="two" style="align-items:start">
-   <div>
-    <div class="sec-h" style="text-align:left;margin-bottom:26px"><h2>Was die zwei Tage <em style="color:var(--gold-d)">abdecken</em></h2></div>
-    <ul class="ticks">
-     <li>Wo Ihre Einrichtung steht: Ihre Stufe von 1 bis 5, und was die leeren Stellen Sie im Jahr kosten.</li>
-     <li>Ihre größte Hürde, und welche danach kommt.</li>
-     <li>Ihr Zeitplan: bis wann Sie starten müssen, damit die erste Pflegekraft rechtzeitig da ist.</li>
-     <li>Was Ihr Team vorbereitet: Wohnung, Ansprechperson, die ersten 90 Tage.</li>
-     <li>Wie Sie Pflegekräfte halten, nicht nur holen.</li>
-     <li>Tag 2: Sie lernen die Pflegekräfte persönlich kennen, die zu Ihrem Plan passen, und führen Ihre Gespräche.</li>
-     <li>Sie fahren mit einem fertigen Plan nach Hause, mit Datum für jeden Schritt.</li>
-    </ul>
-   </div>
-   <div>
-    <div class="photo"><img src="/pflege/assets/ws/workshop-table.webp" alt="Arbeit am Tisch" loading="lazy" decoding="async"></div>
-   </div>
+<section class="sec">
+ <div class="c split">
+  <div class="stick">
+   <p class="lbl">Die zwei Tage</p>
+   <h2 class="h2" data-split>Was die zwei Tage <em>abdecken</em></h2>
+   <figure class="media tall" data-m><div class="pi"><img data-px src="/pflege/assets/ws3/days.webp" alt="Arbeit am Tisch" width="1200" height="1500" loading="lazy" decoding="async"></div></figure>
   </div>
-  <div class="bonus">
-   <img src="/pflege/assets/ws/bonus-meet.webp" alt="Händedruck am Tisch" loading="lazy" decoding="async">
-   <div><div class="caps">Tag 2 · in Casablanca</div><h3>Der Plan steht. Jetzt die Menschen dazu.</h3><p>Sie sitzen den Pflegekräften gegenüber, die zu Ihrem Plan passen. Sie sprechen mit ihnen und sehen selbst, wer zu Ihrer Einrichtung passt. Das bekommen Sie in keinem Seminar in Deutschland.</p></div>
+  <ol class="rows">
+   <li data-r><span>01</span><p>Wo Ihre Einrichtung steht: Ihre Stufe von 1 bis 5, und was die leeren Stellen Sie im Jahr kosten.</p></li>
+   <li data-r><span>02</span><p>Ihre größte Hürde, und welche danach kommt.</p></li>
+   <li data-r><span>03</span><p>Ihr Zeitplan: bis wann Sie starten müssen, damit die erste Pflegekraft rechtzeitig da ist.</p></li>
+   <li data-r><span>04</span><p>Was Ihr Team vorbereitet: Wohnung, Ansprechperson, die ersten 90 Tage.</p></li>
+   <li data-r><span>05</span><p>Wie Sie Pflegekräfte halten, nicht nur holen.</p></li>
+   <li data-r><span>06</span><p>Tag 2: Sie lernen die Pflegekräfte persönlich kennen, die zu Ihrem Plan passen, und führen Ihre Gespräche.</p></li>
+   <li data-r><span>07</span><p>Sie fahren mit einem fertigen Plan nach Hause, mit Datum für jeden Schritt.</p></li>
+  </ol>
+ </div>
+ <div class="c">
+  <div class="bonus" data-r>
+   <figure class="media"><img src="/pflege/assets/ws3/bonus.webp" alt="Händedruck am Tisch" width="1200" height="1200" loading="lazy" decoding="async"></figure>
+   <div class="bt"><p class="lbl light">Tag 2 · in Casablanca</p><h3>Der Plan steht. Jetzt die Menschen dazu.</h3><p>Sie sitzen den Pflegekräften gegenüber, die zu Ihrem Plan passen. Sie sprechen mit ihnen und sehen selbst, wer zu Ihrer Einrichtung passt. Das bekommen Sie in keinem Seminar in Deutschland.</p></div>
   </div>
  </div>
 </section>
 
-<section class="band">
- <img class="bandbg" src="/pflege/assets/ws/morocco-hassan.webp" alt="" loading="lazy" decoding="async">
- <div class="w">
-  <h2>Warum <em>Marokko?</em></h2>
-  <p>Sie wollen zwei Dinge: eine Pflegekraft, die richtig gut ist. Und die bleibt.</p>
+<section class="sec dark">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl light">Die Pflegekräfte</p><h2 class="h2" data-split>Warum <em>Marokko?</em></h2></div>
+   <p class="hp" data-r>Sie wollen zwei Dinge: eine Pflegekraft, die richtig gut ist. Und die bleibt.</p>
+  </div>
   <div class="stats">
-   <div><img class="si" src="/pflege/assets/ws/why-language2.webp" alt="Wegweiser in Marokko, auf Arabisch und Französisch" loading="lazy" decoding="async"><span class="caps">Gutes Deutsch</span><b class="gold-text">2–3</b><span>Sprachen sprechen die meisten Marokkaner schon. Wer mehrere Sprachen kann, lernt die nächste schneller. Auch Deutsch.</span></div>
-   <div><img class="si" src="/pflege/assets/ws/why-nursing2.webp" alt="Pflegekraft zieht Handschuhe an" loading="lazy" decoding="async"><span class="caps">Gute Pflege</span><b class="gold-text">3 Jahre</b><span>Pflegestudium, mit Praxis in der Klinik. Sie kennt ihr Handwerk.</span></div>
-   <div><img class="si" src="/pflege/assets/ws/why-family2.webp" alt="Mutter und Kind am Flughafenfenster" loading="lazy" decoding="async"><span class="caps">Sie bleibt</span><b class="gold-text">3,5 h</b><span>bis zur Familie. Und Familie ist der Hauptgrund, warum Zugewanderte zurückgehen.</span></div>
+   <div data-r><figure class="media wide"><img src="/pflege/assets/ws3/why-language.webp" alt="Wegweiser in Marokko, auf Arabisch und Französisch" width="1000" height="750" loading="lazy" decoding="async"></figure><p class="cap">Gutes Deutsch</p><b>2–3</b><p class="tx">Sprachen sprechen die meisten Marokkaner schon. Wer mehrere Sprachen kann, lernt die nächste schneller. Auch Deutsch.</p></div>
+   <div data-r><figure class="media wide"><img src="/pflege/assets/ws3/why-nursing.webp" alt="Pflegekraft zieht Handschuhe an" width="1000" height="750" loading="lazy" decoding="async"></figure><p class="cap">Gute Pflege</p><b>3 Jahre</b><p class="tx">Pflegestudium, mit Praxis in der Klinik. Sie kennt ihr Handwerk.</p></div>
+   <div data-r><figure class="media wide"><img src="/pflege/assets/ws3/why-family.webp" alt="Mutter und Kind am Flughafenfenster" width="1000" height="750" loading="lazy" decoding="async"></figure><p class="cap">Sie bleibt</p><b>3,5 h</b><p class="tx">bis zur Familie. Und Familie ist der Hauptgrund, warum Zugewanderte zurückgehen.</p></div>
   </div>
   <p class="src">Quellen: Volkszählung Marokko 2024 (HCP): 99,2 % der Lesekundigen lesen und schreiben Arabisch, 57,7 % auch Französisch, rund 20 % Englisch; rund 92 % sprechen Darija. Mehrsprachige lernen weitere Sprachen leichter: J. Cenoz, Language Teaching 46 (2013). Pflegestudium in Marokko: 3 Jahre (Licence, ISPITS, seit der Reform 2013). Rückkehrgründe: IAB-Befragung 2025, rund 50.000 Zugewanderte. Flug Frankfurt–Casablanca ca. 3,5 Stunden.</p>
  </div>
 </section>
 
-<section class="cream2">
- <div class="narrow obj">
-  <div class="q">„Ich kann nicht zwei Tage weg.“</div>
-  <p class="a">Genau deshalb sollten Sie kommen.</p>
-  <p>Dienstplan, Personalnot, keiner, der vertritt. Das ist ein echtes Problem. Und genau das Problem, das diese zwei Tage lösen. Eine Einrichtung, die zwei Tage nicht ohne Sie läuft, läuft auch zwei Wochen nicht ohne Sie.</p>
-  <div class="strip caps">Casablanca · alle 3 Monate · 2 Tage · 20 Plätze</div>
-  <img class="ob" src="/pflege/assets/ws/objection-flight.webp" alt="Flugzeugflügel im Abendrot" loading="lazy" decoding="async">
+<section class="sec obj">
+ <div class="c">
+  <p class="q" data-split>„Ich kann nicht zwei Tage weg.“</p>
+  <p class="a" data-r>Genau deshalb sollten Sie kommen.</p>
+  <p class="t" data-r>Dienstplan, Personalnot, keiner, der vertritt. Das ist ein echtes Problem. Und genau das Problem, das diese zwei Tage lösen. Eine Einrichtung, die zwei Tage nicht ohne Sie läuft, läuft auch zwei Wochen nicht ohne Sie.</p>
+  <p class="strip" data-r>Casablanca · alle 3 Monate · 2 Tage · 20 Plätze</p>
+  <figure class="media strip-img" data-m><div class="pi"><img data-px src="/pflege/assets/ws3/objection.webp" alt="Flugzeugflügel im Abendrot" width="2400" height="900" loading="lazy" decoding="async"></div></figure>
  </div>
 </section>
 
-<section class="cream">
- <div class="w two founder">
-  <figure class="fphoto"><img src="/pflege/assets/ws/founder-youness-v2.webp" alt="Youness Taoufiq, Gründer von Borivon" loading="lazy" decoding="async"><figcaption><b>Youness Taoufiq</b> · Gründer, Casablanca</figcaption></figure>
+<section class="sec alt">
+ <div class="c founder">
+  <figure class="fp" data-r><div class="media sq"><img src="/pflege/assets/ws/founder-youness-v2.webp" alt="Youness Taoufiq, Gründer von Borivon" width="476" height="476" loading="lazy" decoding="async"></div><figcaption>Youness Taoufiq · Gründer, Casablanca</figcaption></figure>
   <div>
-   <div class="caps" style="color:var(--gold-d);margin-bottom:10px">Der Gründer</div>
-   <h2>Youness Taoufiq</h2>
-   <p>Youness Taoufiq ist Gründer von Borivon. Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
-   <p>Im Workshop sitzen Sie mit ihm an einem Tisch. Er gibt Ihnen keine fünfzig Dinge mit. Er findet mit Ihnen die eine Hürde, die Sie gerade bremst, baut mit Ihnen den Plan und stellt Ihnen die Pflegekräfte dafür vor.</p>
-   <div class="sig">Youness Taoufiq</div>
+   <p class="lbl">Der Gründer</p>
+   <h2 class="h2" data-split>Youness Taoufiq</h2>
+   <p class="fx" data-r>Youness Taoufiq ist Gründer von Borivon. Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+   <p class="fx" data-r>Im Workshop sitzen Sie mit ihm an einem Tisch. Er gibt Ihnen keine fünfzig Dinge mit. Er findet mit Ihnen die eine Hürde, die Sie gerade bremst, baut mit Ihnen den Plan und stellt Ihnen die Pflegekräfte dafür vor.</p>
+   <p class="sig" data-r>Youness Taoufiq</p>
   </div>
  </div>
 </section>
 
-<section class="cream2">
- <div class="w">
-  <div class="sec-h"><h2>Die nächsten Workshops <em style="color:var(--gold-d)">in Casablanca</em></h2><p style="font-size:1.15rem;line-height:1.7">Unser Konferenzraum in Casablanca hat Platz für 20 Personen.<br>Das ist gerade offen:</p></div>
-  <div class="dates">
-   <div class="date sold" data-start="2026-11-28" data-end="2026-11-29"><span class="tag">Ausgebucht</span><b>28.–29. Nov</b><span class="pill">0 Plätze frei</span></div>
-   <a class="date" href="#termin" data-start="2027-02-06" data-end="2027-02-07"><b>6.–7. Feb 2027</b><span class="pill">18 Plätze frei</span></a>
-   <a class="date" href="#termin" data-start="2027-05-22" data-end="2027-05-23"><b>22.–23. Mai 2027</b><span class="pill">Offen</span></a>
-   <a class="date" href="#termin" data-start="2027-08-28" data-end="2027-08-29"><b>28.–29. Aug 2027</b><span class="pill">Offen</span></a>
+<section class="sec">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Termine</p><h2 class="h2" data-split>Die nächsten Workshops <em>in Casablanca</em></h2></div>
+   <p class="hp" data-r>Unser Konferenzraum in Casablanca hat Platz für 20 Personen. Das ist gerade offen:</p>
+  </div>
+  <div class="dates" data-r>
+   <div class="date sold" data-start="2026-11-28" data-end="2026-11-29"><b>28.–29. Nov</b><span class="dm">Casablanca · Samstag und Sonntag</span><span class="pill">Ausgebucht</span><span></span></div>
+   <a class="date" href="#termin" data-start="2027-02-06" data-end="2027-02-07"><b>6.–7. Feb 2027</b><span class="dm">Casablanca · Samstag und Sonntag</span><span class="pill">18 Plätze frei</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <a class="date" href="#termin" data-start="2027-05-22" data-end="2027-05-23"><b>22.–23. Mai 2027</b><span class="dm">Casablanca · Samstag und Sonntag</span><span class="pill">Offen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <a class="date" href="#termin" data-start="2027-08-28" data-end="2027-08-29"><b>28.–29. Aug 2027</b><span class="dm">Casablanca · Samstag und Sonntag</span><span class="pill">Offen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
   </div>
  </div>
 </section>
 
-<section class="cream" id="termin">
- <div class="w split">
+<section class="sec alt" id="termin">
+ <div class="c split book">
   <div>
-   <div class="caps" style="color:var(--gold-d)">Der Workshop</div>
-   <h2 class="sh">Einrichtungen <em style="color:var(--gold-d)">wie Ihre</em></h2>
-   <p class="sp"><b>Sie brauchen Pflegekräfte? Dann ist dieser Workshop für Sie.</b></p>
-   <p class="sp">Der Weg ist derselbe, für jede Einrichtung. Wir setzen Sie mit Einrichtungen Ihrer Größe zusammen.</p>
-   <div class="facs"><figure><img src="/pflege/assets/ws/fac-clinic.webp" alt="Pflegekraft in der Klinik" loading="lazy" decoding="async"><figcaption>Klinik</figcaption></figure><figure><img src="/pflege/assets/ws/fac-carehome.webp" alt="Pflege im Altenheim" loading="lazy" decoding="async"><figcaption>Altenheim</figcaption></figure><figure><img src="/pflege/assets/ws/fac-home.webp" alt="Hausbesuch" loading="lazy" decoding="async"><figcaption>Ambulant</figcaption></figure></div>
-   <div class="tiles">
-    <span>Kliniken und Krankenhäuser</span><span>Pflegeheime und Altenheime</span><span>Ambulante Pflegedienste</span><span>Reha-Kliniken</span><span>Intensivpflege</span><span>Tages- und Kurzzeitpflege</span><span>Hospize und Palliativpflege</span><span>Psychiatrie</span><span>Dialyse</span><span>Eingliederungshilfe</span><span>Betreutes Wohnen</span><span>Träger mit mehreren Standorten</span><span class="all">Und jede andere Einrichtung, die Pflegekräfte braucht</span>
+   <p class="lbl">Der Workshop</p>
+   <h2 class="h2" data-split>Einrichtungen <em>wie Ihre</em></h2>
+   <p class="sp" data-r><b>Sie brauchen Pflegekräfte? Dann ist dieser Workshop für Sie.</b></p>
+   <p class="sp" data-r>Der Weg ist derselbe, für jede Einrichtung. Wir setzen Sie mit Einrichtungen Ihrer Größe zusammen.</p>
+   <div class="facs" data-r>
+    <figure><div class="media"><img src="/pflege/assets/ws3/fac-clinic.webp" alt="Pflegekraft in der Klinik" width="900" height="600" loading="lazy" decoding="async"></div><figcaption>Klinik</figcaption></figure>
+    <figure><div class="media"><img src="/pflege/assets/ws3/fac-carehome.webp" alt="Pflege im Altenheim" width="900" height="600" loading="lazy" decoding="async"></div><figcaption>Altenheim</figcaption></figure>
+    <figure><div class="media"><img src="/pflege/assets/ws3/fac-home.webp" alt="Hausbesuch" width="900" height="600" loading="lazy" decoding="async"></div><figcaption>Ambulant</figcaption></figure>
    </div>
+   <ul class="flist" data-r>
+    <li>Kliniken und Krankenhäuser</li><li>Pflegeheime und Altenheime</li><li>Ambulante Pflegedienste</li><li>Reha-Kliniken</li><li>Intensivpflege</li><li>Tages- und Kurzzeitpflege</li><li>Hospize und Palliativpflege</li><li>Psychiatrie</li><li>Dialyse</li><li>Eingliederungshilfe</li><li>Betreutes Wohnen</li><li>Träger mit mehreren Standorten</li><li class="all">Und jede andere Einrichtung, die Pflegekräfte braucht</li>
+   </ul>
   </div>
   <div class="calcol">
    <div class="calhead"><h3>Wählen Sie unten einen Termin</h3><p>Ein kurzes Gespräch mit uns: Wir prüfen, ob Ihre Einrichtung passt, und bestätigen Ihren Platz.</p></div>
@@ -345,9 +499,9 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
  </div>
 </section>
 
-<section class="cream2">
- <div class="w">
-  <div class="sec-h"><h2>Fragen, die Einrichtungen <em style="color:var(--gold-d)">vorher stellen</em></h2></div>
+<section class="sec">
+ <div class="c split">
+  <div class="stick"><p class="lbl">Fragen</p><h2 class="h2" data-split>Fragen, die Einrichtungen <em>vorher stellen</em></h2></div>
   <div class="faq">
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was passiert an den zwei Tagen?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
     <p>Kein Seminar. Zwei Tage Arbeit an Ihrer Einrichtung.</p>
@@ -391,7 +545,7 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
     <p id="faq-dates">Die nächsten Termine: 6.–7. Februar, 22.–23. Mai und 28.–29. August 2027.</p>
    </div></div></div></div>
    <div class="qa open"><button class="qh" type="button" aria-expanded="true">Was kostet es?<i aria-hidden="true"></i></button><div class="qb"><div><div class="in">
-    <p>1.500 € pro Person.</p>
+    <p>1.500&nbsp;€ pro Person.</p>
     <p>Das erlaubt uns zwei Dinge:</p>
     <p>1) Die Runde bleibt stark: höchstens 20 Personen, alle brauchen wirklich Pflegekräfte.</p>
     <p>2) Sie sitzen 2 Tage, je 8 Stunden, mit Youness Taoufiq persönlich am Tisch.</p>
@@ -403,15 +557,26 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 </section>
 
 <section class="final">
- <img class="finbg" src="/pflege/assets/ws/final-sunset.webp" alt="" loading="lazy" decoding="async">
- <div class="w">
-  <h2>Bereit für Ihren Plan <em>und Ihre Pflegekräfte?</em></h2>
-  <p>Sie brauchen Pflegekräfte?<br>Dann sind diese zwei Tage für Sie.</p>
-  <a class="btn" href="#termin">Platz anfragen</a>
+ <div class="fbg"><img data-px src="/pflege/assets/ws3/final.webp" alt="" width="2400" height="1350" loading="lazy" decoding="async"></div>
+ <div class="c">
+  <h2 class="h2" data-split>Bereit für Ihren Plan <em>und Ihre Pflegekräfte?</em></h2>
+  <p data-r>Sie brauchen Pflegekräfte?<br>Dann sind diese zwei Tage für Sie.</p>
+  <div data-r><a class="btn light" href="#termin"><span>Platz anfragen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
  </div>
 </section>
+</main>
 
-<footer><p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>© Borivon LLC <a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="#" data-consent-open>Datenschutz-Einstellungen</a></footer>
+<footer class="foot">
+ <div class="c">
+  <a class="logo" href="/">Borivon<b>.</b></a>
+  <p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+  <div class="fl"><a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="#" data-consent-open>Datenschutz-Einstellungen</a></div>
+  <p class="copy">© Borivon LLC</p>
+ </div>
+</footer>
+
+<a class="mcta" href="#termin"><span>Platz anfragen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+
 <script src="/pflege/assets/t.js"></script>
 <script>
 /* The calendar frame gets this visit's context, so a booking is credited to the post / the PDF that
@@ -423,8 +588,8 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
   if(c){ p.set('sid',c.sid); if(c.ref) p.set('ref',c.ref.slice(0,200)); }
   var s=p.toString(); if(s) f.setAttribute('src',f.getAttribute('src')+'&'+s);
 })();
-/* Dates stay true by themselves: a workshop that has started drops off the page, and the top bar
-   and the FAQ name the next open dates. Same dates as lib/workshopDates.ts (a test keeps them in sync). */
+/* Dates stay true by themselves: a workshop that has started drops off the page, and the top bar,
+   the hero line and the FAQ name the next open dates. Same dates as lib/workshopDates.ts (a test keeps them in sync). */
 (function(){
   var M=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
   var today=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Berlin",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
@@ -435,10 +600,11 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
   function parts(c){ var a=c.getAttribute("data-start").split("-"), b=c.getAttribute("data-end").split("-"); return { d1:+a[2], d2:+b[2], m:M[+a[1]-1], y:a[0] }; }
   function long(c){ var p=parts(c); return p.d1+".–"+p.d2+". "+p.m+" "+p.y; }
   function short(c){ return c.querySelector("b").textContent.trim(); }
-  var lg=document.getElementById("bar-lg"), sm=document.getElementById("bar-sm"), fq=document.getElementById("faq-dates");
+  var lg=document.getElementById("bar-lg"), sm=document.getElementById("bar-sm"), fq=document.getElementById("faq-dates"), hn=document.getElementById("hero-next");
   if(open.length){
     if(lg) lg.textContent="· Casablanca, Marokko · "+(sold.length?sold.map(function(c){ return parts(c).m; }).join(", ")+" ausgebucht, ":"")+short(open[0])+" jetzt offen";
     if(sm) sm.textContent="· "+short(open[0])+" offen";
+    if(hn){ var pl=open[0].querySelector(".pill"), pt=pl?pl.textContent.trim():""; hn.textContent="Nächster Termin: "+short(open[0])+(pt&&pt!=="Offen"?" · "+pt:""); }
   } else {
     if(lg) lg.textContent="· Casablanca, Marokko · neue Termine folgen";
     if(sm) sm.textContent="· neue Termine folgen";
@@ -455,7 +621,7 @@ document.querySelectorAll('.qh').forEach(function(b){
     b.setAttribute('aria-expanded',o?'true':'false');
   });
 });
-/* "Platz anfragen" and the date cards glide to the calendar instead of jumping.
+/* "Platz anfragen" and the date rows glide to the calendar instead of jumping.
    On a phone the calendar sits under the text, so the glide aims at the calendar itself. */
 (function(){
   var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches, run=0;
@@ -464,7 +630,7 @@ document.querySelectorAll('.qh').forEach(function(b){
     var y0=window.scrollY, dy=y-y0, id=++run;
     if(Math.abs(dy)<2) return;
     if(reduce){window.scrollTo(0,y);return}
-    var dur=Math.min(1100,500+Math.abs(dy)*.1), t0=performance.now();
+    var dur=Math.min(1200,520+Math.abs(dy)*.1), t0=performance.now();
     function stop(){run++}
     window.addEventListener('wheel',stop,{passive:true,once:true});
     window.addEventListener('touchstart',stop,{passive:true,once:true});
@@ -479,7 +645,7 @@ document.querySelectorAll('.qh').forEach(function(b){
     var a=e.target.closest&&e.target.closest('a[href^="#"]'); if(!a) return;
     var id=a.getAttribute('href').slice(1), el=id&&document.getElementById(id); if(!el) return;
     e.preventDefault();
-    var t=(id==='termin'&&window.innerWidth<=860&&document.querySelector('.calcol'))||el;
+    var t=(id==='termin'&&window.innerWidth<=900&&document.querySelector('.calcol'))||el;
     glide(t.getBoundingClientRect().top+window.scrollY-16);
     if(history.replaceState) history.replaceState(null,'','#'+id);
   });
@@ -502,6 +668,71 @@ document.querySelectorAll('.qh').forEach(function(b){
       new w.MutationObserver(function(){ var m=d.querySelector('main'); if(m) ro.observe(m); fit(); }).observe(d.body,{childList:true,subtree:true});
     }catch(e){ setInterval(fit,700); }
   });
+})();
+/* Motion, kept quiet: headlines rise word by word, photos open from below, the six signs light up
+   as you read them, a slow drift on big photos (desktop only), the bar hides while you read down.
+   Everything is visible without JS and with "reduce motion". */
+(function(){
+  var d=document, w=window;
+  var reduce=w.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  w.__bvMotion=1;
+  // headlines: one span per word (text stays text for screen readers and search)
+  [].forEach.call(d.querySelectorAll('[data-split]'),function(el){
+    var i=0;
+    (function walk(n){
+      [].slice.call(n.childNodes).forEach(function(c){
+        if(c.nodeType===3){
+          var frag=d.createDocumentFragment();
+          c.textContent.split(/([ \t\r\n]+)/).forEach(function(p){ // not at a no-break space: "2 Tagen" stays together
+            if(!p) return;
+            if(/^[ \t\r\n]+$/.test(p)){ frag.appendChild(d.createTextNode(p)); return; }
+            var o=d.createElement('span'), s=d.createElement('span');
+            o.className='wd'; s.textContent=p; s.style.setProperty('--i',i++);
+            o.appendChild(s); frag.appendChild(o);
+          });
+          n.replaceChild(frag,c);
+        } else if(c.nodeType===1&&c.tagName!=='BR') walk(c);
+      });
+    })(el);
+  });
+  // a group fades in one after another
+  [].forEach.call(d.querySelectorAll('[data-r]'),function(e){
+    var k=0; [].some.call(e.parentElement.children,function(c){ if(c===e) return true; if(c.hasAttribute('data-r')) k++; });
+    e.style.setProperty('--d',Math.min(k,6));
+  });
+  var els=d.querySelectorAll('[data-r],[data-split],[data-m]');
+  if(reduce||!('IntersectionObserver' in w)) [].forEach.call(els,function(e){ e.classList.add('in'); });
+  else {
+    var io=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } }); },{rootMargin:'0px 0px -7% 0px',threshold:.1});
+    [].forEach.call(els,function(e){ io.observe(e); });
+  }
+  var lines=[].slice.call(d.querySelectorAll('[data-line]'));
+  var pxs=[].slice.call(d.querySelectorAll('[data-px]'));
+  var desk=w.matchMedia('(min-width: 901px) and (pointer: fine)');
+  var nav=d.querySelector('.nav'), mcta=d.querySelector('.mcta'), heroBtn=d.querySelector('.hero .btn'), book=d.getElementById('termin'), fin=d.querySelector('.final');
+  var lastY=w.scrollY, ticking=false;
+  function frame(){
+    ticking=false;
+    var vh=w.innerHeight, y=w.scrollY;
+    if(!reduce) lines.forEach(function(l){ var r=l.getBoundingClientRect(); l.classList.toggle('on', r.top+r.height/2 < vh*.66); });
+    if(!reduce&&desk.matches) pxs.forEach(function(img){
+      var r=img.parentElement.getBoundingClientRect(); if(r.bottom<-50||r.top>vh+50) return;
+      var p=(r.top+r.height/2-vh/2)/(vh/2+r.height/2);
+      img.style.transform='translate3d(0,'+(p*-5).toFixed(2)+'%,0) scale(1.11)';
+    });
+    if(nav){ nav.classList.toggle('solid',y>8); if(y>lastY+6&&y>260) nav.classList.add('hide'); else if(y<lastY-6) nav.classList.remove('hide'); }
+    lastY=y;
+    if(mcta&&heroBtn&&book){
+      var hb=heroBtn.getBoundingClientRect(), bk=book.getBoundingClientRect(), fr=fin?fin.getBoundingClientRect():null;
+      var show=hb.bottom<0 && !(bk.top<vh&&bk.bottom>0) && !(fr&&fr.top<vh) && !d.getElementById('bv-consent');
+      mcta.classList.toggle('show',show);
+    }
+  }
+  function onScroll(){ if(!ticking){ ticking=true; requestAnimationFrame(frame); } }
+  w.addEventListener('scroll',onScroll,{passive:true});
+  w.addEventListener('resize',onScroll);
+  if(desk.addEventListener) desk.addEventListener('change',function(){ pxs.forEach(function(i){ i.style.transform=''; }); onScroll(); });
+  onScroll();
 })();
 </script>
 </body>
