@@ -49,6 +49,20 @@ function reveal(el: Element | null, block: "start" | "center") {
   if (!el || typeof window === "undefined") return;
   if (window.self === window.top) { el.scrollIntoView({ block, behavior: "smooth" }); return; }
   const r = el.getBoundingClientRect();
+  // /workshop grows the frame to its full height, so the frame itself never scrolls:
+  // move the PARENT page, and only when the element is not already in view.
+  try {
+    const fr = window.frameElement as HTMLElement | null;
+    const pw = window.parent;
+    if (fr && pw) {
+      const fTop = fr.getBoundingClientRect().top;
+      const elTop = fTop + r.top, vh = pw.innerHeight;
+      if (elTop >= 0 && elTop + Math.min(r.height, vh * 0.6) <= vh) return;
+      const off = block === "center" ? (vh - Math.min(r.height, vh)) / 2 : 24;
+      pw.scrollTo({ top: Math.max(0, pw.scrollY + elTop - off), behavior: "smooth" });
+      return;
+    }
+  } catch { /* cross-origin parent: fall back to scrolling the frame */ }
   const top = window.scrollY + r.top - (block === "center" ? (window.innerHeight - r.height) / 2 : 0);
   window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }

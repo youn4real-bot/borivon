@@ -318,5 +318,24 @@ footer a{color:#8a847a;margin:0 10px;text-decoration:none}
 </section>
 
 <footer>© Borivon LLC <a href="/fahrplan">Kostenloser Fahrplan</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></footer>
+<script>
+/* Calendar frame = height of its content (same origin), so the page scrolls, not the frame. */
+(function(){
+  var f=document.querySelector('.cal iframe'); if(!f) return;
+  function fit(){ try{
+    var d=f.contentDocument, m=d&&d.querySelector('main'); if(!m) return;
+    var h=Math.ceil(m.getBoundingClientRect().bottom+(d.defaultView.scrollY||0))+8;
+    if(h>320&&Math.abs(h-f.offsetHeight)>2) f.style.height=h+'px';
+  }catch(e){} }
+  f.addEventListener('load',function(){
+    fit();
+    try{
+      var w=f.contentWindow, d=f.contentDocument, ro=new w.ResizeObserver(fit);
+      ro.observe(d.body);
+      new w.MutationObserver(function(){ var m=d.querySelector('main'); if(m) ro.observe(m); fit(); }).observe(d.body,{childList:true,subtree:true});
+    }catch(e){ setInterval(fit,700); }
+  });
+})();
+</script>
 </body>
 </html>
