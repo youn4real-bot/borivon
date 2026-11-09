@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BookingFlow } from "@/components/BookingFlow";
@@ -21,6 +22,17 @@ import { loadEventType } from "@/lib/bookingEventTypes";
  */
 
 export const dynamic = "force-dynamic";
+
+/** Inside borivon.com/workshop the calendar wears the page's look (content/pflege/bv.css): warm paper,
+ *  ink selections with paper text, hairlines. Set here as CSS variables, so the first paint is right. */
+const EMBED_SKIN = {
+  "--bg": "#fbfaf6", "--bg2": "#f4f1ea", "--card": "#ffffff", "--card2": "#fbfaf6",
+  "--border": "rgba(21,19,15,0.10)", "--border2": "rgba(21,19,15,0.16)", "--border-gold": "rgba(21,19,15,0.16)",
+  "--w": "#15130f", "--w2": "#3b372f", "--w3": "#837c6f",
+  "--gold": "#8a6a28", "--gold2": "#a8843a", "--gdim": "rgba(168,132,58,0.08)",
+  "--sel-bg": "#15130f", "--sel-ink": "#fbfaf6", "--sel-radius": "3px",
+  color: "#15130f",
+} as CSSProperties;
 
 type Params = {
   params: Promise<{ type: string }>;
@@ -53,5 +65,12 @@ export default async function BookTypePage({ params, searchParams }: Params) {
   // embedded layout (no summary rail popping out after the JS loads).
   const embedded = (await searchParams).embed === "1";
   // the workshop calendar (shown inside borivon.com/workshop) is German only, like the page around it
-  return <BookingFlow initialKind={et.kind} eventType={et.slug} headline={et.title} blurb={et.blurb} forceLang={et.slug === "workshop" ? "de" : undefined} embedded={embedded} />;
+  const flow = <BookingFlow initialKind={et.kind} eventType={et.slug} headline={et.title} blurb={et.blurb} forceLang={et.slug === "workshop" ? "de" : undefined} embedded={embedded} />;
+  if (!embedded) return flow;
+  return (
+    <div className="bv-embed-skin" style={EMBED_SKIN}>
+      <style>{"html,body{background:#fbfaf6!important}"}</style>
+      {flow}
+    </div>
+  );
 }

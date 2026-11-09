@@ -354,6 +354,10 @@ textarea:focus {
   border: 1px solid var(--gold);
   box-shadow: var(--shadow-gold-sm);
 }
+/* The calendar inside borivon.com/workshop (app/book/[type]/page.tsx): ink buttons, square corners. */
+.bv-embed-skin .bv-btn-primary { background: var(--sel-bg); border-color: var(--sel-bg); color: var(--sel-ink); box-shadow: none; border-radius: 3px; }
+.bv-embed-skin .bv-btn-primary:hover:not(:disabled) { background: #2c271f; border-color: #2c271f; box-shadow: none; }
+.bv-embed-skin .bv-btn-ghost { border-radius: 3px; }
 .bv-btn-primary:hover:not(:disabled) {
   background: var(--gold2);
   border-color: var(--gold2);

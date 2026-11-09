@@ -1,48 +1,36 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono, Lexend, Playfair_Display } from "next/font/google";
+import { EB_Garamond, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { GlobalChrome } from "@/components/GlobalChrome";
 import NextTopLoader from "nextjs-toploader";
 import { SITE_ZONE_BOOT } from "@/lib/siteZone";
 
-// Primary font — Lexend everywhere (UI, body, headings, every surface).
-// Mercury-style discipline: one font for the entire system. Lexend has
-// peer-reviewed reading-speed gains, especially for non-native readers
-// (which matches Borivon's German-learner audience).
-//
-// Perf: trimmed to 400/500/600/700 (dropped 300 — was unused at scale) and
-// preloaded as the LCP-critical font.
-const lexend = Lexend({
+// Fonts = borivon.com since 2026-11-09 (founder: "this design and font is really good, apply it to
+// all the website", the portal included): Inter for every text, EB Garamond for the wordmark and
+// headlines. next/font self-hosts them (no request to Google from the visitor's browser).
+// The CSS variable names are the old ones on purpose: every page and the portal switch with them.
+const inter = Inter({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-dm-sans-v", // legacy variable name kept; resolves to Lexend
+  variable: "--font-dm-sans-v", // legacy variable name kept; resolves to Inter
   display: "swap",
   preload: true,
 });
 
-// Secondary serif — Playfair Display.
-// Used for the "Borivon." brand wordmark (top-left logo) and the large
-// decorative background "B." All usages are italic at default weight.
-//
-// Perf: trimmed to italic-400 only (was 4 weights × 2 styles = 8 files;
-// now 1 file). `display: "swap"` + `preload: true` so the wordmark always
-// renders in Playfair — brand identity matters more than the few-ms LCP win
-// from "optional".
-const playfair = Playfair_Display({
+// The "Borivon." wordmark and the large decorative "B.": EB Garamond italic.
+const garamond = EB_Garamond({
   subsets: ["latin"],
-  weight: ["400"],
+  weight: ["400", "500"],
   style: ["italic"],
   variable: "--font-serif-v",
   display: "swap",
   preload: true,
 });
 
-// Headline serif — Playfair Display upright (500–700), the /pflege look carried
-// into the portal (see "RENOVATION 2026-10" in globals.css: h1, h2). Not
-// preloaded: headlines swap in, the wordmark above stays the LCP-critical file.
-const playfairUpright = Playfair_Display({
+// Headlines: EB Garamond upright (globals.css "RENOVATION 2026-10": h1, h2). Not preloaded.
+const garamondUpright = EB_Garamond({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: ["500", "600"],
   style: ["normal"],
   variable: "--font-serif-upright-v",
   display: "swap",
@@ -63,11 +51,12 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://borivon.com"),
   title: {
-    default: "Borivon — Pflegefachkräfte, die bleiben",
+    default: "Borivon · Pflegekräfte gewinnen und halten",
     template: "%s | Borivon",
   },
+  // the motto, word for word (founder: Borivon helps facilities, it never "brings nurses")
   description:
-    "Borivon bringt geprüfte Pflegefachkräfte nach Deutschland. Sie führen ein Interview, wir machen den Rest: Deutsch, Anerkennung, Visum, Ankommen. Und sie bleibt.",
+    "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
   keywords: [
     "Pflegefachkräfte",
     "Pflegekräfte aus dem Ausland",
@@ -90,15 +79,15 @@ export const metadata: Metadata = {
     alternateLocale: ["en_US", "fr_FR"],
     url: "https://borivon.com",
     siteName: "Borivon",
-    title: "Borivon — Pflegefachkräfte, die bleiben",
-    description: "Ein Interview. Wir machen den Rest. Und sie bleibt.",
-    images: [{ url: "/pflege/assets/nurse.jpg", alt: "Borivon — Pflegefachkräfte, die bleiben" }],
+    title: "Borivon · Pflegekräfte gewinnen und halten",
+    description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
+    images: [{ url: "/pflege/assets/fahrplan-og.png", width: 1200, height: 630, alt: "Borivon · Der kostenlose Pflege-Fahrplan" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Borivon — Pflegefachkräfte, die bleiben",
-    description: "Ein Interview. Wir machen den Rest. Und sie bleibt.",
-    images: ["/pflege/assets/nurse.jpg"],
+    title: "Borivon · Pflegekräfte gewinnen und halten",
+    description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
+    images: ["/pflege/assets/fahrplan-og.png"],
   },
   // NOTE: no `alternates.canonical` here on purpose.
   //
@@ -137,7 +126,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable} ${playfairUpright.variable} ${mono.variable}`}>
+    <html lang="fr" dir="ltr" className={`${inter.variable} ${garamond.variable} ${garamondUpright.variable} ${mono.variable}`}>
       <head>
         {/* Affiliate subdomain marker — runs synchronously before first paint so
             the global chrome (navbar/flag-strip/actions) is CSS-hidden on
@@ -154,8 +143,8 @@ export default function RootLayout({
             __html: "try{if((location.hostname||'').split('.')[0]==='affiliates'){var s=document.createElement('style');s.textContent='.bv-chrome{display:none!important}';(document.head||document.documentElement).appendChild(s);}}catch(e){}",
           }}
         />
-        {/* Typography zone before first paint: public pages get the /pflege headline
-            type, /portal stays Lexend (lib/siteZone.ts; GlobalChrome keeps it in sync). */}
+        {/* Typography zone before first paint: public pages get the borivon.com headline
+            type (EB Garamond); the portal keeps one text font, Inter (lib/siteZone.ts). */}
         <script dangerouslySetInnerHTML={{ __html: SITE_ZONE_BOOT }} />
         {/* No preconnects to other companies here: a preconnect alone hands the visitor's IP to
             that server (the German "Google Fonts" rulings), and these pages are public, e.g. the
@@ -166,14 +155,14 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",
-              // Borivon is nurse placement only since 2026-10-20 (no language school).
-              "@type": "EmploymentAgency",
+              // Since 2026-11-09 the site gives free value + one paid workshop; no placement sales.
+              "@type": "Organization",
               name: "Borivon",
               legalName: "Borivon LLC",
               url: "https://borivon.com",
               logo: "https://borivon.com/logo.png",
               description:
-                "Borivon bringt geprüfte Pflegefachkräfte nach Deutschland: Deutsch, Anerkennung, Visum und Ankommen aus einer Hand. Mit Bleibegarantie.",
+                "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
               address: {
                 "@type": "PostalAddress",
                 streetAddress: "77 Boulevard Mohamed Smiha",

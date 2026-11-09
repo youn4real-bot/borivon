@@ -820,9 +820,9 @@ export function BookingFlow({
                       minHeight: 44, borderRadius: 12,
                       // Not colour-only: the chosen day is also the only one
                       // that is bold and ringed, and it reports aria-pressed.
-                      border: `1px solid ${on ? "var(--gold)" : free ? "var(--border)" : "transparent"}`,
+                      border: `1px solid ${on ? "var(--sel-bg, var(--gold))" : free ? "var(--border)" : "transparent"}`,
                       boxShadow: on ? "0 0 0 2px var(--border-gold)" : "none",
-                      background: on ? "var(--gold)" : free ? "var(--card)" : "transparent",
+                      background: on ? "var(--sel-bg, var(--gold))" : free ? "var(--card)" : "transparent",
                       // #131312, not var(--bg): in the light theme --bg is pearl
                       // white, and white-on-gold is ~3.4:1. This is the same ink
                       // .bv-btn-primary puts on gold, and it passes in both themes.
@@ -832,7 +832,7 @@ export function BookingFlow({
                       // two thirds of a month's cells are dead days. They stay
                       // plainly recessive via the missing dot, the transparent
                       // background and the lighter weight.
-                      color: on ? "#131312" : free ? "var(--w)" : "var(--w3)",
+                      color: on ? "var(--sel-ink, #131312)" : free ? "var(--w)" : "var(--w3)",
                       fontWeight: on ? 700 : free ? 500 : 400,
                       cursor: free ? "pointer" : "default",
                     }}
@@ -843,7 +843,7 @@ export function BookingFlow({
                       aria-hidden
                       style={{
                         width: 4, height: 4, borderRadius: 999, marginTop: 3,
-                        background: on ? "#131312" : free ? "var(--gold)" : "transparent",
+                        background: on ? "var(--sel-ink, #131312)" : free ? "var(--gold)" : "transparent",
                       }}
                     />
                   </button>
@@ -867,7 +867,7 @@ export function BookingFlow({
       onClick={() => { track("book_details"); setStep(2); }}
       className="bv-btn bv-btn-primary bv-tap flex-1 bv-enter-soft"
       // solid gold + dark ink: the theme colours turned this into pale gold with white text (unreadable)
-      style={{ minHeight: 44, background: "var(--gold)", color: "#131312", fontWeight: 600, borderRadius: 10 }}
+      style={{ minHeight: 44, background: "var(--sel-bg, var(--gold))", color: "var(--sel-ink, #131312)", fontWeight: 600, borderRadius: "var(--sel-radius, 10px)" }}
     >
       {T("Confirm", "Bestätigen", "Confirmer")}
     </button>
@@ -948,7 +948,7 @@ export function BookingFlow({
                 className="bv-tap flex-1 flex items-center justify-center gap-1.5 text-[14px]"
                 style={{
                   minHeight: 44, borderRadius: 10,
-                  border: `1px solid ${on ? "var(--gold)" : "var(--border)"}`,
+                  border: `1px solid ${on ? "var(--sel-bg, var(--gold))" : "var(--border)"}`,
                   background: on ? "var(--gdim)" : "var(--card)",
                   // Gold-on-gdim would be ~3.4:1 in the light theme. The chosen
                   // time keeps full-contrast ink; the selection is carried by
@@ -957,7 +957,7 @@ export function BookingFlow({
                   fontWeight: on ? 600 : 400,
                 }}
               >
-                {on && <Check size={13} strokeWidth={3} style={{ color: "var(--gold)" }} aria-hidden />}
+                {on && <Check size={13} strokeWidth={3} style={{ color: "var(--sel-bg, var(--gold))" }} aria-hidden />}
                 {s.label}
               </button>
               {/* Calendly's move: choosing a time SPLITS the row and puts the
@@ -997,8 +997,8 @@ export function BookingFlow({
                     // #131312, not var(--bg): in the light theme --bg is pearl
                     // white and white-on-gold is ~3.1:1, which fails AA for
                     // 12px semibold. Same ink .bv-btn-primary puts on gold.
-                    color: s.i === step ? "#131312" : s.i < step ? "var(--gold)" : "var(--w3)",
-                    background: s.i === step ? "var(--gold)" : "transparent",
+                    color: s.i === step ? "var(--sel-ink, #131312)" : s.i < step ? "var(--gold)" : "var(--w3)",
+                    background: s.i === step ? "var(--sel-bg, var(--gold))" : "transparent",
                     border: `1px solid ${s.i <= step ? "var(--border-gold)" : "var(--border)"}`,
                     fontWeight: s.i === step ? 600 : 400,
                   }}
@@ -1199,12 +1199,12 @@ export function BookingFlow({
                               style={{
                                 width: 16, height: 16,
                                 borderRadius: q.multi ? 5 : 999,
-                                border: `1px solid ${on ? "var(--gold)" : "var(--border)"}`,
-                                background: on ? "var(--gold)" : "transparent",
+                                border: `1px solid ${on ? "var(--sel-bg, var(--gold))" : "var(--border)"}`,
+                                background: on ? "var(--sel-bg, var(--gold))" : "transparent",
                               }}
                             >
                               {/* Same gold-chip ink problem as the step rail. */}
-                              {on && <Check size={11} strokeWidth={3} style={{ color: "#131312" }} />}
+                              {on && <Check size={11} strokeWidth={3} style={{ color: "var(--sel-ink, #131312)" }} />}
                             </span>
                             {tr(lang, o.en, o.de, o.fr)}
                           </button>
