@@ -4,13 +4,14 @@
  * and drops past ones in the browser; tests/workshopDates.test.ts fails if the two ever disagree.
  *
  * Founder 2026-11-09: quarterly, always Saturday + Sunday. November 2026 is real and sold out.
+ * 20 seats per date, 1.500 € per person, 2 days × 8 hours with the founder (was 10 × 3.000 €).
  * seatsLeft: null = open (no number shown), 0 = sold out.
  */
 export type WorkshopDate = { start: string; end: string; seatsLeft: number | null };
 
 export const WORKSHOP_DATES: WorkshopDate[] = [
   { start: "2026-11-28", end: "2026-11-29", seatsLeft: 0 },
-  { start: "2027-02-06", end: "2027-02-07", seatsLeft: 8 },
+  { start: "2027-02-06", end: "2027-02-07", seatsLeft: 18 },
   { start: "2027-05-22", end: "2027-05-23", seatsLeft: null },
   { start: "2027-08-28", end: "2027-08-29", seatsLeft: null },
 ];

@@ -262,7 +262,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "Sie haben jetzt Ihren Fahrplan. Viele wollen den nächsten Schritt nicht allein gehen.",
         "Dafür gibt es unseren <b>Workshop in Casablanca</b>: 2 Tage mit mir, in unseren Konferenzräumen. Am ersten Tag finden wir Ihre größte Hürde und bauen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte persönlich kennen, die zu diesem Plan passen. Sie fahren mit einem fertigen Plan nach Hause.",
         datesLine,
-        "3.000 € pro Person. Nur 10 Plätze pro Termin.",
+        "1.500 € pro Person. 20 Plätze pro Termin.",
       ], cta: "Platz anfragen" },
     ],
     en: [
@@ -290,7 +290,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "you have your roadmap now. Many don't want to take the next step alone.",
         "That is what our <b>workshop in Casablanca, Morocco</b> is for: 2 days with me in our conference rooms. On day one we find your biggest hurdle and build your plan. On day two you meet the nurses who fit that plan, in person. You go home with a finished plan.",
         datesLine,
-        "€3,000 per person. Only 10 seats per date.",
+        "€1,500 per person. 20 seats per date.",
       ], cta: "Request a seat" },
     ],
     fr: [
@@ -318,7 +318,7 @@ export function followupMail(n: number, o: Addressee & { lang: Lang; result: Roa
         "vous avez maintenant votre plan. Beaucoup ne veulent pas faire la prochaine étape seuls.",
         "C'est le but de notre <b>atelier à Casablanca</b> : 2 jours avec moi, dans nos salles de conférence. Le premier jour, nous trouvons votre plus gros obstacle et construisons votre plan. Le deuxième, vous rencontrez en personne les infirmières qui correspondent à ce plan. Vous repartez avec un plan prêt.",
         datesLine,
-        "3 000 € par personne. Seulement 10 places par date.",
+        "1 500 € par personne. 20 places par date.",
       ], cta: "Demander une place" },
     ],
   };

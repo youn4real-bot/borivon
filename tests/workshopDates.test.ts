@@ -59,7 +59,7 @@ describe("workshop dates", () => {
     const de = last("de")!;
     expect(de.html).toContain("6.–7. Februar 2027");
     expect(de.html).toContain("22.–23. Mai 2027");
-    expect(de.html).toContain("3.000 € pro Person.");
+    expect(de.html).toContain("1.500 € pro Person.");
     expect(last("en")!.html).toContain("February 6–7, 2027");
     vi.setSystemTime(new Date("2027-03-01T10:00:00Z"));
     const later = last("de")!;
