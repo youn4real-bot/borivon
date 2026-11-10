@@ -7,6 +7,35 @@
 /* Home page only (borivon.com/). Founder 2026-11-09: the main website is for free, huge value, like
    acquisition.com: the free Fahrplan first, the workshop as the one paid step. No nurse sales talk.
    Shared look: /pflege/assets/bv.css. */
+/* hero: centred, then the Fahrplan as the product, big (founder 2026-11-10: "like acquisition.com,
+   present it as high value, in the middle, big; and hints on what to do") */
+.hero-c{max-width:1000px;margin:0 auto;text-align:center}
+.hero-c .for{margin:30px auto 0;max-width:33em}
+.hero-c .cta{display:flex;flex-direction:column;align-items:center;margin-top:32px}
+.hero-c .status{justify-content:center}
+.stage{position:relative;display:block;height:clamp(300px,40vw,560px);max-width:1120px;margin:clamp(52px,6vw,92px) auto 0;perspective:1800px;color:inherit;text-decoration:none}
+.stage::after{content:"";position:absolute;left:14%;right:14%;bottom:-30px;height:48px;background:radial-gradient(50% 50% at 50% 50%,rgba(32,26,16,.18),transparent 72%)}
+.stage .pg{position:absolute;bottom:0;left:50%;z-index:2;width:clamp(170px,25vw,345px);border-radius:2px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.05),0 44px 70px -36px rgba(32,26,16,.55);transform-origin:50% 100%;transform:translateX(-50%) scale(.94);transition:transform 1.7s var(--ease) .25s}
+.stage .pg img{display:block;width:100%;height:auto;border-radius:2px}
+.stage .p2{z-index:3;transform:translateX(-50%)}
+.stage.in .p1{transform:translateX(-128%) rotateY(24deg) scale(.9)}
+.stage.in .p3{transform:translateX(28%) rotateY(-24deg) scale(.9)}
+.stage .p2{transition:transform .9s var(--ease)}
+.stage:hover .p2{transform:translateX(-50%) translateY(-8px)}
+/* what each page is: captions under the pages, like a product spec */
+.caps3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;max-width:980px;margin:46px auto 0;text-align:center}
+.caps3 span{display:flex;align-items:center;justify-content:center;gap:10px;font:500 11.5px/1.35 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--gold-d)}
+.caps3 span::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--gold)}
+@media (max-width:640px){.caps3{gap:8px;margin-top:34px}.caps3 span{flex-direction:column;gap:8px;font-size:10px;letter-spacing:.08em}}
+@media (max-width:640px){.stage .pg{width:43vw}.stage.in .p1{transform:translateX(-100%) rotateY(26deg) scale(.88)}.stage.in .p3{transform:translateX(0) rotateY(-26deg) scale(.88)}}
+@media (prefers-reduced-motion:reduce){.stage .pg{transition:none}.stage .p1{transform:translateX(-128%) rotateY(24deg) scale(.9)}.stage .p3{transform:translateX(28%) rotateY(-24deg) scale(.9)}}
+/* the hint: what to do, in three steps */
+.how{display:flex;justify-content:center;gap:clamp(18px,3vw,52px);max-width:1000px;margin:clamp(64px,7vw,96px) auto 0;padding:0;list-style:none}
+.how li{position:relative;display:flex;align-items:flex-start;gap:14px;flex:1 1 0;max-width:300px;text-align:left}
+.how b{flex:none;display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--line2);border-radius:50%;font:500 1.15rem/1 var(--serif);color:var(--gold-d)}
+.how span{padding-top:7px;font-size:1rem;font-weight:500;line-height:1.35;color:var(--ink)}
+.how small{display:block;margin-top:3px;font-size:.9rem;font-weight:400;color:var(--mute)}
+@media (max-width:760px){.how{flex-direction:column;align-items:center;gap:18px}.how li{width:100%;max-width:320px}}
 .hero2{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(40px,6vw,110px);align-items:center}
 @media (max-width:900px){.hero2{grid-template-columns:1fr}}
 .hero2 .for{margin-top:clamp(28px,3.4vw,44px)}
@@ -95,19 +124,24 @@
 <main>
 <header class="hero">
  <div class="c">
-  <div class="hero2">
-   <div>
-    <h1 class="h1" data-split><span class="kick">Gesundheitseinrichtungen in Deutschland:</span><span class="main">Pflegekräfte, die kommen. <em>Und bleiben.</em></span></h1>
-    <p class="for" data-r>Ihr kostenloser Pflege-Fahrplan zeigt Ihnen, wo Ihre Einrichtung steht, was leere Stellen Sie kosten und was Sie als Nächstes tun. <b>Damit Pflegekräfte kommen. Und bleiben.</b></p>
-    <div data-r><a class="btn" href="/fahrplan"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
-    <p class="status"><i></i>Kostenlos · ca. 2 Minuten · per E-Mail</p></div>
-   </div>
-   <div class="stack" data-r aria-hidden="true">
-    <img src="/pflege/assets/home/fp-plan.webp?v=2" alt="" width="900" height="1273" decoding="async">
-    <img src="/pflege/assets/home/fp-steps.webp?v=2" alt="" width="900" height="1273" decoding="async">
-    <img src="/pflege/assets/home/fp-cover.webp?v=2" alt="" width="900" height="1273" decoding="async" fetchpriority="high">
-   </div>
+  <div class="hero-c">
+   <h1 class="h1" data-split><span class="kick">Gesundheitseinrichtungen in Deutschland:</span><span class="main">Pflegekräfte, die kommen. <em>Und bleiben.</em></span></h1>
+   <p class="for" data-r>Ihr kostenloser Pflege-Fahrplan zeigt Ihnen, wo Ihre Einrichtung steht, was leere Stellen Sie kosten und was Sie als Nächstes tun.</p>
+   <div class="cta" data-r><a class="btn" href="/fahrplan"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <p class="status"><i></i>Kostenlos · ca. 2 Minuten · per E-Mail</p></div>
   </div>
+  <!-- the Fahrplan as the product (like acquisition.com/roadmap): big, centred, pages fanned -->
+  <a class="stage" href="/fahrplan" data-r aria-label="Ihr kostenloser Pflege-Fahrplan">
+   <span class="pg p1"><img src="/pflege/assets/home/fp-steps.webp?v=2" alt="" width="900" height="1273" decoding="async"></span>
+   <span class="pg p3"><img src="/pflege/assets/home/fp-numbers.webp?v=2" alt="" width="900" height="1273" decoding="async"></span>
+   <span class="pg p2"><img src="/pflege/assets/home/fp-cover.webp?v=2" alt="" width="900" height="1273" decoding="async" fetchpriority="high"></span>
+  </a>
+  <div class="caps3" data-r aria-hidden="true"><span>Ihre Stufe, von 1 bis 5</span><span>Persönlich, für Ihre Einrichtung</span><span>Was leere Stellen Sie kosten</span></div>
+  <ol class="how" data-r aria-label="So bekommen Sie Ihren Fahrplan">
+   <li><b>1</b><span>Ein paar Fragen beantworten<small>ca. 2 Minuten</small></span></li>
+   <li><b>2</b><span>E-Mail bestätigen<small>ein Klick</small></span></li>
+   <li><b>3</b><span>Ihr Fahrplan kommt<small>als PDF, kostenlos</small></span></li>
+  </ol>
   <div class="lede">
    <p class="lbl" data-r>Borivon</p>
    <p data-r>Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
@@ -166,7 +200,7 @@
   <div class="stick">
    <p class="lbl">Der Fahrplan</p>
    <h2 class="h2" data-split>Was in Ihrem <em>Fahrplan steht</em></h2>
-   <figure class="page1" data-r><img src="/pflege/assets/home/fp-numbers.webp?v=2" alt="Eine Seite aus dem Fahrplan: Ihre Zahlen" width="900" height="1273" loading="lazy" decoding="async"></figure>
+   <figure class="page1" data-r><img src="/pflege/assets/home/fp-plan.webp?v=2" alt="Eine Seite aus dem Fahrplan: der 90-Tage-Plan" width="900" height="1273" loading="lazy" decoding="async"></figure>
   </div>
   <ol class="rows">
    <li data-r><span>01</span><p><b>Ihre Stufe</b><small>Wo Ihre Einrichtung heute steht, auf fünf Stufen: Retten, Füllen, Halten, Planen, Anziehen.</small></p></li>
