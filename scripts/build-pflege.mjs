@@ -178,6 +178,21 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in workshop.html"); }
   else s = s.slice(0, i) + head("Workshop in Casablanca · Borivon", "2 Tage in unseren Konferenzräumen in Casablanca, Marokko, mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, 20 Plätze.", "https://www.borivon.com/workshop", "https://www.borivon.com/pflege/assets/og-workshop.jpg") + s.slice(i + "<!--HEAD-->".length);
+  // Google: each open date as an Event (no offers/price; sold-out dates left out)
+  const events = [...s.matchAll(/<a class="date"[^>]*data-start="(\d{4}-\d{2}-\d{2})" data-end="(\d{4}-\d{2}-\d{2})"/g)].map(([, start, end]) => ({
+    "@context": "https://schema.org", "@type": "Event",
+    name: "Workshop in Casablanca: Ihr Personal-Plan in 2 Tagen",
+    description: "2 Tage in unseren Konferenzräumen in Casablanca, mit Youness Taoufiq: Am ersten Tag Ihr Plan, am zweiten die Pflegekräfte dazu. Für Gesundheitseinrichtungen in Deutschland. 20 Plätze.",
+    startDate: start, endDate: end,
+    eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode", eventStatus: "https://schema.org/EventScheduled",
+    location: { "@type": "Place", name: "Borivon, Konferenzräume", address: { "@type": "PostalAddress", addressLocality: "Casablanca", addressCountry: "MA" } },
+    image: ["https://www.borivon.com/pflege/assets/og-workshop.jpg"],
+    organizer: { "@type": "Organization", name: "Borivon", url: "https://www.borivon.com/" },
+    performer: { "@type": "Person", name: "Youness Taoufiq" },
+    inLanguage: "de", url: "https://www.borivon.com/workshop",
+  }));
+  if (!events.length) { problems++; console.error("NO open workshop dates found for the Event data"); }
+  s = s.replace("</head>", `<script type="application/ld+json">${JSON.stringify(events)}</script>\n</head>`);
   pages.WORKSHOP_HTML = bv(s);
 }
 
