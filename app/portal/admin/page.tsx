@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { VisaBundleButton } from "@/components/admin/VisaBundleButton";
 import { DiyFacilityPanel } from "@/components/admin/DiyFacilityPanel";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -4668,6 +4669,11 @@ export default function AdminPage() {
                   style={{ background: "transparent", color: "var(--w2)", border: "1px solid var(--border)" }}>
                   {t.arrAdminBtn}
                 </a>
+              )}
+              {/* every approved document as ONE PDF for the visa appointment (lib/visaBundle) */}
+              {selectedUser && (
+                <VisaBundleButton accessToken={accessToken} name={users[selectedUser]?.name ?? ""}
+                  docs={docs.filter((d: { user_id: string }) => d.user_id === selectedUser) as unknown as import("@/lib/visaBundle").BundleDoc[]} />
               )}
 
               {/* WhatsApp: ask the candidate to upload a missing doc — STEP BY STEP.
