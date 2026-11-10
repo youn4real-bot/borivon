@@ -26,10 +26,11 @@ export const metadata: Metadata = {
 };
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  // Logged-in app only (not the public pages): open the connection to the login service early.
-  // Supabase is a listed processor; Google profile photos load here anyway for Google sign-ins.
+  // Open the connection to the login service early (Supabase is a listed processor).
+  // No preconnect to Google: /portal is also the public login page, and a preconnect alone hands
+  // the visitor's IP to Google before anyone signed in (2026-11-10). Profile photos still load
+  // normally after a Google sign-in.
   const supa = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (supa) preconnect(supa, { crossOrigin: "anonymous" });
-  preconnect("https://lh3.googleusercontent.com", { crossOrigin: "anonymous" });
   return <>{children}</>;
 }

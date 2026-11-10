@@ -42,15 +42,17 @@ type Params = {
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { type } = await params;
   const et = await loadEventType(type);
-  if (!et) return { title: "Book a call – Borivon" };
-  // English for the crawler; the page itself renders in the visitor's language.
+  if (!et) return { title: "Termin · Borivon" };
+  // German like the rest of the site (founder 2026-11-10: German for everyone); the root layout adds " | Borivon".
+  const title = et.title.de || et.title.en;
+  const blurb = et.blurb.de || et.blurb.en;
   return {
-    title: `${et.title.en} – Borivon`,
-    description: et.blurb.en,
+    title,
+    description: blurb,
     alternates: { canonical: `/book/${et.slug}` },
     openGraph: {
-      title: `${et.title.en} – Borivon`,
-      description: et.blurb.en,
+      title: `${title} · Borivon`,
+      description: blurb,
       url: `/book/${et.slug}`,
       type: "website",
     },
