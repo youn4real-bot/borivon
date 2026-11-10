@@ -89,13 +89,24 @@ export function StartView() {
           <h1 className="fx-h1 fx-rise d1">{fill(t.startH, { name: who })}</h1>
           <p className="fx-lede fx-rise d2">{t.startP}</p>
           <ol className="fx-rows fx-rise d3" style={{ marginTop: 40, maxWidth: 520 }}>
-            {[t.f1, t.f2, t.f3].map((x, i) => (
+            {[t.f1, t.f2, t.f3, t.f4, t.f5, t.f6].map((x, i) => (
               <li key={i} style={{ display: "flex", gap: 18, alignItems: "baseline", padding: "16px 2px" }}>
                 <span style={{ font: "500 1.05rem/1 var(--serif)", color: "var(--gold-d)", minWidth: 22 }}>{String(i + 1).padStart(2, "0")}</span>
                 <span style={{ fontSize: 15.5 }}>{x}</span>
               </li>
             ))}
           </ol>
+          {/* a picture of what opens after the click (founder 2026-11-11: visuals, real faces) */}
+          <div className="fx-pic fx-rise d3" aria-hidden="true">
+            {[{ n: 1, nm: "Amina E.", w: 92, ok: true }, { n: 3, nm: "Youssef B.", w: 70, ok: false }, { n: 2, nm: "Salma O.", w: 48, ok: false }].map((r, i) => (
+              <div className="r" key={r.n}>
+                <img src={`/pflege/assets/pf/av-${r.n}.webp`} alt="" width={240} height={240} loading="lazy" />
+                <div><b>{r.nm}</b><i><s style={{ width: `${r.w}%` }} /></i></div>
+                <em className={r.ok ? "ok" : i === 2 ? "new" : ""}>{t.picSt.split("|")[i]}</em>
+              </div>
+            ))}
+            <small>{t.picCap}</small>
+          </div>
         </div>
 
         <form className="fx-card fx-rise d2" onSubmit={submit} noValidate>

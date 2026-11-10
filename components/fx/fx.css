@@ -208,3 +208,16 @@
 .fx-weg li.now .ws { color: var(--gold-d); }
 [id^="weg-"] { scroll-margin-top: 96px; }
 @media (max-width: 640px) { .fx-weg { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; } }
+
+/* the gift landing: a small picture of the platform (app/einrichtung/start) */
+.fx-pic { max-width: 520px; margin-top: 34px; padding: 14px 20px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); box-shadow: 0 40px 70px -46px rgba(21,19,15,.45); }
+.fx-pic .r { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.fx-pic .r:last-of-type { border-bottom: 0; }
+.fx-pic img { display: block; width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--paper2); }
+.fx-pic b { display: block; font: 500 15px/1.2 var(--serif); color: var(--ink); }
+.fx-pic i { display: block; height: 3px; margin-top: 7px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.fx-pic i s { display: block; height: 100%; background: var(--gold); text-decoration: none; }
+.fx-pic em { padding: 5px 9px; border: 1px solid var(--line2); border-radius: 999px; font: 500 10.5px/1 var(--sans); font-style: normal; color: var(--ink2); white-space: nowrap; }
+.fx-pic em.ok { border-color: #bcd0bf; background: #eef4ef; color: #46684b; }
+.fx-pic em.new { border-color: #e6d3a4; background: #faf3e1; color: var(--gold-d); }
+.fx-pic small { display: block; margin-top: 6px; font-size: 11px; color: var(--mute); }
