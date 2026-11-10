@@ -98,7 +98,7 @@
     "#bv-consent p{margin:0 0 14px;color:#3b372f}#bv-consent a{color:#7a5c20}" +
     "#bv-consent .b{display:flex;gap:10px}#bv-consent button{flex:1;cursor:pointer;font:500 15px Inter,'Segoe UI',system-ui,sans-serif;padding:13px 10px;border-radius:3px;border:1px solid #15130f;background:#fbfaf6;color:#15130f}" +
     "#bv-consent button:hover{background:#f4f1ea}#bv-consent .l{margin:12px 0 0;font-size:13px;text-align:center}" +
-    "@media (max-width:520px){#bv-consent{padding:0}#bv-consent .c{border-radius:18px 18px 0 0}}";
+    "@media (max-width:520px){#bv-consent{padding:0}#bv-consent .c{border-radius:14px 14px 0 0;padding:15px 16px 12px;font-size:13px;line-height:1.45}#bv-consent h2{font-size:18px}#bv-consent p{margin:0 0 11px}#bv-consent button{padding:11px 8px;font-size:14px}#bv-consent .l{margin:8px 0 0;font-size:12px}}";
   function showBanner() {
     if (document.getElementById("bv-consent")) return;
     if (!document.getElementById("bv-consent-css")) { var s = document.createElement("style"); s.id = "bv-consent-css"; s.textContent = css; document.head.appendChild(s); }

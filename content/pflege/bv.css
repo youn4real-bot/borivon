@@ -276,5 +276,6 @@ a.bar:hover b{color:#fff}
 /* the consent banner (t.js) in this type, buttons stay equal */
 html #bv-consent,html #bv-consent button{font-family:var(--sans)}
 html #bv-consent h2{font:500 1.35rem/1.2 var(--serif);color:var(--ink)}
+@media (max-width:520px){html #bv-consent h2{font-size:1.14rem}}
 html #bv-consent .c{border-radius:6px;border-color:var(--line);box-shadow:0 26px 60px -24px rgba(0,0,0,.42)}
 html #bv-consent button{font-weight:500;border-radius:3px}
