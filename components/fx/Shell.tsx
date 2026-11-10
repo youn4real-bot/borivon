@@ -32,7 +32,7 @@ export function FxShell({ children, who, nav, lang, setLang, ready }: {
           {who && <span className="who">{who}</span>}
           <span className="sp" />
           {nav && <nav className="fx-nav" aria-label="Borivon">{nav}</nav>}
-          <div className="fx-langs" role="group" aria-label="Sprache / Language">
+          <div className={`fx-langs fx-in${ready ? " on" : ""}`} role="group" aria-label="Sprache / Language">
             {(["de", "en", "fr"] as Lang[]).map((l) => (
               <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)}>{l.toUpperCase()}</button>
             ))}
@@ -40,7 +40,7 @@ export function FxShell({ children, who, nav, lang, setLang, ready }: {
         </div>
       </header>
       <main id="main-content" className={`fx-main fx-in${ready ? " on" : ""}`}>{children}</main>
-      <footer className="fx-foot">
+      <footer className={`fx-foot fx-in${ready ? " on" : ""}`}>
         <div className="c">
           <span>© Borivon LLC</span>
           <a href="/impressum">{t.impressum}</a>

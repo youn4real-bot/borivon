@@ -76,7 +76,8 @@ export default function robots(): MetadataRoute.Robots {
         // /portal is the candidate-only app shell behind auth; nothing
         // beneath it should ever be indexed (PII risk and the page is
         // useless without a session).
-        disallow: ["/api/", "/portal", "/portal/"],
+        // /einrichtung (facility workspaces) and /ankunft/<token> (a nurse's private plan) are private too.
+        disallow: ["/api/", "/portal", "/portal/", "/einrichtung", "/ankunft/"],
       },
       // One block per bot. `Disallow: /` is the whole site, /book included.
       ...AI_CRAWLERS.map((userAgent) => ({ userAgent, disallow: "/" })),

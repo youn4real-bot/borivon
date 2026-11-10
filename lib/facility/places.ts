@@ -53,7 +53,14 @@ export function nearest(rows: D1Row[], geo: Geo): Place | null {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || !name) continue;
     const kind = String(r.kind) as PlaceKind;
     let w = Number(r.w) || 1;
-    if (kind === "auslaender" || kind === "finanzamt") {
+    if (kind === "auslaender") {
+      const lra = /^landratsamt|^kreisverwaltung/i.test(name);
+      if (lra) {
+        // a Landratsamt serves its Landkreis; a kreisfreie Stadt (no county from the geocoder) has its own office
+        if (countyRe && countyRe.test(name)) w *= 0.45;
+        else if (!county) w *= 2;
+      } else if (townRe && townRe.test(name)) w *= 0.45;
+    } else if (kind === "finanzamt") {
       if ((countyRe && countyRe.test(name)) || (townRe && townRe.test(name))) w *= 0.45;
     }
     const dist = distance(geo, { lat, lon });
@@ -106,8 +113,8 @@ export async function geocode(plz: string, city: string, f: Fetch = fetch): Prom
 export async function placesAround(geo: Geo): Promise<Place[]> {
   const db = await fxDb();
   if (!db) return [];
-  const out: Place[] = [];
-  for (const kind of Object.keys(RADII) as PlaceKind[]) {
+  // the six kinds at once; within a kind, the circle widens until something is found
+  const found = await Promise.all((Object.keys(RADII) as PlaceKind[]).map(async (kind) => {
     for (const km of RADII[kind]) {
       const dLat = km / 111, dLon = km / (111 * Math.cos((geo.lat * Math.PI) / 180));
       const { results } = await db.run(
@@ -115,10 +122,11 @@ export async function placesAround(geo: Geo): Promise<Place[]> {
         [kind, geo.lat - dLat, geo.lat + dLat, geo.lon - dLon, geo.lon + dLon],
       );
       const p = nearest(results, geo);
-      if (p) { out.push(p); break; }
+      if (p) return p;
     }
-  }
-  return out;
+    return null;
+  }));
+  return found.filter((p): p is Place => !!p);
 }
 
 /** Everything a page needs for one postcode. null = the postcode could not be placed. */

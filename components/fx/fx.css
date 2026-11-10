@@ -59,6 +59,8 @@
 .fx-btn svg { width: 18px; height: 9px; fill: none; stroke: currentColor; stroke-width: 1.4; transition: transform .4s var(--ease); }
 .fx-btn:hover svg { transform: translateX(3px); }
 .fx-btn.ghost { background: transparent; color: var(--ink); border-color: var(--line2); }
+.fx a.fx-btn { color: var(--paper); }
+.fx a.fx-btn.ghost { color: var(--ink); }
 .fx-btn.sm { padding: 10px 14px; font-size: 13.5px; }
 .fx-link { background: none; border: 0; padding: 0; color: var(--ink); font: inherit; text-decoration: underline; text-decoration-color: var(--line2); text-underline-offset: 3px; cursor: pointer; }
 .fx-link:hover { text-decoration-color: var(--ink); }

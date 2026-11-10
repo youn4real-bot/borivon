@@ -52,6 +52,7 @@ describe("the place finder", () => {
     expect(classify({ name: "AOK Bayern", office: "insurance" })!.kind).toBe("kasse");
     expect(classify({ name: "Dr. med. Huber", amenity: "doctors" })!.kind).toBe("arzt");
     expect(classify({ name: "Bäckerei", shop: "bakery" })).toBeNull();
+    expect(classify({ name: "Landratsamt Rosenheim - Staatliches Veterinäramt", office: "government" })).toBeNull();
   });
 
   it("prefers the Landratsamt of her own Landkreis over a nearer one", async () => {
@@ -62,6 +63,16 @@ describe("the place finder", () => {
       { kind: "auslaender", name: "Landratsamt Rosenheim", lat: 47.86, lon: 12.25, w: 1, address: "" },
     ];
     expect(nearest(rows, geo)?.name).toBe("Landratsamt Rosenheim");
+  });
+
+  it("in a kreisfreie Stadt prefers the city's Ausländerbehörde over the Landratsamt of the same name", async () => {
+    const { nearest } = await import("../lib/facility/places");
+    const geo = { lat: 47.856, lon: 12.127, label: "83022 Rosenheim", county: "", town: "Rosenheim" };
+    const rows = [
+      { kind: "auslaender", name: "Landratsamt Rosenheim", lat: 47.851, lon: 12.121, w: 1 },
+      { kind: "auslaender", name: "Stadt Rosenheim, Ausländerbehörde", lat: 47.85, lon: 12.14, w: 0.5 },
+    ];
+    expect(nearest(rows, geo)?.name).toBe("Stadt Rosenheim, Ausländerbehörde");
   });
 
   it("picks the nearest when nothing else differs", async () => {

@@ -13,7 +13,11 @@ export function classify(tags) {
   const t = (re) => re.test(name);
   if (t(/ausländer|ausländerbehörde|einbürgerung|migration und integration|ausländerwesen/i)) return { kind: "auslaender", w: 0.5 };
   if (t(/kreisverwaltungsreferat/i)) return { kind: "auslaender", w: 0.6 };
-  if (t(/^landratsamt|^kreisverwaltung/i)) return { kind: "auslaender", w: 1 };
+  if (t(/^landratsamt|^kreisverwaltung/i)) {
+    // a branch for something else (vets, health, youth, cars, roads …) is not where a residence permit is made
+    if (t(/veterinär|gesundheitsamt|jugendamt|bauamt|zulassung|kfz|führerschein|abfall|wasser|forst|schul|vermessung|landwirtschaft|jobcenter|straßen|naturschutz|sozialamt|betreuung|archiv|museum/i)) return null;
+    return { kind: "auslaender", w: 1 };
+  }
   if (t(/^finanzamt/i)) return { kind: "finanzamt", w: t(/außenstelle|aussenstelle/i) ? 1.1 : 1 };
   if (t(/bürgerbüro|bürgeramt|bürgerservice|bürgerzentrum|bürgerdienste|einwohner/i)) {
     // an MP's constituency office is called "Bürgerbüro" too: not a registration office
