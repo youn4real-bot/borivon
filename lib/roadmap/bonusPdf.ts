@@ -20,12 +20,12 @@ const NIGHT = hexColor("#12110e");
 const FG = hexColor("#f4efe4");
 const MUTED_NIGHT = hexColor("#a59e90");
 const GOLD = hexColor("#a8843a");
-const GOLD_D = hexColor("#8a6a28");
+const GOLD_D = hexColor("#7a5c20");
 const GOLD_L = hexColor("#d4b676");
 const PAPER = hexColor("#f4f1ea");
 const LINE = hexColor("#ddd6c8");
 const INK = hexColor("#15130f");
-const MUTED = hexColor("#837c6f");
+const MUTED = hexColor("#6b6458");
 const GAIN = hexColor("#46684b");
 const WORKSHOP_URL = "https://borivon.com/workshop?via=pdf";
 

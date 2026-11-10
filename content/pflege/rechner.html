@@ -6,7 +6,7 @@
 :root {
   /* borivon.com look since 2026-11-09 (content/pflege/bv.css): warm paper, EB Garamond, Inter */
   --bg: #f4f1ea; --panel: #fbfaf6; --line: #ddd6c8;
-  --fg: #15130f; --muted: #837c6f; --gold: #a8843a; --ok: #46684b; --red: #9a4a33;
+  --fg: #15130f; --muted: #6b6458; --gold: #a8843a; --ok: #46684b; --red: #9a4a33;
   --font-display: "EB Garamond", Georgia, serif; --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -195,7 +195,7 @@ footer a { color: var(--muted); }
     var grid = "";
     for (var yr = 1; yr <= years; yr++) {
       grid += '<line x1="' + x(yr * 12) + '" x2="' + x(yr * 12) + '" y1="' + pt + '" y2="' + (H - pb) + '" stroke="rgba(21,19,15,0.07)"/>' +
-        '<text x="' + (x(yr * 12) - (yr === years ? 2 : 0)) + '" y="' + (H - 10) + '" fill="#837c6f" font-size="13" text-anchor="' + (yr === years ? "end" : "middle") + '">' + esc(T[lang].yrs[yr - 1]) + '</text>';
+        '<text x="' + (x(yr * 12) - (yr === years ? 2 : 0)) + '" y="' + (H - 10) + '" fill="#6b6458" font-size="13" text-anchor="' + (yr === years ? "end" : "middle") + '">' + esc(T[lang].yrs[yr - 1]) + '</text>';
     }
     var t = T[lang];
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + esc(t.lineRed + ", " + t.lineGreen) + '">' +

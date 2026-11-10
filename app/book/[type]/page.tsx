@@ -28,8 +28,8 @@ export const dynamic = "force-dynamic";
 const EMBED_SKIN = {
   "--bg": "#fbfaf6", "--bg2": "#f4f1ea", "--card": "#ffffff", "--card2": "#fbfaf6",
   "--border": "rgba(21,19,15,0.10)", "--border2": "rgba(21,19,15,0.16)", "--border-gold": "rgba(21,19,15,0.16)",
-  "--w": "#15130f", "--w2": "#3b372f", "--w3": "#837c6f",
-  "--gold": "#8a6a28", "--gold2": "#a8843a", "--gdim": "rgba(168,132,58,0.08)",
+  "--w": "#15130f", "--w2": "#3b372f", "--w3": "#6b6458",
+  "--gold": "#7a5c20", "--gold2": "#a8843a", "--gdim": "rgba(168,132,58,0.08)",
   "--sel-bg": "#15130f", "--sel-ink": "#fbfaf6", "--sel-radius": "3px",
   color: "#15130f",
 } as CSSProperties;
