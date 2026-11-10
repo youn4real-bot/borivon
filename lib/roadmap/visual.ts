@@ -70,7 +70,7 @@ export const V: Record<keyof L, {
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
     giftTag: "Ein Dankeschön", giftH: "Ihr Zugang zur Borivon-Plattform.",
     giftP: "Weil Sie bis zur letzten Seite gelesen haben: Ihr eigener Zugang zu der Plattform, mit der wir selbst unsere Pflegekräfte begleiten. Geschenkt. Sie laden Ihre Pflegekräfte ein, sie laden ihre Unterlagen selbst hoch, und Sie sehen jeden Schritt, vom Lebenslauf über das Visum bis zum Ende der Probezeit.",
-    giftItems: ["Ihre Pflegekräfte laden Sie selbst ein", "Unterlagen und Visum an einem Ort", "Borivon nur, wenn Sie möchten"],
+    giftItems: ["Ihre Pflegekräfte laden Sie selbst ein", "Visum, Wohnung, Anreise: Schritt für Schritt", "Bis zum Ende der Probezeit. Borivon nur, wenn Sie möchten"],
     giftBtn: "Zugang freischalten", giftNote: "Dieser Link gilt nur für Sie.",
   },
   en: {
@@ -84,7 +84,7 @@ export const V: Record<keyof L, {
     stepsH: "How you reach level {n}.", stepsSub: "Tick them off. One by one.", stayH: "How you stay on top.",
     giftTag: "A thank-you", giftH: "Your access to the Borivon platform.",
     giftP: "Because you read to the last page: you get free access to the platform we use to guide our own nurses. You invite your nurses, they upload their documents themselves, and you see every step, from the CV to the visa.",
-    giftItems: ["You invite your nurses yourself", "Documents and visa in one place", "Borivon only if you want"],
+    giftItems: ["You invite your nurses yourself", "Visa, flat, journey: step by step", "Until probation is passed. Borivon only if you want"],
     giftBtn: "Unlock your access", giftNote: "This link is yours alone.",
   },
   fr: {
@@ -98,7 +98,7 @@ export const V: Record<keyof L, {
     stepsH: "Comment passer au niveau {n}.", stepsSub: "Cochez. Une chose après l'autre.", stayH: "Comment rester au sommet.",
     giftTag: "Un remerciement", giftH: "Votre accès à la plateforme Borivon.",
     giftP: "Parce que vous avez lu jusqu’à la dernière page : vous recevez un accès gratuit à la plateforme avec laquelle nous accompagnons nos propres infirmières. Vous invitez vos infirmières, elles déposent elles-mêmes leurs documents, et vous voyez chaque étape, du CV au visa.",
-    giftItems: ["Vous invitez vous-même vos infirmières", "Documents et visa au même endroit", "Borivon seulement si vous le souhaitez"],
+    giftItems: ["Vous invitez vous-même vos infirmières", "Visa, logement, voyage : étape par étape", "Jusqu’à la fin de l’essai. Borivon seulement si vous le souhaitez"],
     giftBtn: "Débloquer l'accès", giftNote: "Ce lien n'est valable que pour vous.",
   },
 };

@@ -546,12 +546,13 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     // three plain promises, numbered, between hairlines
     s.hline(M, M + W, y, NIGHT_LINE, 0.8);
     const cw = W / 3;
+    let itemsEnd = y + 60;
     VV.giftItems.forEach((it, i) => {
       const x = M + i * cw;
       s.text(String(i + 1).padStart(2, "0"), x, y + 16, F.med, 8.5, GOLD_L, 0.8);
-      para(s, it, x, y + 32, cw - 18, F.reg, 10, FG, 1.45);
+      itemsEnd = Math.max(itemsEnd, para(s, it, x, y + 32, cw - 18, F.reg, 10, FG, 1.45));
     });
-    y += 74;
+    y = itemsEnd + 14;
     s.hline(M, M + W, y, NIGHT_LINE, 0.8);
     y += 26;
     const btn = VV.giftBtn, bw = measure(btn, F.semi, 13) + 26 + 18 + 24;
