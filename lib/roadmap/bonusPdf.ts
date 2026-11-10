@@ -27,35 +27,47 @@ const LINE = hexColor("#ddd6c8");
 const INK = hexColor("#15130f");
 const MUTED = hexColor("#6b6458");
 const GAIN = hexColor("#46684b");
+const LOSS = hexColor("#9a4a33");
+const LOSS_INK = hexColor("#6e3a2a");
 const WORKSHOP_URL = "https://borivon.com/workshop?via=pdf";
 
-export const AGENCY_CHECK: { q: L; a: L }[] = [
+export const AGENCY_CHECK: { q: L; a: L; w: L }[] = [
   { q: { de: "Wie prüfen Sie das Deutsch?", en: "How do you check their German?", fr: "Comment vérifiez-vous l'allemand ?" },
-    a: { de: "Mit einem eigenen Test und einem Gespräch. Ein Zertifikat allein reicht nicht.", en: "With their own test and a conversation. A certificate alone is not enough.", fr: "Avec leur propre test et un entretien. Un certificat seul ne suffit pas." } },
+    a: { de: "Mit einem eigenen Test und einem Gespräch. Ein Zertifikat allein reicht nicht.", en: "With their own test and a conversation. A certificate alone is not enough.", fr: "Avec leur propre test et un entretien. Un certificat seul ne suffit pas."  },
+    w: { de: "„Sie hat B2.“ Und niemand hat mit ihr gesprochen.", en: "“She has B2.” And no one has talked to her.", fr: "« Elle a le B2. » Et personne ne lui a parlé." } },
   { q: { de: "Wer kümmert sich um Anerkennung und Visum?", en: "Who handles recognition and the visa?", fr: "Qui gère la reconnaissance et le visa ?" },
-    a: { de: "Eine feste Person. Mit einem Plan, wer was bis wann macht.", en: "One fixed person. With a plan of who does what by when.", fr: "Une personne fixe. Avec un plan : qui fait quoi, et quand." } },
+    a: { de: "Eine feste Person. Mit einem Plan, wer was bis wann macht.", en: "One fixed person. With a plan of who does what by when.", fr: "Une personne fixe. Avec un plan : qui fait quoi, et quand."  },
+    w: { de: "„Das macht das Amt.“ Kein Name, kein Plan.", en: "“The office handles that.” No name, no plan.", fr: "« C’est l’administration. » Pas de nom, pas de plan." } },
   { q: { de: "Wann ist der erste Arbeitstag?", en: "When is the first day at work?", fr: "Quand est le premier jour de travail ?" },
-    a: { de: "Ein ehrlicher Zeitplan, mit einem Datum für jeden Schritt.", en: "An honest timeline, with a date for every step.", fr: "Un calendrier honnête, avec une date pour chaque étape." } },
+    a: { de: "Ein ehrlicher Zeitplan, mit einem Datum für jeden Schritt.", en: "An honest timeline, with a date for every step.", fr: "Un calendrier honnête, avec une date pour chaque étape."  },
+    w: { de: "„In ein paar Monaten.“ Ohne ein einziges Datum.", en: "“In a few months.” Without a single date.", fr: "« Dans quelques mois. » Sans aucune date." } },
   { q: { de: "Was passiert, wenn sie in der Probezeit geht?", en: "What happens if she leaves during probation?", fr: "Que se passe-t-il si elle part pendant l'essai ?" },
-    a: { de: "Eine Garantie, schriftlich. Zum Beispiel: Die nächste Pflegekraft kostet nichts.", en: "A guarantee, in writing. For example: the next nurse costs nothing.", fr: "Une garantie, par écrit. Par exemple : l'infirmière suivante ne coûte rien." } },
+    a: { de: "Eine Garantie, schriftlich. Zum Beispiel: Die nächste Pflegekraft kostet nichts.", en: "A guarantee, in writing. For example: the next nurse costs nothing.", fr: "Une garantie, par écrit. Par exemple : l'infirmière suivante ne coûte rien."  },
+    w: { de: "„Das kommt selten vor.“ Und nichts steht im Vertrag.", en: "“That rarely happens.” And nothing in the contract.", fr: "« Ça arrive rarement. » Et rien dans le contrat." } },
   { q: { de: "Kann ich sie vorher kennenlernen?", en: "Can I meet her first?", fr: "Puis-je la rencontrer avant ?" },
-    a: { de: "Ja. Echte Profile mit Lebenslauf und Zeugnissen. Dann ein Gespräch mit Ihnen.", en: "Yes. Real profiles with CV and certificates. Then a talk with you.", fr: "Oui. De vrais profils avec CV et diplômes. Puis un entretien avec vous." } },
+    a: { de: "Ja. Echte Profile mit Lebenslauf und Zeugnissen. Dann ein Gespräch mit Ihnen.", en: "Yes. Real profiles with CV and certificates. Then a talk with you.", fr: "Oui. De vrais profils avec CV et diplômes. Puis un entretien avec vous."  },
+    w: { de: "Ein Foto und ein Name. Mehr sehen Sie erst nach der Zahlung.", en: "A photo and a name. You see more only after you pay.", fr: "Une photo et un nom. Le reste seulement après paiement." } },
   { q: { de: "Wer kümmert sich um die Wohnung?", en: "Who sorts out the flat?", fr: "Qui s'occupe du logement ?" },
-    a: { de: "Die Wohnung ist geklärt, bevor sie ankommt.", en: "The flat is sorted before she arrives.", fr: "Le logement est réglé avant son arrivée." } },
+    a: { de: "Die Wohnung ist geklärt, bevor sie ankommt.", en: "The flat is sorted before she arrives.", fr: "Le logement est réglé avant son arrivée."  },
+    w: { de: "„Darum kümmert sie sich selbst.“", en: "“She will sort that out herself.”", fr: "« Elle s’en occupera elle-même. »" } },
   { q: { de: "Wie wird sie auf Deutschland vorbereitet?", en: "How is she prepared for Germany?", fr: "Comment est-elle préparée à l'Allemagne ?" },
-    a: { de: "Nicht nur Sprache. Auch Arbeit, Alltag und Kultur in Deutschland.", en: "Not only language. Also work, daily life and culture in Germany.", fr: "Pas seulement la langue. Aussi le travail, le quotidien et la culture en Allemagne." } },
+    a: { de: "Nicht nur Sprache. Auch Arbeit, Alltag und Kultur in Deutschland.", en: "Not only language. Also work, daily life and culture in Germany.", fr: "Pas seulement la langue. Aussi le travail, le quotidien et la culture en Allemagne."  },
+    w: { de: "Ein Sprachkurs. Sonst nichts.", en: "A language course. Nothing else.", fr: "Un cours de langue. Rien d’autre." } },
   { q: { de: "Wer ist nach der Ankunft für sie da?", en: "Who is there for her after she arrives?", fr: "Qui est là pour elle après son arrivée ?" },
-    a: { de: "Eine feste Person. Bis die Probezeit geschafft ist.", en: "One fixed person. Until probation is passed.", fr: "Une personne fixe. Jusqu'à la fin de la période d'essai." } },
+    a: { de: "Eine feste Person. Bis die Probezeit geschafft ist.", en: "One fixed person. Until probation is passed.", fr: "Une personne fixe. Jusqu'à la fin de la période d'essai."  },
+    w: { de: "„Ab dem ersten Tag ist das Ihre Sache.“", en: "“From day one, that is your business.”", fr: "« Dès le premier jour, c’est votre affaire. »" } },
   { q: { de: "Wie viele Ihrer Pflegekräfte sind nach einem Jahr noch da?", en: "How many of your nurses are still there after a year?", fr: "Combien de vos infirmières sont encore là après un an ?" },
-    a: { de: "Eine ehrliche Zahl. Wer sie nicht kennt, misst nicht.", en: "An honest number. If they don't know it, they don't measure.", fr: "Un chiffre honnête. Qui ne le connaît pas ne mesure pas." } },
+    a: { de: "Eine ehrliche Zahl. Wer sie nicht kennt, misst nicht.", en: "An honest number. If they don't know it, they don't measure.", fr: "Un chiffre honnête. Qui ne le connaît pas ne mesure pas."  },
+    w: { de: "„Fast alle.“ Ohne eine Zahl.", en: "“Almost all of them.” Without a number.", fr: "« Presque toutes. » Sans chiffre." } },
   { q: { de: "Was genau muss ich selbst tun?", en: "What exactly do I have to do myself?", fr: "Que dois-je faire moi-même, exactement ?" },
-    a: { de: "Wenig, und klar beschrieben. Zum Beispiel: ein Gespräch führen und eine Ansprechperson bestimmen.", en: "Little, and clearly described. For example: one interview and choosing a mentor.", fr: "Peu de choses, clairement décrites. Par exemple : un entretien et choisir une marraine." } },
+    a: { de: "Wenig, und klar beschrieben. Zum Beispiel: ein Gespräch führen und eine Ansprechperson bestimmen.", en: "Little, and clearly described. For example: one interview and choosing a mentor.", fr: "Peu de choses, clairement décrites. Par exemple : un entretien et choisir une marraine."  },
+    w: { de: "„Nichts.“ Oder eine lange Liste ohne Reihenfolge.", en: "“Nothing.” Or a long list in no order.", fr: "« Rien. » Ou une longue liste sans ordre." } },
 ];
 
 const T: Record<Lang, Record<string, string>> = {
-  de: { eyebrow: "Bonus · zu Ihrem Fahrplan", title: "Der Agentur-Check", sub: "10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.", good: "Gute Antwort", ctaH: "Der nächste Schritt: der Workshop in Casablanca.", ctaP: "Zwei Tage an Ihrem Plan, mit Youness Taoufiq. Am zweiten Tag lernen Sie die Pflegekräfte kennen, die zu Ihrem Plan passen.", btn: "Mehr zum Workshop", page: "Seite" },
-  en: { eyebrow: "Bonus · with your roadmap", title: "The agency check", sub: "10 questions to ask before you bring nurses from abroad. And how to spot a good answer.", good: "Good answer", ctaH: "The next step: the workshop in Casablanca.", ctaP: "Two days on your plan, with Youness Taoufiq. On day two you meet the nurses who fit your plan.", btn: "More about the workshop", page: "Page" },
-  fr: { eyebrow: "Bonus · avec votre plan", title: "Le check agence", sub: "10 questions à poser avant de faire venir des infirmières de l'étranger. Et comment reconnaître une bonne réponse.", good: "Bonne réponse", ctaH: "La prochaine étape : le workshop à Casablanca.", ctaP: "Deux jours sur votre plan, avec Youness Taoufiq. Le deuxième jour, vous rencontrez les infirmières qui correspondent à votre plan.", btn: "En savoir plus sur le workshop", page: "Page" },
+  de: { eyebrow: "Bonus · zu Ihrem Fahrplan", title: "Der Agentur-Check", sub: "10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Woran Sie eine gute Antwort erkennen. Und ein Warnsignal.", good: "Gute Antwort", warn: "Warnsignal", ctaH: "Der nächste Schritt: der Workshop in Casablanca.", ctaP: "Zwei Tage an Ihrem Plan, mit Youness Taoufiq. Am zweiten Tag lernen Sie die Pflegekräfte kennen, die zu Ihrem Plan passen.", btn: "Mehr zum Workshop", page: "Seite" },
+  en: { eyebrow: "Bonus · with your roadmap", title: "The agency check", sub: "10 questions to ask before you bring nurses from abroad. How to spot a good answer. And a warning sign.", good: "Good answer", warn: "Warning sign", ctaH: "The next step: the workshop in Casablanca.", ctaP: "Two days on your plan, with Youness Taoufiq. On day two you meet the nurses who fit your plan.", btn: "More about the workshop", page: "Page" },
+  fr: { eyebrow: "Bonus · avec votre plan", title: "Le check agence", sub: "10 questions à poser avant de faire venir des infirmières de l'étranger. Comment reconnaître une bonne réponse. Et un signal d’alerte.", good: "Bonne réponse", warn: "Signal d’alerte", ctaH: "La prochaine étape : le workshop à Casablanca.", ctaP: "Deux jours sur votre plan, avec Youness Taoufiq. Le deuxième jour, vous rencontrez les infirmières qui correspondent à votre plan.", btn: "En savoir plus sur le workshop", page: "Page" },
 };
 
 export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
@@ -97,10 +109,15 @@ export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
     const n = String(i + 1);
     H.draw(page, PH, n.padStart(2, "0"), M, y + 1, 20, GOLD_D, -0.2);
     y = disp(page, H, pick(item.q, lang), M + 50, y + 2, W - 50, 18.5, INK, 1.16) + 6;
+    // the good answer and the warning sign side by side (2026-11-11: green vs red, readable at a glance)
+    const cw = (W - 50 - 22) / 2, x2 = M + 50 + cw + 22;
     s.roundedRect(M + 50, y + 2.2, 5, 5, 2.5, { fill: GAIN });
     s.text(t.good.toUpperCase(), M + 61, y, med, 7, GAIN, 1.1);
-    y = para(s, pick(item.a, lang), M + 50, y + 15, W - 50, reg, 11.3, INK) + 16;
-    return y;
+    s.roundedRect(x2, y + 2.2, 5, 5, 2.5, { fill: LOSS });
+    s.text(t.warn.toUpperCase(), x2 + 11, y, med, 7, LOSS, 1.1);
+    const y1 = para(s, pick(item.a, lang), M + 50, y + 15, cw, reg, 10.6, INK, 1.45);
+    const y2 = para(s, pick(item.w, lang), x2, y + 15, cw, reg, 10.6, LOSS_INK, 1.45);
+    return Math.max(y1, y2) + 12;
   };
 
   // page 1: title block + questions 1–5
@@ -125,7 +142,7 @@ export async function renderAgencyCheckPdf(lang: Lang): Promise<Uint8Array> {
       y = question(page, s, i, y);
       if (i < 9) { s.hline(M + 50, M + W, y - 8, LINE, 0.8); y += 8; }
     }
-    y += 14;
+    y += 4;
     // a soft close on a night card: the workshop, nothing else
     const bh = 38;
     const hEnd = 30 + wrapVector(t.ctaH, H, 21, W - 56, -0.02 * 21).length * 21 * 1.12;
