@@ -101,7 +101,7 @@ const HOME_LD = JSON.stringify({
   legalName: "Borivon LLC",
   url: "https://www.borivon.com/",
   logo: "https://borivon.com/logo.png",
-  image: "https://www.borivon.com/pflege/assets/fahrplan-og.png",
+  image: "https://www.borivon.com/pflege/assets/og-fahrplan.png",
   // the motto, word for word (it is how Borivon describes itself everywhere)
   description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
   email: "contact@borivon.com",
@@ -119,7 +119,7 @@ function head(title, description, canonical, image = "https://www.borivon.com/pf
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
 <meta property="og:url" content="${canonical}">
-<meta property="og:image" content="${image}">${image.endsWith("fahrplan-og.png") ? `
+<meta property="og:image" content="${image}">${/\/og-[a-z]+\.(png|jpg)$/.test(image) ? `
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -139,7 +139,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in home.html"); }
   // the affiliates host shares this page: the first thing in <head> sends it to /affiliate
   else s = s.slice(0, i) + `<script>if(location.hostname.indexOf("affiliates.")===0)location.replace("/affiliate"+location.search)</script>
-` + head(META.title, META.description, "https://www.borivon.com/", "https://www.borivon.com/pflege/assets/fahrplan-og.png") + s.slice(i + "<!--HEAD-->".length);
+` + head(META.title, META.description, "https://www.borivon.com/", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
   pages.HOME_HTML = bv(s);
 }
 
@@ -159,7 +159,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "fahrplan.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in fahrplan.html"); }
-  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in ca. 2 Minuten: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/fahrplan-og.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in ca. 2 Minuten: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
   pages.FAHRPLAN_HTML = s;
 }
 
@@ -168,7 +168,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "rechner.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in rechner.html"); }
-  else s = s.slice(0, i) + head("Ihr Rechner zum Pflege-Fahrplan · Borivon", "Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.", "https://www.borivon.com/fahrplan/rechner") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Rechner zum Pflege-Fahrplan · Borivon", "Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.", "https://www.borivon.com/fahrplan/rechner", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
   pages.RECHNER_HTML = s;
 }
 
@@ -177,7 +177,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "workshop.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in workshop.html"); }
-  else s = s.slice(0, i) + head("Workshop in Casablanca · Borivon", "2 Tage in unseren Konferenzräumen in Casablanca, Marokko, mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, 20 Plätze.", "https://www.borivon.com/workshop") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Workshop in Casablanca · Borivon", "2 Tage in unseren Konferenzräumen in Casablanca, Marokko, mit dem Gründer von Borivon: Ihren Fahrplan umsetzen und Ihre Pflegekräfte persönlich kennenlernen. Alle 3 Monate, 20 Plätze.", "https://www.borivon.com/workshop", "https://www.borivon.com/pflege/assets/og-workshop.jpg") + s.slice(i + "<!--HEAD-->".length);
   pages.WORKSHOP_HTML = bv(s);
 }
 
