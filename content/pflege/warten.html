@@ -80,9 +80,9 @@
   </section>
 
   <div class="next" data-r>
-   <p>Der Fahrplan zeigt Ihnen, bis wann Sie starten müssen. Für Ihre Einrichtung, kostenlos.</p>
+   <p id="nx">Der Fahrplan zeigt Ihnen, bis wann Sie starten müssen. Für Ihre Einrichtung, kostenlos.</p>
    <a class="btn" href="/fahrplan?src=warten"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
-   <p class="status" style="justify-content:center"><i></i>Kostenlos · ca. 2 Minuten · per E-Mail</p>
+   <p class="status" style="justify-content:center"><i></i>Kostenlos · ca. 2 Minuten · per E-Mail · mit Ihrem Zugang zur Plattform</p>
   </div>
  </div>
 </header>
@@ -125,6 +125,8 @@
     var d=new Date(Date.now()+WEEKS*7*864e5);
     $("first").textContent="im "+d.toLocaleDateString("de-DE",{month:"long",year:"numeric"});
     $("how").textContent=HOW[f];
+    // the way out, in their own number (founder 2026-11-10: every tool must pull into the Fahrplan)
+    $("nx").textContent="Jede Woche ohne Plan kostet Sie "+eur(py/52).replace("−","")+". Ihr Fahrplan zeigt Ihnen, bis wann Sie starten müssen, damit das aufhört. Für Ihre Einrichtung, kostenlos.";
   }
   /* the ticker shows cents, so it moves from the first second (whole euros would sit at 0 for a minute) */
   function tick(){ var v=month()*12/(365*864e5)*(Date.now()-t0); $("since").textContent="−"+v.toLocaleString("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2})+" €"; }
