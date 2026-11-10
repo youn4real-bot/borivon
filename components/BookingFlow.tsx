@@ -736,7 +736,7 @@ export function BookingFlow({
             aria-label={T("Previous month", "Vorheriger Monat", "Mois précédent")}
             className="bv-tap grid place-items-center"
             style={{
-              width: 44, height: 44, borderRadius: 12,
+              width: 44, height: 44, borderRadius: "var(--cell-radius, 12px)",
               border: "1px solid var(--border)", background: "var(--bg2)",
               color: anchor <= minAnchor ? "var(--w3)" : "var(--w2)",
               opacity: anchor <= minAnchor ? 0.4 : 1,
@@ -752,7 +752,7 @@ export function BookingFlow({
             aria-label={T("Next month", "Nächster Monat", "Mois suivant")}
             className="bv-tap grid place-items-center"
             style={{
-              width: 44, height: 44, borderRadius: 12,
+              width: 44, height: 44, borderRadius: "var(--cell-radius, 12px)",
               border: "1px solid var(--border)", background: "var(--bg2)",
               color: anchor >= maxAnchor ? "var(--w3)" : "var(--w2)",
               opacity: anchor >= maxAnchor ? 0.4 : 1,
@@ -817,7 +817,7 @@ export function BookingFlow({
                     onClick={() => { if (free) pickDay(k); else setFocusKey(k); }}
                     className="bv-tap w-full grid place-items-center"
                     style={{
-                      minHeight: 44, borderRadius: 12,
+                      minHeight: 44, borderRadius: "var(--cell-radius, 12px)",
                       // Not colour-only: the chosen day is also the only one
                       // that is bold and ringed, and it reports aria-pressed.
                       border: `1px solid ${on ? "var(--sel-bg, var(--gold))" : free ? "var(--border)" : "transparent"}`,
@@ -947,7 +947,7 @@ export function BookingFlow({
                 aria-pressed={on}
                 className="bv-tap flex-1 flex items-center justify-center gap-1.5 text-[14px]"
                 style={{
-                  minHeight: 44, borderRadius: 10,
+                  minHeight: 44, borderRadius: "var(--cell-radius, 10px)",
                   border: `1px solid ${on ? "var(--sel-bg, var(--gold))" : "var(--border)"}`,
                   background: on ? "var(--gdim)" : "var(--card)",
                   // Gold-on-gdim would be ~3.4:1 in the light theme. The chosen
@@ -1033,7 +1033,7 @@ export function BookingFlow({
                 >
                   <span
                     className="grid place-items-center flex-shrink-0"
-                    style={{ width: 44, height: 44, borderRadius: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}
+                    style={{ width: 44, height: 44, borderRadius: "var(--cell-radius, 12px)", background: "var(--bg2)", border: "1px solid var(--border)" }}
                   >
                     <Icon size={20} style={{ color: "var(--gold)" }} />
                   </span>

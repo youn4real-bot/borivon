@@ -31,6 +31,7 @@ const EMBED_SKIN = {
   "--w": "#15130f", "--w2": "#3b372f", "--w3": "#6b6458",
   "--gold": "#7a5c20", "--gold2": "#a8843a", "--gdim": "rgba(168,132,58,0.08)",
   "--sel-bg": "#15130f", "--sel-ink": "#fbfaf6", "--sel-radius": "3px",
+  "--cell-radius": "4px",
   color: "#15130f",
 } as CSSProperties;
 
@@ -71,7 +72,8 @@ export default async function BookTypePage({ params, searchParams }: Params) {
   if (!embedded) return flow;
   return (
     <div className="bv-embed-skin" style={EMBED_SKIN}>
-      <style>{"html,body{background:#fbfaf6!important}"}</style>
+      {/* the page's .cal box is already the frame: the calendar sits flat inside it, no second card */}
+      <style>{"html,body{background:#fbfaf6!important}.bv-embed-skin .bv-card{border-color:transparent!important;box-shadow:none!important;background:transparent!important;border-radius:0!important}"}</style>
       {flow}
     </div>
   );
