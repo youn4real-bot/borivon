@@ -112,6 +112,34 @@
 @media (max-width:900px){.page1{max-width:340px}}
 .ws-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:24px 40px;margin-top:clamp(28px,3vw,40px)}
 .ws-row .meta{flex:1 1 520px;max-width:720px}
+/* the platform (founder 2026-11-10): the software we work with ourselves, free as the Fahrplan's thank-you.
+   Value only, no pitch: proof (his numbers), the mechanism (one way, five stations), a quiet product picture. */
+.pf .stats{margin:0 0 clamp(64px,7vw,104px)}
+.pf .stats b{font-size:clamp(3.2rem,2rem + 3.4vw,5.6rem)}
+.weg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:clamp(36px,5vw,84px);align-items:center}
+.weg ol{margin:0;padding:0;list-style:none;counter-reset:w}
+.weg li{position:relative;display:grid;grid-template-columns:46px 1fr;gap:0 18px;padding:0 0 26px}
+.weg li::before{content:"";position:absolute;left:22px;top:44px;bottom:0;width:1px;background:#2f2c26}
+.weg li:last-child::before{display:none}
+.weg li i{position:relative;z-index:1;display:grid;place-items:center;width:44px;height:44px;border:1px solid #3b372f;border-radius:50%;font:500 13px/1 var(--sans);font-style:normal;color:var(--gold-l);background:var(--night)}
+.weg li b{display:block;margin-top:9px;font:500 1.3rem/1.2 var(--serif);letter-spacing:-.01em;color:#f4efe4}
+.weg li span{display:block;margin-top:6px;font-size:15px;line-height:1.55;color:var(--on-night2)}
+.shot{position:relative;padding:clamp(18px,2.4vw,28px);border-radius:8px;background:#f4f1ea;box-shadow:0 1px 0 rgba(255,255,255,.06),0 50px 90px -40px rgba(0,0,0,.9)}
+.shot .sh-bar{display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:0 0 14px;border-bottom:1px solid #ddd6c8;font:italic 500 17px/1 var(--serif);color:#15130f}
+.shot .sh-bar span b{color:#a8843a;font-style:normal}
+.shot .sh-bar small{margin-left:auto;font:500 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:#6b6458}
+.shot .sh-row{display:grid;grid-template-columns:40px 1fr auto;gap:14px;align-items:center;padding:13px 0;border-bottom:1px solid #e6e0d4}
+.shot .sh-row:last-child{border-bottom:0}
+.shot .sh-av{width:40px;height:40px;border-radius:50%;background:#ebe6db;display:grid;place-items:center;font:500 14px/1 var(--serif);color:#6b6458}
+.shot .sh-nm{font:500 15.5px/1.2 var(--serif);color:#15130f}
+.shot .sh-pr{margin-top:7px;height:3px;background:#ebe6db;overflow:hidden;border-radius:2px}
+.shot .sh-pr i{display:block;height:100%;background:#a8843a}
+.shot .sh-ph{font:500 11.5px/1 var(--sans);letter-spacing:.06em;color:#7a5c20;white-space:nowrap}
+.shot .sh-ph.ok{color:#46684b}
+.pf .go2{margin:clamp(56px,6vw,88px) 0 0;text-align:center}
+.pf .go2 .btn{background:#f4efe4;color:#15130f;border-color:#f4efe4}
+.pf .go2 p{margin:16px 0 0;font-size:14px;color:var(--on-night2)}
+@media (max-width:900px){.weg{grid-template-columns:1fr}.shot{order:-1}}
 </style>
 </head>
 <body>
@@ -219,6 +247,41 @@
    <li data-r><span>05</span><p><b>Ihr 90-Tage-Plan</b><small>Was in den ersten 90 Tagen passiert, damit sie bleibt.</small></p></li>
    <li data-r><span>+</span><p><b>Bonus: Der Agentur-Check</b><small>10 Fragen, bevor Sie Pflegekräfte aus dem Ausland holen. Und woran Sie eine gute Antwort erkennen.</small></p></li>
   </ol>
+ </div>
+</section>
+
+<section class="sec dark pf" id="plattform">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Das Dankeschön zu Ihrem Fahrplan</p><h2 class="h2" data-split>Die Plattform, mit der wir selbst arbeiten. <em>Für Sie kostenlos.</em></h2></div>
+   <p class="hp" data-r>Über diese Plattform laufen unsere eigenen Verfahren, vom Lebenslauf bis zum Ende der Probezeit. Mit Ihrem Fahrplan bekommen Sie Ihren eigenen Zugang.</p>
+  </div>
+  <div class="stats">
+   <div data-r><p class="cap">Pflegekräfte</p><b>600+</b><p class="tx">internationale Pflegekräfte haben mit ihr gearbeitet.</p></div>
+   <div data-r><p class="cap">Organisationen</p><b>13+</b><p class="tx">Gesundheitseinrichtungen und Organisationen nutzen sie.</p></div>
+   <div data-r><p class="cap">Tempo</p><b>3&times;</b><p class="tx">schneller durch den Prozess, gemessen in unseren eigenen Verfahren.</p></div>
+  </div>
+  <div class="weg">
+   <ol aria-label="Der Borivon-Weg">
+    <li data-r><i>01</i><div><b>Unterlagen und Visum</b><span>Lebenslauf, Zeugnisse, Visum-Termin. Alles an einem Ort, jeder Schritt sichtbar.</span></div></li>
+    <li data-r><i>02</i><div><b>Die Wohnung, rechtzeitig</b><span>Steht, bevor das Visum kommt. Nicht danach.</span></div></li>
+    <li data-r><i>03</i><div><b>Anreise</b><span>Flug und Abholung, lange vorher geplant.</span></div></li>
+    <li data-r><i>04</i><div><b>Die Behörden</b><span>Anmeldung, Steuer-ID, Krankenkasse. Schritt für Schritt, ohne Suchen.</span></div></li>
+    <li data-r><i>05</i><div><b>Bleiben</b><span>Die ersten sechs Monate, bis die Probezeit geschafft ist.</span></div></li>
+   </ol>
+   <figure class="shot" data-r aria-hidden="true">
+    <div class="sh-bar"><span>Borivon<b>.</b></span><small>Ihre Pflegekräfte</small></div>
+    <div class="sh-row"><span class="sh-av">A</span><div><div class="sh-nm">Pflegekraft A.</div><div class="sh-pr"><i style="width:88%"></i></div></div><span class="sh-ph ok">Visum da</span></div>
+    <div class="sh-row"><span class="sh-av">S</span><div><div class="sh-nm">Pflegekraft S.</div><div class="sh-pr"><i style="width:62%"></i></div></div><span class="sh-ph">Wohnung</span></div>
+    <div class="sh-row"><span class="sh-av">Y</span><div><div class="sh-nm">Pflegekraft Y.</div><div class="sh-pr"><i style="width:34%"></i></div></div><span class="sh-ph">Anerkennung</span></div>
+    <div class="sh-row"><span class="sh-av">L</span><div><div class="sh-nm">Pflegekraft L.</div><div class="sh-pr"><i style="width:12%"></i></div></div><span class="sh-ph">Unterlagen</span></div>
+   </figure>
+  </div>
+  <div class="go2" data-r>
+   <a class="btn" href="/fahrplan?src=plattform"><span>Kostenlosen Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <p>Ihr persönlicher Zugang zur Plattform steht auf der letzten Seite Ihres Fahrplans.</p>
+  </div>
+  <p class="src">Zahlen: eigene Auswertung von Borivon, Stand November 2026. Beispielbild, keine echten Daten.</p>
  </div>
 </section>
 
