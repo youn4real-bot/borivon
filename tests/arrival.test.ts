@@ -85,6 +85,23 @@ describe("arrival plan API", async () => {
     expect(phaseDate("2026-12-15", 30)).toBe("2027-01-14");
   });
 
+  it("the way's summary: each station's progress and the one to work on now", async () => {
+    const visa = await import("../app/api/portal/visa/route");
+    const weg = await import("../app/api/portal/weg/route");
+    const { VISA_STEPS } = await import("../lib/facility/visa");
+    const r = (path: string, method: string, headers: Record<string, string>, body?: unknown, q = "") =>
+      new NextRequest(`https://borivon.com/api/portal/${path}${q}`, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const empty = await (await weg.GET(r("weg", "GET", { "x-user": NURSE }))).json();
+    expect(empty.now).toBe("visa");
+    expect(empty.prog.visa).toEqual([0, VISA_STEPS.length]);
+    for (const s of VISA_STEPS) await visa.PATCH(r("visa", "PATCH", { "x-user": NURSE }, { step: s.id, done: true }));
+    const after = await (await weg.GET(r("weg", "GET", { "x-role": "admin" }, undefined, `?userId=${NURSE}`))).json();
+    expect(after.prog.visa).toEqual([VISA_STEPS.length, VISA_STEPS.length]);
+    expect(after.now).toBe("move");
+    expect((await weg.GET(r("weg", "GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
+    expect((await weg.GET(r("weg", "GET", {}))).status).toBe(401);
+  });
+
   it("an admin cannot reach a nurse outside their scope; a nurse never reaches another's plan", async () => {
     const api = await import("../app/api/portal/arrival/route");
     expect((await api.GET(req("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
