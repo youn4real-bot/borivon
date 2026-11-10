@@ -93,6 +93,7 @@ svg.chart { display: block; width: 100%; height: 100%; min-height: 320px; }
 .btn:hover { background: #2c271f; }
 footer { text-align: center; font-size: 0.78rem; color: var(--muted); padding: 18px 16px 32px; border-top: 1px solid var(--line); }
 footer a { color: var(--muted); }
+.ctasub{margin:10px 0 0;font-size:12.5px;color:var(--mute,#6b6458)}
 </style>
 </head>
 <body>
@@ -137,7 +138,7 @@ footer a { color: var(--muted); }
       unitWord: { hospital: "Bett", care_home: "Plätze", home_care: "Patienten" }, per: "à",
       how: "Ohne: jede offene Stelle kostet Leihkräfte und leere Plätze. Wer geht, kostet 3 Monate davon, die Einarbeitung (5.400 €) und die neue Suche (8.000 €). Mit: jede besetzte Stelle spart die Leihkräfte und füllt die Plätze, minus Gehalt.",
       cta: "Im Workshop mit uns durchrechnen",
-      ctaFp: "Ihren Fahrplan holen: wie Sie das stoppen"
+      ctaFp: "Ihren Fahrplan holen: wie Sie das stoppen", ctaSub: "In unter 60 Sekunden · 0 € · per E-Mail"
     },
     en: {
       ttl: "Calculator for your roadmap",
@@ -157,7 +158,7 @@ footer a { color: var(--muted); }
       unitWord: { hospital: "bed", care_home: "places", home_care: "patients" }, per: "at",
       how: "Without: every open post costs agency staff and empty places. Each nurse who leaves costs 3 months of that, the onboarding (€5,400) and the next search (€8,000). With: every filled post saves the agency staff and fills the places, minus salary.",
       cta: "Work them through with us at the workshop",
-      ctaFp: "Get your roadmap: how to stop this"
+      ctaFp: "Get your roadmap: how to stop this", ctaSub: "Under 60 seconds · 0 € · by email"
     },
     fr: {
       ttl: "Calculateur de votre plan",
@@ -177,7 +178,7 @@ footer a { color: var(--muted); }
       unitWord: { hospital: "lit", care_home: "places", home_care: "patients" }, per: "à",
       how: "Sans : chaque poste vacant coûte de l'intérim et des places vides. Chaque départ coûte 3 mois de cela, l'intégration (5 400 €) et la nouvelle recherche (8 000 €). Avec : chaque poste pourvu économise l'intérim et remplit les places, moins le salaire.",
       cta: "Les revoir avec nous à l'atelier",
-      ctaFp: "Obtenir votre plan : comment arrêter cela"
+      ctaFp: "Obtenir votre plan : comment arrêter cela", ctaSub: "Moins de 60 secondes · 0 € · par e-mail"
     }
   };
 
@@ -283,7 +284,7 @@ footer a { color: var(--muted); }
         // from the PDF (a lead) → the workshop; from the website (no Fahrplan yet) → the free Fahrplan first
         (lead.id
           ? '<a class="btn" href="/workshop" id="bookBtn">' + esc(t.cta) + ' →</a></div>'
-          : '<a class="btn" href="/fahrplan?src=rechner" id="bookBtn">' + esc(t.ctaFp) + ' →</a></div>');
+          : '<a class="btn" href="/fahrplan?src=rechner" id="bookBtn">' + esc(t.ctaFp) + ' →</a><p class="ctasub">' + esc(t.ctaSub) + '</p></div>');
   }
   function render() {
     var t = T[lang];
