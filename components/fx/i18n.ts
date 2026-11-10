@@ -3,6 +3,7 @@ import type { Lang } from "@/lib/facility/steps";
 
 export const FX_T = {
   de: {
+    arrNurseH: "Dein Ankunftsplan", arrNurseP: "Deine ersten Wochen in Deutschland, Schritt für Schritt. Mit den Ämtern in deiner Nähe.", arrAskNurse: "Wo wirst du wohnen? Dann suchen wir die Ämter in deiner Nähe.", arrAdminH: "Ankunftsplan", arrAdminP: "Die ersten Wochen, Schritt für Schritt. Die Pflegekraft sieht denselben Plan in ihrem Portal und hakt selbst ab.", arrAskAdmin: "Wo wird sie wohnen? Dann suchen wir die Ämter in der Nähe.", arrBack: "Zurück", arrDetails: "Angaben ändern",
     toPortal: "Zum Portal", pwLabel: "Passwort wählen (mindestens 8 Zeichen)", errPw: "Bitte wählen Sie ein Passwort mit mindestens 8 Zeichen.",
     // start (the gift)
     gift: "Ein Dankeschön",
@@ -61,6 +62,7 @@ export const FX_T = {
     demoBar: "So sieht die Plattform aus. Im Beispiel wird nichts gespeichert.", demoNote: "Im Beispiel wird nichts gespeichert.",
   },
   en: {
+    arrNurseH: "Your arrival plan", arrNurseP: "Your first weeks in Germany, step by step. With the offices near you.", arrAskNurse: "Where will you live? Then we look for the offices near you.", arrAdminH: "Arrival plan", arrAdminP: "The first weeks, step by step. The nurse sees the same plan in her portal and ticks off steps herself.", arrAskAdmin: "Where will she live? Then we look for the offices nearby.", arrBack: "Back", arrDetails: "Change details",
     toPortal: "Go to the portal", pwLabel: "Choose a password (at least 8 characters)", errPw: "Please choose a password with at least 8 characters.",
     gift: "A thank-you",
     startH: "Your platform is ready{name}.",
@@ -111,6 +113,7 @@ export const FX_T = {
     demoBar: "This is what the platform looks like. Nothing is saved in the example.", demoNote: "Nothing is saved in the example.",
   },
   fr: {
+    arrNurseH: "Ton plan d’arrivée", arrNurseP: "Tes premières semaines en Allemagne, étape par étape. Avec les administrations près de chez toi.", arrAskNurse: "Où vas-tu habiter ? Nous cherchons alors les administrations près de chez toi.", arrAdminH: "Plan d’arrivée", arrAdminP: "Les premières semaines, étape par étape. L’infirmière voit le même plan dans son portail et coche elle-même.", arrAskAdmin: "Où habitera-t-elle ? Nous cherchons alors les administrations à proximité.", arrBack: "Retour", arrDetails: "Modifier",
     toPortal: "Aller au portail", pwLabel: "Choisissez un mot de passe (8 caractères minimum)", errPw: "Veuillez choisir un mot de passe d’au moins 8 caractères.",
     gift: "Un remerciement",
     startH: "Votre plateforme est prête{name}.",

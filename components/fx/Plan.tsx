@@ -18,13 +18,15 @@ const Check = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l
  * The arrival plan: the steps in order (tick = done, synced), each with its nearest place, and the
  * map beside it. Used by the facility (/einrichtung) and by the nurse (/ankunft/<token>).
  */
-export function Plan({ lang, arrival, steps, placesUrl, onToggle, voice = "facility" }: {
+export function Plan({ lang, arrival, steps, placesUrl, onToggle, voice = "facility", authToken }: {
   lang: Lang;
   arrival: string;
   steps: Record<string, string>;
   placesUrl: string;
   onToggle: (id: StepId, done: boolean) => void;
   voice?: "facility" | "nurse";
+  /** the portal's Supabase access token (the places API wants a signed-in user) */
+  authToken?: string;
 }) {
   const t = fxT(lang);
   const [data, setData] = useState<PlacesResult | null>(null);
@@ -34,12 +36,12 @@ export function Plan({ lang, arrival, steps, placesUrl, onToggle, voice = "facil
   useEffect(() => {
     let off = false;
     setState("load");
-    fetch(placesUrl, { credentials: "same-origin" })
+    fetch(placesUrl, { credentials: "same-origin", headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((j: PlacesResult) => { if (!off) { setData(j); setState("ok"); } })
       .catch(() => { if (!off) setState("fail"); });
     return () => { off = true; };
-  }, [placesUrl]);
+  }, [placesUrl, authToken]);
 
   const byKind = useMemo(() => new Map((data?.places ?? []).map((p) => [p.kind, p])), [data]);
   const numberOf = (k: PlaceKind) => STEPS.findIndex((s) => s.place === k) + 1;

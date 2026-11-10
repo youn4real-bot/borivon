@@ -51,9 +51,20 @@ const DDL = [
     created_at TEXT NOT NULL DEFAULT ''
   )`,
   `CREATE INDEX IF NOT EXISTS fx_orgs_lead ON fx_orgs(lead_id)`,
+  // the arrival plan of a portal user (nurse): dates, where she lives, ticked steps (app/api/portal/arrival)
+  `CREATE TABLE IF NOT EXISTS fx_arrival (
+    user_id TEXT PRIMARY KEY,
+    arrival TEXT NOT NULL DEFAULT '',
+    start TEXT NOT NULL DEFAULT '',
+    plz TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;

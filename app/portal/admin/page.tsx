@@ -4661,6 +4661,14 @@ export default function AdminPage() {
                 style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                 <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
               </button>
+              {/* her arrival plan (dates, where she lives, offices nearby, ticked steps) */}
+              {selectedUser && (
+                <a href={`/portal/admin/ankunft/${selectedUser}?name=${encodeURIComponent(users[selectedUser]?.name ?? "")}`}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0 no-underline"
+                  style={{ background: "transparent", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                  {t.arrAdminBtn}
+                </a>
+              )}
 
               {/* WhatsApp: ask the candidate to upload a missing doc — STEP BY STEP.
                   Opens a picker of the missing docs; the admin ticks 1–2 and sends,

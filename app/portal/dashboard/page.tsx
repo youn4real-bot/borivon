@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { ArrivalCard } from "@/components/fx/ArrivalCard";
 import { saveAs } from "file-saver";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -3405,6 +3406,8 @@ export default function DashboardPage() {
     <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
+        {/* her arrival plan, once a place is set (founder 2026-11-10: the first weeks, offices nearby) */}
+        <ArrivalCard />
 
         {/* Header — refined typographic hierarchy */}
         <div className="flex items-start justify-between mb-8">
