@@ -124,23 +124,23 @@
 }
 
 .light {
-  /* ── Luxury Light — Pearl & Deep Charcoal ────────────────────────────── */
-  --bg: #fcfaf7;
-  --bg2: #f4f1ec;
-  --card: #ffffff;
-  --card2: #fbfaf6;
-  --border: rgba(0, 0, 0, 0.06);
-  --border2: rgba(0, 0, 0, 0.10);
-  --border-gold: rgba(173, 139, 58, 0.28);
-  --w: #1a1b1d;
-  --w2: rgba(26, 27, 29, 0.74);
-  /* w3 — bumped from 0.48 → 0.58 for WCAG AA compliance on small text (~4.5:1 vs --bg) */
-  --w3: rgba(26, 27, 29, 0.58);
-  --gold: #ad8b3a;
-  --gold2: #c5a353;
-  --gold-gradient: linear-gradient(135deg, #c5a353 0%, #96752a 100%);
-  --gdim: rgba(173, 139, 58, 0.08);
-  --nav-bg: rgba(252, 250, 247, 0.82);
+  /* ── borivon.com light (2026-11-09): warm paper, ink, one muted gold (content/pflege/bv.css) ── */
+  --bg: #f4f1ea;
+  --bg2: #ebe6db;
+  --card: #fbfaf6;
+  --card2: #f7f4ee;
+  --border: rgba(21, 19, 15, 0.09);
+  --border2: rgba(21, 19, 15, 0.15);
+  --border-gold: rgba(168, 132, 58, 0.32);
+  --w: #15130f;
+  --w2: rgba(21, 19, 15, 0.74);
+  /* w3 — 0.64 keeps small text at ~5:1 on paper (WCAG AA) */
+  --w3: rgba(21, 19, 15, 0.64);
+  --gold: #a8843a;
+  --gold2: #b8964e;
+  --gold-gradient: linear-gradient(135deg, #b8964e 0%, #8f6f2d 100%);
+  --gdim: rgba(168, 132, 58, 0.08);
+  --nav-bg: rgba(244, 241, 234, 0.86);
   --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md:  0 6px 24px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-lg:  0 24px 64px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.04);
@@ -1365,7 +1365,7 @@ html.lenis, html.lenis body { height: auto; }
   --shadow-md: 0 12px 32px -14px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.25);
   --shadow-lg: 0 40px 90px -30px rgba(0, 0, 0, 0.85), 0 8px 24px rgba(0, 0, 0, 0.35);
 }
-:root.light { --nav-bg: rgba(252, 250, 247, 0.62); }
+:root.light { --nav-bg: rgba(244, 241, 234, 0.72); }
 
 /* Font roles. Inside /portal everything is Lexend (founder rule 2026-10-19);
    the Playfair headlines + mono labels apply on the public site only, via the
@@ -1390,11 +1390,8 @@ body::before {
   animation: bvAurora 32s ease-in-out infinite alternate;
   will-change: transform;
 }
-:root.light body::before {
-  background:
-    radial-gradient(38vw 38vw at 86% 6%, rgba(173, 139, 58, 0.10), transparent 62%),
-    radial-gradient(34vw 34vw at 6% 72%, rgba(72, 112, 142, 0.05), transparent 62%);
-}
+/* light = borivon.com paper: no aurora (the site has no glows) */
+:root.light body::before { background: none; animation: none; }
 @keyframes bvAurora { to { transform: translate3d(-4vw, 5vh, 0) scale(1.08); } }
 
 /* Page wrappers paint var(--bg) themselves; let the body (same color) show
@@ -1419,7 +1416,7 @@ nav.fixed[style*="var(--nav-bg)"] { box-shadow: inset 0 -1px 0 rgba(255, 255, 25
    trap). Instead the card base is slightly see-through so the ambient light shows,
    with the /pflege sheen on top. */
 :root:not(.light) { --card: rgba(28, 28, 33, 0.8); --card2: rgba(36, 36, 42, 0.84); }
-:root.light { --card: rgba(255, 255, 255, 0.86); --card2: rgba(251, 250, 246, 0.88); }
+:root.light { --card: rgba(251, 250, 246, 0.9); --card2: rgba(247, 244, 238, 0.92); }
 :root:not(.light) .bv-card,
 :root:not(.light) .bv-surface,
 :root:not(.light) [style*="background: var(--card)"] {
@@ -1444,10 +1441,16 @@ a[style*="background: var(--gold)"]:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 18px 42px -12px rgba(201, 162, 64, 0.75) !important;
 }
 
-/* Buttons are pills, like every button on /pflege — shared classes and gold inline ones. */
+/* light = flat buttons, like borivon.com (no glow) */
+:root.light .bv-btn-primary, :root.light .bv-btn-primary-lg,
+:root.light button[style*="background: var(--gold)"], :root.light a[style*="background: var(--gold)"] { box-shadow: none !important; }
+:root.light .bv-btn-primary:hover:not(:disabled), :root.light .bv-btn-primary-lg:hover:not(:disabled),
+:root.light button[style*="background: var(--gold)"]:hover:not(:disabled), :root.light a[style*="background: var(--gold)"]:hover { box-shadow: 0 12px 26px -18px rgba(32, 26, 16, 0.5) !important; }
+
+/* Buttons are square-ish, like every button on borivon.com (since 2026-11-09) — shared classes and gold inline ones. */
 .bv-btn, .bv-btn-primary-lg,
 button[style*="background: var(--gold)"],
-a[style*="background: var(--gold)"] { border-radius: 999px !important; }
+a[style*="background: var(--gold)"] { border-radius: 4px !important; }
 
 /* ── Inputs: gold focus halo ────────────────────────────────────────────── */
 .bv-input:focus { box-shadow: 0 0 0 4px rgba(201, 162, 64, 0.14); }
