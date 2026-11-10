@@ -72,6 +72,11 @@
 .how span{padding-top:7px;font-size:1rem;font-weight:500;line-height:1.35;color:var(--ink)}
 .how small{display:block;margin-top:3px;font-size:.9rem;font-weight:400;color:var(--mute)}
 @media (max-width:760px){.how{flex-direction:column;align-items:center;gap:18px}.how li{width:100%;max-width:320px}}
+/* the first voice: under the Fahrplan, like Hormozi's quote under his roadmap */
+.quote{max-width:780px;margin:clamp(64px,7vw,104px) auto 0;padding:clamp(28px,3.4vw,44px) 0 0;border-top:1px solid var(--line2);text-align:center}
+.quote blockquote{margin:0;font:italic 400 clamp(1.45rem,1.05rem + 1.5vw,2.25rem)/1.3 var(--serif);letter-spacing:-.01em;color:var(--ink);text-wrap:balance}
+.quote figcaption{margin-top:20px;font-size:14px;line-height:1.5;color:var(--mute)}
+.quote figcaption b{display:block;font-weight:500;color:var(--ink)}
 .hero2{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(40px,6vw,110px);align-items:center}
 @media (max-width:900px){.hero2{grid-template-columns:1fr}}
 .hero2 .for{margin-top:clamp(28px,3.4vw,44px)}
@@ -178,6 +183,10 @@
    <li><b>2</b><span>E-Mail bestätigen<small>ein Klick</small></span></li>
    <li><b>3</b><span>Ihr Fahrplan kommt<small>als PDF, kostenlos</small></span></li>
   </ol>
+  <figure class="quote" data-r>
+   <blockquote>„Bis ins Detail durchdacht. Sehr konkrete, taktische Hilfe. Wir haben den Fahrplan mit unserem Team umgesetzt und sehen schon Verbesserungen.“</blockquote>
+   <figcaption><b>Geschäftsführer eines Trägers in Bayern</b>Klinik, ambulanter Dienst, Pflegeheime · Name auf Wunsch nicht genannt</figcaption>
+  </figure>
   <div class="lede">
    <p class="lbl" data-r>Borivon</p>
    <p data-r>Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
