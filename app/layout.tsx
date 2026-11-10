@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { EB_Garamond, Inter, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { GlobalChrome } from "@/components/GlobalChrome";
 import NextTopLoader from "nextjs-toploader";
@@ -7,41 +7,40 @@ import { SITE_ZONE_BOOT } from "@/lib/siteZone";
 
 // Fonts = borivon.com since 2026-11-09 (founder: "this design and font is really good, apply it to
 // all the website", the portal included): Inter for every text, EB Garamond for the wordmark and
-// headlines. next/font self-hosts them (no request to Google from the visitor's browser).
-// The CSS variable names are the old ones on purpose: every page and the portal switch with them.
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+// headlines. Self-hosted from our own files (public/pflege/assets/fonts, the same variable fonts the
+// static pages use), so neither the visitor's browser NOR the build ever asks Google (2026-11-10: two
+// builds failed on a Google Fonts hiccup). The CSS variable names are the old ones on purpose.
+const FONTS = "../public/pflege/assets/fonts/";
+const inter = localFont({
+  src: [{ path: `${FONTS}inter-latin.woff2`, weight: "100 900", style: "normal" }],
   variable: "--font-dm-sans-v", // legacy variable name kept; resolves to Inter
   display: "swap",
   preload: true,
 });
 
-// The "Borivon." wordmark and the large decorative "B.": EB Garamond italic.
-const garamond = EB_Garamond({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  style: ["italic"],
+// The "Borivon." wordmark (italic) and serif headlines (upright): EB Garamond, both styles.
+const garamond = localFont({
+  src: [
+    { path: `${FONTS}ebgaramond-latin.woff2`, weight: "400 800", style: "normal" },
+    { path: `${FONTS}ebgaramond-italic-latin.woff2`, weight: "400 800", style: "italic" },
+  ],
   variable: "--font-serif-v",
   display: "swap",
   preload: true,
 });
 
 // Headlines: EB Garamond upright (globals.css "RENOVATION 2026-10": h1, h2). Not preloaded.
-const garamondUpright = EB_Garamond({
-  subsets: ["latin"],
-  weight: ["500", "600"],
-  style: ["normal"],
+const garamondUpright = localFont({
+  src: [{ path: `${FONTS}ebgaramond-latin.woff2`, weight: "400 800", style: "normal" }],
   variable: "--font-serif-upright-v",
   display: "swap",
   preload: false,
 });
 
-// Label mono — JetBrains Mono for eyebrows, uppercase field labels and small
-// meta, exactly like /pflege. Not preloaded: labels swap in after the text.
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+// Labels (eyebrows, uppercase field labels, small meta): Inter like the website's labels
+// (was JetBrains Mono, a Google download; the site's one design uses Inter capitals).
+const mono = localFont({
+  src: [{ path: `${FONTS}inter-latin.woff2`, weight: "100 900", style: "normal" }],
   variable: "--font-mono-v",
   display: "swap",
   preload: false,
