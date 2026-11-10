@@ -73,6 +73,9 @@ if ((process.argv[1] ?? "").split("\\").join("/").endsWith("scripts/fx-places-pa
     `CREATE TABLE IF NOT EXISTS fx_places (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, name TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, address TEXT NOT NULL DEFAULT '', hours TEXT NOT NULL DEFAULT '', website TEXT NOT NULL DEFAULT '', w REAL NOT NULL DEFAULT 1);`,
     `CREATE INDEX IF NOT EXISTS fx_places_kind_lat ON fx_places(kind, lat);`,
     `DELETE FROM fx_places;`,
+    // cached answers per postcode were computed from the old places
+    `CREATE TABLE IF NOT EXISTS fx_geo (key TEXT PRIMARY KEY, json TEXT NOT NULL, at TEXT NOT NULL);`,
+    `DELETE FROM fx_geo WHERE key LIKE 'places:%';`,
   ];
   for (let i = 0; i < rows.length; i += 200) out.push(`INSERT INTO fx_places (kind,name,lat,lon,address,hours,website,w) VALUES\n${rows.slice(i, i + 200).join(",\n")};`);
   writeFileSync(outFile, out.join("\n") + "\n");

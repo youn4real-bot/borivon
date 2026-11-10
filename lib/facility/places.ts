@@ -131,7 +131,18 @@ export async function placesAround(geo: Geo): Promise<Place[]> {
 
 /** Everything a page needs for one postcode. null = the postcode could not be placed. */
 export async function placesFor(plz: string, city: string, f: Fetch = fetch): Promise<PlacesResult | null> {
+  // the finished answer per postcode, kept 7 days (fx-places-pack.mjs clears these on every reload)
+  const key = `places:v1:${plz}:${city.toLowerCase()}`;
+  const db = await fxDb();
+  if (db) {
+    const r = (await db.run(`SELECT json, at FROM fx_geo WHERE key = ?`, [key])).results[0];
+    if (r && Date.now() - Date.parse(String(r.at)) < 7 * 86400e3) {
+      try { return JSON.parse(String(r.json)) as PlacesResult; } catch { /* compute again */ }
+    }
+  }
   const geo = await geocode(plz, city, f).catch(() => null);
   if (!geo) return null;
-  return { center: { lat: geo.lat, lon: geo.lon, label: geo.label }, places: await placesAround(geo), at: nowIso() };
+  const out: PlacesResult = { center: { lat: geo.lat, lon: geo.lon, label: geo.label }, places: await placesAround(geo), at: nowIso() };
+  if (db) await db.run(`INSERT OR REPLACE INTO fx_geo (key, json, at) VALUES (?, ?, ?)`, [key, JSON.stringify(out), out.at]).catch(() => {});
+  return out;
 }

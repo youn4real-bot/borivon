@@ -98,6 +98,8 @@ const DDL = [
   `CREATE INDEX IF NOT EXISTS fx_places_kind_lat ON fx_places(kind, lat)`,
 ];
 
+const TABLES = ["fx_facilities", "fx_users", "fx_sessions", "fx_links", "fx_nurses", "fx_geo", "fx_places"];
+
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
 
@@ -106,7 +108,12 @@ export async function fxDb(): Promise<D1Runner | null> {
   const db = await getD1();
   if (!db) return null;
   if (readyFor !== db) { ready = null; readyFor = db; }
-  ready ??= (async () => { for (const sql of DDL) await db.run(sql); })().catch((e) => { ready = null; throw e; });
+  // one cheap look first: once the tables exist (always, after the first request ever), skip the 15 statements
+  ready ??= (async () => {
+    const { results } = await db.run(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN (${TABLES.map(() => "?").join(",")})`, TABLES);
+    if (Number(results[0]?.n ?? 0) === TABLES.length) return;
+    for (const sql of DDL) await db.run(sql);
+  })().catch((e) => { ready = null; throw e; });
   await ready;
   return db;
 }
