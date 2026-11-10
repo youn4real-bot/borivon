@@ -165,8 +165,10 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
 
-  // True Borivon HQ sub-admin (NOT agency-flagged AND not in any org) → all.
-  if (!isAgencyAdmin && myOrgs.length === 0) return true;
+  // True Borivon HQ sub-admin (NOT agency-flagged AND not in any org) → all, EXCEPT a DIY facility's
+  // own nurses while that facility has not switched on "Mit Borivon arbeiten" (LAW #25, amended
+  // 2026-11-10). Fails closed for that one candidate if the check cannot be read.
+  if (!isAgencyAdmin && myOrgs.length === 0) return !(await isDiyHidden(candidateUserId));
 
   // Org-scoped: candidate must be approved-linked to one of their orgs.
   if (myOrgs.length === 0) return false;
@@ -178,6 +180,17 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
     .in("org_id", myOrgs)
     .maybeSingle();
   return !!candOrg;
+}
+
+/** Is this candidate one of a DIY facility's own nurses, with Borivon not switched on? (true on error) */
+async function isDiyHidden(candidateUserId: string): Promise<boolean> {
+  try {
+    const { hiddenFromBorivon } = await import("@/lib/facility/diy");
+    const h = await hiddenFromBorivon();
+    return !h.ok || h.ids.has(candidateUserId);
+  } catch {
+    return true;
+  }
 }
 
 /**

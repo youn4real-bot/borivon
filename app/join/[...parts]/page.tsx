@@ -9,6 +9,8 @@ import { useLang } from "@/components/LangContext";
 type InviteInfo = {
   org: { id: string; name: string };
   type: "candidate" | "member" | "sub-admin";
+  /** a DIY facility's own link (founder 2026-11-10): the facility invites, not Borivon */
+  diy?: boolean;
 };
 
 const T = {
@@ -32,6 +34,8 @@ const T = {
     alreadyHaveAccount: "I already have an account",
     termsPrefix: "By joining, you agree to Borivon's",
     termsLink: "Terms",
+    diyCandidateHeadline: "{org} is inviting you.", diyCandidateBody: "Create your account. Then you upload your documents, and {org} follows every step with you.",
+    diyMemberHeadline: "Welcome to the {org} team.", diyMemberBody: "Set up your account to work with your colleagues on your nurses' documents and journey.",
     errGeneric: "Something went wrong. Please try again.",
     errConnection: "Connection error. Please try again.",
   },
@@ -55,6 +59,8 @@ const T = {
     alreadyHaveAccount: "J'ai déjà un compte",
     termsPrefix: "En rejoignant, vous acceptez les",
     termsLink: "Conditions d'utilisation",
+    diyCandidateHeadline: "{org} vous invite.", diyCandidateBody: "Créez votre compte. Vous déposez ensuite vos documents, et {org} suit chaque étape avec vous.",
+    diyMemberHeadline: "Bienvenue dans l’équipe {org}.", diyMemberBody: "Créez votre compte pour suivre avec vos collègues les documents et le parcours de vos infirmières.",
     errGeneric: "Une erreur est survenue. Veuillez réessayer.",
     errConnection: "Erreur de connexion. Veuillez réessayer.",
   },
@@ -78,6 +84,8 @@ const T = {
     alreadyHaveAccount: "Ich habe bereits ein Konto",
     termsPrefix: "Mit dem Beitreten stimmen Sie",
     termsLink: "Nutzungsbedingungen von Borivon",
+    diyCandidateHeadline: "{org} lädt Sie ein.", diyCandidateBody: "Legen Sie Ihr Konto an. Dann laden Sie Ihre Unterlagen hoch, und {org} begleitet jeden Schritt mit Ihnen.",
+    diyMemberHeadline: "Willkommen im Team von {org}.", diyMemberBody: "Richten Sie Ihr Konto ein, um mit Ihren Kolleginnen und Kollegen die Unterlagen und den Weg Ihrer Pflegekräfte zu begleiten.",
     errGeneric: "Ein Fehler ist aufgetreten. Bitte erneut versuchen.",
     errConnection: "Verbindungsfehler. Bitte erneut versuchen.",
   },
@@ -272,17 +280,21 @@ export default function JoinPage() {
 
           {/* Headline */}
           <h1 className="text-[22px] font-semibold tracking-tight mb-3" style={{ color: "var(--w)" }}>
-            {isMember ? i18n.memberHeadline : i18n.candidateHeadline}
+            {info?.diy
+              ? (isMember ? i18n.diyMemberHeadline : i18n.diyCandidateHeadline).replace("{org}", info.org.name)
+              : (isMember ? i18n.memberHeadline : i18n.candidateHeadline)}
           </h1>
 
           {/* Body */}
           <p className="text-[14px] leading-relaxed mb-2" style={{ color: "var(--w2)" }}>
-            {isMember
-              ? <>{i18n.memberBodyIntro}{showOrg ? <> <strong style={{ color: "var(--gold)" }}>{info?.org.name}</strong></> : ` ${i18n.memberBodyOrg}`}.</>
-              : i18n.candidateBodyMain
+            {info?.diy
+              ? (isMember ? i18n.diyMemberBody : i18n.diyCandidateBody).replace("{org}", info.org.name)
+              : isMember
+                ? <>{i18n.memberBodyIntro}{showOrg ? <> <strong style={{ color: "var(--gold)" }}>{info?.org.name}</strong></> : ` ${i18n.memberBodyOrg}`}.</>
+                : i18n.candidateBodyMain
             }
           </p>
-          {!isMember && (
+          {!isMember && !info?.diy && (
             <p className="text-[12.5px] mb-7 leading-relaxed" style={{ color: "var(--w3)" }}>
               {i18n.candidateBodySub}
             </p>

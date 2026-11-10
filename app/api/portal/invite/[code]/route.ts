@@ -4,6 +4,7 @@ import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
+import { diyOrg, diyUsage } from "@/lib/facility/diy";
 
 type OrgRow = { id: string; name: string };
 
@@ -184,7 +185,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ code: strin
       );
     }
   }
-  return NextResponse.json({ org: result.org, type: result.type });
+  // a DIY facility's own link: the join page says "{facility} invites you", not "Borivon selected you"
+  const diy = result.org.id ? !!(await diyOrg(result.org.id).catch(() => null)) : false;
+  return NextResponse.json({ org: result.org, type: result.type, diy });
 }
 
 /** POST — authenticated: redeem invite code */
@@ -301,21 +304,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
           .select("org_id", { count: "exact", head: true })
           .eq("candidate_user_id", auth.userId).eq("status", "approved");
         const isFirst = (count ?? 0) === 0;
-        const status  = isFirst ? "approved" : "pending";
+        // A DIY facility's OWN link (LAW #25, amended 2026-11-10): the nurse lands in that facility
+        // directly, up to its free scope (Nutzungsbedingungen § 3); beyond it she waits (pending).
+        const diy = await diyOrg(org.id).catch(() => null);
+        let status: "approved" | "pending" = isFirst ? "approved" : "pending";
+        if (diy) {
+          const used = await diyUsage(org.id).catch(() => ({ nurses: Number.MAX_SAFE_INTEGER, users: 0 }));
+          status = used.nurses < diy.nurse_limit ? "approved" : "pending";
+        }
         await db.from("candidate_organizations").insert({
           candidate_user_id: auth.userId,
           org_id: org.id,
           status,
           added_by: "self_signup",
-          approved_at: isFirst ? new Date().toISOString() : null,
-          approved_by: isFirst ? "auto" : null,
+          approved_at: status === "approved" ? new Date().toISOString() : null,
+          approved_by: status === "approved" ? (diy ? "own_link" : "auto") : null,
         });
         // Borivon HQ + the org admin both get the bell (admin_notifications is
         // global; org admins are scoped to their candidates, now incl. this one).
         // Best-effort, but supabase-js RESOLVES with { error } on a refusal
         // (e.g. the type CHECK) instead of throwing — log it, never swallow.
         const { error: notifErr } = await db.from("admin_notifications").insert({
-          type: isFirst ? "org-join" : "org-request",
+          type: status === "approved" ? "org-join" : "org-request",
           user_email: auth.email, user_name: auth.email,
           doc_name: org.name, doc_type: status,
         });
@@ -352,6 +362,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
 
   if (existing) {
     return NextResponse.json({ org, type, alreadyMember: true });
+  }
+
+  // DIY facility: the team stays within the free scope (Nutzungsbedingungen § 3)
+  const diyTeam = await diyOrg(org.id).catch(() => null);
+  if (diyTeam) {
+    const used = await diyUsage(org.id).catch(() => ({ nurses: 0, users: Number.MAX_SAFE_INTEGER }));
+    if (used.users >= diyTeam.user_limit) return NextResponse.json({ error: "team_full", limit: diyTeam.user_limit }, { status: 403 });
   }
 
   // Ensure they appear in sub_admins so the admin panel can show their name.

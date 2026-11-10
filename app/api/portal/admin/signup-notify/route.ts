@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/admin-auth";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
 import { clipText } from "@/lib/clipText";
+import { diyOrg } from "@/lib/facility/diy";
 
 // Called client-side from /portal/auth/callback after a new user signs up.
 // Requires the caller's verified JWT — both name and email come from the verified
@@ -64,9 +65,22 @@ export async function POST(req: NextRequest) {
   // portal bell, but the founder only sees that when he happens to look, which
   // is exactly the problem the ping exists to solve. `signup_ping` remains the
   // switch for turning these off deliberately.
+  // A nurse joining a DIY facility through its own link is that facility's (founder 2026-11-10):
+  // no Telegram ping with her name and phone (Telegram is no processor of the facility's). The invite
+  // code only decides whether to SKIP the ping — it can never make one happen.
+  let diySignup = false;
+  try {
+    const body = (await req.json().catch(() => ({}))) as { invite?: unknown };
+    const code = typeof body.invite === "string" ? body.invite.toUpperCase().replace(/[\s-]+/g, "").trim().slice(0, 40) : "";
+    if (code) {
+      const { data: org } = await db.from("organizations").select("id").eq("invite_code", code).maybeSingle();
+      if (org && (await diyOrg((org as { id: string }).id))) diySignup = true;
+    }
+  } catch { /* no body → an ordinary signup */ }
+
   try {
     const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
-    if (chatId && telegramConfigured() && (await isAutomationEnabled("signup_ping"))) {
+    if (!diySignup && chatId && telegramConfigured() && (await isAutomationEnabled("signup_ping"))) {
       await tgSend(chatId, `🆕 New candidate signed up: ${displayName}${phone ? ` (${phone})` : ""} — ${auth.email}`);
     }
   } catch { /* never block signup on a ping failure */ }

@@ -14,6 +14,7 @@
  */
 
 import { getServiceSupabase } from "@/lib/supabase";
+import { hiddenFromBorivon } from "@/lib/facility/diy";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { waNumber, type ChaseReason } from "@/lib/whatsapp";
 import { readAllRows } from "@/lib/readAllRows";
@@ -276,6 +277,14 @@ export async function computeChaseList(now = Date.now()): Promise<ChaseRow[]> {
         ? `tried to sign up ${u.attempts} times, ${Math.round((now - u.createdAt) / DAY)} days ago — the confirmation code never arrived`
         : `signed up ${Math.round((now - u.createdAt) / DAY)} days ago and never got in — the confirmation code never arrived`,
     });
+  }
+
+  // A DIY facility's own nurses are not Borivon's to chase until it switches on "Mit Borivon
+  // arbeiten" (founder 2026-11-10). Unreadable list → leave the chase list as it is (it is a view;
+  // the mailing side, docRemindersRun, skips its run instead).
+  const diyHidden = await hiddenFromBorivon();
+  if (diyHidden.ids.size) {
+    for (let i = out.length - 1; i >= 0; i--) if (diyHidden.ids.has(out[i].userId)) out.splice(i, 1);
   }
 
   // Batch members first, then by urgency. Someone holding up a seat at UKSH

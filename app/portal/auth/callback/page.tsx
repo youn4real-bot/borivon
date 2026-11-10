@@ -119,6 +119,8 @@ function CallbackInner() {
             fetch("/api/portal/admin/signup-notify", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+              // lets the server skip the Telegram ping for a DIY facility's own nurse
+              body: JSON.stringify({ invite: params.get("invite") || (typeof window !== "undefined" ? localStorage.getItem("bv_invite_code") : null) || undefined }),
             }).catch(() => {});
           }
         }

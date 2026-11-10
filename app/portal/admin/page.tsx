@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { DiyFacilityPanel } from "@/components/admin/DiyFacilityPanel";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -477,6 +478,10 @@ export default function AdminPage() {
    *  false. Used to hide Borivon-internal Status tabs (Documents / Journey /
    *  Assignment) from org admins. */
   const [isOrgAdmin, setIsOrgAdmin] = useState(false);
+  // A DIY facility (founder 2026-11-10) runs its own space: unlike an agency admin it reviews documents
+  // and follows the journey itself, so those tabs stay open for it (assignment stays Borivon's).
+  const [isDiyAdmin, setIsDiyAdmin] = useState(false);
+  const orgLimited = isOrgAdmin && !isDiyAdmin;
   /** false while /api/portal/me/role is still resolving on initial load.
    *  LAW #31: lock-toggle buttons must render as clickable while role is unknown
    *  to prevent the race where supreme admin clicks during the resolution window
@@ -1302,7 +1307,7 @@ export default function AdminPage() {
     setStatusOpen(true);
     // Org admins don't have the Documents tab — default them to B2 so the
     // hidden docs content never shows with no matching tab selected.
-    setStatusTab(isOrgAdmin ? "b2" : "docs");
+    setStatusTab(orgLimited ? "b2" : "docs");
     setStatusLoading(true);
     setStatusForm(EMPTY_STATUS);
     setAssignTypeUI(null);
@@ -4794,7 +4799,7 @@ export default function AdminPage() {
                   // Org admins don't get the Borivon-internal tabs (Documents,
                   // Journey, Assignment). Borivon team (supreme + sub-admin) does.
                   // Engagement IS shown to org admins — it's the employer-matching signal.
-                  .filter(tab => !(isOrgAdmin && (tab.id === "docs" || tab.id === "journey" || tab.id === "assign")));
+                  .filter(tab => !((orgLimited && (tab.id === "docs" || tab.id === "journey")) || (isOrgAdmin && tab.id === "assign")));
                 const assignT = lang === "fr"
                   ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur",
                       addEmp:"Nouvel employeur", empName:"Nom", empNamePh:"Pflegedienst Sonnenschein",
@@ -4885,7 +4890,7 @@ export default function AdminPage() {
                               candidate's upload status — color only (LAW #4),
                               computed live from `docs`. No sliding: stays in
                               this popup. ── */}
-                          {statusTab === "docs" && !isOrgAdmin && (() => {
+                          {statusTab === "docs" && !orgLimited && (() => {
                             const dl = lang === "fr"
                               ? { title: "Documents", complete: "complété", essentials: "Essentiels", qualifications: "Qualifications", trans: "Traduction", optional: "optionnel",
                                   labels: { id: "Passeport", cv_de: "CV", letter: "Lettre de motivation", langcert: "Certificat B2", diploma: "Diplôme", studyprog: "Programme d'études", transcript: "Relevé de notes", abitur: "Abitur", abitur_transcript: "Relevé Abitur", praktikum: "Stage", workcert: "Autorisation d'exercer", work_experience: "Expérience pro.", impfung: "Vaccination" } as Record<string, string> }
@@ -4946,7 +4951,7 @@ export default function AdminPage() {
                               (Borivon / Organization / Candidate). Shared
                               component — same list the candidate + linked org
                               see, scoped per party server-side. ── */}
-                          {statusTab === "journey" && !isOrgAdmin && selectedUser && (
+                          {statusTab === "journey" && !orgLimited && selectedUser && (
                             <StatusSection title={lang === "fr" ? "Parcours" : lang === "de" ? "Verlauf" : "Journey"} first>
                               <JourneyChecklist candidateUserId={selectedUser} />
                             </StatusSection>
@@ -8703,6 +8708,9 @@ export default function AdminPage() {
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           />
+
+          {/* The DIY facility's own panel: its invite links + "Mit Borivon arbeiten" (renders only for it) */}
+          {isOrgAdmin && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
 
           {/* Batch tracker — pick a batch → the list below shows THOSE candidates as
               the same profile cards, least-doc-complete first. "All" = normal list. */}

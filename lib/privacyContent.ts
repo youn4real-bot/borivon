@@ -65,11 +65,9 @@ export const PRIVACY: Record<PrivacyLang, { title: string; subtitle: string; upd
       },
       {
         heading: "13. Plateforme Borivon pour les établissements (borivon.com/einrichtung)",
-        body: `Les établissements qui ouvrent un accès à la plateforme (via le lien personnel de leur plan) : nous traitons l'adresse e-mail, la civilité, le nom, le nom et l'adresse de l'établissement, l'acceptation des conditions d'utilisation et du contrat de sous-traitance (date, version, adresse IP), ainsi que la date de la dernière connexion. Base légale : exécution du contrat (art. 6, al. 1, lit. b RGPD). La connexion se fait par un lien unique envoyé par e-mail (Resend) ; un cookie technique nécessaire (bv_fx, 30 jours) maintient la session.
+        body: `Un établissement qui ouvre son accès (via le lien personnel de son plan) reçoit son propre espace dans le portail Borivon. Nous traitons pour lui : l’adresse e-mail, la civilité et le nom de la personne qui ouvre l’accès, le nom de l’établissement, l’acceptation des conditions d’utilisation et du contrat de sous-traitance (date, version, adresse IP) et les données de connexion. Base légale : exécution du contrat (art. 6, al. 1, lit. b RGPD).
 
-Les infirmières que l'établissement saisit (prénom, nom, pays d'origine, dates d'arrivée et de début, code postal et ville du logement, avancement des étapes) sont traitées par Borivon pour le compte de l'établissement, qui en est le responsable (art. 28 RGPD, contrat de sous-traitance sur borivon.com/einrichtung/avv). L'infirmière qui ouvre son lien personnel voit uniquement son propre plan.
-
-Pour trouver les administrations proches, seul le code postal avec la ville est envoyé au service de géocodage d'OpenStreetMap (Nominatim, OpenStreetMap Foundation, Royaume-Uni), jamais un nom. Les images de carte sont chargées par notre serveur : votre navigateur ne contacte aucun tiers. Les données sont supprimées immédiatement lorsque l'établissement supprime son accès, sinon 30 jours après la fin du contrat.`,
+Les infirmières qui rejoignent cet espace par le lien de l’établissement y déposent elles-mêmes leurs données et documents. Pour ces données, Borivon agit pour le compte de l’établissement, qui en est le responsable (art. 28 RGPD, contrat sur borivon.com/einrichtung/avv). L’équipe de Borivon ne les voit que si l’établissement active « Travailler avec Borivon ». Les données sont supprimées 30 jours après la fin du contrat, sauf si l’infirmière continue d’utiliser son propre compte.`,
       },
     ],
   },
@@ -129,11 +127,9 @@ Pour trouver les administrations proches, seul le code postal avec la ville est 
       },
       {
         heading: "13. Borivon platform for facilities (borivon.com/einrichtung)",
-        body: `Facilities that open access to the platform (via the personal link in their roadmap): we process the email address, salutation, last name, the facility's name and address, the acceptance of the terms of use and the data processing agreement (date, version, IP address) and the time of the last sign-in. Legal basis: performance of the contract (Art. 6(1)(b) GDPR). Sign-in uses a one-time link sent by email (Resend); a technically necessary cookie (bv_fx, 30 days) keeps the session.
+        body: `A facility that opens its access (via the personal link in its roadmap) gets its own space in the Borivon portal. For it we process: the email address, salutation and last name of the person opening the access, the facility's name, the acceptance of the terms of use and the data processing agreement (time, version, IP address) and sign-in data. Legal basis: performance of the contract (Art. 6(1)(b) GDPR).
 
-The nurses a facility enters (first and last name, country of origin, arrival and start dates, postcode and town of the flat, progress of the steps) are processed by Borivon on behalf of the facility, which is the controller (Art. 28 GDPR, data processing agreement at borivon.com/einrichtung/avv). A nurse who opens her personal link sees only her own plan.
-
-To find nearby offices, only the postcode with the town is sent to OpenStreetMap's geocoding service (Nominatim, OpenStreetMap Foundation, United Kingdom), never a name. Map images are loaded by our server: your browser contacts no third party. The data is deleted at once when the facility deletes its access, otherwise 30 days after the contract ends.`,
+Nurses who join this space through the facility's link upload their own data and documents there. For these data Borivon acts on behalf of the facility, which is the controller (Art. 28 GDPR, agreement at borivon.com/einrichtung/avv). Borivon's team only sees them if the facility switches on \"Work with Borivon\". The data are deleted 30 days after the contract ends, unless the nurse keeps using her own account.`,
       },
     ],
   },
@@ -193,11 +189,9 @@ To find nearby offices, only the postcode with the town is sent to OpenStreetMap
       },
       {
         heading: "13. Borivon-Plattform für Einrichtungen (borivon.com/einrichtung)",
-        body: `Eröffnet eine Einrichtung den Zugang zur Plattform (über den persönlichen Link aus ihrem Fahrplan), verarbeiten wir: E-Mail-Adresse, Anrede, Nachname, Name und Anschrift der Einrichtung, die Zustimmung zu den Nutzungsbedingungen und zum Vertrag zur Auftragsverarbeitung (Zeitpunkt, Version, IP-Adresse) sowie den Zeitpunkt der letzten Anmeldung. Rechtsgrundlage: Vertragserfüllung (Art. 6 Abs. 1 lit. b DSGVO). Die Anmeldung erfolgt über einen einmaligen Link per E-Mail (Versand über Resend); ein technisch notwendiges Cookie (bv_fx, 30 Tage) hält die Sitzung.
+        body: `Eröffnet eine Einrichtung ihren Zugang (über den persönlichen Link aus ihrem Fahrplan), erhält sie einen eigenen Bereich im Borivon-Portal. Dafür verarbeiten wir: E-Mail-Adresse, Anrede und Nachname der Person, die den Zugang eröffnet, den Namen der Einrichtung, die Zustimmung zu den Nutzungsbedingungen und zum Vertrag zur Auftragsverarbeitung (Zeitpunkt, Version, IP-Adresse) sowie Anmeldedaten. Rechtsgrundlage: Vertragserfüllung (Art. 6 Abs. 1 lit. b DSGVO).
 
-Die Pflegekräfte, die eine Einrichtung einträgt (Vor- und Nachname, Herkunftsland, Ankunft und erster Arbeitstag, PLZ und Ort der Wohnung, Stand der Schritte), verarbeitet Borivon im Auftrag der Einrichtung; Verantwortliche ist die Einrichtung (Art. 28 DSGVO, Vertrag zur Auftragsverarbeitung unter borivon.com/einrichtung/avv). Eine Pflegekraft, die ihren persönlichen Link öffnet, sieht nur ihren eigenen Plan.
-
-Um die Ämter in der Nähe zu finden, geht nur die Postleitzahl mit dem Ort an den Ortssuchdienst von OpenStreetMap (Nominatim, OpenStreetMap Foundation, Vereinigtes Königreich), nie ein Name. Kartenbilder lädt unser Server: Ihr Browser spricht mit keinem Dritten. Die Daten werden sofort gelöscht, wenn die Einrichtung ihren Zugang löscht, sonst 30 Tage nach Vertragsende.`,
+Pflegekräfte, die über den Link der Einrichtung in diesen Bereich kommen, laden ihre Angaben und Unterlagen dort selbst hoch. Für diese Daten handelt Borivon im Auftrag der Einrichtung; Verantwortliche ist die Einrichtung (Art. 28 DSGVO, Vertrag unter borivon.com/einrichtung/avv). Das Team von Borivon sieht sie nur, wenn die Einrichtung „Mit Borivon arbeiten“ einschaltet. Die Daten werden 30 Tage nach Vertragsende gelöscht, außer die Pflegekraft nutzt ihr eigenes Konto weiter.`,
       },
     ],
   },

@@ -143,7 +143,9 @@ function PortalPageInner() {
     // on the signup/auto-confirm/OTP path (never plain login), so no spam.
     fetchWithTimeout(fetch, "/api/portal/admin/signup-notify", {
       method: "POST",
-      headers: { Authorization: `Bearer ${access_token}` },
+      headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
+      // the invite code lets the server skip the Telegram ping for a DIY facility's own nurse
+      body: JSON.stringify({ invite: code || undefined }),
     }).catch(() => { /* best-effort, mirrors old behavior */ });
     let inviteType: string | null = null;
     if (code) {

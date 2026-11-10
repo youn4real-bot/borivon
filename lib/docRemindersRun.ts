@@ -11,6 +11,7 @@
  *   • any core table failing to load → nothing is sent
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { hiddenFromBorivon } from "@/lib/facility/diy";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { planReminder, reminderLabel, type ReminderDoc, type ReminderItem } from "@/lib/docReminders";
 import { sendDocReminderEmail } from "@/lib/email";
@@ -153,9 +154,14 @@ export async function computeDueReminders(now = Date.now()): Promise<DueResult> 
     if (users.length < 200) break;
   }
 
+  // A DIY facility's own nurses get no Borivon reminder until it switches on "Mit Borivon arbeiten"
+  // (founder 2026-11-10). If that list cannot be read, send nothing this run rather than guess.
+  const diyHidden = await hiddenFromBorivon();
+  if (!diyHidden.ok) return empty;
+
   const due: DueReminder[] = [];
   for (const p of profRows) {
-    if (staff.has(p.user_id) || !inProcess.has(p.user_id)) continue;
+    if (staff.has(p.user_id) || !inProcess.has(p.user_id) || diyHidden.ids.has(p.user_id)) continue;
     const auth = authBy.get(p.user_id);
     if (!auth) continue;
     const orgId = (p.employer_id && agencyByEmp.get(p.employer_id)) || selfOrg.get(p.user_id) || null;

@@ -69,8 +69,8 @@ export const V: Record<keyof L, {
     softBtn: "Platz anfragen", softTags: ["Tag 1: Ihr Plan", "Tag 2: Ihre Pflegekräfte", "20 Plätze"],
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
     giftTag: "Ein Dankeschön", giftH: "Ihr Zugang zur Borivon-Plattform.",
-    giftP: "Weil Sie bis zur letzten Seite gelesen haben: Sie bekommen kostenlosen Zugang zu unserer Plattform. Für jede neue Pflegekraft steht dort der fertige Ankunftsplan, mit Bürgerbüro, Bank, Krankenkasse und Ausländerbehörde in ihrer Nähe, auf einer Karte. Sie sucht nichts, und Sie sehen jeden Schritt.",
-    giftItems: ["Ankunftsplan für jede Pflegekraft", "Die nächsten Ämter, automatisch", "Ein eigener Link für jede Pflegekraft"],
+    giftP: "Weil Sie bis zur letzten Seite gelesen haben: Sie bekommen kostenlosen Zugang zu der Plattform, mit der wir selbst unsere Pflegekräfte begleiten. Sie laden Ihre Pflegekräfte ein, sie laden ihre Unterlagen selbst hoch, und Sie sehen jeden Schritt, vom Lebenslauf bis zum Visum.",
+    giftItems: ["Ihre Pflegekräfte laden Sie selbst ein", "Unterlagen und Visum an einem Ort", "Borivon nur, wenn Sie möchten"],
     giftBtn: "Zugang freischalten", giftNote: "Dieser Link gilt nur für Sie.",
   },
   en: {
@@ -83,8 +83,8 @@ export const V: Record<keyof L, {
     softBtn: "Request a seat", softTags: ["Day 1: your plan", "Day 2: your nurses", "20 seats"],
     stepsH: "How you reach level {n}.", stepsSub: "Tick them off. One by one.", stayH: "How you stay on top.",
     giftTag: "A thank-you", giftH: "Your access to the Borivon platform.",
-    giftP: "Because you read to the last page: you get free access to our platform. For every new nurse it holds the finished arrival plan, with the citizens' office, bank, health insurer and immigration office near her, on one map. She searches nothing, and you see every step.",
-    giftItems: ["An arrival plan for every nurse", "The nearest offices, found automatically", "Her own link for every nurse"],
+    giftP: "Because you read to the last page: you get free access to the platform we use to guide our own nurses. You invite your nurses, they upload their documents themselves, and you see every step, from the CV to the visa.",
+    giftItems: ["You invite your nurses yourself", "Documents and visa in one place", "Borivon only if you want"],
     giftBtn: "Unlock your access", giftNote: "This link is yours alone.",
   },
   fr: {
@@ -97,8 +97,8 @@ export const V: Record<keyof L, {
     softBtn: "Demander une place", softTags: ["Jour 1 : votre plan", "Jour 2 : vos infirmières", "20 places"],
     stepsH: "Comment passer au niveau {n}.", stepsSub: "Cochez. Une chose après l'autre.", stayH: "Comment rester au sommet.",
     giftTag: "Un remerciement", giftH: "Votre accès à la plateforme Borivon.",
-    giftP: "Parce que vous avez lu jusqu'à la dernière page : vous recevez un accès gratuit à notre plateforme. Pour chaque nouvelle infirmière, elle contient le plan d'arrivée prêt, avec bureau des citoyens, banque, caisse maladie et service des étrangers près de chez elle, sur une carte. Elle ne cherche rien, et vous voyez chaque étape.",
-    giftItems: ["Un plan d'arrivée pour chaque infirmière", "Les administrations proches, automatiquement", "Un lien personnel pour chaque infirmière"],
+    giftP: "Parce que vous avez lu jusqu’à la dernière page : vous recevez un accès gratuit à la plateforme avec laquelle nous accompagnons nos propres infirmières. Vous invitez vos infirmières, elles déposent elles-mêmes leurs documents, et vous voyez chaque étape, du CV au visa.",
+    giftItems: ["Vous invitez vous-même vos infirmières", "Documents et visa au même endroit", "Borivon seulement si vous le souhaitez"],
     giftBtn: "Débloquer l'accès", giftNote: "Ce lien n'est valable que pour vous.",
   },
 };

@@ -286,6 +286,11 @@ export interface Translation {
   fdPostFail: string; fdNetErr: string;
   // ── Notification bell aria ─────────────────────────────────────────────────
   nbAria: string;
+  // ── DIY facility panel (founder 2026-11-10: the facility runs its own space in the portal) ──
+  diyNurses: string; diyNursesHint: string; diyTeam: string; diyTeamHint: string;
+  diyCopy: string; diyCopied: string; diyWhatsapp: string; diyWaText: string;
+  diyBorivonH: string; diyBorivonP: string; diyBorivonOn: string; diyBorivonOff: string;
+  diyLimitNurses: string; diyLimitUsers: string;
 }
 
 export const translations: Record<Lang, Translation> = {
@@ -613,6 +618,8 @@ export const translations: Record<Lang, Translation> = {
     fdNetErr: "Erreur réseau — veuillez réessayer.",
     // Notification bell
     nbAria: "Notifications",
+    // DIY facility panel
+    diyNurses: "Inviter vos infirmières", diyNursesHint: "Envoyez ce lien à vos infirmières. Elles créent leur compte et rejoignent directement votre établissement.", diyTeam: "Inviter une collègue", diyTeamHint: "Pour une personne de votre équipe qui travaille avec vous ici.", diyCopy: "Copier le lien", diyCopied: "Copié", diyWhatsapp: "Envoyer par WhatsApp", diyWaText: "Bonjour, voici votre lien pour notre espace sur la plateforme Borivon : {url}", diyBorivonH: "Travailler avec Borivon", diyBorivonP: "Désactivé, vous travaillez seul : notre équipe ne voit pas vos infirmières. Activé, nous vous aidons pour les documents, la reconnaissance et le visa.", diyBorivonOn: "Activé", diyBorivonOff: "Désactivé", diyLimitNurses: "Votre accès gratuit est complet ({n} infirmières). Pour plus, écrivez-nous : contact@borivon.com", diyLimitUsers: "Votre équipe est complète ({n} personnes).",
   },
   en: {
     dir: "ltr",
@@ -938,6 +945,8 @@ export const translations: Record<Lang, Translation> = {
     fdNetErr: "Network error — please try again.",
     // Notification bell
     nbAria: "Notifications",
+    // DIY facility panel
+    diyNurses: "Invite your nurses", diyNursesHint: "Send this link to your nurses. They create their account and join your facility directly.", diyTeam: "Invite a colleague", diyTeamHint: "For someone on your team who works with you here.", diyCopy: "Copy link", diyCopied: "Copied", diyWhatsapp: "Send via WhatsApp", diyWaText: "Hello, here is your link to our space on the Borivon platform: {url}", diyBorivonH: "Work with Borivon", diyBorivonP: "Off, you work on your own: our team does not see your nurses. On, we help with documents, recognition and the visa.", diyBorivonOn: "On", diyBorivonOff: "Off", diyLimitNurses: "Your free access is full ({n} nurses). For more, write to us: contact@borivon.com", diyLimitUsers: "Your team is full ({n} people).",
   },
   de: {
     dir: "ltr",
@@ -1263,5 +1272,7 @@ export const translations: Record<Lang, Translation> = {
     fdNetErr: "Netzwerkfehler — bitte erneut versuchen.",
     // Notification bell
     nbAria: "Benachrichtigungen",
+    // DIY facility panel
+    diyNurses: "Pflegekräfte einladen", diyNursesHint: "Schicken Sie diesen Link an Ihre Pflegekräfte. Sie legen ihr Konto an und sind direkt in Ihrer Einrichtung.", diyTeam: "Kollegin oder Kollegen einladen", diyTeamHint: "Für eine Person aus Ihrem Team, die hier mit Ihnen arbeitet.", diyCopy: "Link kopieren", diyCopied: "Kopiert", diyWhatsapp: "Per WhatsApp senden", diyWaText: "Hallo, hier ist Ihr Link zu unserem Bereich auf der Borivon-Plattform: {url}", diyBorivonH: "Mit Borivon arbeiten", diyBorivonP: "Aus: Sie arbeiten allein, unser Team sieht Ihre Pflegekräfte nicht. An: Wir helfen bei Unterlagen, Anerkennung und Visum.", diyBorivonOn: "An", diyBorivonOff: "Aus", diyLimitNurses: "Ihr kostenloser Zugang ist voll ({n} Pflegekräfte). Für mehr schreiben Sie uns: contact@borivon.com", diyLimitUsers: "Ihr Team ist vollständig ({n} Personen).",
   },
 };

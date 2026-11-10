@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hiddenFromBorivon } from "@/lib/facility/diy";
 import { getServiceSupabase } from "@/lib/supabase";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { requireAdminRole, canActOnCandidate, getVisibleCandidateScope, getVisibleOrgIds } from "@/lib/admin-auth";
@@ -232,6 +233,18 @@ export async function GET(req: NextRequest) {
       userIds = userIds.filter(uid => !excluded.has(uid));
       docs = docs.filter((d: { user_id: string }) => !excluded.has(d.user_id));
       for (const uid of excluded) delete users[uid];
+    }
+  }
+
+  // A DIY facility's own nurses are not in the Borivon TEAM's list until that facility switches on
+  // "Mit Borivon arbeiten" (LAW #25, amended 2026-11-10). The supreme admin keeps seeing everyone;
+  // the facility's own admins see them through their org scope (they never reach this branch).
+  if (role === "sub_admin" && surfaceAllUsers) {
+    const hidden = await hiddenFromBorivon();
+    if (hidden.ids.size) {
+      userIds = userIds.filter(uid => !hidden.ids.has(uid));
+      docs = docs.filter((d: { user_id: string }) => !hidden.ids.has(d.user_id));
+      for (const uid of hidden.ids) delete users[uid];
     }
   }
 

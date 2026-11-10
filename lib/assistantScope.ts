@@ -7,6 +7,7 @@
  * is the authority.
  */
 import { getVisibleCandidateIds, type AdminAuthResult } from "@/lib/admin-auth";
+import { hiddenFromBorivon } from "@/lib/facility/diy";
 
 export type AssistantScope = {
   role: "admin" | "sub_admin";
@@ -33,12 +34,16 @@ export async function resolveAssistantScope(
   // through getVisibleCandidateIds, which fails CLOSED (returns [] on a blip).
   const visibleIds = auth.role === "admin" ? null : await getVisibleCandidateIds(auth.email);
   const idSet = visibleIds === null ? null : new Set(visibleIds);
+  // The Borivon bot leaves a DIY facility's own nurses alone until that facility switches on
+  // "Mit Borivon arbeiten" (founder 2026-11-10) — for every caller, the supreme admin included.
+  const diy = await hiddenFromBorivon();
+  const hidden = diy.ids;
   return {
     role: auth.role,
     email: auth.email,
     userId: auth.userId,
     visibleIds,
     inScope: (candidateUserId: string) =>
-      idSet === null ? true : (!!candidateUserId && idSet.has(candidateUserId)),
+      !hidden.has(candidateUserId) && (idSet === null ? true : (!!candidateUserId && idSet.has(candidateUserId))),
   };
 }

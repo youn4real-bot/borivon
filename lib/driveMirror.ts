@@ -774,6 +774,13 @@ export function getDriveOrNull(): Drive | null {
 export async function autoMirrorCandidate(userId: string): Promise<void> {
   try {
     if (!UUID_RE.test(userId)) return;
+    // A DIY facility's own nurse: her documents never go to Borivon's Drive until the facility
+    // switches on "Mit Borivon arbeiten" (founder 2026-11-10). Unreadable list → do nothing now.
+    {
+      const { hiddenFromBorivon } = await import("@/lib/facility/diy");
+      const h = await hiddenFromBorivon();
+      if (!h.ok || h.ids.has(userId)) return;
+    }
     const db = getServiceSupabase();
     const { data: pipe } = await db
       .from("candidate_pipeline").select("batch_id").eq("user_id", userId).maybeSingle();

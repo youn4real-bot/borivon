@@ -17,67 +17,6 @@ export const FREE_USERS = 2;
 export const TERMS_VERSION = "2026-11-10";
 
 const DDL = [
-  `CREATE TABLE IF NOT EXISTS fx_facilities (
-    id TEXT PRIMARY KEY,
-    lead_id TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL DEFAULT '',
-    street TEXT NOT NULL DEFAULT '',
-    plz TEXT NOT NULL DEFAULT '',
-    city TEXT NOT NULL DEFAULT '',
-    terms_version TEXT NOT NULL DEFAULT '',
-    terms_at TEXT NOT NULL DEFAULT '',
-    terms_ip TEXT NOT NULL DEFAULT '',
-    avv_at TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'active',
-    created_at TEXT NOT NULL DEFAULT ''
-  )`,
-  `CREATE INDEX IF NOT EXISTS fx_facilities_lead ON fx_facilities(lead_id)`,
-  `CREATE TABLE IF NOT EXISTS fx_users (
-    id TEXT PRIMARY KEY,
-    facility_id TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    salutation TEXT NOT NULL DEFAULT '',
-    last_name TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'member',
-    created_at TEXT NOT NULL DEFAULT '',
-    last_login_at TEXT NOT NULL DEFAULT ''
-  )`,
-  `CREATE INDEX IF NOT EXISTS fx_users_facility ON fx_users(facility_id)`,
-  `CREATE TABLE IF NOT EXISTS fx_sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS fx_sessions_user ON fx_sessions(user_id)`,
-  `CREATE TABLE IF NOT EXISTS fx_links (
-    token_hash TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    email TEXT NOT NULL,
-    facility_id TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    used_at TEXT NOT NULL DEFAULT ''
-  )`,
-  `CREATE TABLE IF NOT EXISTS fx_nurses (
-    id TEXT PRIMARY KEY,
-    facility_id TEXT NOT NULL,
-    first_name TEXT NOT NULL DEFAULT '',
-    last_name TEXT NOT NULL DEFAULT '',
-    country TEXT NOT NULL DEFAULT '',
-    arrival TEXT NOT NULL DEFAULT '',
-    start TEXT NOT NULL DEFAULT '',
-    plz TEXT NOT NULL DEFAULT '',
-    city TEXT NOT NULL DEFAULT '',
-    steps TEXT NOT NULL DEFAULT '{}',
-    share_token TEXT NOT NULL DEFAULT '',
-    sample INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT ''
-  )`,
-  `CREATE INDEX IF NOT EXISTS fx_nurses_facility ON fx_nurses(facility_id)`,
-  `CREATE INDEX IF NOT EXISTS fx_nurses_share ON fx_nurses(share_token)`,
   `CREATE TABLE IF NOT EXISTS fx_geo (
     key TEXT PRIMARY KEY,
     json TEXT NOT NULL,
@@ -96,9 +35,25 @@ const DDL = [
     w REAL NOT NULL DEFAULT 1
   )`,
   `CREATE INDEX IF NOT EXISTS fx_places_kind_lat ON fx_places(kind, lat)`,
+  // DIY facilities = organizations in the real portal (lib/facility/diy.ts)
+  `CREATE TABLE IF NOT EXISTS fx_orgs (
+    org_id TEXT PRIMARY KEY,
+    lead_id TEXT NOT NULL DEFAULT '',
+    owner_email TEXT NOT NULL DEFAULT '',
+    borivon_access INTEGER NOT NULL DEFAULT 0,
+    access_changed_at TEXT NOT NULL DEFAULT '',
+    nurse_limit INTEGER NOT NULL DEFAULT 5,
+    user_limit INTEGER NOT NULL DEFAULT 2,
+    terms_version TEXT NOT NULL DEFAULT '',
+    terms_at TEXT NOT NULL DEFAULT '',
+    terms_ip TEXT NOT NULL DEFAULT '',
+    avv_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+  )`,
+  `CREATE INDEX IF NOT EXISTS fx_orgs_lead ON fx_orgs(lead_id)`,
 ];
 
-const TABLES = ["fx_facilities", "fx_users", "fx_sessions", "fx_links", "fx_nurses", "fx_geo", "fx_places"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
