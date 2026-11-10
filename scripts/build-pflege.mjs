@@ -68,7 +68,7 @@ const FONTS = `
 // Home = free value first, the workshop is the one paid step (founder 2026-11-09). No nurse sales talk.
 const META = {
   title: "Borivon · Pflegekräfte gewinnen und halten",
-  description: "Der kostenlose Pflege-Fahrplan für Gesundheitseinrichtungen: Ihre Stufe, was leere Stellen Sie kosten, Ihr Zeitplan und Ihr 90-Tage-Plan, damit Pflegekräfte bleiben. In ca. 2 Minuten.",
+  description: "Der Pflege-Fahrplan für Gesundheitseinrichtungen: Ihre Stufe, was leere Stellen Sie kosten, Ihr Zeitplan und Ihr 90-Tage-Plan, damit Pflegekräfte bleiben. In unter 60 Sekunden.",
 };
 
 let problems = 0;
@@ -148,7 +148,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "plattform.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in plattform.html"); }
-  else s = s.slice(0, i) + head("Die Borivon-Plattform · kostenlos für Ihre Einrichtung", "Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Kostenlos, als Dankeschön zu Ihrem Fahrplan.", "https://www.borivon.com/plattform", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Die Borivon-Plattform für Ihre Einrichtung", "Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Als Dankeschön zu Ihrem Fahrplan.", "https://www.borivon.com/plattform", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
   pages.PLATTFORM_HTML = bv(s);
 }
 
@@ -157,7 +157,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "fahrplan.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in fahrplan.html"); }
-  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "Kostenlos in ca. 2 Minuten: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "In unter 60 Sekunden: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
   pages.FAHRPLAN_HTML = s;
 }
 
@@ -200,8 +200,8 @@ for (const k of Object.keys(pages)) pages[k] = pages[k].split('/pflege/assets/t.
 
 // ── free tools (founder 2026-11-10: expose the problem, show the lost potential; same model as the Rechner) ──
 for (const [src, key, title, desc, path_] of [
-  ["warten.html", "WARTEN_HTML", "Was kostet Sie jede Woche Warten? · Borivon", "Kostenloses Werkzeug: Was leere Stellen Ihre Einrichtung jede Woche kosten, und was es kostet, später zu starten. Mit Ihren eigenen Zahlen.", "https://www.borivon.com/fahrplan/warten"],
-  ["bleibe-check.html", "BLEIBE_HTML", "Der Bleibe-Check · Borivon", "Kostenloses Werkzeug: Acht Fragen zu den ersten 90 Tagen. Sehen Sie, wo Ihnen neue Pflegekräfte in der Probezeit verloren gehen.", "https://www.borivon.com/fahrplan/bleibe-check"],
+  ["warten.html", "WARTEN_HTML", "Was kostet Sie jede Woche Warten? · Borivon", "Werkzeug: Was leere Stellen Ihre Einrichtung jede Woche kosten, und was es kostet, später zu starten. Mit Ihren eigenen Zahlen.", "https://www.borivon.com/fahrplan/warten"],
+  ["bleibe-check.html", "BLEIBE_HTML", "Der Bleibe-Check · Borivon", "Werkzeug: Acht Fragen zu den ersten 90 Tagen. Sehen Sie, wo Ihnen neue Pflegekräfte in der Probezeit verloren gehen.", "https://www.borivon.com/fahrplan/bleibe-check"],
 ]) {
   let s = fs.readFileSync(path.join(SRC, src), "utf8");
   const i = s.indexOf("<!--HEAD-->");
