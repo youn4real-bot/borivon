@@ -469,11 +469,12 @@ function PortalPageInner() {
     if (!prefilledCode) setInviteCode(""); // only clear if not prefilled
   }
 
+  // the site's fields (founder 2026-11-10: one design inside and outside the portal): hairline, 4px corners
   const fieldStyle: React.CSSProperties = {
-    background: "var(--bg2)",
-    border: "1px solid transparent",
+    background: "var(--bg)",
+    border: "1px solid var(--border2)",
     color: "var(--w)",
-    borderRadius: "12px",
+    borderRadius: "4px",
     width: "100%",
     padding: "14px 16px",
     // 16px, NOT 15px. Below 16 iOS Safari zooms the viewport on focus and does
@@ -530,9 +531,10 @@ function PortalPageInner() {
             autoComplete="one-time-code"
             autoFocus
             placeholder="••••••"
-            className="w-full text-center rounded-xl px-4 py-3 outline-none mb-3"
+            className="w-full text-center px-4 py-3 outline-none mb-3"
             style={{
-              background: "var(--bg2)", border: `1px solid ${otpErr ? "var(--danger)" : "var(--border)"}`,
+              borderRadius: "4px",
+              background: "var(--bg)", border: `1px solid ${otpErr ? "var(--danger)" : "var(--border)"}`,
               color: "var(--w)", fontSize: "1.4rem", letterSpacing: "0.5em", fontWeight: 600,
             }}
           />
@@ -541,8 +543,8 @@ function PortalPageInner() {
           )}
 
           <button onClick={verifyCode} disabled={otp.length < 6 || otpBusy}
-            className="bv-glow-gold bv-press w-full py-3 rounded-xl text-[14px] font-semibold disabled:opacity-40 mb-3"
-            style={{ background: "var(--gold)", color: "#131312" }}>
+            className="bv-press w-full py-3 text-[14.5px] font-medium disabled:opacity-40 mb-3"
+            style={{ background: "var(--w)", color: "var(--bg)", borderRadius: "4px" }}>
             {otpBusy ? "…" : (lang === "de" ? "Bestätigen" : lang === "fr" ? "Vérifier" : "Verify")}
           </button>
 
@@ -568,7 +570,7 @@ function PortalPageInner() {
       style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)", paddingBottom: "3rem" }}>
       <div className="w-full max-w-[420px]">
         <div className="px-8 py-10"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)" }}>
+          style={{ background: "var(--card)", borderRadius: "8px", border: "1px solid var(--border)", boxShadow: "0 40px 80px -48px rgba(0,0,0,0.35)" }}>
 
           {/* Logo */}
           <div className="text-center mb-8">
@@ -579,7 +581,7 @@ function PortalPageInner() {
           </div>
 
           {/* Title */}
-          <h1 className="text-center text-[18px] font-semibold mb-6 tracking-tight" style={{ color: "var(--w)" }}>
+          <h1 className="text-center mb-7" style={{ color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 500, fontSize: "30px", lineHeight: 1.1, letterSpacing: "-0.015em" }}>
             {mode === "login" ? t.pBtnLogin : t.pBtnSignup}
           </h1>
 
@@ -679,8 +681,8 @@ function PortalPageInner() {
             )}
 
             <button type="submit" disabled={loading}
-              className="bv-glow-gold bv-press w-full py-4 text-[14px] font-semibold tracking-wide disabled:opacity-60"
-              style={{ background: "var(--gold)", color: "#131312", marginTop: "4px", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-sm)", border: "none" }}>
+              className="bv-press w-full py-4 text-[14.5px] font-medium disabled:opacity-60"
+              style={{ background: "var(--w)", color: "var(--bg)", marginTop: "6px", borderRadius: "4px", border: "none" }}>
               {loading ? "…" : mode === "login" ? t.pBtnLogin : t.pBtnSignup}
             </button>
 
