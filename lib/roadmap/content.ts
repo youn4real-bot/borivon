@@ -182,7 +182,7 @@ export const UI: Record<Lang, Record<string, string>> = {
     book: "Prüfen, ob meine Einrichtung passt", contact: "Oder schreiben Sie uns", page: "Seite",
     disclaimer: "Alle Zahlen sind Schätzungen. Sie kommen aus Ihren Antworten.",
     lossYear: "Leere Stellen und Kündigungen kosten Sie etwa", lossYearOpen: "Leere Stellen kosten Sie etwa",
-    e90: "Zum Abhaken", eReasons: "Warum Leute gehen", eNext: "Kostenlos",
+    e90: "Zum Abhaken", eReasons: "Warum Leute gehen", eNext: "Geschenkt",
     callGet: "Im Gespräch bekommen Sie", callPts: "Ihre echten Zahlen|Passende Pflegekräfte (ohne Namen)|Ihren Zeitplan bis Tag 1",
   },
   en: {

@@ -17,7 +17,7 @@ export const FX_T = {
     open: "Plattform öffnen", opening: "Einen Moment …",
     errTerms: "Bitte setzen Sie beide Häkchen.", errName: "Bitte geben Sie den Namen der Einrichtung ein.", errFirst: "Bitte geben Sie den Vornamen ein.", errPlz: "Bitte geben Sie eine PLZ mit 5 Ziffern ein.",
     errGeneric: "Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.", errMany: "Zu viele Versuche. Bitte warten Sie eine Stunde.",
-    invalidH: "Dieser Link gilt nicht.", invalidP: "Ihren persönlichen Link finden Sie auf der letzten Seite Ihres Fahrplans.", getPlan: "Kostenlosen Fahrplan holen",
+    invalidH: "Dieser Link gilt nicht.", invalidP: "Ihren persönlichen Link finden Sie auf der letzten Seite Ihres Fahrplans.", getPlan: "Ihren Fahrplan holen",
     existsH: "Sie haben schon Zugang.", existsP: "Melden Sie sich im Portal mit {email} an.", sendLink: "Login-Link senden",
     // login
     loginH: "Anmelden", loginP: "Wir schicken Ihnen einen Link. Ein Klick, und Sie sind drin. Ohne Passwort.", email: "Ihre E-Mail-Adresse", sendLogin: "Login-Link senden",
@@ -36,7 +36,7 @@ export const FX_T = {
     firstName: "Vorname", lastName: "Nachname", country: "Herkunftsland", arrivalDate: "Ankunft in Deutschland", startDate: "Erster Arbeitstag",
     homeHint: "Wo wird sie wohnen? Wir suchen die Ämter in der Nähe dieser PLZ.",
     save: "Speichern", cancel: "Abbrechen", edit: "Bearbeiten", remove: "Entfernen", removeQ: "{name} und ihren Plan wirklich entfernen?",
-    limitNurses: "Ihr kostenloser Zugang umfasst {n} Pflegekräfte. Für mehr schreiben Sie uns: contact@borivon.com",
+    limitNurses: "Ihr Zugang umfasst {n} Pflegekräfte. Für mehr schreiben Sie uns: contact@borivon.com",
     back: "Alle Pflegekräfte",
     planH: "Ankunftsplan", planP: "Die nächsten Ämter rund um {where}. Haken Sie ab, was erledigt ist.",
     bring: "Mitbringen", route: "Route", away: "{d} entfernt", noPlace: "In der Nähe nichts gefunden. Die Stadt oder Gemeinde hilft weiter.",
@@ -48,7 +48,7 @@ export const FX_T = {
     // team
     teamH: "Ihr Team", teamP: "Wer hier mitarbeitet. Jede Person meldet sich mit ihrer eigenen E-Mail an.", owner: "Inhaber", member: "Mitglied",
     invite: "Einladen", inviteSent: "Die Einladung ist unterwegs.", inviteOwner: "Nur der Inhaber kann einladen.",
-    limitUsers: "Ihr kostenloser Zugang umfasst {n} Nutzer.", already: "Diese Person ist schon im Team.", otherFac: "Diese E-Mail-Adresse gehört schon zu einer anderen Einrichtung.",
+    limitUsers: "Ihr Zugang umfasst {n} Nutzer.", already: "Diese Person ist schon im Team.", otherFac: "Diese E-Mail-Adresse gehört schon zu einer anderen Einrichtung.",
     removeUserQ: "{email} aus dem Team entfernen?", lastLogin: "zuletzt da: {d}", never: "noch nicht angemeldet",
     // settings
     settingsH: "Ihre Einrichtung", saved: "Gespeichert.", langH: "Sprache",

@@ -18,6 +18,7 @@
  */
 import { PDFDocument, PageSizes, PDFName, PDFString, type PDFPage, type PDFRef, type RGB } from "pdf-lib";
 import { embedFonts, hexColor, Surface, wrapText, measure, type DocFont } from "@/lib/pdflib/render";
+import { loadPublicAsset } from "@/lib/pdflib/assets";
 import type { RoadmapResult, Level } from "./score";
 import { LEVELS, CLIMB, PLAN_90, UI, pick, type Lang } from "./content";
 import { STAGE_UI } from "./stages";
@@ -508,15 +509,18 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     const cy = y, ch = 214, half = (W - 24) / 2;
     s.roundedRect(M, cy, W, ch, 6, { fill: PAPER });
     const lx = M + 18, lw = half - 6;
-    const stageLbl = lang === "de" ? ["Visum", "Anerkennung", "Unterlagen"] : lang === "fr" ? ["Visa", "Reconnaissance", "Documents"] : ["Visa", "Recognition", "Documents"];
+    const stageLbl = lang === "de" ? ["Visum da", "Anerkennung", "Unterlagen"] : lang === "fr" ? ["Visa reçu", "Reconnaissance", "Documents"] : ["Visa granted", "Recognition", "Documents"];
     const prog = [0.86, 0.55, 0.24];
+    // the same example people as on borivon.com/plattform (Symbolbilder, public/pflege/assets/pf, founder 2026-11-11: real faces)
+    const people = [{ n: 1, name: "Amina E." }, { n: 3, name: "Youssef B." }, { n: 2, name: "Salma O." }];
+    const faces = await Promise.all(people.map((p) => loadPublicAsset(`pflege/assets/pf/av-${p.n}-r.png`).then((b) => doc.embedPng(b)).catch(() => null)));
     for (let i = 0; i < 3; i++) {
       const ry = cy + 22 + i * 62;
-      page.drawCircle({ x: lx + 15, y: PH - (ry + 15), size: 15, color: PAPER2, borderColor: LINE2, borderWidth: 0.6 });
-      page.drawCircle({ x: lx + 15, y: PH - (ry + 11), size: 5, color: LINE2 });
-      s.roundedRect(lx + 7, ry + 18, 16, 8, 4, { fill: LINE2 });
-      s.roundedRect(lx + 42, ry + 4, 70 + (i === 1 ? -14 : i === 2 ? 10 : 0), 7, 3, { fill: LINE2 });
-      s.text(stageLbl[i], lx + 42, ry + 16, F.med, 8, i === 0 ? GAIN : GOLD_D);
+      const face = faces[i];
+      if (face) page.drawImage(face, { x: lx, y: PH - (ry + 30), width: 30, height: 30 });
+      else page.drawCircle({ x: lx + 15, y: PH - (ry + 15), size: 15, color: PAPER2, borderColor: LINE2, borderWidth: 0.6 });
+      s.text(people[i].name, lx + 42, ry + 2, F.med, 10, INK);
+      s.text(stageLbl[i], lx + 42, ry + 17, F.med, 8, i === 0 ? GAIN : GOLD_D);
       s.rect(lx + 42, ry + 31, lw - 52, 2.2, PAPER2);
       s.rect(lx + 42, ry + 31, (lw - 52) * prog[i], 2.2, GOLD);
       if (i < 2) s.hline(lx, lx + lw - 10, ry + 46, LINE, 0.6);

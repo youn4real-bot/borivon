@@ -69,7 +69,7 @@ export const V: Record<keyof L, {
     softBtn: "Platz anfragen", softTags: ["Tag 1: Ihr Plan", "Tag 2: Ihre Pflegekräfte", "20 Plätze"],
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
     giftTag: "Ein Dankeschön", giftH: "Ihr Zugang zur Borivon-Plattform.",
-    giftP: "Weil Sie bis zur letzten Seite gelesen haben: Sie bekommen kostenlosen Zugang zu der Plattform, mit der wir selbst unsere Pflegekräfte begleiten. Sie laden Ihre Pflegekräfte ein, sie laden ihre Unterlagen selbst hoch, und Sie sehen jeden Schritt, vom Lebenslauf bis zum Visum.",
+    giftP: "Weil Sie bis zur letzten Seite gelesen haben: Ihr eigener Zugang zu der Plattform, mit der wir selbst unsere Pflegekräfte begleiten. Geschenkt. Sie laden Ihre Pflegekräfte ein, sie laden ihre Unterlagen selbst hoch, und Sie sehen jeden Schritt, vom Lebenslauf über das Visum bis zum Ende der Probezeit.",
     giftItems: ["Ihre Pflegekräfte laden Sie selbst ein", "Unterlagen und Visum an einem Ort", "Borivon nur, wenn Sie möchten"],
     giftBtn: "Zugang freischalten", giftNote: "Dieser Link gilt nur für Sie.",
   },
