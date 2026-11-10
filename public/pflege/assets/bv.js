@@ -72,12 +72,26 @@
     e.style.setProperty("--d", Math.min(k, 6));
   });
   var els = d.querySelectorAll("[data-r],[data-split],[data-m]");
+  var io = null, pending = [];
   if (reduce || !("IntersectionObserver" in w)) [].forEach.call(els, function (e) { e.classList.add("in"); });
   else {
-    var io = new IntersectionObserver(function (es) {
+    io = new IntersectionObserver(function (es) {
       es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
     }, { rootMargin: "0px 0px -7% 0px", threshold: .1 });
     [].forEach.call(els, function (e) { io.observe(e); });
+    pending = [].slice.call(els);
+  }
+  /* safety net: a fast fling can carry a small element past the screen between two frames, and the
+     observer never sees it. Anything already reached or passed is revealed on the next frame. */
+  var armed = false; // not on the first frames: the observer opens the first screen with its animation
+  setTimeout(function () { armed = true; onScroll(); }, 1200);
+  function sweep(vh) {
+    if (!armed || !pending.length) return;
+    pending = pending.filter(function (e) {
+      if (e.classList.contains("in")) return false;
+      if (e.getBoundingClientRect().top < vh * .93) { e.classList.add("in"); if (io) io.unobserve(e); return false; }
+      return true;
+    });
   }
 
   var lines = [].slice.call(d.querySelectorAll("[data-line]"));
@@ -89,6 +103,7 @@
   function frame() {
     ticking = false;
     var vh = w.innerHeight, y = w.scrollY;
+    sweep(vh);
     if (!reduce) lines.forEach(function (l) { var r = l.getBoundingClientRect(); l.classList.toggle("on", r.top + r.height / 2 < vh * .66); });
     if (!reduce && desk.matches) pxs.forEach(function (img) {
       var r = img.parentElement.getBoundingClientRect(); if (r.bottom < -50 || r.top > vh + 50) return;
