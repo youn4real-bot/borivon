@@ -200,6 +200,18 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
 const TJS = `/pflege/assets/t.js?v=${crypto.createHash("sha1").update(fs.readFileSync(path.join(OUT, "pflege", "assets", "t.js"))).digest("hex").slice(0, 8)}`;
 for (const k of Object.keys(pages)) pages[k] = pages[k].split('/pflege/assets/t.js"').join(`${TJS}"`);
 
+// ── free tools (founder 2026-11-10: expose the problem, show the lost potential; same model as the Rechner) ──
+for (const [src, key, title, desc, path_] of [
+  ["warten.html", "WARTEN_HTML", "Was kostet Sie jede Woche Warten? · Borivon", "Kostenloses Werkzeug: Was leere Stellen Ihre Einrichtung jede Woche kosten, und was es kostet, später zu starten. Mit Ihren eigenen Zahlen.", "https://www.borivon.com/fahrplan/warten"],
+  ["bleibe-check.html", "BLEIBE_HTML", "Der Bleibe-Check · Borivon", "Kostenloses Werkzeug: Acht Fragen zu den ersten 90 Tagen. Sehen Sie, wo Ihnen neue Pflegekräfte in der Probezeit verloren gehen.", "https://www.borivon.com/fahrplan/bleibe-check"],
+]) {
+  let s = fs.readFileSync(path.join(SRC, src), "utf8");
+  const i = s.indexOf("<!--HEAD-->");
+  if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in " + src); continue; }
+  s = s.slice(0, i) + head(title, desc, path_, "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  pages[key] = bv(s);
+}
+
 // sanity: nothing may still reach outside servers
 for (const [name, s] of Object.entries(pages)) {
   const f = name;
@@ -220,6 +232,8 @@ fs.writeFileSync(path.join(OUT, "fahrplan.html"), pages.FAHRPLAN_HTML);
 fs.writeFileSync(path.join(OUT, "workshop.html"), pages.WORKSHOP_HTML);
 fs.mkdirSync(path.join(OUT, "fahrplan"), { recursive: true });
 fs.writeFileSync(path.join(OUT, "fahrplan", "rechner.html"), pages.RECHNER_HTML);
+fs.writeFileSync(path.join(OUT, "fahrplan", "warten.html"), pages.WARTEN_HTML);
+fs.writeFileSync(path.join(OUT, "fahrplan", "bleibe-check.html"), pages.BLEIBE_HTML);
 for (const old of [path.join(OUT, "pflege.html"), path.join(OUT, "pflege", "plattform.html")]) fs.rmSync(old, { force: true });
 console.log("public/index.html, public/plattform.html, public/fahrplan.html");
 console.log("ok" + (withVoices ? " (with testimonials)" : ""));
