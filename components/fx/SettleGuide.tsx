@@ -5,10 +5,11 @@ import type { Lang } from "@/lib/facility/steps";
 import { SETTLE, SETTLE_T, phaseDate, probationEnd } from "@/lib/facility/settle";
 import { fmtDate } from "./Plan";
 
+const SETTLE_ITEMS = SETTLE.flatMap((b) => b.items);
 const Check = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" /></svg>;
 
 /** The first six months: Tag 1 to the end of probation, ticked by both sides (app/api/portal/settle). */
-export function SettleGuide({ lang, token, userId, start, nurse }: { lang: Lang; token: string; userId?: string; start: string; nurse: boolean }) {
+export function SettleGuide({ lang, token, userId, start, nurse, onProgress }: { lang: Lang; token: string; userId?: string; start: string; nurse: boolean; onProgress?: (done: number, total: number) => void }) {
   const t = SETTLE_T[lang] ?? SETTLE_T.de;
   const [steps, setSteps] = useState<Record<string, string> | null>(null);
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
@@ -29,17 +30,18 @@ export function SettleGuide({ lang, token, userId, start, nurse }: { lang: Lang;
       body: JSON.stringify({ ...(userId ? { userId } : {}), step: id, done }),
     }).catch(() => null);
   }
+  useEffect(() => { if (steps) onProgress?.(SETTLE_ITEMS.filter((i) => steps[i.id]).length, SETTLE_ITEMS.length); }, [steps, onProgress]);
   if (!steps) return null;
 
   const today = new Date().toISOString().slice(0, 10);
   // the phase she is in now (only once the first working day is known and has come)
   const nowIdx = start && start <= today ? SETTLE.reduce((n, b, i) => (phaseDate(start, b.at) <= today ? i : n), 0) : -1;
-  const all = SETTLE.flatMap((b) => b.items);
+  const all = SETTLE_ITEMS;
   const done = all.filter((i) => steps[i.id]).length;
   const end = probationEnd(start);
 
   return (
-    <section style={{ marginTop: 64 }}>
+    <section id="weg-monate" style={{ marginTop: 64 }}>
       <h2 className="fx-h2">{t.h}</h2>
       <p className="fx-lede" style={{ marginTop: 12 }}>{nurse ? t.pNurse : t.pFac}</p>
       <div className="fx-six">

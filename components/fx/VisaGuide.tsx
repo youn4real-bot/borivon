@@ -9,7 +9,7 @@ type V = { submitted: string; steps: Record<string, string> };
 const Check = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" /></svg>;
 
 /** The visa guide: the embassy's steps, who does what, the day count after handing in (app/api/portal/visa). */
-export function VisaGuide({ lang, token, userId }: { lang: Lang; token: string; userId?: string }) {
+export function VisaGuide({ lang, token, userId, onProgress }: { lang: Lang; token: string; userId?: string; onProgress?: (done: number, total: number) => void }) {
   const t = VISA_T[lang] ?? VISA_T.de;
   const [v, setV] = useState<V | null>(null);
   const [date, setDate] = useState("");
@@ -34,13 +34,14 @@ export function VisaGuide({ lang, token, userId }: { lang: Lang; token: string; 
     const r = await fetch("/api/portal/visa", { method: "PUT", headers: H, body: JSON.stringify({ ...(userId ? { userId } : {}), submitted: d }) }).catch(() => null);
     if (r?.ok) setV(await r.json());
   }
+  useEffect(() => { if (v) onProgress?.(VISA_STEPS.filter((s) => v.steps[s.id]).length, VISA_STEPS.length); }, [v, onProgress]);
   if (!v) return null;
 
   const day = v.submitted ? Math.max(0, Math.floor((Date.now() - Date.parse(v.submitted + "T12:00:00Z")) / 86400e3)) : null;
   const around = v.submitted ? new Date(Date.parse(v.submitted + "T12:00:00Z") + 21 * 86400e3).toISOString().slice(0, 10) : "";
 
   return (
-    <section style={{ marginTop: 44 }}>
+    <section id="weg-visum" style={{ marginTop: 44 }}>
       <h2 className="fx-h2">{t.h}</h2>
       <p className="fx-lede" style={{ marginTop: 12 }}>{t.p}</p>
       <ol className="fx-steps" style={{ marginTop: 28, maxWidth: 760 }}>

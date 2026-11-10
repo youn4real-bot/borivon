@@ -193,3 +193,18 @@
 .fx-end { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; margin-top: 18px; font-size: 13.5px; color: var(--mute); max-width: 880px; }
 .fx-end b { font-weight: 500; color: var(--ink); }
 @media (max-width: 640px) { .fx-ph { grid-template-columns: 1fr; gap: 14px; } }
+
+/* the stations at the top of the way (components/fx/WegBar.tsx) */
+.fx-weg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 18px; margin: 40px 0 0; padding: 0; list-style: none; }
+.fx-weg li { position: relative; border-top: 1px solid var(--line); }
+.fx-weg .wb { position: absolute; left: 0; top: -1px; height: 2px; background: var(--ink); transition: width .6s var(--ease); }
+.fx-weg li.now .wb { background: var(--gold); }
+.fx-weg a { display: block; padding: 16px 0 4px; text-decoration: none; }
+.fx-weg .wn { display: block; font: 500 11.5px/1 var(--sans); letter-spacing: .14em; color: var(--mute); font-variant-numeric: tabular-nums; }
+.fx-weg .wl { display: block; margin-top: 10px; font: 500 1.14rem/1.22 var(--serif); letter-spacing: -.01em; transition: color .25s; }
+.fx-weg a:hover .wl { color: var(--gold-d); }
+.fx-weg li.done .wl { color: var(--mute); }
+.fx-weg .ws { display: block; margin-top: 6px; font-size: 12.5px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.fx-weg li.now .ws { color: var(--gold-d); }
+[id^="weg-"] { scroll-margin-top: 96px; }
+@media (max-width: 640px) { .fx-weg { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; } }

@@ -8,7 +8,7 @@ type M = { flight_from: string; flight_to: string; flight_date: string; pickup_b
 const Check = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" /></svg>;
 
 /** Wohnung + Anreise: the practical checklist, the flight and who picks her up (app/api/portal/move). */
-export function MoveGuide({ lang, token, userId }: { lang: Lang; token: string; userId?: string }) {
+export function MoveGuide({ lang, token, userId, onProgress }: { lang: Lang; token: string; userId?: string; onProgress?: (done: number, total: number) => void }) {
   const t = MOVE_T[lang] ?? MOVE_T.de;
   const [m, setM] = useState<M | null>(null);
   const [f, setF] = useState({ flight_from: "", flight_to: "", flight_date: "", pickup_by: "" });
@@ -36,6 +36,7 @@ export function MoveGuide({ lang, token, userId }: { lang: Lang; token: string; 
     const r = await fetch("/api/portal/move", { method: "PUT", headers: H, body: JSON.stringify({ ...(userId ? { userId } : {}), ...f }) }).catch(() => null);
     if (r?.ok) { setM(await r.json()); setSaved(true); setTimeout(() => setSaved(false), 2200); }
   }
+  useEffect(() => { if (m) onProgress?.(MOVE_STEPS.filter((s) => m.steps[s.id]).length, MOVE_STEPS.length); }, [m, onProgress]);
   if (!m) return null;
 
   const group = (g: "home" | "trip") => MOVE_STEPS.filter((s) => s.group === g);
@@ -50,7 +51,7 @@ export function MoveGuide({ lang, token, userId }: { lang: Lang; token: string; 
   };
 
   return (
-    <section style={{ marginTop: 56 }}>
+    <section id="weg-anreise" style={{ marginTop: 56 }}>
       <h2 className="fx-h2">{t.h}</h2>
       <p className="fx-lede" style={{ marginTop: 12 }}>{t.p}</p>
       <div className="fx-plan" style={{ marginTop: 30 }}>

@@ -1,7 +1,7 @@
 "use client";
 
 import "./fx.css";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import type { Lang, StepId } from "@/lib/facility/steps";
@@ -10,6 +10,9 @@ import { fxT } from "./i18n";
 import { VisaGuide } from "./VisaGuide";
 import { MoveGuide } from "./MoveGuide";
 import { SettleGuide } from "./SettleGuide";
+import { WegBar } from "./WegBar";
+import { STEPS } from "@/lib/facility/steps";
+import { WEG_T, type WegKey } from "@/lib/facility/weg";
 
 type Arr = { arrival: string; start: string; plz: string; city: string; steps: Record<string, string> };
 
@@ -28,6 +31,11 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({ arrival: "", start: "", plz: "", city: "" });
   const [err, setErr] = useState("");
+  // how far each station is (the guides report theirs; the first weeks are counted here)
+  const [prog, setProg] = useState<Partial<Record<WegKey, [number, number]>>>({});
+  const report = useCallback((k: WegKey) => (d: number, n: number) =>
+    setProg((p) => (p[k]?.[0] === d && p[k]?.[1] === n ? p : { ...p, [k]: [d, n] })), []);
+  const [onVisa, onMove, onSix] = useMemo(() => [report("visa"), report("move"), report("six")], [report]);
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
 
   const load = useCallback(async () => {
@@ -77,10 +85,13 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
         <h1 className="fx-h1" style={{ fontSize: "clamp(2.1rem,1.5rem + 2.4vw,3.4rem)" }}>{nurse ? t.arrNurseH : (name || t.arrAdminH)}</h1>
         <p className="fx-lede">{nurse ? t.arrNurseP : t.arrAdminP}</p>
         {/* the visa first, then the first weeks (founder 2026-11-10: the journey in order) */}
-        {token && <VisaGuide lang={lang} token={token} userId={userId} />}
-        {token && <MoveGuide lang={lang} token={token} userId={userId} />}
+        {a && prog.visa && prog.move && prog.six && (
+          <WegBar lang={lang} prog={{ ...prog, weeks: [STEPS.filter((s) => a.steps[s.id]).length, STEPS.length] }} />
+        )}
+        {token && <VisaGuide lang={lang} token={token} userId={userId} onProgress={onVisa} />}
+        {token && <MoveGuide lang={lang} token={token} userId={userId} onProgress={onMove} />}
         {/* the first weeks: where she lives (asked here, in order), then the plan with the offices nearby */}
-        {a && <h2 className="fx-h2" style={{ marginTop: 56 }}>{t.planH}</h2>}
+        {a && <h2 id="weg-wochen" className="fx-h2" style={{ marginTop: 56 }}>{(WEG_T[lang] ?? WEG_T.de).weeks}</h2>}
         {a && !editing && (
           <p className="fx-mute" style={{ margin: "14px 0 0", display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "baseline" }}>
             <span>{[a.arrival && `${t.arrival} ${fmtDate(a.arrival, lang, true)}`, a.start && `${t.firstDay} ${fmtDate(a.start, lang, true)}`, where].filter(Boolean).join(" · ")}</span>
@@ -110,7 +121,7 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
             placesUrl={`/api/einrichtung/places?plz=${a.plz}&city=${encodeURIComponent(a.city)}`} onToggle={toggle} />
         )}
         {/* then the first six months, to the end of probation */}
-        {token && a && <SettleGuide lang={lang} token={token} userId={userId} start={a.start} nurse={nurse} />}
+        {token && a && <SettleGuide lang={lang} token={token} userId={userId} start={a.start} nurse={nurse} onProgress={onSix} />}
       </div>
     </div>
   );
