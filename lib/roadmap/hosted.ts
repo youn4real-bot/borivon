@@ -31,6 +31,12 @@ export async function viewLink(leadId: string, lang: Lang, doc: HostedDoc = "pla
   return `${SITE}/fahrplan/plan?${p.toString()}`;
 }
 
+/** The gift on the last page: the personal link that opens the facility platform (/einrichtung/start). */
+export async function platformLink(leadId: string): Promise<string> {
+  const p = new URLSearchParams({ id: leadId, t: await signLeadToken("platform", leadId) });
+  return `${SITE}/einrichtung/start?${p.toString()}`;
+}
+
 export function fileName(doc: HostedDoc, lang: Lang): string {
   return doc === "plan"
     ? (lang === "de" ? "Pflege-Fahrplan" : lang === "fr" ? "Plan-infirmier" : "Nurse-staffing-roadmap") + "-Borivon.pdf"
@@ -50,6 +56,7 @@ export async function renderFor(leadId: string, d: RoadmapDetails, doc: HostedDo
     facility: form ? facilityLine(form, lang) : String(d.facility ?? ""),
     date: d.consent?.confirmedAt ? new Date(String(d.consent.confirmedAt)) : new Date(),
     calcUrl: await calcUrl({ lang, facilityType: answers.facilityType, openPosts: answers.openPosts, leftLastYear: answers.leftLastYear, leadId, usesAgency: answers.usesAgency !== false }),
+    platformUrl: await platformLink(leadId),
   });
 }
 

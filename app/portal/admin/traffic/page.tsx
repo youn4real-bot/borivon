@@ -160,6 +160,10 @@ export default function TrafficPage() {
             </div>
           ))}
         </div>
+        {/* the gift on the PDF's last page → the facility platform (founder 2026-11-10) */}
+        <p className="text-[12.5px] mt-3" style={{ color: "var(--w3)" }}>
+          Plattform (Geschenk auf der letzten PDF-Seite): <b style={{ color: "var(--w)" }}>{n(t.platformOpen)}</b> Link geöffnet · <b style={{ color: "var(--w)" }}>{n(t.platformSignup)}</b> Zugang eröffnet ({pct(n(t.platformSignup), n(t.platformOpen))})
+        </p>
         {/* visitors per day */}
         <div className="flex items-end gap-[3px] mt-5" style={{ height: 80 }} aria-label="Besucher pro Tag">
           {(data?.daily ?? []).map((d) => (

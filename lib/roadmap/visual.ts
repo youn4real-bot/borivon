@@ -56,6 +56,8 @@ export const V: Record<keyof L, {
   ladderH: string; you: string; baH: string; today: string; withPlan: string; nextOf5: string;
   bucketH: string; bucketIn: string; bucketOut: string[]; bucketLine: string; bucketFix: string;
   stepsH: string; softH: string; softHTop: string; softP: string; softBtn: string; softTags: string[]; stepsSub: string; stayH: string;
+  /** the gift page (founder 2026-11-10): the platform, unlocked by the personal link on the very last page */
+  giftTag: string; giftH: string; giftP: string; giftItems: string[]; giftBtn: string; giftNote: string;
 }> = {
   de: {
     ladderH: "Hier stehen Sie.", you: "SIE", baH: "Vorher. Nachher.", today: "Heute", withPlan: "Mit Plan", nextOf5: "Stufe {n}",
@@ -66,6 +68,10 @@ export const V: Record<keyof L, {
     softP: "Unser Workshop in Casablanca: 2 Tage mit unserem Gründer, in unseren Konferenzräumen. Am ersten Tag bauen wir mit Ihnen Ihren Plan. Am zweiten lernen Sie die Pflegekräfte dafür persönlich kennen. 20 Plätze pro Termin.",
     softBtn: "Platz anfragen", softTags: ["Tag 1: Ihr Plan", "Tag 2: Ihre Pflegekräfte", "20 Plätze"],
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
+    giftTag: "Ein Dankeschön", giftH: "Ihr Zugang zur Borivon-Plattform.",
+    giftP: "Weil Sie bis zur letzten Seite gelesen haben: Sie bekommen kostenlosen Zugang zu unserer Plattform. Für jede neue Pflegekraft steht dort der fertige Ankunftsplan, mit Bürgerbüro, Bank, Krankenkasse und Ausländerbehörde in ihrer Nähe, auf einer Karte. Sie sucht nichts, und Sie sehen jeden Schritt.",
+    giftItems: ["Ankunftsplan für jede Pflegekraft", "Die nächsten Ämter, automatisch", "Ein Link für sie, in ihrer Sprache"],
+    giftBtn: "Zugang freischalten", giftNote: "Dieser Link gilt nur für Sie.",
   },
   en: {
     ladderH: "This is where you are.", you: "YOU", baH: "Before. After.", today: "Today", withPlan: "With a plan", nextOf5: "Level {n}",
@@ -76,6 +82,10 @@ export const V: Record<keyof L, {
     softP: "Our workshop in Casablanca, Morocco: 2 days with our founder in our conference rooms. On day one we build your plan with you. On day two you meet the nurses for it in person. 20 seats per date.",
     softBtn: "Request a seat", softTags: ["Day 1: your plan", "Day 2: your nurses", "20 seats"],
     stepsH: "How you reach level {n}.", stepsSub: "Tick them off. One by one.", stayH: "How you stay on top.",
+    giftTag: "A thank-you", giftH: "Your access to the Borivon platform.",
+    giftP: "Because you read to the last page: you get free access to our platform. For every new nurse it holds the finished arrival plan, with the citizens' office, bank, health insurer and immigration office near her, on one map. She searches nothing, and you see every step.",
+    giftItems: ["An arrival plan for every nurse", "The nearest offices, found automatically", "One link for her, in her language"],
+    giftBtn: "Unlock your access", giftNote: "This link is yours alone.",
   },
   fr: {
     ladderH: "Vous êtes ici.", you: "VOUS", baH: "Avant. Après.", today: "Aujourd'hui", withPlan: "Avec un plan", nextOf5: "Niveau {n}",
@@ -86,6 +96,10 @@ export const V: Record<keyof L, {
     softP: "Notre atelier à Casablanca : 2 jours avec notre fondateur, dans nos salles de conférence. Le premier jour, nous construisons votre plan avec vous. Le deuxième, vous rencontrez les infirmières en personne. 20 places par date.",
     softBtn: "Demander une place", softTags: ["Jour 1 : votre plan", "Jour 2 : vos infirmières", "20 places"],
     stepsH: "Comment passer au niveau {n}.", stepsSub: "Cochez. Une chose après l'autre.", stayH: "Comment rester au sommet.",
+    giftTag: "Un remerciement", giftH: "Votre accès à la plateforme Borivon.",
+    giftP: "Parce que vous avez lu jusqu'à la dernière page : vous recevez un accès gratuit à notre plateforme. Pour chaque nouvelle infirmière, elle contient le plan d'arrivée prêt, avec bureau des citoyens, banque, caisse maladie et service des étrangers près de chez elle, sur une carte. Elle ne cherche rien, et vous voyez chaque étape.",
+    giftItems: ["Un plan d'arrivée pour chaque infirmière", "Les administrations proches, automatiquement", "Un lien pour elle, dans sa langue"],
+    giftBtn: "Débloquer l'accès", giftNote: "Ce lien n'est valable que pour vous.",
   },
 };
 

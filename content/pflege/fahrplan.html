@@ -63,6 +63,13 @@ select:focus,input[type=text]:focus,input[type=email]:focus,input[type=date]:foc
 .check{display:flex;gap:10px;align-items:center;font-size:14px;color:var(--soft);margin-top:6px;cursor:pointer}
 .check input{accent-color:var(--gold);width:18px;height:18px;flex:none}
 .center{text-align:center}
+/* the gift teaser on the thank-you screen (founder 2026-11-10): the access link waits on the PDF's last page */
+.gift{display:grid;grid-template-columns:132px 1fr;gap:22px;align-items:center;max-width:560px;margin:38px auto 0;padding:20px;border:1px solid var(--line);border-radius:6px;background:var(--card);text-align:left;animation:in .6s ease .5s both}
+.gift svg{width:132px;height:100px;border-radius:4px;display:block}
+.gift .gt{margin:0 0 6px;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:500;color:var(--gold-d)}
+.gift h2{margin:0;font-family:var(--display);font-weight:500;font-size:22px;line-height:1.15;letter-spacing:-.01em}
+.gift p{margin:8px 0 0;font-size:14px;line-height:1.55;color:var(--soft)}
+@media (max-width:520px){.gift{grid-template-columns:1fr}.gift svg{width:100%;height:120px}}
 .qsub{margin:-18px 0 26px;color:var(--soft);font-size:16px}
 .intro{display:flex;align-items:center;gap:12px;margin:0 0 26px;font-size:12px;letter-spacing:.17em;text-transform:uppercase;font-weight:500;color:var(--gold-d)}
 .intro::before{content:"";width:28px;height:1px;background:currentColor;opacity:.75}
@@ -166,7 +173,7 @@ var T={
   priv:'Ihre Angaben nutzen wir nur, um Ihren Fahrplan zu erstellen. Kein Verkauf, keine Weitergabe an Dritte. Verantwortlich: Borivon LLC.',
   part:'Teil {n} von 4 erledigt.',nextPart:'Weiter: {p}',parts:['Ihr Bedarf','Ihre Erfahrung','Ihr Start','Ihr Fahrplan'],
   building:'Ihr Fahrplan <em>wird erstellt …</em>',build:['Ihre Kosten','Ihr Zeitplan','Ihre Stufe','Ihr Plan für die nächste Stufe','Ihr 90-Tage-Plan'],
-  doneH:'Fast fertig.',doneP:'Schauen Sie in Ihr Postfach: Wir haben Ihnen eine E-Mail geschickt. Danach kommt Ihr Fahrplan.',spam:'Nichts da? Bitte auch im Spam-Ordner nachsehen.',
+  doneH:'Fast fertig.',doneP:'Schauen Sie in Ihr Postfach: Wir haben Ihnen eine E-Mail geschickt. Danach kommt Ihr Fahrplan.',spam:'Nichts da? Bitte auch im Spam-Ordner nachsehen.',giftT:'Und als Dankeschön',giftH:'Kostenloser Zugang zur Borivon-Plattform.',giftP:'Für jede neue Pflegekraft der fertige Ankunftsplan: Bürgerbüro, Bank, Krankenkasse und Ausländerbehörde in ihrer Nähe, auf einer Karte. Ihren persönlichen Zugang finden Sie auf der letzten Seite Ihres Fahrplans.',
   errName:'Bitte wählen Sie eine Anrede und schreiben Sie Vor- und Nachnamen.',errMail:'Bitte prüfen Sie die E-Mail-Adresse.',errBiz:'Bitte nutzen Sie Ihre geschäftliche E-Mail-Adresse.',
   errConsent:'Bitte setzen Sie das Häkchen. Sonst können wir Ihnen den Fahrplan nicht schicken.',errMany:'Zu viele Anfragen. Bitte versuchen Sie es in einer Stunde noch einmal.',errSend:'Das hat leider nicht geklappt. Bitte versuchen Sie es noch einmal.'},
  en:{heroH:'Your free <em>care staffing roadmap</em>',how:['Answer a few questions','Confirm your email','Roadmap as a PDF'],intro:'Your free roadmap · about 2 minutes',next:'Next',back:'Back',pick:'Please choose',
@@ -191,7 +198,7 @@ var T={
   priv:'We only use your answers to create your roadmap. No selling, no passing on to third parties. Responsible: Borivon LLC.',
   part:'Part {n} of 4 done.',nextPart:'Next: {p}',parts:['Your need','Your experience','Your start','Your roadmap'],
   building:'Your roadmap <em>is being built …</em>',build:['Your costs','Your timeline','Your level','Your plan for the next level','Your 90-day plan'],
-  doneH:'Almost done.',doneP:'Check your inbox: we have sent you an email. Your roadmap comes after that.',spam:'Nothing there? Please check your spam folder too.',
+  doneH:'Almost done.',doneP:'Check your inbox: we have sent you an email. Your roadmap comes after that.',spam:'Nothing there? Please check your spam folder too.',giftT:'And as a thank-you',giftH:'Free access to the Borivon platform.',giftP:'For every new nurse, the finished arrival plan: citizens’ office, bank, health insurer and immigration office near her, on one map. Your personal access is on the last page of your roadmap.',
   errName:'Please choose a title and write your first and last name.',errMail:'Please check the email address.',errBiz:'Please use your business email address.',
   errConsent:'Please tick the box. Otherwise we cannot send you the roadmap.',errMany:'Too many requests. Please try again in an hour.',errSend:"That didn't work. Please try again."},
  fr:{heroH:'Votre <em>plan gratuit</em>',how:['Répondre aux questions','Confirmer l’e-mail','Le plan en PDF'],intro:'Votre plan gratuit · env. 2 minutes',next:'Suivant',back:'Retour',pick:'Veuillez choisir',
@@ -216,7 +223,7 @@ var T={
   priv:'Nous utilisons vos réponses uniquement pour créer votre plan. Pas de vente, pas de transmission à des tiers. Responsable : Borivon LLC.',
   part:'Partie {n} sur 4 terminée.',nextPart:'Ensuite : {p}',parts:['Votre besoin','Votre expérience','Votre démarrage','Votre plan'],
   building:'Votre plan <em>est en préparation …</em>',build:['Vos coûts','Votre calendrier','Votre niveau','Votre plan pour le niveau suivant','Votre plan de 90 jours'],
-  doneH:'Presque fini.',doneP:'Regardez votre boîte mail : nous vous avons envoyé un e-mail. Votre plan suit ensuite.',spam:'Rien reçu ? Vérifiez aussi les spams.',
+  doneH:'Presque fini.',doneP:'Regardez votre boîte mail : nous vous avons envoyé un e-mail. Votre plan suit ensuite.',spam:'Rien reçu ? Vérifiez aussi les spams.',giftT:'Et en remerciement',giftH:'Un accès gratuit à la plateforme Borivon.',giftP:'Pour chaque nouvelle infirmière, le plan d’arrivée prêt : bureau des citoyens, banque, caisse maladie et service des étrangers près de chez elle, sur une carte. Votre accès personnel se trouve à la dernière page de votre plan.',
   errName:'Veuillez choisir une civilité et écrire votre prénom et votre nom.',errMail:"Veuillez vérifier l'adresse e-mail.",errBiz:'Veuillez utiliser votre adresse e-mail professionnelle.',
   errConsent:'Veuillez cocher la case. Sinon nous ne pouvons pas vous envoyer le plan.',errMany:'Trop de demandes. Réessayez dans une heure.',errSend:"Ça n'a pas marché. Veuillez réessayer."}
 };
@@ -329,7 +336,7 @@ function building(req){var t=T[lang],icons=['euro','cal','up','pin','clip'];$('d
   err=m==='business_email'?t.errBiz:m==='invalid_email'?t.errMail:m==='many'||m==='too_many'?t.errMany:m==='consent_required'?t.errConsent:m==='name_required'?t.errName:t.errSend;render()});
 }
 function done(j){var t=T[lang],test=!!j&&typeof j.testPdf==='string'&&j.testPdf.charAt(0)==='/';
- app.innerHTML='<div class="screen center"><div class="qi" style="margin:0 auto 22px;width:76px;height:76px">'+ic('mail')+'</div><h1>'+esc(t.doneH)+'</h1><p class="sub">'+esc(t.doneP)+'</p><p class="sub" style="font-size:14px;color:var(--mute)">'+esc(t.spam)+'</p>'+
+ app.innerHTML='<div class="screen center"><div class="qi" style="margin:0 auto 22px;width:76px;height:76px">'+ic('mail')+'</div><h1>'+esc(t.doneH)+'</h1><p class="sub">'+esc(t.doneP)+'</p><p class="sub" style="font-size:14px;color:var(--mute)">'+esc(t.spam)+'</p>'+'<div class="gift"><svg viewBox="0 0 132 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="132" height="100" fill="#ebe6db"/><path d="M0 62 132 38M40 0 52 100M98 0 86 100M0 20 132 26" stroke="#fbfaf6" stroke-width="2" fill="none"/><circle cx="62" cy="50" r="11" fill="none" stroke="#a8843a" stroke-opacity=".6"/><circle cx="62" cy="50" r="4.5" fill="#a8843a" stroke="#fbfaf6" stroke-width="1.4"/><g fill="#15130f" stroke="#f4f1ea" stroke-width="1.2"><circle cx="28" cy="30" r="6"/><circle cx="82" cy="22" r="6"/><circle cx="104" cy="60" r="6"/><circle cx="36" cy="76" r="6"/></g></svg><div><p class="gt">'+esc(t.giftT)+'</p><h2>'+esc(t.giftH)+'</h2><p>'+esc(t.giftP)+'</p></div></div>'+
  (test?'<div class="row" style="justify-content:center"><a class="btn gold" href="'+esc(j.testPdf)+'" target="_blank" rel="noopener">Test: Fahrplan öffnen</a></div>':'')+'</div>'}
 
 render();

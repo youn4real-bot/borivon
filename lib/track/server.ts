@@ -30,6 +30,8 @@ export const EVENT_TYPES = [
   "pdf_open",     // the Fahrplan opened on the website (server)
   "pdf_download", // the Fahrplan downloaded (server)
   "pdf_cta",      // a link inside the Fahrplan was clicked
+  "platform_open",   // the platform gift link (last page of the Fahrplan) was opened (server)
+  "platform_signup", // a facility workspace was created from it (server)
   "book_view",    // the seat-check calendar was shown
   "book_day",     // a day was picked
   "book_time",    // a time was picked

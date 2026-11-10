@@ -141,6 +141,9 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const isPlan = pathname === "/fahrplan/plan";
   // /book/workshop is shown INSIDE the /workshop page (iframe, "Wählen Sie einen Termin"): calendar only.
   const isWorkshopCal = pathname === "/book/workshop";
+  // /einrichtung (the facility platform) and /ankunft/<token> (a nurse's arrival plan) ship their
+  // OWN minimal header + footer. Route-only, like /u and /affiliate (LAW #1).
+  const isFx = pathname === "/einrichtung" || pathname.startsWith("/einrichtung/") || pathname.startsWith("/ankunft/");
 
   return (
     <ThemeProvider>
@@ -153,7 +156,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           {/* .bv-chrome wrapper lets the affiliate subdomain hide ALL global
               chrome (navbar + flag strip + actions bar) via one CSS rule set by
               the no-flash host script in the <head> — see app/layout.tsx. */}
-          {!isV2 && !isUpload && !isAffiliate && !isPlan && !isWorkshopCal && (
+          {!isV2 && !isUpload && !isAffiliate && !isPlan && !isWorkshopCal && !isFx && (
             <div className="bv-chrome">
             <Navbar
               hideThemeLang={isPortal}
@@ -179,7 +182,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
             {/* Impressum + Datenschutz on every public page (§ 5 DDG). Not inside
                 the logged-in portal app screens, where full-height layouts
                 would push it into a second scrollbar. */}
-            {!isPortal && !isWorkshopCal && <LegalFooter absolute={isAffiliate} />}
+            {!isPortal && !isWorkshopCal && !isFx && <LegalFooter absolute={isAffiliate} />}
           </div>
           {/* Bug-report button: portal-only AND not on the login page.
               Public/marketing/login pages never render it so a stale cached

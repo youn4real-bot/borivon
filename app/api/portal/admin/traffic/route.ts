@@ -47,6 +47,8 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT CASE WHEN type='confirm' THEN lead_id END) AS confirms,
         COUNT(DISTINCT CASE WHEN type IN ('pdf_open','pdf_download') THEN lead_id END) AS pdf,
         COUNT(DISTINCT CASE WHEN type='pdf_cta' THEN lead_id END) AS pdfCta,
+        COUNT(DISTINCT CASE WHEN type='platform_open' THEN lead_id END) AS platformOpen,
+        COUNT(DISTINCT CASE WHEN type='platform_signup' THEN lead_id END) AS platformSignup,
         COUNT(DISTINCT CASE WHEN type='view' AND path='/workshop' THEN sid END) AS workshop,
         COUNT(DISTINCT CASE WHEN type='book_time' THEN sid END) AS bookPick,
         SUM(type='book_done') AS bookings,

@@ -30,6 +30,8 @@ import { PLAYBOOK } from "./playbook";
 import { buildTimeline, STEP_NAME, TL } from "./timeline";
 import { BEDARF_LINE, type FormV2 } from "./form";
 import { LEVEL_ICON, BEFORE_AFTER, V, beforeAfterFor, leaksFor } from "./visual";
+import { STEPS as FX_STEPS, type Step as FxStep } from "@/lib/facility/steps";
+const FX_STEP_TITLE = (st: FxStep, lang: Lang) => st.title[lang];
 
 // borivon.com tokens (content/pflege/bv.css :root)
 const PAPER = hexColor("#f4f1ea");
@@ -67,6 +69,8 @@ export type RoadmapPdfInput = {
   date: Date;
   /** the v2 form answers (lib/roadmap/form.ts); adds the personal timeline page */
   form?: FormV2;
+  /** the personal platform link (founder 2026-11-10): adds the gift as the very last page */
+  platformUrl?: string;
 };
 
 export function formatEuro(n: number, lang: Lang): string {
@@ -81,8 +85,8 @@ export function formatEuro(n: number, lang: Lang): string {
  * How many pages a Fahrplan has: cover · staircase · before/after · bucket · numbers ·
  * [timeline] · checklists · 90 days · one soft last page. The level no longer adds pages.
  */
-export function roadmapPageCount(_level: Level, timeline = false): number {
-  return 8 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0);
+export function roadmapPageCount(_level: Level, timeline = false, platform = false): number {
+  return 8 + (timeline ? 1 : 0) + (VIDEO_INTRO ? 1 : 0) + (platform ? 1 : 0);
 }
 
 type Fonts = { reg: DocFont; med: DocFont; semi: DocFont };
@@ -492,6 +496,73 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     button(page, s, btn, (PW - bw) / 2, y, PAPER, INK, GOLD_D, "https://borivon.com/workshop?via=pdf", 13);
     y += 13 * 3.2 + 20;
     cpara(s, `${t.contact}: contact@borivon.com`, PW / 2, y, W, F.reg, 9.5, MUTED_NIGHT);
+  }
+
+  // ── the gift: the platform, behind the personal link (founder 2026-11-10: "they have to read to the end") ──
+  if (input.platformUrl) {
+    const fr = newPage("night");
+    const { page, s } = fr;
+    let y = tag(s, VV.giftTag.toUpperCase(), M, 100, 8.5, GOLD_L) + 14;
+    y = disp(page, HN, VV.giftH, M, y, W - 30, 46, FG, 1.02, -0.024) + 14;
+    y = para(s, VV.giftP, M, y, W - 40, F.reg, 11.5, MUTED_NIGHT, 1.7) + 24;
+    // a picture of the product: the map with the home and the numbered places, and the first steps
+    const cy = y, ch = 214, half = (W - 24) / 2;
+    s.roundedRect(M, cy, W, ch, 6, { fill: PAPER });
+    const mx = M + 12, my = cy + 12, mw = half, mh = ch - 24;
+    s.roundedRect(mx, my, mw, mh, 4, { fill: PAPER2 });
+    const ln = (x1: number, y1: number, x2: number, y2: number, w = 0.8, c = LINE2) => page.drawLine({ start: { x: x1, y: PH - y1 }, end: { x: x2, y: PH - y2 }, thickness: w, color: c });
+    ln(mx, my + mh * 0.62, mx + mw, my + mh * 0.38, 2.2, WHITE);
+    ln(mx + mw * 0.3, my, mx + mw * 0.42, my + mh, 2.2, WHITE);
+    ln(mx + mw * 0.72, my, mx + mw * 0.6, my + mh, 1.4, WHITE);
+    ln(mx, my + mh * 0.2, mx + mw, my + mh * 0.26, 1, WHITE);
+    ln(mx, my + mh * 0.86, mx + mw, my + mh * 0.8, 1, WHITE);
+    const hx = mx + mw * 0.47, hy = my + mh * 0.5;
+    page.drawCircle({ x: hx, y: PH - hy, size: 13, borderColor: GOLD, borderWidth: 0.8, opacity: 0, borderOpacity: 0.6 });
+    page.drawCircle({ x: hx, y: PH - hy, size: 5.5, color: GOLD, borderColor: WHITE, borderWidth: 1.4 });
+    const pins: [number, number][] = [[0.22, 0.3], [0.62, 0.22], [0.78, 0.6], [0.3, 0.74], [0.86, 0.14], [0.14, 0.56]];
+    pins.forEach(([px, py], i) => {
+      const x = mx + mw * px, yy = my + mh * py;
+      page.drawCircle({ x, y: PH - yy, size: 8, color: INK, borderColor: PAPER, borderWidth: 1.2 });
+      const n = String(i + 2);
+      s.text(n, x - measure(n, F.semi, 7.5) / 2, yy - 4.6, F.semi, 7.5, PAPER);
+    });
+    s.text("© OpenStreetMap", mx + mw - measure("© OpenStreetMap", F.reg, 5.5) - 4, my + mh - 9, F.reg, 5.5, MUTED);
+    // the steps beside it
+    const sx = mx + mw + 18, sw = W - 12 - mw - 18 - 12;
+    let sy = my + 6;
+    FX_STEPS.slice(0, 4).forEach((st, i) => {
+      const done = i === 0, ccx = sx + 9, ccy = sy + 9;
+      if (done) {
+        page.drawCircle({ x: ccx, y: PH - ccy, size: 9, color: INK });
+        page.drawSvgPath("M -3.6 0.2 L -1.1 2.8 L 3.8 -2.6", { x: ccx, y: PH - ccy, borderColor: PAPER, borderWidth: 1.3 });
+      } else {
+        page.drawCircle({ x: ccx, y: PH - ccy, size: 9, color: WHITE, borderColor: LINE2, borderWidth: 0.8 });
+        const n = String(i + 1);
+        s.text(n, ccx - measure(n, F.med, 8) / 2, ccy - 4.4, F.med, 8, INK2);
+      }
+      const title = FX_STEP_TITLE(st, lang);
+      s.text(title, sx + 28, sy + 1, F.med, 10, done ? MUTED : INK);
+      if (done) s.hline(sx + 28, sx + 28 + measure(title, F.med, 10), sy + 7, MUTED, 0.6);
+      const sub = st.dueDays ? `${lang === "de" ? "bis Tag" : lang === "fr" ? "avant le jour" : "by day"} ${st.dueDays}` : "";
+      if (sub) s.text(sub, sx + 28, sy + 15, F.reg, 7.5, GOLD_D);
+      if (i < 3) s.hline(sx + 28, sx + sw, sy + 34, LINE, 0.6);
+      sy += 46;
+    });
+    y = cy + ch + 26;
+    // three plain promises, numbered, between hairlines
+    s.hline(M, M + W, y, NIGHT_LINE, 0.8);
+    const cw = W / 3;
+    VV.giftItems.forEach((it, i) => {
+      const x = M + i * cw;
+      s.text(String(i + 1).padStart(2, "0"), x, y + 16, F.med, 8.5, GOLD_L, 0.8);
+      para(s, it, x, y + 32, cw - 18, F.reg, 10, FG, 1.45);
+    });
+    y += 74;
+    s.hline(M, M + W, y, NIGHT_LINE, 0.8);
+    y += 26;
+    const btn = VV.giftBtn, bw = measure(btn, F.semi, 13) + 26 + 18 + 24;
+    button(page, s, btn, (PW - bw) / 2, y, PAPER, INK, GOLD_D, input.platformUrl, 13);
+    cpara(s, VV.giftNote, PW / 2, y + 13 * 3.2 + 14, W, F.reg, 9, MUTED_NIGHT);
   }
 
   // ── header + footer on every page but the cover; then the links ───────────

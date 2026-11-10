@@ -4,7 +4,7 @@
  * link cannot be forged for someone else's lead. Web Crypto: runs on Workers
  * and Node alike.
  */
-export type TokenPurpose = "confirm" | "unsub" | "calc" | "view";
+export type TokenPurpose = "confirm" | "unsub" | "calc" | "view" | "platform";
 
 function secret(): string {
   return (process.env.DL_TOKEN_SECRET || process.env.CRON_SECRET || "").trim();

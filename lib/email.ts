@@ -655,3 +655,8 @@ export async function sendRoadmapFollowupEmail(o: {
     },
   });
 }
+
+/** The facility platform (/einrichtung): login + team invite links. Transactional, no list. */
+export async function sendFacilityEmail(o: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+  return deliver({ from: FROM, to: o.to, replyTo: REPLY_TO, subject: o.subject, html: o.html, text: o.text });
+}
