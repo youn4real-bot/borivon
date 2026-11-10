@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Borivon Plattform · jeder Schritt live</title>
-<meta name="description" content="Jeder Schritt Ihrer neuen Pflegefachkraft, von der Bewerbung bis zur bestandenen Probezeit. 24/7 online, für Sie kostenlos.">
+<title>Die Borivon-Plattform · kostenlos für Ihre Einrichtung</title>
+<meta name="description" content="Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Kostenlos, als Dankeschön zu Ihrem Fahrplan.">
 <link rel="canonical" href="https://www.borivon.com/plattform">
 <link rel="icon" href="/favicon.png">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Borivon Plattform · jeder Schritt live">
-<meta property="og:description" content="Jeder Schritt Ihrer neuen Pflegefachkraft, von der Bewerbung bis zur bestandenen Probezeit. 24/7 online, für Sie kostenlos.">
+<meta property="og:title" content="Die Borivon-Plattform · kostenlos für Ihre Einrichtung">
+<meta property="og:description" content="Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Kostenlos, als Dankeschön zu Ihrem Fahrplan.">
 <meta property="og:url" content="https://www.borivon.com/plattform">
-<meta property="og:image" content="https://www.borivon.com/pflege/assets/nurse.jpg">
+<meta property="og:image" content="https://www.borivon.com/pflege/assets/og-fahrplan.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://www.borivon.com/pflege/assets/og-fahrplan.png">
 <meta name="theme-color" content="#0e0e10">
 <style>
 @font-face { font-family: "EB Garamond"; font-style: normal; font-weight: 400 800; font-display: swap; src: url(/pflege/assets/fonts/ebgaramond-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
@@ -27,556 +31,375 @@
 @font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/lexend-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url(/pflege/assets/lexend-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 </style>
+
+<script>document.documentElement.classList.add('js');setTimeout(function(){if(!window.__bvMotion)document.documentElement.classList.remove('js')},2500);</script>
+<link rel="preload" href="/pflege/assets/fonts/ebgaramond-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/pflege/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/pflege/assets/fonts/ebgaramond-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/pflege/assets/bv.css?v=704dc977">
 <style>
-/* Layout: one journey thread. The old way vs. your access up top, then every step of the path, phase by phase, lighting up as you scroll. Same dark/gold world as the offer page. */
-:root {
-  --bg: #0e0e10;
-  --bg-2: #131316;
-  --card: #18181c;
-  --line: rgba(238, 236, 234, 0.07);
-  --line-strong: rgba(238, 236, 234, 0.14);
-  --line-gold: rgba(201, 162, 64, 0.28);
-  --fg: #eeecea;
-  --muted: #8f8c86;
-  --gold: #c9a240;
-  --gold-soft: rgba(201, 162, 64, 0.12);
-  --ok: #7fb58c;
-  --warn: #e07a5f;
-  --font-display: "Playfair Display", "Times New Roman", Georgia, serif;
-  --font-body: "Lexend", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
-  --step--1: clamp(0.8rem, 0.78rem + 0.1vw, 0.86rem);
-  --step-0: clamp(0.95rem, 0.92rem + 0.15vw, 1.05rem);
-  --step-1: clamp(1.1rem, 1rem + 0.35vw, 1.3rem);
-  --step-2: clamp(1.3rem, 1.1rem + 0.7vw, 1.7rem);
-  --step-3: clamp(1.8rem, 1.25rem + 1.7vw, 2.75rem);
-  --step-4: clamp(2.2rem, 1.4rem + 2.8vw, 3.8rem);
-  --space-section: clamp(72px, 8vw, 128px);
-  --ease: cubic-bezier(.2, .7, .1, 1);
-  --wrap: 1180px;
-  color-scheme: dark;
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; }
-body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--step-0); font-weight: 300; line-height: 1.65; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-img { max-width: 100%; }
-[hidden] { display: none !important; }
-a { color: inherit; }
-h1, h2, h3 { font-family: var(--font-display); font-weight: 500; line-height: 1.06; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
-p { margin: 0; }
-.wrap { width: 100%; max-width: var(--wrap); margin-inline: auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-.eyebrow { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); }
-.muted { color: var(--muted); }
-section { padding-block: var(--space-section); }
-.band { background: var(--bg-2); }
-.sec-head { display: grid; gap: 16px; max-width: 44rem; }
-.sec-head h2 { font-size: var(--step-3); }
-.sec-head p { color: var(--muted); max-width: 36em; }
-:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+/* The platform as a premium product (founder 2026-11-10: "not getting its fair share of VISUALS…
+   a separate page on it, and at the end: see if you qualify to get it too"). Every screen below is a
+   drawn example (no real data, no real people), true to what the portal does; what is still being
+   built carries a quiet "In Arbeit". The way in is the free Fahrplan: its last page holds the access. */
+.pf-hero{text-align:center;max-width:1000px;margin:0 auto}
+.pf-hero .for{margin:26px auto 34px;max-width:33em}
+.pf-hero .status{justify-content:center}
 
-/* nav: same as the offer page */
-.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); background: rgba(14, 14, 16, 0.74); border-bottom: 1px solid var(--line); }
-.nav .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 16px; }
-.brand { font-family: var(--font-display); font-size: 1.35rem; font-weight: 600; text-decoration: none; }
-.brand span { color: var(--gold); }
-.back { font-size: var(--step--1); color: var(--muted); text-decoration: none; display: inline-flex; gap: 8px; align-items: center; transition: color .3s; }
-.back:hover { color: var(--fg); }
-.nav-left { display: flex; align-items: center; gap: 22px; }
-.nav-right { display: flex; align-items: center; gap: 10px; }
-.langs { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
-.langs button { all: unset; cursor: pointer; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; padding: 5px 9px; border-radius: 999px; color: var(--muted); }
-.langs button[aria-pressed="true"] { background: var(--gold-soft); color: var(--gold); }
-.langs button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.portal { font-size: var(--step--1); text-decoration: none; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 9px 14px; transition: color .3s, border-color .3s; }
-.portal:hover { color: var(--fg); border-color: var(--line-gold); }
-.btn { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; cursor: pointer; font-family: var(--font-body); font-weight: 500; font-size: var(--step--1); border-radius: 999px; padding: 14px 24px; border: 1px solid transparent; transition: background .3s, border-color .3s, box-shadow .6s var(--ease); }
-.btn-gold { background: var(--gold); color: var(--bg); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 14px 34px -14px rgba(201,162,64,0.6); }
-.btn-gold:hover { background: #d6b04f; }
-.btn-gold::after { content: "\2192"; transition: transform .6s var(--ease); }
-.btn-gold:hover::after { transform: translateX(5px); }
-.btn-ghost { border-color: var(--line-strong); color: var(--fg); }
-.btn-ghost:hover { border-color: var(--line-gold); }
-@media (max-width: 760px) { .nav-left .back, .portal { display: none; } }
-@media (max-width: 520px) { .nav .btn { display: none; } }
+/* a drawn screen: browser frame, paper inside */
+.scr{position:relative;border:1px solid var(--line);border-radius:10px;background:var(--white);overflow:hidden;box-shadow:0 1px 0 rgba(255,255,255,.7) inset,0 60px 110px -60px rgba(21,19,15,.5),0 18px 40px -30px rgba(21,19,15,.25);text-align:left}
+.scr .tb{display:flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-bottom:1px solid var(--line);background:#f1ede4}
+.scr .tb i{width:9px;height:9px;border-radius:50%;background:#dcd4c4}
+.scr .tb span{margin-left:14px;padding:4px 12px;border-radius:4px;background:var(--white);font:400 11.5px/1 var(--sans);color:var(--mute)}
+.scr .bd{padding:clamp(16px,2.2vw,26px)}
+.scr .hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 14px}
+.scr .hd b{font:500 clamp(1.1rem,.9rem + .8vw,1.5rem)/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)}
+.scr .hd small{font:500 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.av{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:var(--paper2);font:500 14px/1 var(--serif);color:var(--ink2)}
+.av.g{background:#efe3c4;color:var(--gold-d)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid var(--line2);font:500 11px/1 var(--sans);color:var(--ink2);white-space:nowrap}
+.chip.ok{border-color:#bcd0bf;background:#eef4ef;color:#46684b}
+.chip.new{border-color:#e6d3a4;background:#faf3e1;color:var(--gold-d)}
+.chip.miss{border-color:#e7c9bd;background:#fbefea;color:#9a4a33}
+.pr{height:3px;margin-top:8px;border-radius:2px;background:var(--paper2);overflow:hidden}
+.pr i{display:block;height:100%;background:var(--gold)}
+.rowl{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid #ebe5d9}
+.rowl:last-child{border-bottom:0}
+.rowl .nm{font:500 15px/1.2 var(--serif);color:var(--ink)}
+.rowl .mt{margin-top:3px;font-size:12px;color:var(--mute)}
 
-/* hero */
-.hero { padding-block: clamp(56px, 7vw, 112px) clamp(48px, 6vw, 88px); position: relative; overflow: hidden; }
-.hero::before { content: ""; position: absolute; inset: -20% -10% auto auto; width: 70vw; height: 70vw; max-width: 900px; max-height: 900px; background: radial-gradient(closest-side, rgba(201,162,64,0.12), transparent 70%); pointer-events: none; }
-.hero .wrap { position: relative; display: grid; gap: 26px; max-width: var(--wrap); }
-.hero h1 { font-size: var(--step-4); max-width: 15em; }
-.hero h1 em { font-style: italic; color: var(--gold); }
-.hero .lead { font-size: var(--step-1); color: var(--muted); max-width: 32em; }
-.hero .lead b { color: var(--fg); font-weight: 400; }
-.hero-cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
-.free { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ok); }
-.free i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(127,181,140,0.5); animation: pulse 2.4s ease-out infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(127,181,140,0.55); } 70%, 100% { box-shadow: 0 0 0 9px rgba(127,181,140,0); } }
+/* the hero picture: the facility's dashboard + the nurse's phone */
+.stage2{position:relative;max-width:1080px;margin:clamp(52px,6vw,86px) auto 0;padding:0 0 30px}
+.stage2 .scr{max-width:800px;margin:0}
+.phone{position:absolute;right:0;bottom:-34px;width:clamp(200px,21vw,250px);border:9px solid #15130f;border-radius:34px;background:var(--white);box-shadow:0 50px 90px -40px rgba(21,19,15,.6);overflow:hidden;text-align:left}
+.phone .nt{height:18px;display:grid;place-items:center}
+.phone .nt i{width:56px;height:5px;border-radius:3px;background:#15130f}
+.phone .pb{padding:6px 14px 18px}
+.phone .pb b{display:block;font:500 17px/1.15 var(--serif);color:var(--ink)}
+.phone .pb small{display:block;margin:4px 0 12px;font-size:11px;color:var(--mute)}
+.tk{display:flex;gap:9px;align-items:center;padding:8px 0;border-bottom:1px solid #ebe5d9;font-size:12px;color:var(--ink)}
+.tk:last-child{border-bottom:0}
+.tk i{flex:none;width:16px;height:16px;border-radius:50%;border:1px solid var(--line2)}
+.tk.d i{background:var(--ink);border-color:var(--ink);box-shadow:inset 0 0 0 3px var(--white)}
+.tk.d{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line2)}
+.pcap{margin:18px 0 0;font-size:12.5px;color:var(--mute);text-align:center}
+@media (max-width:1060px){.stage2 .scr{max-width:none}.phone{position:relative;right:auto;bottom:auto;margin:-70px 18px 0 auto;width:210px}}
 
-/* old way vs. your access */
-.vs { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(16px, 2.5vw, 32px); margin-top: clamp(40px, 5vw, 64px); }
-.side { border: 1px solid var(--line); border-radius: 24px; padding: clamp(22px, 3vw, 34px); display: grid; gap: 20px; align-content: start; min-width: 0; }
-.side.old { background: var(--bg); }
-.side.new { background: linear-gradient(160deg, rgba(201,162,64,0.10), var(--card) 55%); border-color: var(--line-gold); }
-.side-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.side-top .k { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
-.side.new .side-top .k { color: var(--gold); }
-.chat { display: grid; gap: 12px; }
-.msg { max-width: 86%; padding: 12px 15px; border-radius: 16px; font-size: var(--step--1); line-height: 1.45; }
-.msg small { display: block; margin-top: 6px; font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 0.04em; }
-.msg.you { justify-self: end; background: rgba(238,236,234,0.07); border-bottom-right-radius: 5px; }
-.msg.them { justify-self: start; background: transparent; border: 1px solid var(--line-strong); border-bottom-left-radius: 5px; color: var(--muted); }
-.seen { justify-self: end; font-family: var(--font-mono); font-size: 0.62rem; color: var(--warn); letter-spacing: 0.04em; }
-.wait { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 18px; border-top: 1px solid var(--line); }
-.wait span { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-.wait b { font-family: var(--font-display); font-weight: 600; font-size: var(--step-3); line-height: 1; font-variant-numeric: tabular-nums; }
-.side.old .wait b { color: var(--warn); }
-.side.new .wait b { color: var(--gold); }
-.mini-cand { display: flex; align-items: center; gap: 12px; }
-.av { width: 38px; height: 38px; flex: none; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-mono); font-size: 0.68rem; color: var(--gold); background: var(--gold-soft); border: 1px solid var(--line-gold); }
-.mini-cand b { display: block; font-weight: 500; }
-.mini-cand small { display: block; color: var(--muted); font-size: 0.74rem; }
-.live { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ok); }
-.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 2.4s ease-out infinite; }
-.mini { list-style: none; margin: 0; padding: 0; display: grid; }
-.mini li { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: var(--step--1); }
-.mini li:last-child { border-bottom: 0; }
-.mini em { margin-left: auto; font-style: normal; font-family: var(--font-mono); font-size: 0.64rem; color: var(--muted); white-space: nowrap; }
-.mini .new-b em { color: var(--ok); }
-.mini .now em { color: var(--gold); }
-.c { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1.5px solid var(--line-strong); display: grid; place-items: center; }
-.done .c, .on .c { border-color: var(--ok); background: rgba(127,181,140,0.14); }
-.done .c::after, .on .c::after { content: ""; width: 7px; height: 4px; border-left: 1.6px solid var(--ok); border-bottom: 1.6px solid var(--ok); transform: rotate(-45deg) translate(1px, -1px); }
-.now .c { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(201,162,64,0.14); }
-.eta { display: flex; justify-content: space-between; gap: 12px; font-size: var(--step--1); color: var(--muted); }
-.eta b { font-family: var(--font-mono); font-weight: 500; color: var(--gold); }
-.sample { font-size: 0.68rem; color: rgba(143,140,134,0.7); }
-@media (max-width: 860px) { .vs { grid-template-columns: 1fr; } }
+/* features: text + picture, alternating */
+.feat{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(36px,6vw,96px);align-items:center}
+.feat.rev .txt{order:2}
+.feat .txt .h2{font-size:clamp(2rem,1.3rem + 2.6vw,3.4rem)}
+.feat .txt p{margin:22px 0 0;max-width:30em;font-size:1.08rem;line-height:1.65;color:var(--ink2)}
+.feat .txt ul{margin:22px 0 0;padding:0;list-style:none}
+.feat .txt li{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:1rem;color:var(--ink)}
+.feat .txt li::before{content:"";flex:none;width:11px;height:6px;margin-top:.5em;border:solid var(--gold-d);border-width:0 0 1.5px 1.5px;transform:rotate(-45deg)}
+.soon{display:inline-block;margin-left:10px;padding:4px 8px 3px;border:1px solid var(--line2);border-radius:3px;font:500 10.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);vertical-align:middle}
+@media (max-width:900px){.feat{grid-template-columns:1fr}.feat.rev .txt{order:0}}
 
-/* the whole journey */
-.journey { margin-top: clamp(44px, 6vw, 80px); display: grid; gap: clamp(48px, 6vw, 88px); }
-.phase { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr); gap: clamp(24px, 5vw, 80px); align-items: start; }
-.ph-side { position: sticky; top: calc(96px + env(safe-area-inset-top, 0px)); display: grid; gap: 12px; }
-.ph-n { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
-.ph-side h3 { font-size: var(--step-3); }
-.ph-side p { color: var(--muted); max-width: 22em; }
-.steps { list-style: none; margin: 0; padding: 0 0 0 34px; position: relative; display: grid; }
-.steps::before { content: ""; position: absolute; left: 8px; top: 18px; bottom: 18px; width: 1.5px; background: var(--line-strong); }
-.steps .fill { position: absolute; left: 8px; top: 18px; bottom: 18px; width: 1.5px; background: linear-gradient(var(--gold), var(--ok)); transform-origin: top; transform: scaleY(0); }
-.st { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
-.st:last-child { border-bottom: 0; }
-.st .c { position: absolute; left: -34px; top: 19px; background: var(--bg); transition: border-color .5s var(--ease), background-color .5s var(--ease); }
-.band .st .c { background: var(--bg-2); }
-.st div { min-width: 0; display: grid; gap: 3px; }
-.st b { font-weight: 500; transition: color .5s var(--ease); }
-.st span { color: var(--muted); font-size: var(--step--1); }
-.st em { font-style: normal; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ok); white-space: nowrap; padding-top: 4px; opacity: 0; transition: opacity .5s var(--ease); }
-.st.on em { opacity: 1; }
-.st.on .c { background-color: rgba(127,181,140,0.14); }
-.counter { position: fixed; z-index: 15; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: inline-flex; align-items: baseline; gap: 8px; padding: 10px 16px; border: 1px solid var(--line-gold); border-radius: 999px; background: rgba(14,14,16,0.82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); font-size: var(--step--1); color: var(--muted); opacity: 0; transform: translateY(10px); transition: opacity .4s var(--ease), transform .4s var(--ease); pointer-events: none; }
-.counter.show { opacity: 1; transform: none; }
-.counter b { font-family: var(--font-display); font-weight: 600; font-size: 1.3rem; color: var(--gold); font-variant-numeric: tabular-nums; }
-@media (max-width: 860px) { .phase { grid-template-columns: 1fr; } .ph-side { position: static; } }
+/* documents */
+.doc{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #ebe5d9}
+.doc:last-child{border-bottom:0}
+.doc .ic{display:grid;place-items:center;width:34px;height:40px;border:1px solid var(--line2);border-radius:3px;background:#fff;font:600 8.5px/1 var(--sans);letter-spacing:.06em;color:var(--mute)}
+.doc .nm{font-size:14px;font-weight:500;color:var(--ink)}
+.doc .mt{margin-top:3px;font-size:11.5px;color:var(--mute)}
+.acts{display:flex;gap:6px}
+.acts span{padding:7px 10px;border-radius:3px;font:500 11.5px/1 var(--sans)}
+.acts .y{background:var(--ink);color:var(--paper)}
+.acts .n{border:1px solid var(--line2);color:var(--ink2)}
 
-/* compare challenge */
-.dare { display: grid; gap: clamp(36px, 5vw, 56px); }
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.stats div { border-top: 1px solid var(--line-gold); padding-top: 18px; display: grid; gap: 6px; }
-.stats b { font-family: var(--font-display); font-weight: 600; font-size: clamp(2.4rem, 1.6rem + 2.6vw, 3.8rem); line-height: 1; color: var(--gold); font-variant-numeric: tabular-nums; }
-.stats span { color: var(--muted); font-size: var(--step--1); }
-@media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
+/* the CV page */
+.cv{max-width:440px;margin:0 auto;padding:30px 30px 26px;border:1px solid var(--line);border-radius:3px;background:#fff;box-shadow:0 50px 90px -50px rgba(21,19,15,.45)}
+.cv .top{display:flex;gap:16px;align-items:center;padding-bottom:16px;border-bottom:1.5px solid var(--ink)}
+.cv .ph{width:58px;height:70px;border-radius:3px;background:linear-gradient(180deg,#ebe6db,#ddd6c8)}
+.cv .top b{display:block;font:500 22px/1.1 var(--serif);color:var(--ink)}
+.cv .top small{display:block;margin-top:5px;font-size:11.5px;color:var(--mute)}
+.cv h4{margin:18px 0 8px;font:600 10px/1 var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--gold-d)}
+.cv .ln{height:6px;margin:7px 0;border-radius:3px;background:#ece7dc}
+.cv .ln.s{width:62%}.cv .ln.m{width:84%}
+.cv .yr{display:grid;grid-template-columns:70px 1fr;gap:10px;align-items:center}
+.cv .yr span{font-size:10.5px;color:var(--mute)}
 
-/* closer */
-.final { border: 1px solid var(--line-gold); border-radius: 32px; padding: clamp(28px, 5vw, 64px); background: radial-gradient(80% 120% at 100% 0%, rgba(201,162,64,0.16), transparent 60%), var(--bg-2); display: grid; gap: 22px; justify-items: start; }
-.final h2 { font-size: clamp(1.9rem, 1.3rem + 2vw, 3rem); max-width: 18em; }
-.final p { color: var(--muted); }
-footer { border-top: 1px solid var(--line); padding-block: 28px; font-size: var(--step--1); color: var(--muted); }
-footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; }
+/* the way to the visa */
+.way{margin:0;padding:0;list-style:none}
+.way li{position:relative;display:grid;grid-template-columns:36px 1fr auto;gap:14px;align-items:center;padding:13px 0}
+.way li::before{content:"";position:absolute;left:17px;top:44px;bottom:-14px;width:1px;background:var(--line2)}
+.way li:last-child::before{display:none}
+.way i{position:relative;z-index:1;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;border:1px solid var(--line2);background:var(--white);font:500 12px/1 var(--sans);font-style:normal;color:var(--mute)}
+.way .d i{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.way .a i{border-color:var(--gold);color:var(--gold-d);box-shadow:0 0 0 4px #f3ead2}
+.way b{font:500 15.5px/1.2 var(--serif);color:var(--ink)}
+.way small{display:block;margin-top:3px;font-size:11.5px;color:var(--mute)}
 
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+/* messages */
+.msg{display:flex;flex-direction:column;gap:10px}
+.bub{max-width:80%;padding:11px 14px;border-radius:14px;font-size:13.5px;line-height:1.45}
+.bub.in{align-self:flex-start;background:var(--paper2);color:var(--ink);border-bottom-left-radius:4px}
+.bub.out{align-self:flex-end;background:var(--ink);color:var(--paper);border-bottom-right-radius:4px}
+.bub small{display:block;margin-top:4px;font-size:10.5px;opacity:.7}
 
-/* liquid glass: translucent panels over a slow gold aurora (same as the offer page) */
-.aurora { position: fixed; inset: -12vh -12vw; z-index: -1; pointer-events: none; background:
-  radial-gradient(38vw 38vw at 82% 12%, rgba(201,162,64,0.17), transparent 62%),
-  radial-gradient(34vw 34vw at 8% 64%, rgba(72,112,142,0.12), transparent 62%),
-  radial-gradient(30vw 30vw at 56% 96%, rgba(201,136,64,0.11), transparent 62%);
-  animation: aurora 30s ease-in-out infinite alternate; }
-@keyframes aurora { to { transform: translate3d(-4vw, 5vh, 0) scale(1.08); } }
-.band { background: rgba(255,255,255,0.016); }
-.nav { background: rgba(14,14,16,0.5); -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%); }
-.side, .final { position: relative; background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.018)); -webkit-backdrop-filter: blur(26px) saturate(165%); backdrop-filter: blur(26px) saturate(165%); border: 1px solid rgba(255,255,255,0.09); box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 40px 90px -40px rgba(0,0,0,0.85); }
-.side.new, .final { background: linear-gradient(160deg, rgba(201,162,64,0.15), rgba(255,255,255,0.02) 58%); }
-.side::after, .final::after { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; background: linear-gradient(140deg, rgba(255,255,255,0.34), rgba(255,255,255,0.05) 30%, transparent 55%, rgba(201,162,64,0.28)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
-.btn-ghost, .langs, .portal, .counter { background: rgba(255,255,255,0.06); -webkit-backdrop-filter: blur(14px) saturate(170%); backdrop-filter: blur(14px) saturate(170%); border-color: rgba(255,255,255,0.12); box-shadow: inset 0 1px 0 rgba(255,255,255,0.18); }
-.st .c, .band .st .c { background: var(--bg); }
-@media (prefers-reduced-motion: reduce) { .aurora { animation: none; } }
-html, body { overflow-x: clip; } /* nothing may pan sideways on a phone; clip keeps sticky elements working */
-.legal a { color: inherit; text-decoration: none; transition: color .3s; } .legal a:hover { color: var(--fg); text-decoration: underline; }
+/* arrival: a quiet map + the first steps */
+.arr{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;align-items:stretch}
+.map{position:relative;min-height:230px;border-radius:6px;background:#ebe6db;overflow:hidden}
+.map svg{position:absolute;inset:0;width:100%;height:100%}
+@media (max-width:560px){.arr{grid-template-columns:1fr}}
 
-/* the Borivon wordmark, exactly as in the portal: Playfair italic + upright gold dot */
-.brand { font-family: var(--font-display); font-style: italic; font-weight: 400; font-size: clamp(1.15rem, 3.5vw, 1.4rem); letter-spacing: 0; }
-.brand span { font-style: normal; color: var(--gold); }
+/* the switch */
+.sw{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 0;border-bottom:1px solid #ebe5d9}
+.sw:last-child{border-bottom:0}
+.sw b{display:block;font:500 16px/1.2 var(--serif);color:var(--ink)}
+.sw small{display:block;margin-top:4px;font-size:12px;color:var(--mute);max-width:26em}
+.tg{flex:none;position:relative;width:46px;height:26px;border-radius:13px;background:var(--line2)}
+.tg::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.tg.on{background:var(--ink)}
+.tg.on::after{left:23px}
+
+/* who qualifies */
+.qual{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border-top:1px solid var(--line)}
+.qual div{padding:26px 26px 26px 0}
+.qual div+div{padding-left:26px;border-left:1px solid var(--line)}
+.qual b{display:block;font:500 1.25rem/1.25 var(--serif);color:var(--ink)}
+.qual p{margin:8px 0 0;font-size:.98rem;color:var(--ink2)}
+@media (max-width:820px){.qual{grid-template-columns:1fr}.qual div+div{padding-left:0;border-left:0;border-top:1px solid var(--line)}}
+.final p.q{max-width:34em;margin-left:auto;margin-right:auto}
 </style>
 </head>
 <body>
-<div class="aurora" aria-hidden="true"></div>
-<header class="nav">
-  <div class="wrap">
-    <div class="nav-left">
-      <a class="brand" href="/">Borivon<span>.</span></a>
-      <a class="back" href="/" id="back"><span aria-hidden="true">&larr;</span> <span data-t="back">Zurück zum Angebot</span></a>
-    </div>
-    <div class="nav-right">
-      <div class="langs" role="group" aria-label="Sprache">
-        <button type="button" data-lang="de" aria-pressed="true">DE</button>
-        <button type="button" data-lang="en" aria-pressed="false">EN</button>
-        <button type="button" data-lang="fr" aria-pressed="false">FR</button>
-      </div>
-      <a class="portal" href="/portal" data-t="nav_portal">Portal</a>
-      <a class="btn btn-gold" href="/fahrplan" data-t="cta_short">Kostenloser Fahrplan</a>
-    </div>
-  </div>
-</header>
+
+<a class="bar" href="/workshop"><b class="lg"><i></i>Workshop in Casablanca <span>· 2 Tage mit Youness Taoufiq · alle 3 Monate · Termine ansehen</span></b><b class="sm"><i></i>Workshop in Casablanca <span>· Termine ansehen</span></b></a>
+
+<nav class="nav" aria-label="Borivon">
+ <div class="c">
+  <a class="logo" href="/">Borivon<b>.</b></a>
+  <div class="links"><a href="/fahrplan">Fahrplan</a><a href="/plattform" aria-current="page">Plattform</a><a href="/#kostenlos">Werkzeuge</a><a href="/workshop">Workshop</a><a href="/#gruender">Über uns</a><a href="/portal">Portal</a></div>
+  <a class="btn" href="/fahrplan?src=plattform"><span>Qualifizieren</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+ </div>
+</nav>
 
 <main>
-  <section class="hero">
-    <div class="wrap">
-      <p class="free"><i></i><span data-t="h_free">Inklusive · kostenlos, für immer</span></p>
-      <h1 data-th="h_h">Sie müssen nie wieder fragen, <em>wo sie gerade steht.</em></h1>
-      <p class="lead" data-th="h_p"></p>
-      <div class="hero-cta">
-        <a class="btn btn-gold" href="/fahrplan" data-t="cta_call">Kostenloser Fahrplan · 2 Min.</a>
-        <a class="btn btn-ghost" href="#weg" data-t="h_more">Den ganzen Weg ansehen</a>
-      </div>
-    </div>
-  </section>
+<header class="hero">
+ <div class="c">
+  <div class="pf-hero">
+   <p class="lbl" data-r style="justify-content:center">Die Borivon-Plattform · kostenlos</p>
+   <h1 class="h1" data-split><span class="main">Jede Pflegekraft. Jeder Schritt. <em>Ein Ort.</em></span></h1>
+   <p class="for" data-r>Die Software, mit der wir selbst unsere Verfahren führen: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Für Ihre Einrichtung kostenlos, als Dankeschön zu Ihrem Fahrplan.</p>
+   <div data-r><a class="btn" href="/fahrplan?src=plattform"><span>Prüfen, ob Ihre Einrichtung sich qualifiziert</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <p class="status"><i></i>ca. 2 Minuten · der Zugang steht auf der letzten Seite Ihres Fahrplans</p></div>
+  </div>
 
-  <section class="band" aria-labelledby="vs-h">
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-t="vs_eyebrow">Der Unterschied</p>
-        <h2 id="vs-h" data-t="vs_h">Sonst schreiben Sie und warten. Bei uns sehen Sie einfach nach.</h2>
-      </div>
-      <div class="vs">
-        <article class="side old">
-          <div class="side-top"><span class="k" data-t="old_k">Sonst</span></div>
-          <div class="chat" id="chat"></div>
-          <div class="wait"><span data-t="wait_l">Gewartet</span><b><span id="wait-old">5</span> <span class="unit" data-t="days">Tage</span></b></div>
-        </article>
-        <article class="side new">
-          <div class="side-top"><span class="k" data-t="new_k">Mit Borivon</span></div>
-          <div class="mini-cand"><span class="av">SM</span><span><b>Sara M.</b><small data-t="cand_unit">Wohnbereich 2</small></span><span class="live"><i></i>Live</span></div>
-          <ul class="mini" id="mini"></ul>
-          <div class="eta"><span data-t="eta_l">Ankunft geplant</span><b data-t="eta_v">März 2027</b></div>
-          <div class="wait"><span data-t="wait_l">Gewartet</span><b>0 <span class="unit" data-t="secs">Sekunden</span></b></div>
-        </article>
-      </div>
+  <div class="stage2" data-r aria-hidden="true">
+   <div class="scr">
+    <div class="tb"><i></i><i></i><i></i><span>borivon.com/portal</span></div>
+    <div class="bd">
+     <div class="hd"><b>Ihre Pflegekräfte</b><small>Seniorenzentrum am Inn</small></div>
+     <div class="rowl"><span class="av g">A</span><div><div class="nm">Amina E.</div><div class="mt">Pflegefachkraft · Ankunft 12. Januar</div><div class="pr"><i style="width:92%"></i></div></div><span class="chip ok">Visum da</span></div>
+     <div class="rowl"><span class="av">Y</span><div><div class="nm">Youssef B.</div><div class="mt">Pflegefachkraft · Termin bei der Botschaft</div><div class="pr"><i style="width:71%"></i></div></div><span class="chip">Visum-Termin</span></div>
+     <div class="rowl"><span class="av">S</span><div><div class="nm">Salma O.</div><div class="mt">2 neue Unterlagen zum Prüfen</div><div class="pr"><i style="width:48%"></i></div></div><span class="chip new">Anerkennung</span></div>
+     <div class="rowl"><span class="av">H</span><div><div class="nm">Hajar M.</div><div class="mt">Lebenslauf fertig</div><div class="pr"><i style="width:22%"></i></div></div><span class="chip">Unterlagen</span></div>
     </div>
-  </section>
+   </div>
+   <div class="phone">
+    <div class="nt"><i></i></div>
+    <div class="pb">
+     <b>Hallo Amina.</b><small>Deine nächsten Schritte</small>
+     <div class="tk d"><i></i>Reisepass hochladen</div>
+     <div class="tk d"><i></i>Lebenslauf fertig</div>
+     <div class="tk d"><i></i>Visum-Termin</div>
+     <div class="tk"><i></i>Flug: 12. Januar</div>
+     <div class="tk"><i></i>Wohnung: Schlüssel holen</div>
+    </div>
+   </div>
+   <p class="pcap">Beispielansicht, keine echten Daten.</p>
+  </div>
+ </div>
+</header>
 
-  <section id="weg" aria-labelledby="weg-h">
-    <div class="wrap">
-      <div class="sec-head">
-        <p class="eyebrow" data-t="j_eyebrow">Der ganze Weg</p>
-        <h2 id="weg-h" data-t="j_h">23 Schritte. Jeder sichtbar. Rund um die Uhr.</h2>
-        <p data-t="j_p"></p>
-      </div>
-      <div class="journey" id="journey"></div>
-    </div>
-  </section>
+<section class="sec dark">
+ <div class="c">
+  <div class="stats">
+   <div data-r><p class="cap">Pflegekräfte</p><b>600+</b><p class="tx">internationale Pflegekräfte haben mit ihr gearbeitet.</p></div>
+   <div data-r><p class="cap">Organisationen</p><b>13+</b><p class="tx">Gesundheitseinrichtungen und Organisationen nutzen sie.</p></div>
+   <div data-r><p class="cap">Tempo</p><b>3&times;</b><p class="tx">schneller durch den Prozess, gemessen in unseren eigenen Verfahren.</p></div>
+  </div>
+  <p class="src">Zahlen: eigene Auswertung von Borivon, Stand November 2026.</p>
+ </div>
+</section>
 
-  <section class="band" aria-labelledby="dare-h">
-    <div class="wrap dare">
-      <div class="sec-head">
-        <p class="eyebrow" data-t="d_eyebrow">Vergleichen Sie ruhig</p>
-        <h2 id="dare-h" data-t="d_h">Fragen Sie Ihre Agentur nach einem Zugang wie diesem.</h2>
-        <p data-t="d_p"></p>
-      </div>
-      <div class="stats" id="stats"></div>
-    </div>
-  </section>
+<section class="sec">
+ <div class="c feat">
+  <div class="txt">
+   <p class="lbl">01 · Überblick</p>
+   <h2 class="h2" data-split>Alle Pflegekräfte. <em>Auf einen Blick.</em></h2>
+   <p data-r>Wer steht wo? Was fehlt noch? Wer kommt wann? Sie sehen es, ohne eine einzige E-Mail zu suchen.</p>
+   <ul data-r><li>Stand jeder Pflegekraft, mit Foto und Fortschritt</li><li>Neue Unterlagen sofort sichtbar</li><li>Ihr Team arbeitet im selben Bereich</li></ul>
+  </div>
+  <div class="scr" data-r aria-hidden="true">
+   <div class="tb"><i></i><i></i><i></i><span>Ihre Pflegekräfte</span></div>
+   <div class="bd">
+    <div class="rowl"><span class="av g">A</span><div><div class="nm">Amina E.</div><div class="mt">Ankunft in 3 Wochen</div><div class="pr"><i style="width:92%"></i></div></div><span class="chip ok">Visum da</span></div>
+    <div class="rowl"><span class="av">Y</span><div><div class="nm">Youssef B.</div><div class="mt">Visum-Termin am 4. Dezember</div><div class="pr"><i style="width:71%"></i></div></div><span class="chip">Visum-Termin</span></div>
+    <div class="rowl"><span class="av">S</span><div><div class="nm">Salma O.</div><div class="mt">2 neue Unterlagen</div><div class="pr"><i style="width:48%"></i></div></div><span class="chip new">Neu</span></div>
+   </div>
+  </div>
+ </div>
+</section>
 
-  <section aria-labelledby="final-h">
-    <div class="wrap">
-      <div class="final">
-        <p class="eyebrow" data-t="f_eyebrow">Live sehen</p>
-        <h2 id="final-h" data-t="f_h">Im Gespräch zeigen wir Ihnen die Plattform live.</h2>
-        <p data-t="f_p"></p>
-        <a class="btn btn-gold" href="/fahrplan" data-t="cta_call">Kostenloser Fahrplan · 2 Min.</a>
-        <a class="back" href="/" data-back><span aria-hidden="true">&larr;</span> <span data-t="back">Zurück zum Angebot</span></a>
-      </div>
+<section class="sec alt">
+ <div class="c feat rev">
+  <div class="txt">
+   <p class="lbl">02 · Unterlagen</p>
+   <h2 class="h2" data-split>Sie lädt hoch. <em>Sie prüfen mit einem Klick.</em></h2>
+   <p data-r>Reisepass, Diplom, Sprachzertifikat, Zeugnisse: Die Pflegekraft lädt alles selbst hoch. Sie geben frei oder sagen, was fehlt. Sie bekommt Bescheid.</p>
+   <ul data-r><li>Jede Unterlage mit Stand: geprüft, neu, fehlt</li><li>Original und Übersetzung getrennt</li><li>Sie sehen sofort, was noch fehlt</li></ul>
+  </div>
+  <div class="scr" data-r aria-hidden="true">
+   <div class="tb"><i></i><i></i><i></i><span>Unterlagen · Salma O.</span></div>
+   <div class="bd">
+    <div class="doc"><span class="ic">PDF</span><div><div class="nm">Reisepass</div><div class="mt">gültig bis 2031</div></div><span class="chip ok">Geprüft</span></div>
+    <div class="doc"><span class="ic">PDF</span><div><div class="nm">Pflegediplom</div><div class="mt">Original + Übersetzung</div></div><div class="acts"><span class="y">Freigeben</span><span class="n">Ablehnen</span></div></div>
+    <div class="doc"><span class="ic">PDF</span><div><div class="nm">Sprachzertifikat B2</div><div class="mt">neu hochgeladen</div></div><span class="chip new">Neu</span></div>
+    <div class="doc"><span class="ic">PDF</span><div><div class="nm">Arbeitszeugnisse</div><div class="mt">noch nicht da</div></div><span class="chip miss">Fehlt</span></div>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section class="sec">
+ <div class="c feat">
+  <div class="txt">
+   <p class="lbl">03 · Lebenslauf</p>
+   <h2 class="h2" data-split>Lebenslauf und Anschreiben. <em>Fertig auf Deutsch.</em></h2>
+   <p data-r>Die Pflegekraft füllt ihr Profil selbst aus. Daraus entsteht ein sauberer deutscher Lebenslauf, und ein Motivationsschreiben für Ihre Einrichtung.</p>
+  </div>
+  <div class="cv" data-r aria-hidden="true">
+   <div class="top"><span class="ph"></span><div><b>Lebenslauf</b><small>Pflegefachkraft · B2 Deutsch</small></div></div>
+   <h4>Berufserfahrung</h4>
+   <div class="yr"><span>2021 – heute</span><div><div class="ln m"></div><div class="ln s"></div></div></div>
+   <div class="yr"><span>2019 – 2021</span><div><div class="ln m"></div><div class="ln s"></div></div></div>
+   <h4>Ausbildung</h4>
+   <div class="yr"><span>2016 – 2019</span><div><div class="ln m"></div></div></div>
+   <h4>Sprachen</h4>
+   <div class="ln s"></div><div class="ln" style="width:44%"></div>
+  </div>
+ </div>
+</section>
+
+<section class="sec alt">
+ <div class="c feat rev">
+  <div class="txt">
+   <p class="lbl">04 · Bis zum Visum</p>
+   <h2 class="h2" data-split>Jeder Schritt. <em>Sichtbar.</em></h2>
+   <p data-r>Unterlagen, Anerkennung, Zustimmung, Termin bei der Botschaft: Sie sehen, wo es gerade steht. Und wann Ihre neue Pflegekraft wirklich anfängt.</p>
+  </div>
+  <div class="scr" data-r aria-hidden="true">
+   <div class="tb"><i></i><i></i><i></i><span>Der Weg · Youssef B.</span></div>
+   <div class="bd">
+    <ol class="way">
+     <li class="d"><i>✓</i><div><b>Unterlagen</b><small>vollständig</small></div><span class="chip ok">Erledigt</span></li>
+     <li class="d"><i>✓</i><div><b>Anerkennung</b><small>beantragt</small></div><span class="chip ok">Erledigt</span></li>
+     <li class="a"><i>3</i><div><b>Termin bei der Botschaft</b><small>4. Dezember</small></div><span class="chip new">Jetzt</span></li>
+     <li><i>4</i><div><b>Visum</b><small>danach</small></div><span class="chip">Offen</span></li>
+     <li><i>5</i><div><b>Erster Arbeitstag</b><small>geplant</small></div><span class="chip">Offen</span></li>
+    </ol>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section class="sec">
+ <div class="c feat">
+  <div class="txt">
+   <p class="lbl">05 · Nachrichten</p>
+   <h2 class="h2" data-split>Kein WhatsApp-Chaos. <em>Ein Ort.</em></h2>
+   <p data-r>Fragen, Erinnerungen, Termine: alles an einem Ort, bei der Pflegekraft, die es betrifft. Nichts geht verloren.</p>
+  </div>
+  <div class="scr" data-r aria-hidden="true">
+   <div class="tb"><i></i><i></i><i></i><span>Nachrichten · Amina E.</span></div>
+   <div class="bd msg">
+    <div class="bub in">Mein Visum ist da!<small>Amina · 09:12</small></div>
+    <div class="bub out">Wunderbar. Ihr Flug ist am 12. Januar, wir holen Sie in München ab.<small>Pflegedienstleitung · 09:20</small></div>
+    <div class="bub in">Danke! Brauche ich noch etwas für die Wohnung?<small>Amina · 09:24</small></div>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section class="sec alt">
+ <div class="c feat rev">
+  <div class="txt">
+   <p class="lbl">06 · Ankommen und Bleiben</p>
+   <h2 class="h2" data-split>Die erste Woche. <em>Schon geplant.</em> <span class="soon">In Arbeit</span></h2>
+   <p data-r>Wohnung, Abholung, Anmeldung, Bank, Krankenkasse: Für jede Pflegekraft steht der Plan, mit den Ämtern in ihrer Nähe auf einer Karte. Und die ersten sechs Monate, bis die Probezeit geschafft ist.</p>
+  </div>
+  <div class="scr" data-r aria-hidden="true">
+   <div class="tb"><i></i><i></i><i></i><span>Ankunftsplan · Amina E.</span></div>
+   <div class="bd arr">
+    <div class="map"><svg viewBox="0 0 300 230" preserveAspectRatio="xMidYMid slice"><path d="M0 150 300 96M90 0 112 230M220 0 196 230M0 46 300 58M0 204 300 190" stroke="#fbfaf6" stroke-width="5" fill="none"/><circle cx="150" cy="118" r="20" fill="none" stroke="#a8843a" stroke-opacity=".55"/><circle cx="150" cy="118" r="8" fill="#a8843a" stroke="#fbfaf6" stroke-width="2.5"/><g fill="#15130f" stroke="#f4f1ea" stroke-width="2"><circle cx="70" cy="66" r="11"/><circle cx="214" cy="48" r="11"/><circle cx="246" cy="150" r="11"/><circle cx="96" cy="182" r="11"/></g><g fill="#f4f1ea" font-family="Inter,sans-serif" font-size="10" font-weight="600" text-anchor="middle"><text x="70" y="70">2</text><text x="214" y="52">3</text><text x="246" y="154">4</text><text x="96" y="186">5</text></g></svg></div>
+    <div>
+     <div class="tk d"><i></i>Wohnung beziehen</div>
+     <div class="tk"><i></i>Wohnsitz anmelden, bis Tag 14</div>
+     <div class="tk"><i></i>Bankkonto eröffnen</div>
+     <div class="tk"><i></i>Krankenkasse wählen</div>
+     <div class="tk"><i></i>Steuer-ID an die Lohnabrechnung</div>
     </div>
-  </section>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section class="sec">
+ <div class="c feat">
+  <div class="txt">
+   <p class="lbl">07 · Ihre Wahl</p>
+   <h2 class="h2" data-split>Sie arbeiten allein. <em>Oder mit uns.</em></h2>
+   <p data-r>Die Plattform gehört Ihrer Einrichtung. Unser Team sieht Ihre Pflegekräfte nur, wenn Sie es einschalten. Dann helfen wir bei Unterlagen, Anerkennung und Visum.</p>
+  </div>
+  <div class="scr" data-r aria-hidden="true">
+   <div class="tb"><i></i><i></i><i></i><span>Ihre Einrichtung</span></div>
+   <div class="bd">
+    <div class="sw"><div><b>Pflegekräfte einladen</b><small>Ihr eigener Link. Wer sich anmeldet, ist direkt in Ihrer Einrichtung.</small></div><span class="chip">Link kopieren</span></div>
+    <div class="sw"><div><b>Ihr Team</b><small>Kolleginnen und Kollegen arbeiten im selben Bereich.</small></div><span class="chip">Einladen</span></div>
+    <div class="sw"><div><b>Mit Borivon arbeiten</b><small>Aus: Sie arbeiten allein. An: Unser Team hilft mit.</small></div><span class="tg"></span></div>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section class="sec alt">
+ <div class="c">
+  <div class="head2">
+   <div><p class="lbl">Für wen</p><h2 class="h2" data-split>Wer sich <em>qualifiziert.</em></h2></div>
+   <p class="hp" data-r>Den Zugang bekommen Einrichtungen, die ihren Fahrplan angefordert und bestätigt haben. Er steht auf der letzten Seite.</p>
+  </div>
+  <div class="qual">
+   <div data-r><b>Eine Gesundheitseinrichtung in Deutschland</b><p>Klinik, Pflegeheim, ambulanter Dienst, Reha, Intensivpflege oder jede andere Einrichtung, die Pflegekräfte braucht.</p></div>
+   <div data-r><b>Eine geschäftliche E-Mail-Adresse</b><p>Der Zugang gehört Ihrer Einrichtung, nicht einem privaten Postfach.</p></div>
+   <div data-r><b>Ihr bestätigter Fahrplan</b><p>Ein paar Fragen, ca. 2 Minuten. Dann kommt Ihr Fahrplan, und auf seiner letzten Seite Ihr persönlicher Zugang.</p></div>
+  </div>
+ </div>
+</section>
 </main>
 
-<div class="counter" id="counter" aria-hidden="true"><b id="cnt">0</b><span id="cnt-l">von 23 Schritten</span></div>
+<section class="final">
+ <div class="fbg"><img data-px src="/pflege/assets/ws3/final.webp" alt="" width="2400" height="1350" loading="lazy" decoding="async"></div>
+ <div class="c">
+  <h2 class="h2" data-split>Prüfen Sie, ob Ihre Einrichtung <em>sich qualifiziert.</em></h2>
+  <p class="q" data-r>Beantworten Sie die Fragen für Ihren kostenlosen Fahrplan. Qualifiziert sich Ihre Einrichtung, steht Ihr Zugang zur Plattform auf der letzten Seite.</p>
+  <div data-r><a class="btn light" href="/fahrplan?src=plattform"><span>Jetzt prüfen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
+ </div>
+</section>
 
-<footer>
-  <div class="wrap">
-    <span data-t="footer_l">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</span>
-    <span class="legal"><a href="/impressum" data-t="f_imp">Impressum</a> · <a href="/datenschutz" data-t="f_priv" data-priv>Datenschutz</a> · <a href="#" data-consent-open>Datenschutz-Einstellungen</a></span>
-  </div>
+<footer class="foot">
+ <div class="c">
+  <a class="logo" href="/">Borivon<b>.</b></a>
+  <p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+  <div class="fl"><a href="/fahrplan">Kostenloser Fahrplan</a><a href="/plattform">Plattform</a><a href="/fahrplan/rechner">Rechner</a><a href="/fahrplan/warten">Was kostet Warten?</a><a href="/fahrplan/bleibe-check">Bleibe-Check</a><a href="/workshop">Workshop</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="#" data-consent-open>Datenschutz-Einstellungen</a></div>
+  <p class="copy">© Borivon LLC</p>
+ </div>
 </footer>
 
-<script src="/pflege/assets/gsap.min.js"></script>
-<script src="/pflege/assets/ScrollTrigger.min.js"></script>
-<script src="/pflege/assets/lenis.min.js"></script>
-<script>
-(function () {
-  // Steps are what an employer sees in the Borivon portal, phase by phase. No technical terms on purpose.
-  var T = {
-    de: {
-      f_imp: "Impressum", f_priv: "Datenschutz",
-      back: "Zurück zum Angebot", nav_portal: "Portal", cta_short: "Kostenloser Fahrplan", cta_call: "Kostenloser Fahrplan · 2 Min.",
-      h_free: "Inklusive · kostenlos, für immer",
-      h_h: "Sie müssen nie wieder fragen, <em>wo sie gerade steht.</em>",
-      h_p: "Sie sehen jeden Schritt Ihrer neuen Pflegekraft. Von der Bewerbung bis zur geschafften Probezeit. <b>Rund um die Uhr online. Für Sie kostenlos.</b>",
-      h_more: "Den ganzen Weg ansehen",
-      vs_eyebrow: "Der Unterschied", vs_h: "Sonst schreiben Sie und warten. Bei uns sehen Sie einfach nach.",
-      old_k: "Sonst", new_k: "Mit Borivon", wait_l: "Gewartet", days: "Tage", secs: "Sekunden",
-      chat: [["you", "Hallo, gibt es Neuigkeiten zum Visum von Frau B.?", "Sie · Mo 09:12"], ["seen", "Gelesen · keine Antwort"], ["you", "Kurze Nachfrage: Wann kommt sie denn jetzt?", "Sie · Mi 16:40"], ["them", "Wir melden uns, sobald wir mehr wissen.", "Agentur · Fr 11:05"]],
-      cand_unit: "Wohnbereich 2", eta_l: "Ankunft geplant", eta_v: "März 2027",
-      mini: [["done","Vertrag abgeschlossen","erledigt"], ["done", "Anerkennung genehmigt", "erledigt"], ["done new-b", "Zustimmung der Behörde", "neu"], ["now","Unterlagen für Botschaft bereit","läuft"]],
-      j_eyebrow: "Der ganze Weg", j_h: "23 Schritte. Jeder sichtbar. Rund um die Uhr.",
-      j_p: "Von der Bewerbung bis zur geschafften Probezeit. Sie sehen alles in Ihrem Zugang. Ohne eine einzige Nachricht.",
-      phase: "Phase", stepsWord: "Schritte", done: "erledigt", cnt_l: "von 23 Schritten",
-      phases: [
-        ["Auswahl", "Sie führen ein Interview. Den Rest sehen Sie nur noch an.", [
-          ["Bewerbung eingegangen","Profil, Diplom, Berufserfahrung"],
-          ["Deutsch geprüft","Einstufung durch unser Sprachinstitut"],
-          ["Unterlagen gesammelt","Jedes Dokument geprüft und übersetzt"],
-          ["Deutscher Lebenslauf fertig","Bereit für Ihr Interview"],
-          ["Erstes Interview","Mit Ihnen, per Video"],
-          ["Zweites Interview (Endentscheidung)","Sie entscheiden"],
-          ["Vertrag abgeschlossen","Ihre neue Pflegefachkraft steht fest"]]],
-        ["Papiere", "Behörden, Botschaft, Visum. Sie müssen nichts tun.", [
-          ["Anerkennung beantragt","Bei der zuständigen Behörde"],
-          ["Anerkennung genehmigt","Offiziell als Fachkraft anerkannt"],
-          ["Zustimmung der Behörde","Schnelles Verfahren für Fachkräfte"],
-          ["Unterlagen für Botschaft bereit","Vollständig und geprüft"],
-          ["Visumtermin gebucht","Das Datum sehen Sie sofort"],
-          ["Visum genehmigt","Jetzt wissen Sie, wann sie kommt"]]],
-        ["Ankunft", "Wohnung, Amt, Bank, Versicherung: in ihrer Sprache erledigt.", [
-          ["Flug gebucht","Der Ankunftstag steht fest"],
-          ["Unterkunft organisiert","Gemeinsam mit Ihnen, bevor sie landet"],
-          ["In Deutschland angekommen","Willkommen"],
-          ["Wohnsitz angemeldet","Termin beim Bürgeramt erledigt"],
-          ["Bankkonto eröffnet","Bereit für ihr erstes Gehalt"],
-          ["Steuer-ID erhalten","Vom Finanzamt, ohne Ihr Zutun"],
-          ["Krankenkasse angemeldet","Versichert ab dem ersten Tag"]]],
-        ["Im Dienst", "Ihr Wohnbereich ist besetzt. Und sie bleibt.", [
-          ["Erster Arbeitstag im Wohnbereich","Ihr Team ist wieder vollständig"],
-          ["Deutsch-Training für die Arbeit gestartet","Online, neben der Arbeit"],
-          ["Probezeit bestanden","Sie bleibt"]]]
-      ],
-      d_eyebrow: "Vergleichen Sie ruhig", d_h: "Fragen Sie Ihre Agentur nach einem Zugang wie diesem.",
-      d_p: "Jeder Schritt, jedes Dokument, rund um die Uhr. Bei uns ist das dabei. Kostenlos. Für immer.",
-      stats: [["24/7", "online, jederzeit"], ["23", "Schritte, alle sichtbar"], ["0", "Nachrichten, die Sie schreiben müssen"]],
-      f_eyebrow: "Live sehen", f_h: "Im Gespräch zeigen wir Ihnen die Plattform live.",
-      f_p: "15 Minuten. Was die leere Stelle Sie kostet, passende Profile und ein Blick in Ihren Zugang.",
-      footer_l: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.", footer_r: "Impressum · Datenschutz"
-    },
-    en: {
-      f_imp: "Imprint", f_priv: "Privacy",
-      back: "Back to the offer", nav_portal: "Portal", cta_short: "Free roadmap", cta_call: "Free roadmap · 2 min",
-      h_free: "Included · free, forever",
-      h_h: "You'll never have to ask <em>where she is again.</em>",
-      h_p: "You see every step of your new nurse. From her application to passing probation. <b>Online day and night. Free for you.</b>",
-      h_more: "See the whole journey",
-      vs_eyebrow: "The difference", vs_h: "Elsewhere you write and wait. With us you just look.",
-      old_k: "Elsewhere", new_k: "With Borivon", wait_l: "Waited", days: "days", secs: "seconds",
-      chat: [["you", "Hi, any news on Ms B.'s visa?", "You · Mon 09:12"], ["seen", "Read · no reply"], ["you", "Quick follow-up: when is she arriving?", "You · Wed 16:40"], ["them", "We'll get back to you as soon as we know more.", "Agency · Fri 11:05"]],
-      cand_unit: "Unit 2", eta_l: "Planned arrival", eta_v: "March 2027",
-      mini: [["done","Contract sealed","done"], ["done", "Recognition approved", "done"], ["done new-b", "Pre-approval from the authority", "new"], ["now","Documents ready for embassy","in progress"]],
-      j_eyebrow: "The whole journey", j_h: "23 steps. Every one visible. Around the clock.",
-      j_p: "From her application to passing probation. You see it all in your account. Without sending a single message.",
-      phase: "Phase", stepsWord: "steps", done: "done", cnt_l: "of 23 steps",
-      phases: [
-        ["Selection", "You do one interview. Everything before and after, you just watch.", [
-          ["Application received","Profile, diploma, work experience"],
-          ["German checked","Assessed by our language institute"],
-          ["Documents collected","Every document verified and translated"],
-          ["German CV finalized","Ready for your interview"],
-          ["First interview","With you, by video"],
-          ["Second interview (final decision)","You decide"],
-          ["Contract sealed","Your new nurse is confirmed"]]],
-        ["Paperwork", "Authorities, embassy, visa. You don't have to do a thing.", [
-          ["Recognition applied for","With the responsible authority"],
-          ["Recognition approved","Officially recognised as a nurse"],
-          ["Pre-approval from the authority","Fast-track process for skilled workers"],
-          ["Documents ready for embassy","Complete and checked"],
-          ["Visa appointment booked","You see the date right away"],
-          ["Visa approved","Now you know when she's coming"]]],
-        ["Arrival", "Housing, registration, bank, insurance: done in her language.", [
-          ["Flight booked","Arrival day is set"],
-          ["Housing arranged","Together with you, before she lands"],
-          ["Arrived in Germany","Welcome"],
-          ["Address registered","Town hall appointment done"],
-          ["Bank account opened","Ready for her first salary"],
-          ["Tax ID received","From the tax office, without any effort from you"],
-          ["Health insurance set up","Insured from day one"]]],
-        ["On the job", "Your unit is staffed. And she stays.", [
-          ["First day in the unit","Your team is complete again"],
-          ["German training for work started","Online, next to her work"],
-          ["Probation passed","She stays"]]]
-      ],
-      d_eyebrow: "Go ahead, compare", d_h: "Ask your agency for access like this.",
-      d_p: "Every step, every document, day and night. With us it is included. Free. Forever.",
-      stats: [["24/7", "online, any time"], ["23", "steps, all visible"], ["0", "messages you have to write"]],
-      f_eyebrow: "See it live", f_h: "On the call we show you the platform live.",
-      f_p: "15 minutes. What the empty post costs you, matching profiles and a look at your account.",
-      footer_l: "Borivon helps healthcare facilities win and keep nurses from abroad, because good care must never be a luxury.", footer_r: "Imprint · Privacy"
-    },
-    fr: {
-      f_imp: "Mentions légales", f_priv: "Confidentialité",
-      back: "Retour à l'offre", nav_portal: "Portail", cta_short: "Plan gratuit", cta_call: "Plan gratuit · 2 min",
-      h_free: "Inclus · gratuit, pour toujours",
-      h_h: "Vous n'aurez plus jamais à demander <em>où elle en est.</em>",
-      h_p: "Vous voyez chaque étape de votre nouvelle infirmière. De sa candidature à la fin de l'essai. <b>En ligne jour et nuit. Gratuit pour vous.</b>",
-      h_more: "Voir tout le parcours",
-      vs_eyebrow: "La différence", vs_h: "Ailleurs, vous écrivez et vous attendez. Chez nous, vous regardez.",
-      old_k: "Ailleurs", new_k: "Avec Borivon", wait_l: "Attente", days: "jours", secs: "secondes",
-      chat: [["you", "Bonjour, des nouvelles du visa de Mme B. ?", "Vous · lun. 09:12"], ["seen", "Lu · pas de réponse"], ["you", "Petite relance : quand arrive-t-elle ?", "Vous · mer. 16:40"], ["them", "Nous revenons vers vous dès que nous en savons plus.", "Agence · ven. 11:05"]],
-      cand_unit: "Unité 2", eta_l: "Arrivée prévue", eta_v: "mars 2027",
-      mini: [["done","Contrat conclu","fait"], ["done", "Reconnaissance approuvée", "fait"], ["done new-b", "Accord préalable de l'administration", "nouveau"], ["now","Documents prêts pour l'ambassade","en cours"]],
-      j_eyebrow: "Tout le parcours", j_h: "23 étapes. Toutes visibles. 24h/24.",
-      j_p: "De sa candidature à la fin de l'essai. Vous voyez tout dans votre accès. Sans envoyer un seul message.",
-      phase: "Phase", stepsWord: "étapes", done: "fait", cnt_l: "sur 23 étapes",
-      phases: [
-        ["Sélection", "Vous menez un entretien. Avant et après, vous n'avez qu'à regarder.", [
-          ["Candidature reçue","Profil, diplôme, expérience"],
-          ["Allemand vérifié","Évaluation par notre institut de langue"],
-          ["Documents réunis","Chaque document vérifié et traduit"],
-          ["CV allemand finalisé","Prêt pour votre entretien"],
-          ["Premier entretien","Avec vous, en visio"],
-          ["Deuxième entretien (décision finale)","Vous décidez"],
-          ["Contrat conclu","Votre nouvelle infirmière est confirmée"]]],
-        ["Papiers", "Administrations, ambassade, visa. Vous n'avez rien à faire.", [
-          ["Reconnaissance demandée","Auprès de l'autorité compétente"],
-          ["Reconnaissance approuvée","Officiellement reconnue comme infirmière"],
-          ["Accord préalable de l'administration","Procédure rapide pour les travailleurs qualifiés"],
-          ["Documents prêts pour l'ambassade","Complet et vérifié"],
-          ["Rendez-vous visa pris","Vous voyez la date tout de suite"],
-          ["Visa approuvé","Vous savez maintenant quand elle arrive"]]],
-        ["Arrivée", "Logement, mairie, banque, assurance : réglés dans sa langue.", [
-          ["Vol réservé","Le jour d'arrivée est fixé"],
-          ["Logement organisé","Avec vous, avant son arrivée"],
-          ["Arrivée en Allemagne","Bienvenue"],
-          ["Domicile déclaré","Rendez-vous à la mairie fait"],
-          ["Compte bancaire ouvert","Prête pour son premier salaire"],
-          ["Numéro fiscal reçu","Du fisc, sans effort de votre part"],
-          ["Assurance maladie en place","Assurée dès le premier jour"]]],
-        ["En poste", "Votre unité est complète. Et elle reste.", [
-          ["Prise de poste","Votre équipe est de nouveau au complet"],
-          ["Cours d'allemand pour le travail commencés","En ligne, à côté du travail"],
-          ["Période d'essai réussie","Elle reste"]]]
-      ],
-      d_eyebrow: "Comparez donc", d_h: "Demandez à votre agence un accès comme celui-ci.",
-      d_p: "Chaque étape, chaque document, jour et nuit. Chez nous, c'est inclus. Gratuit. Pour toujours.",
-      stats: [["24/7", "en ligne, à tout moment"], ["23", "étapes, toutes visibles"], ["0", "message à écrire de votre part"]],
-      f_eyebrow: "Le voir en direct", f_h: "Pendant l'appel, nous vous montrons la plateforme en direct.",
-      f_p: "15 minutes. Ce que le poste vide vous coûte, des profils adaptés et un aperçu de votre accès.",
-      footer_l: "Borivon aide les établissements de santé à recruter et à fidéliser des infirmiers venus de l’étranger, car de bons soins ne doivent jamais être un luxe.", footer_r: "Mentions légales · Confidentialité"
-    }
-  };
+<a class="mcta" href="/fahrplan?src=plattform"><span>Prüfen, ob Sie sich qualifizieren</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
 
-  function $(s, r) { return (r || document).querySelector(s); }
-  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-
-  var lang = "de";
-  try { var saved = localStorage.getItem("bv-lang"); if (T[saved]) lang = saved; } catch (e) {}
-
-  function render() {
-    var t = T[lang];
-    document.documentElement.lang = lang;
-    $$("[data-t]").forEach(function (el) { var v = t[el.getAttribute("data-t")]; if (typeof v === "string") el.textContent = v; });
-    // German privacy policy lives at /datenschutz (founder 2026-11-07)
-    $$("[data-priv]").forEach(function (el) { el.setAttribute("href", lang === "de" ? "/datenschutz" : "/privacy-policy"); });
-    $$("[data-th]").forEach(function (el) { var v = t[el.getAttribute("data-th")]; if (typeof v === "string") el.innerHTML = v; });
-    $("#chat").innerHTML = t.chat.map(function (m) {
-      return m[0] === "seen" ? '<span class="seen">' + esc(m[1]) + '</span>' : '<p class="msg ' + m[0] + '">' + esc(m[1]) + '<small>' + esc(m[2]) + '</small></p>';
-    }).join("");
-    $("#mini").innerHTML = t.mini.map(function (r) { return '<li class="' + r[0] + '"><span class="c"></span>' + esc(r[1]) + '<em>' + esc(r[2]) + '</em></li>'; }).join("");
-    var n = 0;
-    $("#journey").innerHTML = t.phases.map(function (p, i) {
-      return '<div class="phase"><div class="ph-side"><span class="ph-n">' + esc(t.phase) + ' ' + (i + 1) + ' · ' + p[2].length + ' ' + esc(t.stepsWord) + '</span><h3>' + esc(p[0]) + '</h3><p>' + esc(p[1]) + '</p></div>' +
-        '<ol class="steps"><i class="fill" aria-hidden="true"></i>' + p[2].map(function (s) { n++; return '<li class="st"><span class="c" aria-hidden="true"></span><div><b>' + esc(s[0]) + '</b><span>' + esc(s[1]) + '</span></div><em>' + esc(t.done) + '</em></li>'; }).join("") + '</ol></div>';
-    }).join("");
-    $("#stats").innerHTML = t.stats.map(function (s) { return '<div><b>' + esc(s[0]) + '</b><span>' + esc(s[1]) + '</span></div>'; }).join("");
-    $("#cnt-l").textContent = t.cnt_l;
-    $$(".langs button").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-lang") === lang ? "true" : "false"); });
-  }
-  render();
-
-  // back to the offer page: return to where they left it when they came from there
-  $$('a[href="/"]').forEach(function (a) {
-    a.addEventListener("click", function (e) {
-      try { if (document.referrer && new URL(document.referrer).origin === location.origin && history.length > 1) { e.preventDefault(); history.back(); } } catch (err) {}
-    });
-  });
-
-  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var counter = $("#counter"), cnt = $("#cnt");
-  function count() { var on = $$(".st.on").length; cnt.textContent = on; }
-
-  var journeyMotion = [];
-  function buildJourney() {
-    journeyMotion.forEach(function (st) { st.kill(); });
-    journeyMotion = [];
-    if (reduce || !window.gsap || !window.ScrollTrigger) { $$(".st").forEach(function (li) { li.classList.add("on"); }); count(); return; }
-    $$(".steps").forEach(function (ol) {
-      journeyMotion.push(gsap.fromTo($(".fill", ol), { scaleY: 0 }, { scaleY: 1, ease: "none", scrollTrigger: { trigger: ol, start: "top 70%", end: "bottom 70%", scrub: 0.4 } }).scrollTrigger);
-    });
-    $$(".st").forEach(function (li) {
-      journeyMotion.push(ScrollTrigger.create({ trigger: li, start: "top 70%", onEnter: function () { li.classList.add("on"); count(); }, onLeaveBack: function () { li.classList.remove("on"); count(); } }));
-    });
-    journeyMotion.push(ScrollTrigger.create({ trigger: "#journey", start: "top 80%", end: "bottom 40%", onToggle: function (self) { counter.classList.toggle("show", self.isActive); } }));
-    ScrollTrigger.refresh();
-  }
-
-  // The booking page (/book/…) is the app and keeps its own language setting:
-  // hand it the language this page is read in, so a German visitor books in German.
-  $$('a[href^="/book/"], a[href*="borivon.com/book/"]').forEach(function (a) {
-    a.addEventListener("click", function () { try { localStorage.setItem("borivon-lang", lang); } catch (e) {} });
-  });
-  $$(".langs button").forEach(function (b) {
-    b.addEventListener("click", function () {
-      lang = b.getAttribute("data-lang");
-      try { localStorage.setItem("bv-lang", lang); } catch (e) {}
-      render();
-      buildJourney();
-      count();
-    });
-  });
-
-  if (!window.gsap || reduce) { buildJourney(); return; }
-  gsap.registerPlugin(ScrollTrigger);
-
-  if (window.Lenis) {
-    var lenis = new Lenis({ lerp: 0.085, smoothWheel: true });
-    lenis.on("scroll", ScrollTrigger.update);
-    gsap.ticker.add(function (tm) { lenis.raf(tm * 1000); });
-    gsap.ticker.lagSmoothing(0);
-    $$('a[href^="#"]').forEach(function (a) {
-      a.addEventListener("click", function (e) { var id = a.getAttribute("href"), el = id.length > 1 && document.querySelector(id); if (el) { e.preventDefault(); lenis.scrollTo(el, { offset: -70 }); } });
-    });
-  }
-
-  // hero: settles in on load (visible at rest; only position moves)
-  gsap.from(".hero .wrap > *", { y: 22, duration: 1.1, ease: "expo.out", stagger: 0.08 });
-
-  // the old way: the wait counts up; your access: zero, instantly
-  var w = { v: 0 }, waitEl = $("#wait-old");
-  ScrollTrigger.create({ trigger: ".vs", start: "top 75%", once: true, onEnter: function () {
-    gsap.from("#chat > *", { y: 10, duration: 0.7, ease: "power3.out", stagger: 0.35 });
-    gsap.fromTo(w, { v: 0 }, { v: 5, duration: 2.2, ease: "power1.inOut", delay: 0.3, onUpdate: function () { waitEl.textContent = Math.round(w.v); } });
-  } });
-
-  buildJourney();
-})();
-</script>
-<script src="/pflege/assets/t.js?v=4bb9a0cd" defer></script>
+<script src="/pflege/assets/t.js?v=4bb9a0cd"></script>
+<script src="/pflege/assets/bv.js?v=9e8282ee"></script>
 </body>
 </html>

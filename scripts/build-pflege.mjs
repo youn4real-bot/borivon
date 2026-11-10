@@ -143,15 +143,13 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   pages.HOME_HTML = bv(s);
 }
 
-// ── platform tour ────────────────────────────────────────────────────────────
+// ── the platform as a premium product (founder 2026-11-10: "a separate page on it… see if you qualify") ──
 {
   let s = fs.readFileSync(path.join(SRC, "plattform.html"), "utf8");
-  s = sharedLinks(s);
-  // Home IS the offer page since 2026-10-20 (app/route.ts serves it at /).
-  s = swap(s, 'href="index.html"', 'href="/"', "back links", { all: true });
-  s = swap(s, `$('a[href="index.html"]')`, `$('a[href="/"]')`, "back-link script", { optional: true });
-  s = s.replace(/<meta charset="utf-8">\n<meta name="viewport"[^>]*>\n<title>[^<]*<\/title>\n/, () => head("Borivon Plattform · jeder Schritt live", "Jeder Schritt Ihrer neuen Pflegefachkraft, von der Bewerbung bis zur bestandenen Probezeit. 24/7 online, für Sie kostenlos.", "https://www.borivon.com/plattform"));
-  pages.PLATTFORM_HTML = s;
+  const i = s.indexOf("<!--HEAD-->");
+  if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in plattform.html"); }
+  else s = s.slice(0, i) + head("Die Borivon-Plattform · kostenlos für Ihre Einrichtung", "Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Kostenlos, als Dankeschön zu Ihrem Fahrplan.", "https://www.borivon.com/plattform", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  pages.PLATTFORM_HTML = bv(s);
 }
 
 // ── Pflege-Fahrplan (free roadmap → personal PDF by email, app/api/roadmap) ──
