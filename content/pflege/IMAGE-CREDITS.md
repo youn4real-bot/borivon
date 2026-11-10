@@ -36,3 +36,16 @@ problem = empty-corridor; days = workshop-table; bonus = bonus-meet; area-* / wh
 - EB Garamond (Georg Duffner, Octavio Pardo), SIL Open Font License 1.1: public/pflege/assets/fonts/ebgaramond-*.woff2,
   public/fonts/EBGaramond-*.ttf (PDF).
 - Inter (Rasmus Andersson), SIL Open Font License 1.1: public/pflege/assets/fonts/inter-*.woff2, public/fonts/Inter-*.ttf (PDF).
+
+## pf (example screens on /plattform and the homepage, 2026-11-11)
+
+Founder 2026-11-11: real faces in the example screens, people who could be from Morocco, no headscarves, no
+uniforms. Unsplash License (free, commercial use). Face-centred 240 px crops, self-hosted (public/pflege/assets/pf).
+Shown as "Symbolbilder" in drawn example screens, names invented, no real data.
+
+- av-1.webp — https://images.unsplash.com/photo-1544725176-7c40e5a71c5e
+- av-2.webp — https://images.unsplash.com/photo-1615233500570-c5d7576b4262
+- av-3.webp — https://images.unsplash.com/photo-1614495039368-525273956716
+- av-4.webp — https://images.unsplash.com/photo-1586391975091-40b8eb04bfc7
+- av-5.webp — https://images.unsplash.com/photo-1756699279298-c89cdef354ab
+- av-6.webp — https://images.unsplash.com/photo-1662850886700-4ec19bd30d11

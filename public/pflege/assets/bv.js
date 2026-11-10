@@ -127,3 +127,21 @@
   if (desk.addEventListener) desk.addEventListener("change", function () { pxs.forEach(function (i) { i.style.transform = ""; }); onScroll(); });
   onScroll();
 })();
+
+/* [data-fit="W"]: a drawn picture is laid out at its laptop width W and zoomed down to fit (founder
+   2026-11-11: "the phone version should be exactly the same as the laptop, just smaller"). zoom (not
+   transform) so the page keeps no sideways scroll and the box takes the scaled height. */
+(function () {
+  var els = [].slice.call(document.querySelectorAll("[data-fit]"));
+  if (!els.length) return;
+  function fit() {
+    els.forEach(function (el) {
+      var w = +el.getAttribute("data-fit") || 1000, p = el.parentNode, cs = getComputedStyle(p),
+        box = p.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      el.style.zoom = box > 0 && box < w ? (box / w).toFixed(4) : "";
+    });
+  }
+  fit();
+  window.addEventListener("resize", fit);
+  window.addEventListener("load", fit);
+})();
