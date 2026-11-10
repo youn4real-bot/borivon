@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FxShell, useFxLang, Arrow } from "@/components/fx/Shell";
+import { FxShell, useFxLang, Arrow, LangPick } from "@/components/fx/Shell";
 import { Plan, fmtDate } from "@/components/fx/Plan";
 import { fxT, fill } from "@/components/fx/i18n";
 import { STEPS, dueDate, type Lang, type StepId } from "@/lib/facility/steps";
@@ -66,7 +66,7 @@ export function Workspace({ demo = false }: { demo?: boolean }) {
       {demo && d && <div className="c"><p className="fx-small" style={{ margin: "-18px 0 30px", paddingBottom: 14, borderBottom: "1px solid var(--line)" }}><span className="fx-tag" style={{ marginLeft: 0, marginRight: 10 }}>{t.example}</span>{t.demoBar}</p></div>}
       {d && (nurse ? <NurseView key={nurse.id} t={t} lang={lang} nurse={nurse} onChange={setNurse} onBack={() => go("")} onRemoved={() => { load(); go(""); }} />
         : view === "team" ? <TeamView t={t} lang={lang} d={d} reload={load} />
-        : view === "settings" ? <SettingsView t={t} d={d} onSaved={(f) => setD({ ...d, facility: f })} onDeleted={() => router.replace("/")} />
+        : view === "settings" ? <SettingsView t={t} d={d} lang={lang} setLang={setLang} onSaved={(f) => setD({ ...d, facility: f })} onDeleted={() => router.replace("/")} />
         : <ListView t={t} lang={lang} d={d} onOpen={(id) => go(`?n=${id}`)} onAdded={(n) => { setD({ ...d, nurses: [...d.nurses, n] }); go(`?n=${n.id}`); }} />)}
     </FxShell>
     </Api.Provider>
@@ -291,7 +291,7 @@ function TeamView({ t, lang, d, reload }: { t: T; lang: Lang; d: Data; reload: (
 }
 
 /* ── the facility ─────────────────────────────────────────────────────────────────────────── */
-function SettingsView({ t, d, onSaved, onDeleted }: { t: T; d: Data; onSaved: (f: Facility) => void; onDeleted: () => void }) {
+function SettingsView({ t, d, lang, setLang, onSaved, onDeleted }: { t: T; d: Data; lang: Lang; setLang: (l: Lang) => void; onSaved: (f: Facility) => void; onDeleted: () => void }) {
   const [f, setF] = useState({ name: d.facility.name, street: d.facility.street, plz: d.facility.plz, city: d.facility.city });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const owner = d.me.role === "owner";
@@ -328,6 +328,11 @@ function SettingsView({ t, d, onSaved, onDeleted }: { t: T; d: Data; onSaved: (f
       </form>
 
       <div style={{ marginTop: 56, paddingTop: 28, borderTop: "1px solid var(--line)" }}>
+        <h2 className="fx-h3">{t.langH}</h2>
+        <div style={{ marginTop: 14, fontSize: 14 }}><LangPick lang={lang} setLang={setLang} /></div>
+      </div>
+
+      <div style={{ marginTop: 44, paddingTop: 28, borderTop: "1px solid var(--line)" }}>
         <h2 className="fx-h3">{t.legalH}</h2>
         <p className="fx-small" style={{ margin: "8px 0 14px" }}>{t.legalP}</p>
         <div style={{ display: "flex", gap: 22 }}>

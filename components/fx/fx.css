@@ -33,7 +33,7 @@
 .fx-nav { display: flex; gap: 20px; align-items: center; font-size: 13.5px; }
 .fx-nav button, .fx-nav a { background: none; border: 0; padding: 4px 0; color: var(--ink2); font: inherit; cursor: pointer; text-decoration: none; border-bottom: 1px solid transparent; }
 .fx-nav button:hover, .fx-nav a:hover, .fx-nav [aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
-.fx-langs { display: flex; gap: 10px; font: 500 12px/1 var(--sans); letter-spacing: .1em; }
+.fx-langs { display: inline-flex; gap: 14px; font: 400 12.5px/1 var(--sans); }
 .fx-langs button { background: none; border: 0; padding: 4px 0; color: var(--faint); cursor: pointer; font: inherit; letter-spacing: inherit; }
 .fx-langs button[aria-pressed="true"] { color: var(--ink); }
 

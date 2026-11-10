@@ -126,7 +126,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" dir="ltr" className={`${inter.variable} ${garamond.variable} ${garamondUpright.variable} ${mono.variable}`}>
+    <html lang="de" dir="ltr" className={`${inter.variable} ${garamond.variable} ${garamondUpright.variable} ${mono.variable}`}>
       <head>
         {/* Affiliate subdomain marker — runs synchronously before first paint so
             the global chrome (navbar/flag-strip/actions) is CSS-hidden on

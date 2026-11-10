@@ -67,7 +67,7 @@ export function FxMap({ center, places, numberOf, highlight, onPick, homeLabel }
   return (
     <div className="fx-map" ref={box} role="img" aria-label={homeLabel}>
       <div className="tiles" aria-hidden="true">
-        {tiles.map((t) => <img key={t.key} src={t.src} alt="" style={{ left: t.left, top: t.top }} loading="lazy" decoding="async" />)}
+        {tiles.map((t) => <img key={t.key} src={t.src} alt="" style={{ left: t.left, top: t.top }} decoding="async" />)}
       </div>
       {view && <span className="fx-pin home" style={at(center.lat, center.lon)} title={homeLabel} />}
       {view && places.map((p) => (

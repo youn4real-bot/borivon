@@ -70,7 +70,7 @@ export const V: Record<keyof L, {
     stepsH: "So kommen Sie auf Stufe {n}.", stepsSub: "Abhaken. Eins nach dem anderen.", stayH: "So bleiben Sie oben.",
     giftTag: "Ein Dankeschön", giftH: "Ihr Zugang zur Borivon-Plattform.",
     giftP: "Weil Sie bis zur letzten Seite gelesen haben: Sie bekommen kostenlosen Zugang zu unserer Plattform. Für jede neue Pflegekraft steht dort der fertige Ankunftsplan, mit Bürgerbüro, Bank, Krankenkasse und Ausländerbehörde in ihrer Nähe, auf einer Karte. Sie sucht nichts, und Sie sehen jeden Schritt.",
-    giftItems: ["Ankunftsplan für jede Pflegekraft", "Die nächsten Ämter, automatisch", "Ein Link für sie, in ihrer Sprache"],
+    giftItems: ["Ankunftsplan für jede Pflegekraft", "Die nächsten Ämter, automatisch", "Ein eigener Link für jede Pflegekraft"],
     giftBtn: "Zugang freischalten", giftNote: "Dieser Link gilt nur für Sie.",
   },
   en: {
@@ -84,7 +84,7 @@ export const V: Record<keyof L, {
     stepsH: "How you reach level {n}.", stepsSub: "Tick them off. One by one.", stayH: "How you stay on top.",
     giftTag: "A thank-you", giftH: "Your access to the Borivon platform.",
     giftP: "Because you read to the last page: you get free access to our platform. For every new nurse it holds the finished arrival plan, with the citizens' office, bank, health insurer and immigration office near her, on one map. She searches nothing, and you see every step.",
-    giftItems: ["An arrival plan for every nurse", "The nearest offices, found automatically", "One link for her, in her language"],
+    giftItems: ["An arrival plan for every nurse", "The nearest offices, found automatically", "Her own link for every nurse"],
     giftBtn: "Unlock your access", giftNote: "This link is yours alone.",
   },
   fr: {
@@ -98,7 +98,7 @@ export const V: Record<keyof L, {
     stepsH: "Comment passer au niveau {n}.", stepsSub: "Cochez. Une chose après l'autre.", stayH: "Comment rester au sommet.",
     giftTag: "Un remerciement", giftH: "Votre accès à la plateforme Borivon.",
     giftP: "Parce que vous avez lu jusqu'à la dernière page : vous recevez un accès gratuit à notre plateforme. Pour chaque nouvelle infirmière, elle contient le plan d'arrivée prêt, avec bureau des citoyens, banque, caisse maladie et service des étrangers près de chez elle, sur une carte. Elle ne cherche rien, et vous voyez chaque étape.",
-    giftItems: ["Un plan d'arrivée pour chaque infirmière", "Les administrations proches, automatiquement", "Un lien pour elle, dans sa langue"],
+    giftItems: ["Un plan d'arrivée pour chaque infirmière", "Les administrations proches, automatiquement", "Un lien personnel pour chaque infirmière"],
     giftBtn: "Débloquer l'accès", giftNote: "Ce lien n'est valable que pour vous.",
   },
 };

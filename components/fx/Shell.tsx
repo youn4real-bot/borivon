@@ -15,6 +15,19 @@ export function useFxLang(): { lang: Lang; setLang: (l: Lang) => void; ready: bo
   return { lang: l, setLang: (x: Lang) => setLang(x), ready };
 }
 
+const LANG_NAMES: Record<Lang, string> = { de: "Deutsch", en: "English", fr: "Français" };
+
+/** The quiet language choice (footer, settings). */
+export function LangPick({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
+  return (
+    <span className="fx-langs" role="group" aria-label="Sprache / Language / Langue">
+      {(["de", "en", "fr"] as Lang[]).map((l) => (
+        <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)}>{LANG_NAMES[l]}</button>
+      ))}
+    </span>
+  );
+}
+
 export const Arrow = () => (
   <svg viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4" /></svg>
 );
@@ -32,11 +45,6 @@ export function FxShell({ children, who, nav, lang, setLang, ready }: {
           {who && <span className="who">{who}</span>}
           <span className="sp" />
           {nav && <nav className="fx-nav" aria-label="Borivon">{nav}</nav>}
-          <div className={`fx-langs fx-in${ready ? " on" : ""}`} role="group" aria-label="Sprache / Language">
-            {(["de", "en", "fr"] as Lang[]).map((l) => (
-              <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)}>{l.toUpperCase()}</button>
-            ))}
-          </div>
         </div>
       </header>
       <main id="main-content" className={`fx-main fx-in${ready ? " on" : ""}`}>{children}</main>
@@ -49,6 +57,8 @@ export function FxShell({ children, who, nav, lang, setLang, ready }: {
           <a href="/einrichtung/avv">{t.avv}</a>
           <span className="sp" />
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">{t.mapData}</a>
+          {/* German by default; the other languages stay here, quietly (founder 2026-11-10) */}
+          <LangPick lang={lang} setLang={setLang} />
         </div>
       </footer>
     </div>

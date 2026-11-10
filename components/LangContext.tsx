@@ -10,22 +10,25 @@ interface LangCtx {
 }
 
 const LangContext = createContext<LangCtx>({
-  lang: "fr",
-  t: translations.fr,
+  lang: "de",
+  t: translations.de,
   setLang: () => {},
 });
 
+/**
+ * German for everyone (founder 2026-11-10: "everything on this website must be in German, even the
+ * nurses' portal"). French and English stay, one click away in the settings / footer; a choice someone
+ * made is kept. The browser's language no longer decides.
+ */
 function detectLang(): Lang {
-  const saved = localStorage.getItem("borivon-lang") as Lang | null;
+  let saved: Lang | null = null;
+  try { saved = localStorage.getItem("borivon-lang") as Lang | null; } catch { /* storage off */ }
   if (saved && ["fr", "en", "de"].includes(saved)) return saved;
-  const browser = navigator.language?.toLowerCase() ?? "";
-  if (browser.startsWith("de")) return "de";
-  if (browser.startsWith("fr")) return "fr";
-  return "en";
+  return "de";
 }
 
 export function LangProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("fr");
+  const [lang, setLangState] = useState<Lang>("de");
 
   const setLang = (l: Lang) => {
     setLangState(l);
