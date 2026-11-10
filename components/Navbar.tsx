@@ -18,10 +18,11 @@ const PORTAL_NAV_T = {
   de: { dashboard: "Dashboard",     academy: "Akademie", calendar: "Kalender",   community: "Community"  },
 } as const;
 
-const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
-  { code: "fr", flagSrc: "/flags/fr.svg", label: "Français" },
-  { code: "en", flagSrc: "/flags/gb.svg", label: "English" },
-  { code: "de", flagSrc: "/flags/de.svg", label: "Deutsch" },
+// Language = plain text codes, no flags (founder 2026-11-10: "I don't like the flags, I like the text").
+const LANGS: { code: Lang; short: string; label: string }[] = [
+  { code: "fr", short: "FR", label: "Français" },
+  { code: "en", short: "EN", label: "English" },
+  { code: "de", short: "DE", label: "Deutsch" },
 ];
 
 export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: ReactNode; leftExtra?: ReactNode; hideThemeLang?: boolean }) {
@@ -214,7 +215,7 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
         {theme === "dark" ? <Sun size={20} strokeWidth={1.8} /> : <Moon size={20} strokeWidth={1.8} />}
       </button>
 
-      {/* Language selector — single flag, dropdown on click */}
+      {/* Language selector — the current code (DE/EN/FR), the others on click */}
       <div ref={langRef} className="relative" aria-label="Language selector">
         <button
           ref={langTriggerRef}
@@ -244,12 +245,7 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
           }}
           className="flex items-center justify-center w-11 h-11 cursor-pointer hover:scale-110 hover:opacity-100 active:scale-95"
         >
-          <img src={current.flagSrc} alt={current.label} width={34} height={24}
-            className="object-cover" style={{
-              display: "block",
-              borderRadius: "6px",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.06) inset",
-            }} />
+          <span style={{ font: "500 13px/1 var(--font-dm-sans)", letterSpacing: "0.1em", color: "var(--w)" }}>{current.short}</span>
         </button>
         {langOpen && typeof document !== "undefined" && dropdownPos && createPortal(
           // Click-outside catcher — invisible full-screen layer that closes
@@ -289,14 +285,7 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
                     borderRadius: "10px",
                     lineHeight: 0,
                   }}>
-                  <img src={l.flagSrc} alt={l.label} width={36} height={26}
-                    className="object-cover" style={{
-                      display: "block",
-                      borderRadius: "6px",
-                      // Subtle dual-shadow gives flags a premium "lifted card" feel
-                      // without resorting to a heavy border.
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.08) inset",
-                    }} />
+                  <span style={{ font: "500 13px/1 var(--font-dm-sans)", letterSpacing: "0.1em", color: "var(--w)" }}>{l.short}</span>
                 </button>
               ))}
             </div>
@@ -313,15 +302,9 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
 
   return (
     <>
-      {/* German flag strip — thinner for a more refined silhouette */}
-      <div className="fixed top-0 left-0 right-0 h-[2px] z-[1201] flex">
-        <div className="flex-1 bg-[#111]" />
-        <div className="flex-1 bg-[#CC0000]" />
-        <div className="flex-1 bg-[#FFCE00]" />
-      </div>
-
+      {/* (the German flag strip that sat above the bar is gone: no flags, founder 2026-11-10) */}
       <nav
-        className="fixed top-[2px] left-0 right-0 z-[1200] flex items-center justify-between px-4 sm:px-[3.5vw] h-[56px] backdrop-blur-[20px] border-b"
+        className="fixed top-0 left-0 right-0 z-[1200] flex items-center justify-between px-4 sm:px-[3.5vw] h-[56px] backdrop-blur-[20px] border-b"
         style={{
           background: "var(--nav-bg)",
           borderColor: "var(--border)",

@@ -16,10 +16,11 @@ import { useTheme } from "@/components/ThemeContext";
 import { Sun, Moon } from "lucide-react";
 import type { Lang } from "@/lib/translations";
 
-const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
-  { code: "fr", flagSrc: "/flags/fr.svg", label: "Français" },
-  { code: "en", flagSrc: "/flags/gb.svg", label: "English" },
-  { code: "de", flagSrc: "/flags/de.svg", label: "Deutsch" },
+// Language = plain text codes, no flags (founder 2026-11-10: "I don't like the flags, I like the text").
+const LANGS: { code: Lang; short: string; label: string }[] = [
+  { code: "fr", short: "FR", label: "Français" },
+  { code: "en", short: "EN", label: "English" },
+  { code: "de", short: "DE", label: "Deutsch" },
 ];
 
 // Cap an avatar data URL to ~maxW px before upload. The crop modal outputs a
@@ -834,11 +835,10 @@ export function ProfileIcon() {
                   {LANGS.map(l => (
                     <button key={l.code} onClick={() => setLang(l.code)} aria-label={l.label} title={l.label}
                       className="cursor-pointer"
-                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: l.code === lang ? "2px solid var(--gold)" : "2px solid var(--border)", borderRadius: 9, padding: "6px 0", lineHeight: 0, opacity: l.code === lang ? 1 : 0.6, transition: "opacity .15s var(--ease), border-color .15s var(--ease)" }}
+                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: l.code === lang ? "1px solid var(--w)" : "1px solid var(--border)", borderRadius: 4, padding: "8px 0", font: "500 12.5px/1 var(--font-dm-sans)", letterSpacing: "0.1em", color: "var(--w)", opacity: l.code === lang ? 1 : 0.55, transition: "opacity .15s var(--ease), border-color .15s var(--ease)" }}
                       onMouseEnter={e => { if (l.code !== lang) e.currentTarget.style.opacity = "1"; }}
                       onMouseLeave={e => { if (l.code !== lang) e.currentTarget.style.opacity = "0.6"; }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={l.flagSrc} alt={l.label} width={30} height={21} style={{ display: "block", borderRadius: 4, objectFit: "cover" }} />
+                      {l.short}
                     </button>
                   ))}
                 </div>
