@@ -9,6 +9,7 @@ import { Plan, fmtDate } from "./Plan";
 import { fxT } from "./i18n";
 import { VisaGuide } from "./VisaGuide";
 import { MoveGuide } from "./MoveGuide";
+import { SettleGuide } from "./SettleGuide";
 
 type Arr = { arrival: string; start: string; plz: string; city: string; steps: Record<string, string> };
 
@@ -108,6 +109,8 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
           <Plan lang={lang} arrival={a.arrival} steps={a.steps} authToken={token} voice={nurse ? "nurse" : "facility"}
             placesUrl={`/api/einrichtung/places?plz=${a.plz}&city=${encodeURIComponent(a.city)}`} onToggle={toggle} />
         )}
+        {/* then the first six months, to the end of probation */}
+        {token && a && <SettleGuide lang={lang} token={token} userId={userId} start={a.start} nurse={nurse} />}
       </div>
     </div>
   );

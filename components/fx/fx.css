@@ -174,3 +174,22 @@
   .fx-row { grid-template-columns: 1fr; }
   .fx-bar { width: 80px; }
 }
+
+/* the first six months (components/fx/SettleGuide.tsx) */
+.fx-six { margin-top: 30px; border-top: 1px solid var(--line); max-width: 880px; }
+.fx-ph { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 12px 32px; padding: 24px 0; border-bottom: 1px solid var(--line); }
+.fx-ph .pw { font: 500 1.35rem/1.2 var(--serif); letter-spacing: -.01em; }
+.fx-ph .pd { margin-top: 6px; font-size: 13px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.fx-ph.now .pw::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 10px; border-radius: 50%; background: var(--gold); vertical-align: 4px; }
+.fx-ph.past .pw { color: var(--mute); }
+.fx-ph ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 13px; }
+.fx-chk { display: flex; gap: 12px; align-items: flex-start; width: 100%; padding: 0; border: 0; background: none; text-align: left; font: 400 15px/1.45 var(--sans); color: var(--ink); cursor: pointer; }
+.fx-chk .bx { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border: 1px solid var(--line2); border-radius: 50%; background: var(--white); color: var(--paper); transition: background .25s, border-color .25s; }
+.fx-chk:hover .bx { border-color: var(--ink); }
+.fx-chk .bx svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.fx-chk[aria-pressed="true"] { color: var(--mute); }
+.fx-chk[aria-pressed="true"] .bx { background: var(--ink); border-color: var(--ink); }
+.fx-chk[aria-pressed="true"] .tx { text-decoration: line-through; text-decoration-color: var(--line2); }
+.fx-end { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; margin-top: 18px; font-size: 13.5px; color: var(--mute); max-width: 880px; }
+.fx-end b { font-weight: 500; color: var(--ink); }
+@media (max-width: 640px) { .fx-ph { grid-template-columns: 1fr; gap: 14px; } }

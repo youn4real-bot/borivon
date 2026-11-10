@@ -66,6 +66,25 @@ describe("arrival plan API", async () => {
     expect((await mv.GET(mreq("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
   });
 
+  it("the first six months: ticked by both sides, probation end six months after the first day", async () => {
+    const st = await import("../app/api/portal/settle/route");
+    const { probationEnd, phaseDate } = await import("../lib/facility/settle");
+    const sreq = (method: string, headers: Record<string, string>, body?: unknown, q = "") =>
+      new NextRequest(`https://borivon.com/api/portal/settle${q}`, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+    expect((await st.PATCH(sreq("PATCH", { "x-user": NURSE }, { step: "d1a", done: true }))).status).toBe(200);
+    expect((await st.PATCH(sreq("PATCH", { "x-role": "admin" }, { userId: NURSE, step: "m6c", done: true }))).status).toBe(200);
+    const g = await (await st.GET(sreq("GET", { "x-role": "admin" }, undefined, `?userId=${NURSE}`))).json();
+    expect(Object.keys(g.steps).sort()).toEqual(["d1a", "m6c"]);
+    expect((await st.PATCH(sreq("PATCH", { "x-user": NURSE }, { step: "d1a", done: false }))).status).toBe(200);
+    expect(Object.keys((await (await st.GET(sreq("GET", { "x-user": NURSE }))).json()).steps)).toEqual(["m6c"]);
+    expect((await st.GET(sreq("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
+    expect((await st.PATCH(sreq("PATCH", { "x-user": NURSE }, { step: "nope", done: true }))).status).toBe(400);
+    expect(probationEnd("2026-12-15")).toBe("2027-06-15");
+    expect(probationEnd("2026-08-31")).toBe("2027-02-28");
+    expect(probationEnd("")).toBe("");
+    expect(phaseDate("2026-12-15", 30)).toBe("2027-01-14");
+  });
+
   it("an admin cannot reach a nurse outside their scope; a nurse never reaches another's plan", async () => {
     const api = await import("../app/api/portal/arrival/route");
     expect((await api.GET(req("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);

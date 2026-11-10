@@ -73,6 +73,13 @@ const DDL = [
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
   )`,
+  // the first six months of a portal user (nurse): ticked items (app/api/portal/settle)
+  `CREATE TABLE IF NOT EXISTS fx_settle (
+    user_id TEXT PRIMARY KEY,
+    steps TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the visa of a portal user (nurse): when handed in, the guide's ticked steps (app/api/portal/visa)
   `CREATE TABLE IF NOT EXISTS fx_visa (
     user_id TEXT PRIMARY KEY,
@@ -83,7 +90,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
