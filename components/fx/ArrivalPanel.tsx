@@ -75,6 +75,11 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
         <p className="fx-lbl">{nurse ? t.yourSteps : t.arrAdminH}</p>
         <h1 className="fx-h1" style={{ fontSize: "clamp(2.1rem,1.5rem + 2.4vw,3.4rem)" }}>{nurse ? t.arrNurseH : (name || t.arrAdminH)}</h1>
         <p className="fx-lede">{nurse ? t.arrNurseP : t.arrAdminP}</p>
+        {/* the visa first, then the first weeks (founder 2026-11-10: the journey in order) */}
+        {token && <VisaGuide lang={lang} token={token} userId={userId} />}
+        {token && <MoveGuide lang={lang} token={token} userId={userId} />}
+        {/* the first weeks: where she lives (asked here, in order), then the plan with the offices nearby */}
+        {a && <h2 className="fx-h2" style={{ marginTop: 56 }}>{t.planH}</h2>}
         {a && !editing && (
           <p className="fx-mute" style={{ margin: "14px 0 0", display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "baseline" }}>
             <span>{[a.arrival && `${t.arrival} ${fmtDate(a.arrival, lang, true)}`, a.start && `${t.firstDay} ${fmtDate(a.start, lang, true)}`, where].filter(Boolean).join(" · ")}</span>
@@ -99,10 +104,6 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
             </div>
           </form>
         )}
-        {/* the visa first, then the first weeks (founder 2026-11-10: the journey in order) */}
-        {token && <VisaGuide lang={lang} token={token} userId={userId} />}
-        {token && <MoveGuide lang={lang} token={token} userId={userId} />}
-        {a && a.plz && <h2 className="fx-h2" style={{ marginTop: 56 }}>{t.planH}</h2>}
         {a && a.plz && (
           <Plan lang={lang} arrival={a.arrival} steps={a.steps} authToken={token} voice={nurse ? "nurse" : "facility"}
             placesUrl={`/api/einrichtung/places?plz=${a.plz}&city=${encodeURIComponent(a.city)}`} onToggle={toggle} />
