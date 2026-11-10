@@ -8,6 +8,7 @@ import type { Lang, StepId } from "@/lib/facility/steps";
 import { Plan, fmtDate } from "./Plan";
 import { fxT } from "./i18n";
 import { VisaGuide } from "./VisaGuide";
+import { MoveGuide } from "./MoveGuide";
 
 type Arr = { arrival: string; start: string; plz: string; city: string; steps: Record<string, string> };
 
@@ -100,6 +101,7 @@ export function ArrivalPanel({ userId, name }: { userId?: string; name?: string 
         )}
         {/* the visa first, then the first weeks (founder 2026-11-10: the journey in order) */}
         {token && <VisaGuide lang={lang} token={token} userId={userId} />}
+        {token && <MoveGuide lang={lang} token={token} userId={userId} />}
         {a && a.plz && <h2 className="fx-h2" style={{ marginTop: 56 }}>{t.planH}</h2>}
         {a && a.plz && (
           <Plan lang={lang} arrival={a.arrival} steps={a.steps} authToken={token} voice={nurse ? "nurse" : "facility"}

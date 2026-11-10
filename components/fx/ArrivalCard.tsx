@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 
-/** A slim card on the nurse's dashboard, shown once her arrival plan has a place (app/portal/ankunft). */
+/** A slim card on the nurse's dashboard: her way to Germany (visa, flat, journey, first weeks: app/portal/ankunft). */
 export function ArrivalCard() {
   const { t } = useLang();
   const [show, setShow] = useState(false);
@@ -15,7 +15,7 @@ export function ArrivalCard() {
       if (!tok) return;
       const r = await fetch("/api/portal/arrival", { headers: { Authorization: `Bearer ${tok}` }, cache: "no-store" }).catch(() => null);
       const j = r?.ok ? await r.json().catch(() => null) : null;
-      if (!off && j?.plz) setShow(true);
+      if (!off && j) setShow(true);
     });
     return () => { off = true; };
   }, []);

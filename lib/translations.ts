@@ -624,7 +624,7 @@ export const translations: Record<Lang, Translation> = {
     nbAria: "Notifications",
     // DIY facility panel
     diyNurses: "Inviter vos infirmières", diyNursesHint: "Envoyez ce lien à vos infirmières. Elles créent leur compte et rejoignent directement votre établissement.", diyTeam: "Inviter une collègue", diyTeamHint: "Pour une personne de votre équipe qui travaille avec vous ici.", diyCopy: "Copier le lien", diyCopied: "Copié", diyWhatsapp: "Envoyer par WhatsApp", diyWaText: "Bonjour, voici votre lien pour notre espace sur la plateforme Borivon : {url}", diyBorivonH: "Travailler avec Borivon", diyBorivonP: "Désactivé, vous travaillez seul : notre équipe ne voit pas vos infirmières. Activé, nous vous aidons pour les documents, la reconnaissance et le visa.", diyBorivonOn: "Activé", diyBorivonOff: "Désactivé", diyLimitNurses: "Votre accès gratuit est complet ({n} infirmières). Pour plus, écrivez-nous : contact@borivon.com", diyLimitUsers: "Votre équipe est complète ({n} personnes).",
-    arrCardH: "Ton plan d’arrivée", arrCardP: "Tes premières semaines en Allemagne, étape par étape, avec les administrations près de chez toi.", arrAdminBtn: "Plan d’arrivée",
+    arrCardH: "Ton chemin vers l’Allemagne", arrCardP: "Visa, logement, voyage et premières semaines, étape par étape.", arrAdminBtn: "Visa et arrivée",
     visaBundleBtn: "Dossier visa (PDF)", visaBundleBusy: "Préparation …", visaBundleEmpty: "Aucun document validé pour l’instant.", visaBundleSkipped: "Non inclus :", visaBundleFail: "Le dossier n’a pas pu être créé. Réessayez.",
   },
   en: {
@@ -953,7 +953,7 @@ export const translations: Record<Lang, Translation> = {
     nbAria: "Notifications",
     // DIY facility panel
     diyNurses: "Invite your nurses", diyNursesHint: "Send this link to your nurses. They create their account and join your facility directly.", diyTeam: "Invite a colleague", diyTeamHint: "For someone on your team who works with you here.", diyCopy: "Copy link", diyCopied: "Copied", diyWhatsapp: "Send via WhatsApp", diyWaText: "Hello, here is your link to our space on the Borivon platform: {url}", diyBorivonH: "Work with Borivon", diyBorivonP: "Off, you work on your own: our team does not see your nurses. On, we help with documents, recognition and the visa.", diyBorivonOn: "On", diyBorivonOff: "Off", diyLimitNurses: "Your free access is full ({n} nurses). For more, write to us: contact@borivon.com", diyLimitUsers: "Your team is full ({n} people).",
-    arrCardH: "Your arrival plan", arrCardP: "Your first weeks in Germany, step by step, with the offices near you.", arrAdminBtn: "Arrival plan",
+    arrCardH: "Your way to Germany", arrCardP: "Visa, flat, journey and the first weeks, step by step.", arrAdminBtn: "Visa and arrival",
     visaBundleBtn: "Visa folder (PDF)", visaBundleBusy: "Preparing …", visaBundleEmpty: "No approved documents yet.", visaBundleSkipped: "Not included:", visaBundleFail: "The folder could not be created. Please try again.",
   },
   de: {
@@ -1282,7 +1282,7 @@ export const translations: Record<Lang, Translation> = {
     nbAria: "Benachrichtigungen",
     // DIY facility panel
     diyNurses: "Pflegekräfte einladen", diyNursesHint: "Schicken Sie diesen Link an Ihre Pflegekräfte. Sie legen ihr Konto an und sind direkt in Ihrer Einrichtung.", diyTeam: "Kollegin oder Kollegen einladen", diyTeamHint: "Für eine Person aus Ihrem Team, die hier mit Ihnen arbeitet.", diyCopy: "Link kopieren", diyCopied: "Kopiert", diyWhatsapp: "Per WhatsApp senden", diyWaText: "Hallo, hier ist Ihr Link zu unserem Bereich auf der Borivon-Plattform: {url}", diyBorivonH: "Mit Borivon arbeiten", diyBorivonP: "Aus: Sie arbeiten allein, unser Team sieht Ihre Pflegekräfte nicht. An: Wir helfen bei Unterlagen, Anerkennung und Visum.", diyBorivonOn: "An", diyBorivonOff: "Aus", diyLimitNurses: "Ihr kostenloser Zugang ist voll ({n} Pflegekräfte). Für mehr schreiben Sie uns: contact@borivon.com", diyLimitUsers: "Ihr Team ist vollständig ({n} Personen).",
-    arrCardH: "Dein Ankunftsplan", arrCardP: "Deine ersten Wochen in Deutschland, Schritt für Schritt, mit den Ämtern in deiner Nähe.", arrAdminBtn: "Ankunftsplan",
+    arrCardH: "Dein Weg nach Deutschland", arrCardP: "Visum, Wohnung, Anreise und die ersten Wochen, Schritt für Schritt.", arrAdminBtn: "Visum und Ankunft",
     visaBundleBtn: "Visa-Mappe (PDF)", visaBundleBusy: "Wird erstellt …", visaBundleEmpty: "Noch keine freigegebenen Unterlagen.", visaBundleSkipped: "Nicht enthalten:", visaBundleFail: "Die Mappe konnte nicht erstellt werden. Bitte noch einmal.",
   },
 };

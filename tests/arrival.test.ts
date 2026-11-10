@@ -54,6 +54,18 @@ describe("arrival plan API", async () => {
     expect((await visa.PATCH(vreq("PATCH", { "x-user": NURSE }, { step: "nope", done: true }))).status).toBe(400);
   });
 
+  it("flat + journey: the flight and who picks her up, shared", async () => {
+    const mv = await import("../app/api/portal/move/route");
+    const mreq = (method: string, headers: Record<string, string>, body?: unknown, q = "") =>
+      new NextRequest(`https://borivon.com/api/portal/move${q}`, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+    expect((await mv.PUT(mreq("PUT", { "x-role": "admin" }, { userId: NURSE, flight_from: "Casablanca", flight_to: "München", flight_date: "2027-01-12", pickup_by: "Frau Huber" }))).status).toBe(200);
+    expect((await mv.PATCH(mreq("PATCH", { "x-user": NURSE }, { step: "lease", done: true }))).status).toBe(200);
+    const g = await (await mv.GET(mreq("GET", { "x-user": NURSE }))).json();
+    expect(g).toMatchObject({ flight_to: "München", flight_date: "2027-01-12", pickup_by: "Frau Huber" });
+    expect(g.steps.lease).toBeTruthy();
+    expect((await mv.GET(mreq("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
+  });
+
   it("an admin cannot reach a nurse outside their scope; a nurse never reaches another's plan", async () => {
     const api = await import("../app/api/portal/arrival/route");
     expect((await api.GET(req("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);

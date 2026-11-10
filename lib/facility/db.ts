@@ -62,6 +62,17 @@ const DDL = [
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
   )`,
+  // flat + journey of a portal user (nurse): the flight, who picks her up, ticked steps (app/api/portal/move)
+  `CREATE TABLE IF NOT EXISTS fx_move (
+    user_id TEXT PRIMARY KEY,
+    flight_from TEXT NOT NULL DEFAULT '',
+    flight_to TEXT NOT NULL DEFAULT '',
+    flight_date TEXT NOT NULL DEFAULT '',
+    pickup_by TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the visa of a portal user (nurse): when handed in, the guide's ticked steps (app/api/portal/visa)
   `CREATE TABLE IF NOT EXISTS fx_visa (
     user_id TEXT PRIMARY KEY,
@@ -72,7 +83,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
