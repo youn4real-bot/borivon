@@ -41,6 +41,19 @@ describe("arrival plan API", async () => {
     expect(seen.steps.anmeldung).toBeTruthy();
   });
 
+  it("the visa guide: the date handed in and the ticked steps, same access rules", async () => {
+    const visa = await import("../app/api/portal/visa/route");
+    const vreq = (method: string, headers: Record<string, string>, body?: unknown, q = "") =>
+      new NextRequest(`https://borivon.com/api/portal/visa${q}`, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+    expect((await visa.PUT(vreq("PUT", { "x-user": NURSE }, { submitted: "2026-11-02" }))).status).toBe(200);
+    expect((await visa.PATCH(vreq("PATCH", { "x-role": "admin" }, { userId: NURSE, step: "vorab", done: true }))).status).toBe(200);
+    const g = await (await visa.GET(vreq("GET", { "x-role": "admin" }, undefined, `?userId=${NURSE}`))).json();
+    expect(g.submitted).toBe("2026-11-02");
+    expect(g.steps.vorab).toBeTruthy();
+    expect((await visa.GET(vreq("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
+    expect((await visa.PATCH(vreq("PATCH", { "x-user": NURSE }, { step: "nope", done: true }))).status).toBe(400);
+  });
+
   it("an admin cannot reach a nurse outside their scope; a nurse never reaches another's plan", async () => {
     const api = await import("../app/api/portal/arrival/route");
     expect((await api.GET(req("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
