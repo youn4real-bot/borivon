@@ -27,9 +27,9 @@ function tagged(url: string, leadId: string): string {
 type Link = { page: number; x: number; y: number; w: number; h: number; url: string };
 
 const TXT = {
-  de: { plan: "Ihr Fahrplan", bonus: "Bonus: Agentur-Check", dl: "PDF herunterladen", bad: "Dieser Link ist ungültig oder abgelaufen.", again: "Fahrplan neu anfordern" },
-  en: { plan: "Your roadmap", bonus: "Bonus: agency check", dl: "Download PDF", bad: "This link is invalid or expired.", again: "Request the roadmap again" },
-  fr: { plan: "Votre plan", bonus: "Bonus : check agence", dl: "Télécharger le PDF", bad: "Ce lien est invalide ou expiré.", again: "Redemander le plan" },
+  de: { hint: "{n} Seiten · Die Knöpfe im Fahrplan funktionieren hier direkt.", plan: "Ihr Fahrplan", bonus: "Bonus: Agentur-Check", dl: "PDF herunterladen", bad: "Dieser Link ist ungültig oder abgelaufen.", again: "Fahrplan neu anfordern" },
+  en: { hint: "{n} pages · The buttons in the roadmap work right here.", plan: "Your roadmap", bonus: "Bonus: agency check", dl: "Download PDF", bad: "This link is invalid or expired.", again: "Request the roadmap again" },
+  fr: { hint: "{n} pages · Les boutons du plan fonctionnent ici directement.", plan: "Votre plan", bonus: "Bonus : check agence", dl: "Télécharger le PDF", bad: "Ce lien est invalide ou expiré.", again: "Redemander le plan" },
 } as const;
 
 function Viewer() {
@@ -39,6 +39,7 @@ function Viewer() {
   const [doc, setDoc] = useState<"plan" | "bonus">(sp.get("doc") === "bonus" ? "bonus" : "plan");
   const [links, setLinks] = useState<Link[]>([]);
   const [failed, setFailed] = useState(false);
+  const [pages, setPages] = useState(0);
   const T = TXT[lang];
   useEffect(() => { setTrackLead(id); }, [id]);
   const base = `/api/roadmap/view?id=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}${doc === "bonus" ? "&doc=bonus" : ""}`;
@@ -94,8 +95,17 @@ function Viewer() {
           ↓ {T.dl}
         </a>
       </header>
-      <div style={{ flex: 1, minHeight: 0, height: "calc(100dvh - 64px)" }}>
-        <PdfViewer key={doc} src={base} hideRotate pageOverlay={overlay} onError={() => setFailed(true)} />
+      <div style={{ position: "relative", flex: 1, minHeight: 0, height: "calc(100dvh - 64px)" }}>
+        {/* a quiet hint above the first page (fades after a few seconds) */}
+        {pages > 0 && (
+          <>
+            <style>{"@keyframes bvHintOut{0%,80%{opacity:1}100%{opacity:0}}"}</style>
+            <p style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 5, margin: 0, padding: "7px 12px", maxWidth: "92%", textAlign: "center", fontSize: 12.5, lineHeight: 1.35, color: "#a59e90", background: "rgba(18,17,14,0.86)", border: "1px solid #2c2924", borderRadius: 3, pointerEvents: "none", animation: "bvHintOut 9s ease forwards" }}>
+              {T.hint.replace("{n}", String(pages))}
+            </p>
+          </>
+        )}
+        <PdfViewer key={doc} src={base} hideRotate tone="night" pageOverlay={overlay} onPagesLoaded={setPages} onError={() => setFailed(true)} />
       </div>
     </div>
   );

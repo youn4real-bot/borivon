@@ -82,6 +82,7 @@ export function PdfViewer({
   hideRotate,
   initialRotation,
   onError,
+  tone,
 }: {
   src: string;
   /** documents row id — keys the in-session rotation cache (rotationStore). */
@@ -106,6 +107,9 @@ export function PdfViewer({
   /** Fired if the PDF fails to LOAD (fetch/parse). Lets a mobile wrapper fall
    *  back to the native frame so the document is still viewable. */
   onError?: () => void;
+  /** "night" = the borivon.com reading room (the Fahrplan on the website): deep night stage, more air
+   *  between pages, a long soft shadow. Unset = the usual viewer, unchanged. */
+  tone?: "night";
 }) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const pagesWrapRef  = useRef<HTMLDivElement>(null);
@@ -500,7 +504,7 @@ export function PdfViewer({
   };
 
   return (
-    <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", background: "#525659" }}>
+    <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", background: tone === "night" ? "#12110e" : "#525659" }}>
 
       {/* Minimalist always-visible scrollbars (the OS default is invisible on
           the dark canvas). Scoped to .bv-pdf-scroll so nothing else changes.
@@ -559,8 +563,8 @@ export function PdfViewer({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            padding: "16px 12px 96px",
-            gap: 12,
+            padding: tone === "night" ? "44px 16px 140px" : "16px 12px 96px",
+            gap: tone === "night" ? 36 : 12,
             width: "fit-content",
             minWidth: "100%",
             margin: "0 auto",
@@ -575,6 +579,7 @@ export function PdfViewer({
                 rotation={(rotation + (intrinsicRotations[i] ?? 0)) % 360}
                 overlay={pageOverlay}
                 onDrawFailed={noteUndrawn}
+                shadow={tone === "night" ? "0 1px 0 rgba(255,255,255,0.05), 0 44px 80px -36px rgba(0,0,0,0.92)" : undefined}
               />
             ))}
           </div>
@@ -678,7 +683,7 @@ function ToolBtn({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PdfPage({
-  pdf, pageNum, naturalSize, scale, rotation, overlay, onDrawFailed,
+  pdf, pageNum, naturalSize, scale, rotation, overlay, onDrawFailed, shadow,
 }: {
   pdf: PdfDoc;
   pageNum: number;
@@ -688,6 +693,8 @@ function PdfPage({
   overlay?: PageOverlayFn;
   /** This page would not draw. The document is still usable — say so quietly. */
   onDrawFailed?: (pageNum: number, err: unknown) => void;
+  /** Page shadow (the "night" tone lifts pages off the stage); default = the usual small shadow. */
+  shadow?: string;
 }) {
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const textLayerRef  = useRef<HTMLDivElement>(null);
@@ -891,7 +898,7 @@ function PdfPage({
           display: "block",
           width:  `${dispW}px`,
           height: `${dispH}px`,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+          boxShadow: shadow ?? "0 2px 8px rgba(0,0,0,0.4)",
           borderRadius: 2,
         }}
       />
