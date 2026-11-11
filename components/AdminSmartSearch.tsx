@@ -135,9 +135,9 @@ export function AdminSmartSearch({
           }}
           aria-label={L("Search candidates", "Rechercher des candidats", "Kandidaten suchen")}
           placeholder={L(
-            "Search a name, email or phone — or ask a question",
-            "Cherchez un nom, e-mail ou téléphone — ou posez une question",
-            "Name, E-Mail oder Telefon suchen — oder eine Frage stellen",
+            "Search",
+            "Rechercher",
+            "Suchen",
           )}
           className="w-full outline-none placeholder:opacity-40"
           style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 10, height: 40, fontSize: 14, paddingLeft: 34, paddingRight: 34 }}

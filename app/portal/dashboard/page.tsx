@@ -259,7 +259,10 @@ export default function DashboardPage() {
   // (bell, ?doc=, #…) opens them straight away so nothing it points at is ever hidden
   const [docsOpen, setDocsOpen] = useState(false);
   useEffect(() => { if (window.location.search.length > 1 || window.location.hash.length > 1) setDocsOpen(true); }, []);
-  const openDocs = () => { setDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+  const openDocs = () => { setDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-my-tiles")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+  // her papers as tiles (founder 2026-11-11, mock p3); the old list stays one tap away ("Alte Ansicht")
+  const [legacyDocs, setLegacyDocs] = useState(false);
+  const [tileTab, setTileTab] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Slot key for the in-flight file pick. Set synchronously in openPicker so
   // onFileChange never depends on the async `activeKey` state (fast-pick race).
@@ -3571,15 +3574,94 @@ export default function DashboardPage() {
 
         </>)}
 
-        {/* her papers: one quiet bar until she opens them */}
-        <button type="button" onClick={() => (docsOpen ? setDocsOpen(false) : openDocs())} aria-expanded={docsOpen} aria-controls="bv-docs"
+        {/* her papers: one quiet bar until she opens them; open = tiles, one colour dot each (LAW #4) */}
+        <button type="button" onClick={() => (docsOpen ? setDocsOpen(false) : openDocs())} aria-expanded={docsOpen} aria-controls="bv-my-tiles"
           className="w-full flex items-center justify-between mb-5"
-          style={{ padding: "16px 20px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--card)", color: "var(--w)", cursor: "pointer" }}>
-          <span style={{ fontFamily: "var(--font-serif)", fontSize: 19 }}>{lang === "de" ? "Deine Unterlagen" : lang === "fr" ? "Tes documents" : "Your documents"}</span>
-          <span style={{ fontSize: 13, color: "var(--w3)" }}>{docsOpen ? (lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close") : (lang === "de" ? "Öffnen" : lang === "fr" ? "Ouvrir" : "Open")} {docsOpen ? "↑" : "↓"}</span>
+          style={{ padding: "16px 20px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--card)", color: "var(--w)", cursor: "pointer" }}>
+          <span style={{ fontFamily: "var(--font-serif)", fontSize: 20 }}>{lang === "de" ? "Unterlagen" : lang === "fr" ? "Documents" : "Documents"}</span>
+          <span aria-hidden="true" style={{ fontSize: 14, color: "var(--w3)" }}>{docsOpen ? "↑" : "↓"}</span>
         </button>
+        {docsOpen && (() => {
+          type TileSt = "approved" | "pending" | "rejected" | "missing";
+          type Tile = { id: string; label: string; st: TileSt; act: () => void };
+          const stOf = (d: Doc | undefined): TileSt => !d ? "missing" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "pending";
+          const toLegacy = (pi: number) => () => { setPhase(pi); setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+          // the builder docs, the free Sonstiges box and sign/fill slots keep their own flows in the old view
+          const SPECIAL = new Set(["cv_de", "letter", "cv_visa", "letter_visa", "other"]);
+          const tr = lang === "de" ? "Übersetzung" : lang === "fr" ? "traduction" : "translation";
+          const tilesOf = (pis: number[]): Tile[] => pis.flatMap((pi) => (PHASES[pi]?.items ?? []).flatMap((it): Tile[] => {
+            const item = it as typeof it & { candidate_signs?: boolean; candidate_fills?: boolean };
+            const d = getDoc(item.key);
+            if (item.optional && !d) return [];
+            if (item.key === "other" && !d) return [];
+            const special = SPECIAL.has(item.key) || !!item.candidate_signs || !!item.candidate_fills;
+            const out: Tile[] = [{ id: `${pi}:${item.key}`, label: item.label, st: stOf(d),
+              act: special ? toLegacy(pi) : d ? () => handlePreview(d) : () => openPicker(item.key) }];
+            if (item.transKey && d) {
+              const td = getDoc(item.transKey);
+              const tk = item.transKey;
+              out.push({ id: `${pi}:${tk}`, label: `${item.label} · ${tr}`, st: stOf(td), act: td ? () => handlePreview(td) : () => openPicker(tk) });
+            }
+            return out;
+          }));
+          const tabs = [
+            { label: lang === "de" ? "Unterlagen" : "Documents", tiles: tilesOf([0, 1]) },
+            { label: lang === "de" ? "Anerkennung" : lang === "fr" ? "Reconnaissance" : "Recognition", tiles: tilesOf([2]) },
+            { label: lang === "de" ? "Visum" : "Visa", tiles: tilesOf([3]) },
+          ].filter((x) => x.tiles.length > 0);
+          const tab = tabs[Math.min(tileTab, tabs.length - 1)];
+          const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
+          const keyOf = (id: string) => id.slice(id.indexOf(":") + 1);
+          return (
+            <section id="bv-my-tiles" className="mb-6" style={{ scrollMarginTop: 80 }}>
+              {tabs.length > 1 && (
+                <div className="inline-flex gap-[2px] p-[3px] mb-4" role="tablist" style={{ borderRadius: 999, background: "var(--bg2)" }}>
+                  {tabs.map((x, i) => {
+                    const on = x === tab;
+                    const todo = x.tiles.filter((y) => y.st === "missing" || y.st === "rejected").length;
+                    return (
+                      <button key={x.label} type="button" role="tab" aria-selected={on} onClick={() => setTileTab(i)}
+                        style={{ padding: "7px 14px", borderRadius: 999, border: 0, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                          background: on ? "var(--card)" : "transparent", color: on ? "var(--w)" : "var(--w3)", boxShadow: on ? "0 2px 8px -4px rgba(21,19,15,.3)" : "none" }}>
+                        {x.label}{todo > 0 && <span style={{ marginLeft: 6, color: "#dc2626" }}>{todo}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
+                {(tab?.tiles ?? []).map((x) => {
+                  const k = keyOf(x.id);
+                  const busy = uploadingKey === k;
+                  const msg = slotMsg?.key === k ? slotMsg : null;
+                  return (
+                    <button key={x.id} type="button" onClick={busy ? undefined : x.act} title={x.label} className="relative text-center"
+                      style={{ padding: "14px 10px 12px", borderRadius: 14, cursor: busy ? "default" : "pointer", background: "var(--card)", color: "var(--w)", fontFamily: "inherit",
+                        border: `1px solid ${x.st === "rejected" ? "rgba(220,38,38,.35)" : "var(--border)"}` }}>
+                      <span className="absolute" style={{ right: 10, top: 10, width: 11, height: 11, borderRadius: "50%", background: DOT[x.st], border: "2px solid var(--card)" }} />
+                      <span className="grid place-items-center" style={{ height: 66, borderRadius: 8, marginBottom: 10,
+                        ...(x.st === "missing" ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: "var(--bg2)", color: "var(--w3)" }) }}>
+                        {busy ? <span style={{ fontSize: 13, color: "var(--w3)" }}>…</span>
+                          : x.st === "missing"
+                          ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                          : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
+                      </span>
+                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 32, overflowWrap: "anywhere" }}>{x.label}</span>
+                      {msg && !msg.ok && <span className="block mt-1" style={{ fontSize: 11.5, color: "var(--danger)" }}>{lang === "de" ? "Nicht geklappt — nochmal tippen" : lang === "fr" ? "Échec — réessaie" : "Failed — tap again"}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 text-right">
+                <button type="button" onClick={() => setLegacyDocs((v) => !v)} style={{ background: "none", border: 0, padding: 0, fontSize: 12.5, color: "var(--w3)", cursor: "pointer" }}>
+                  {legacyDocs ? (lang === "de" ? "Alte Ansicht schließen" : "Close the old view") : (lang === "de" ? "Alte Ansicht" : lang === "fr" ? "Ancienne vue" : "Old view")}
+                </button>
+              </div>
+            </section>
+          );
+        })()}
         {/* Two-column: sidebar stepper + main content */}
-        <div id="bv-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80, display: docsOpen ? undefined : "none" }}>
+        <div id="bv-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80, display: docsOpen && legacyDocs ? undefined : "none" }}>
 
           {/* ── Vertical sidebar — always visible, same pattern as the
               admin dashboard. No hamburger drawer on mobile; the rail just
