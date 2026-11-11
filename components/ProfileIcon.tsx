@@ -165,6 +165,7 @@ export function ProfileIcon() {
   const T = t[lang] ?? t.en;
   const [user, setUser] = useState<UserInfo | null>(null);
   const [open, setOpen] = useState(false);
+  const [menuToolsOpen, setMenuToolsOpen] = useState(false);
   const [accessToken, setAccessToken] = useState<string>("");
   const [orgModalOpen, setOrgModalOpen] = useState(false);
   const [profilePopupSlug, setProfilePopupSlug] = useState<string | null>(null);
@@ -481,6 +482,18 @@ export function ProfileIcon() {
                   {T.myProfile}
                 </button>
               )}
+              {/* every admin tool folds behind one row (founder 2026-11-11: "remove so much that we have to add
+                  stuff back later"); same links, same rules, just closed by default */}
+              {user.isAdmin && (
+                <button type="button" onClick={() => setMenuToolsOpen((o) => !o)} aria-expanded={menuToolsOpen}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+                  <span className="flex-1">{lang === "de" ? "Werkzeuge" : lang === "fr" ? "Outils" : "Tools"}</span>
+                  <span aria-hidden="true" style={{ color: "var(--w3)" }}>{menuToolsOpen ? "▾" : "▸"}</span>
+                </button>
+              )}
+              {menuToolsOpen && (<>
               {user.isAdmin && !user.isOrgAdmin && (
                 <button
                   onClick={() => { setOpen(false); router.push("/portal/admin/progress"); }}
@@ -768,6 +781,7 @@ export function ProfileIcon() {
                   </button>
                 </>
               )}
+              </>)}
               {/* Live class — candidates only (students join; admins host via
                   "Live classroom", org members/employers don't attend). Gated to
                   the private-test allowlist so only flagged candidates see it. */}
