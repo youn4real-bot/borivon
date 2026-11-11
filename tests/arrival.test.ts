@@ -98,6 +98,10 @@ describe("arrival plan API", async () => {
     const after = await (await weg.GET(r("weg", "GET", { "x-role": "admin" }, undefined, `?userId=${NURSE}`))).json();
     expect(after.prog.visa).toEqual([VISA_STEPS.length, VISA_STEPS.length]);
     expect(after.now).toBe("move");
+    // the raw input for the way (lib/facility/way.ts): only known step ids, the visa date
+    expect(Object.keys(after.input.steps.visa).sort()).toEqual(VISA_STEPS.map((s) => s.id).sort());
+    expect(after.input.dates).toEqual({ submitted: "", flight: "", start: "" });
+    expect(typeof after.today).toBe("string");
     expect((await weg.GET(r("weg", "GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
     expect((await weg.GET(r("weg", "GET", {}))).status).toBe(401);
   });

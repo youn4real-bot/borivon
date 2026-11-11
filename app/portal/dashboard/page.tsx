@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { WegMap } from "@/components/fx/WegMap";
+import { WayHero } from "@/components/fx/Way";
 import { saveAs } from "file-saver";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -543,7 +543,7 @@ export default function DashboardPage() {
   const [reloadRetrying, setReloadRetrying]   = useState(false);
   const [loading, setLoading]     = useState(true);
   const [phase, setPhase]         = useState(0);
-  const [isReturn, setIsReturn]   = useState(false);
+  const [, setIsReturn]   = useState(false);
 
   // Snappier clicks: once the dashboard has revealed, warm the heavy CV-builder
   // + cover-letter chunks so opening them from a document row feels instant.
@@ -3412,7 +3412,7 @@ export default function DashboardPage() {
       <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
         {/* her whole way on one screen, papers below (founder 2026-11-11: a roadmap first, papers hidden but reachable) */}
-        <WegMap onDocs={openDocs} />
+        <WayHero name={userName} onDocs={openDocs} />
 
         {/* Header — refined typographic hierarchy */}
         <div className="flex items-start justify-between mb-8">
@@ -3421,12 +3421,7 @@ export default function DashboardPage() {
                 the verification system itself is unchanged; only this exact
                 dashboard-header tick + the permanent banner below are gone.
                 Getting verified still triggers the celebration animation. */}
-            <h1 className="text-[22px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>
-              {isReturn ? t.pWelcomeBack : t.pDashWelcome} {userName.split(" ")[0]}
-            </h1>
-            <p className="text-[13.5px] mt-1.5" style={{ color: "var(--w3)" }}>
-              {isReturn ? t.pWelcomeBackSub : t.pDashSpace}
-            </p>
+            {/* the greeting lives in her way card above (WayHero: "Hallo Amina.") */}
             {linkedOrgs.filter(o => o.status === "pending").length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {linkedOrgs.filter(o => o.status === "pending").map(o => (

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { WegMap } from "@/components/fx/WegMap";
+import { WayBoard, WayDots, WayNext, WayWhen, type WayRow } from "@/components/fx/Way";
 import { VisaBundleButton } from "@/components/admin/VisaBundleButton";
 import { DiyFacilityPanel } from "@/components/admin/DiyFacilityPanel";
 import { createPortal, flushSync } from "react-dom";
@@ -681,6 +681,8 @@ export default function AdminPage() {
   // server-side in /api/portal/admin. The list shows ONE percentage at a time:
   // finish Unterlagen and it gives way to Bearbeitung, then Visum.
   const [journeyByUser, setJourneyByUser] = useState<Record<string, { phase: string; pct: number; phaseIndex: number; done: number; total: number; allDone: boolean }>>({});
+  // her whole way for the list: dots, next step, WANN (lib/facility/way.ts via /api/portal/admin)
+  const [wayByUser, setWayByUser] = useState<Record<string, WayRow>>({});
   // Possible duplicate accounts (lib/duplicateAccounts) → a small amber mark by the name.
   const [dupByUser, setDupByUser] = useState<Record<string, { otherId: string; reasons: ("passport" | "phone" | "name")[] }[]>>({});
   const [loading, setLoading]       = useState(true);
@@ -796,6 +798,9 @@ export default function AdminPage() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, [selectedUser]);
   const [activePhase, setActivePhase]   = useState(0);
+  // her papers fold under her roadmap (founder 2026-11-11: "less is more, the outcome first, the docs smaller");
+  // any jump to a document (bell, deep link, review) opens them
+  const [adminDocsOpen, setAdminDocsOpen] = useState(false);
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
@@ -1690,6 +1695,7 @@ export default function AdminPage() {
       setProfiles(json.profiles ?? {});
       setCandidateOrgs(json.candidateOrgs ?? {});
       setJourneyByUser(json.journeyByUser ?? {});
+      setWayByUser(json.wayByUser ?? {});
       setDupByUser(json.dupByUser ?? {});
       setBatches(json.batches ?? []);
       setBatchByUid(json.batchByUid ?? {});
@@ -1736,7 +1742,7 @@ export default function AdminPage() {
     const openNavDoc = (docId: string) => {
       const doc = allDocs.find(d => d.id === docId);
       if (!doc) return false;
-      setActivePhase(getPhaseIdx(doc.file_type));
+      setActivePhase(getPhaseIdx(doc.file_type)); setAdminDocsOpen(true);
       setTimeout(() => setPreviewDoc(doc as Doc), 50);
       return true;
     };
@@ -1778,7 +1784,7 @@ export default function AdminPage() {
       if (uid) {
         setSelectedUser(uid);
         window.scrollTo({ top: 0, behavior: "smooth" });
-        if (navDoc) setActivePhase(getPhaseIdx(navDoc));
+        if (navDoc) { setActivePhase(getPhaseIdx(navDoc)); setAdminDocsOpen(true); }
         if (navDocId) openNavDoc(navDocId);
       }
       window.history.replaceState({}, "", window.location.pathname);
@@ -2007,7 +2013,7 @@ export default function AdminPage() {
           }
         : null);
       if (!doc) { showError(T.aDocOpenFailed); return; }
-      setActivePhase(getPhaseIdx(doc.file_type));
+      setActivePhase(getPhaseIdx(doc.file_type)); setAdminDocsOpen(true);
       // Small delay so the candidate panel mounts first
       setTimeout(() => setPreviewDoc(doc), 80);
     }
@@ -4790,8 +4796,8 @@ export default function AdminPage() {
             {/* her whole way at a glance (founder 2026-11-11: a roadmap first, the papers below) */}
             {selectedUser && (
               <div className="mt-5" id="bv-admin-weg">
-                <WegMap key={selectedUser} userId={selectedUser} name={users[selectedUser]?.name ?? ""}
-                  onDocs={() => { const el = document.getElementById("bv-admin-weg"); if (el) window.scrollTo({ top: el.getBoundingClientRect().bottom + window.scrollY - 70, behavior: "smooth" }); }} />
+                <WayBoard key={selectedUser} userId={selectedUser} name={users[selectedUser]?.name ?? ""}
+                  onDocs={() => { setAdminDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-admin-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
               </div>
             )}
 
@@ -5611,8 +5617,24 @@ export default function AdminPage() {
             )}
 
 
+            {/* her papers: one bar until opened; gold when something waits for you */}
+            {(() => {
+              const waiting = (grouped[selectedUser ?? ""] ?? []).filter(d => d.status === "pending").length;
+              return (
+                <button type="button" onClick={() => setAdminDocsOpen(o => !o)} aria-expanded={adminDocsOpen} aria-controls="bv-admin-docs"
+                  className="w-full flex items-center justify-between mt-5 mb-5"
+                  style={{ padding: "16px 20px", border: `1px solid ${waiting > 0 ? "var(--border-gold)" : "var(--border)"}`, borderRadius: 8, background: "var(--card)", color: "var(--w)", cursor: "pointer" }}>
+                  <span style={{ fontFamily: "var(--font-serif)", fontSize: 19 }}>
+                    {lang === "de" ? "Unterlagen" : lang === "fr" ? "Documents" : "Documents"}
+                    {waiting > 0 && <span style={{ marginLeft: 12, fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--gold)" }}>{waiting} {lang === "de" ? "warten auf Sie" : lang === "fr" ? "à vérifier" : "to review"}</span>}
+                  </span>
+                  <span style={{ fontSize: 13, color: "var(--w3)" }}>{adminDocsOpen ? (lang === "de" ? "Schließen ↑" : lang === "fr" ? "Fermer ↑" : "Close ↑") : (lang === "de" ? "Öffnen ↓" : lang === "fr" ? "Ouvrir ↓" : "Open ↓")}</span>
+                </button>
+              );
+            })()}
+
             {/* Always two-column: sidebar + content */}
-            <div className="flex gap-4 sm:gap-6 items-start">
+            <div id="bv-admin-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80, display: adminDocsOpen ? undefined : "none" }}>
 
               {/* Sidebar — doc phases + journey stages */}
               <aside className="shrink-0 w-[52px] sm:w-[62px]"
@@ -8968,14 +8990,11 @@ export default function AdminPage() {
             // page itself never grows. Applies to every admin (org + Borivon).
             // Row ≈ 71px → 8 rows ≈ 568px; clamp to viewport on short screens.
             <div className="bv-enter-stagger bv-cand-scroll"
-              style={{ background: "var(--card)", borderRadius: "22px", maxHeight: "min(640px, 72vh)", overflowY: "auto", overflowX: "hidden" }}>
-              {/* Column labels, like the /pflege portal window. Widths match the row slots below. */}
-              <div className="hidden sm:flex items-center gap-3 px-4 pt-4 pb-3 text-[10.5px] font-medium uppercase tracking-[0.14em]"
-                style={{ color: "var(--w3)", borderBottom: "1px solid var(--border)" }}>
-                <span className="flex-1 min-w-0">{lang === "de" ? "Pflegekraft" : lang === "fr" ? "Candidat" : "Candidate"}</span>
-                <span className="w-[84px] text-right">{lang === "de" ? "Registriert" : lang === "fr" ? "Inscrit" : "Registered"}</span>
-                <span className="w-[150px]">Phase</span>
-                <span className="w-[68px]" />
+              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, maxHeight: "min(640px, 72vh)", overflowY: "auto", overflowX: "hidden" }}>
+              {/* Title row like the demo window on borivon.com/plattform (founder 2026-11-11: "inside must look like the demos") */}
+              <div className="flex items-baseline justify-between gap-3 px-5 pt-5 pb-3" style={{ borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontFamily: "var(--font-serif)", fontSize: 22, color: "var(--w)" }}>{lang === "de" ? "Ihre Pflegekräfte" : lang === "fr" ? "Vos infirmières" : "Your nurses"}</span>
+                <span className="text-[10.5px] font-medium uppercase tracking-[0.14em] tabular-nums" style={{ color: "var(--w3)" }}>{visibleIds.length}</span>
               </div>
               {visibleIds.map(uid => {
                 const allDocs    = grouped[uid] ?? [];
@@ -9030,10 +9049,10 @@ export default function AdminPage() {
                       {profiles[uid]?.profile_photo ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={profiles[uid].profile_photo!} alt={user.name} title={b2Title}
-                          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                          className="w-11 h-11 rounded-full object-cover flex-shrink-0"
                           style={b2Ring} />
                       ) : (
-                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-[11.5px] font-medium tracking-[0.04em] flex-shrink-0"
+                        <span className="w-11 h-11 rounded-full flex items-center justify-center text-[12.5px] font-medium tracking-[0.04em] flex-shrink-0"
                           title={b2Title}
                           style={{ background: "var(--gdim)", color: "var(--gold)", ...b2Ring }}>
                           {initialsOf(user.name)}
@@ -9041,7 +9060,7 @@ export default function AdminPage() {
                       )}
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-medium truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
+                        <p className="text-[17px] truncate inline-flex items-center gap-0.5 flex-wrap" title={[user.email, ...(candidateOrgs[uid] ?? []).map(o => o.name)].join(" · ")} style={{ color: "var(--w)", fontFamily: "var(--font-serif)" }}>
                           {user.name}
                           <VerifiedBadge verified={isVerified(profiles[uid])} size="xs" color="gold" />
                           {(dupByUser[uid]?.length ?? 0) > 0 && (() => {
@@ -9069,70 +9088,34 @@ export default function AdminPage() {
                             );
                           })()}
                         </p>
-                        <p className="text-[12px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
-                          {user.email}
-                          {(candidateOrgs[uid] ?? []).map(o => (
-                            <span key={o.id}
-                              className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-px"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
-                              {o.name}
-                            </span>
-                          ))}
-                        </p>
-                        {docPct !== null && (
-                          <span className="sm:hidden mt-2 block h-[3px] w-24 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                            <span className="block h-full rounded-full"
-                              style={{ width: `${docPct}%`, background: docPct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))" }} />
-                          </span>
+                        {wayByUser[uid] ? (
+                          <span className="mt-2 block w-full max-w-[230px]"><WayDots row={wayByUser[uid]} /></span>
+                        ) : (
+                          <>
+                            <p className="text-[12px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
+                              {[
+                                jrn ? `${phaseLabel === "Bearbeitung" ? (lang === "de" ? "Anerkennung" : lang === "fr" ? "Reconnaissance" : "Recognition") : phaseLabel} · ${jrn.done} ${lang === "de" ? "von" : lang === "fr" ? "sur" : "of"} ${jrn.total}` : user.email,
+                                ...(candidateOrgs[uid] ?? []).map(o => o.name),
+                              ].filter(Boolean).join(" · ")}
+                            </p>
+                            {docPct !== null && (
+                              <span className="mt-2 block h-[3px] w-full max-w-[260px] overflow-hidden" style={{ background: "var(--border)", borderRadius: 2 }}>
+                                <span className="block h-full" style={{ width: `${docPct}%`, background: docPct === 100 ? "#16a34a" : "var(--gold)", borderRadius: 2 }} />
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
 
-                      {/* Registration date — when they signed up (the "who registered when" ask) */}
-                      {(() => {
-                        const c = users[uid]?.createdAt;
-                        if (!c) return <span className="hidden sm:block flex-shrink-0 w-[84px]" />;
-                        const d = new Date(c);
-                        const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
-                        const label = d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
-                        return (
-                          <span className="hidden sm:block flex-shrink-0 w-[84px] text-right text-[11px] tabular-nums"
-                            title={lang === "de" ? "Registriert am" : lang === "fr" ? "Inscrit le" : "Registered on"}
-                            style={{ color: "var(--w3)" }}>
-                            {label}
-                          </span>
-                        );
-                      })()}
 
-                      {/* Where she is on her whole way, as six dots (founder 2026-11-11: a roadmap, not
-                          a percentage): Unterlagen · Anerkennung · Visum · Wohnung & Anreise · Ankommen · Bleiben.
-                          Done = ink, now = gold ring, later = hairline. The label names the station and how far. */}
-                      {docPct !== null ? (() => {
-                        const at = jrn ? (jrn.allDone ? 3 : Math.max(0, jrn.phaseIndex)) : 0;
-                        const names = lang === "fr" ? ["Documents", "Reconnaissance", "Visa", "Logement & voyage", "Arrivée", "Rester"]
-                          : lang === "en" ? ["Documents", "Recognition", "Visa", "Flat & journey", "Arrival", "Staying"]
-                          : ["Unterlagen", "Anerkennung", "Visum", "Wohnung & Anreise", "Ankommen", "Bleiben"];
-                        return (
-                          <span className="hidden sm:grid gap-[7px] flex-shrink-0 w-[150px]"
-                            title={jrn ? `${names[at]} — ${jrn.done}/${jrn.total}` : names[0]}>
-                            <span className="flex items-center" aria-hidden="true">
-                              {names.map((_, k) => (
-                                <React.Fragment key={k}>
-                                  {k > 0 && <span className="flex-1 h-px" style={{ background: k <= at ? "var(--w)" : "var(--border)" }} />}
-                                  <span className="rounded-full flex-shrink-0" style={{
-                                    width: k === at ? 10 : 7, height: k === at ? 10 : 7,
-                                    background: k < at ? "var(--w)" : "var(--card)",
-                                    border: `1.5px solid ${k < at ? "var(--w)" : k === at ? "var(--gold)" : "var(--border)"}`,
-                                  }} />
-                                </React.Fragment>
-                              ))}
-                            </span>
-                            <span className="flex items-baseline justify-between gap-2 tabular-nums">
-                              <span className="text-[10.5px] truncate" style={{ color: "var(--w2)" }}>{names[at]}</span>
-                              {at < 3 && <span className="text-[10.5px]" style={{ color: "var(--w3)" }}>{docPct}%</span>}
-                            </span>
-                          </span>
-                        );
-                      })() : (
+
+                      {/* what comes next + WANN (founder 2026-11-11: the approved mock — icon + next step, then a countdown) */}
+                      {wayByUser[uid] ? (
+                        <>
+                          <span className="hidden md:block flex-shrink-0 w-[200px] min-w-0"><WayNext row={wayByUser[uid]} /></span>
+                          <span className="flex-shrink-0 w-[86px]"><WayWhen row={wayByUser[uid]} /></span>
+                        </>
+                      ) : (
                         <span className="hidden sm:block flex-shrink-0 w-[150px]" />
                       )}
 

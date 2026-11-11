@@ -10,8 +10,9 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
+import { effectiveB2Stage, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 
-export type DocPhases = { papers: [number, number]; bearbeitung: [number, number]; visum: [number, number] };
+export type DocPhases = { papers: [number, number]; bearbeitung: [number, number]; visum: [number, number]; pending: number; b2: { stage: B2Stage; failed: boolean }; photo: string | null };
 
 type SlotRow = { id: string; type: string | null; phase: string; org_id: string | null; employer_id: string | null; is_required: boolean | null };
 
@@ -20,7 +21,7 @@ export async function docPhasesFor(userId: string): Promise<DocPhases | null> {
     const db = getServiceSupabase();
     const [docRes, profRes, memRes, slotRes] = await Promise.all([
       db.from("documents").select("*").eq("user_id", userId).order("uploaded_at", { ascending: false }),
-      db.from("candidate_profiles").select("employer_id").eq("user_id", userId).maybeSingle(),
+      db.from("candidate_profiles").select("*").eq("user_id", userId).maybeSingle(),
       db.from("candidate_organizations").select("org_id, added_by").eq("candidate_user_id", userId).eq("status", "approved"),
       db.from("phase_slots").select("id, type, phase, org_id, employer_id, is_required"),
     ]);
@@ -55,7 +56,13 @@ export async function docPhasesFor(userId: string): Promise<DocPhases | null> {
     ].map((s) => ({ id: s.id, type: s.type, is_required: s.is_required }));
     const j = computeJourneyProgress({ docs, requiredKeys, bearbeitungSlots: applicable("bearbeitung"), visumSlots: applicable("visum") });
     const p = (k: string): [number, number] => { const x = j.phases.find((ph) => ph.key === k); return x ? [x.done, x.total] : [0, 0]; };
-    return { papers: p("papers"), bearbeitung: p("bearbeitung"), visum: p("visum") };
+    const prof = (profRes.data ?? {}) as { b2_stage?: string | null; b2_failed?: boolean | null; profile_photo?: string | null };
+    return {
+      papers: p("papers"), bearbeitung: p("bearbeitung"), visum: p("visum"),
+      pending: docs.filter((d) => d.status === "pending").length,
+      b2: { stage: effectiveB2Stage(normalizeB2Stage(prof.b2_stage), docs), failed: !!prof.b2_failed },
+      photo: typeof prof.profile_photo === "string" && prof.profile_photo ? prof.profile_photo : null,
+    };
   } catch {
     return null;
   }

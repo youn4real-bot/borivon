@@ -10,6 +10,9 @@ import { UUID_RE } from "@/lib/uuid";
 // (lib/assistantWrites) so both surfaces behave identically — see lib/adminCandidateActions.
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
+import { fxDb } from "@/lib/facility/db";
+import { buildWay, type WayInput } from "@/lib/facility/way";
+import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { findDuplicateAccounts } from "@/lib/duplicateAccounts";
 import { readAllRows } from "@/lib/readAllRows";
@@ -392,6 +395,8 @@ export async function GET(req: NextRequest) {
   // real approvals. Fully schema-tolerant: any missing table/column just leaves
   // journeyByUser empty and the list falls back — never 500s the admin page.
   const journeyByUser: Record<string, { phase: string; pct: number; phaseIndex: number; done: number; total: number; allDone: boolean }> = {};
+  const docPByUser: Record<string, NonNullable<WayInput["docs"]>> = {};
+  let docsByUserAll: Record<string, { file_type: string | null; status: string | null }[]> = {};
   try {
     if (userIds.length > 0) {
       const [pipeRes, slotRes, empRes, orgReqRes] = await Promise.all([
@@ -430,6 +435,7 @@ export async function GET(req: NextRequest) {
       for (const d of activeDocs as { user_id: string; file_type: string | null; status: string | null }[]) {
         (docsByUser[d.user_id] ??= []).push({ file_type: d.file_type, status: d.status });
       }
+      docsByUserAll = docsByUser;
       // Same scope resolution as GET /api/portal/phase-slots — MUST stay in sync
       // or the % would score a different list than the candidate actually sees.
       // "Everyone" (no org, no employer) is ADDITIVE: everyone → batch → site.
@@ -456,6 +462,8 @@ export async function GET(req: NextRequest) {
           visumSlots: applicable("visum", empId, batchOrg),
           arrived: arrivedBy[uid] === true,
         });
+        const ph = (k: string): [number, number] => { const x = j.phases.find((q) => q.key === k); return x ? [x.done, x.total] : [0, 0]; };
+        docPByUser[uid] = { papers: ph("papers"), bearbeitung: ph("bearbeitung"), visum: ph("visum") };
         if (j.current) {
           journeyByUser[uid] = {
             phase: j.current.key, pct: j.current.pct, phaseIndex: j.currentIndex,
@@ -466,7 +474,45 @@ export async function GET(req: NextRequest) {
     }
   } catch (e) { console.warn("[admin GET] journey progress skipped:", e); }
 
-  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, dupByUser, role, ...(usersPartial ? { usersPartial: true } : {}) });
+  // ── The whole way per nurse, for the list (components/fx/Way.tsx WayDots/WayNext/WayWhen) ──────
+  // Same numbers as her page: lib/facility/way.ts over the doc phases above + the fx tables (visa,
+  // flat + journey, first weeks, six months). Any failure → no way for that list, never a 500.
+  const wayByUser: Record<string, { st: [string, 0 | 1 | 2][]; now: string; p: [number, number]; next: string | null; eta: unknown; today: string }> = {};
+  try {
+    const fx = userIds.length > 0 ? await fxDb() : null;
+    if (fx) {
+      type Row = Record<string, unknown>;
+      const by: Record<string, Record<string, Row>> = { fx_visa: {}, fx_move: {}, fx_arrival: {}, fx_settle: {} };
+      for (const table of Object.keys(by)) {
+        for (let i = 0; i < userIds.length; i += 80) {
+          const ids = userIds.slice(i, i + 80);
+          const { results } = await fx.run(`SELECT * FROM ${table} WHERE user_id IN (${ids.map(() => "?").join(",")})`, ids);
+          for (const r of results as Row[]) by[table][String(r.user_id)] = r;
+        }
+      }
+      const steps = (r: Row | undefined): Record<string, string> => {
+        try { const p = JSON.parse(String(r?.steps || "{}")); return p && typeof p === "object" && !Array.isArray(p) ? Object.fromEntries(Object.entries(p).map(([k, v]) => [k, String(v)])) : {}; } catch { return {}; }
+      };
+      const today = new Date().toISOString().slice(0, 10);
+      for (const uid of userIds) {
+        const prof = profiles[uid] as { b2_stage?: string | null; b2_failed?: boolean | null } | undefined;
+        const w = buildWay({
+          docs: docPByUser[uid] ?? null,
+          b2: prof ? { stage: effectiveB2Stage(normalizeB2Stage(prof.b2_stage), docsByUserAll[uid] ?? []), failed: !!prof.b2_failed } : null,
+          steps: { visa: steps(by.fx_visa[uid]), move: steps(by.fx_move[uid]), weeks: steps(by.fx_arrival[uid]), six: steps(by.fx_settle[uid]) },
+          dates: { submitted: String(by.fx_visa[uid]?.submitted ?? ""), flight: String(by.fx_move[uid]?.flight_date ?? ""), start: String(by.fx_arrival[uid]?.start ?? "") },
+          today,
+        });
+        const cur = w.stations.find((x) => x.key === w.now);
+        wayByUser[uid] = {
+          st: w.stations.map((x) => [x.key, x.done ? 2 : x.key === w.now ? 1 : 0]),
+          now: w.now, p: cur ? cur.p : [0, 0], next: w.next, eta: w.nowEta ?? w.eta, today,
+        };
+      }
+    }
+  } catch (e) { console.warn("[admin GET] way skipped:", e); }
+
+  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, batches, batchByUid, journeyByUser, wayByUser, dupByUser, role, ...(usersPartial ? { usersPartial: true } : {}) });
 }
 
 // POST — review a document (status + feedback) → notify candidate. Shares the
