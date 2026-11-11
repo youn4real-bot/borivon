@@ -139,8 +139,8 @@ export function AdminBatches({
     return (
       <button key={id ?? "all"} type="button" onClick={() => onSelect(id)} aria-pressed={active}
         className="transition-colors"
-        style={{ padding: "6px 0", border: 0, borderBottom: `1.5px solid ${active ? "var(--w)" : "transparent"}`, background: "transparent", fontSize: 13, fontWeight: 500, color: active ? "var(--w)" : "var(--w3)", whiteSpace: "nowrap", cursor: "pointer" }}>
-        {label}{count != null && <span style={{ marginLeft: 5, fontSize: 12, color: "var(--w3)", fontWeight: 400 }}>{count}</span>}
+        style={{ height: 30, padding: "0 12px", borderRadius: 999, border: `1px solid ${active ? "var(--w)" : "var(--border)"}`, background: active ? "var(--w)" : "var(--card)", fontSize: 12.5, fontWeight: 500, color: active ? "var(--bg)" : "var(--w2)", whiteSpace: "nowrap", cursor: "pointer", flex: "none" }}>
+        {label}{count != null && <span style={{ marginLeft: 6, fontSize: 11.5, opacity: 0.6, fontWeight: 400 }}>{count}</span>}
       </button>
     );
   };
@@ -148,7 +148,7 @@ export function AdminBatches({
   const inp: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 8, height: 34, fontSize: 13, padding: "0 8px", width: "100%" };
 
   return (
-    <div className="flex items-center overflow-x-auto" style={{ gap: 18, flexWrap: "nowrap", scrollbarWidth: "none" }}>
+    <div className="flex items-center overflow-x-auto" style={{ gap: 6, flexWrap: "nowrap", scrollbarWidth: "none" }}>
       {batches.length > 0 && pill(null, L("All", "Tous", "Alle"))}
       {batches.map((b) => pill(b.id, b.name.replace(/_/g, " "), b.count))}
       {canCreate && selectedBatchId && (

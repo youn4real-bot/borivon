@@ -22,6 +22,8 @@ export const WAY_GERMANY: WayKey[] = ["arrive", "kp", "stay"];
 /** the chain that decides where she is now. Beside it, never blocking: Deutsch (a B1 nurse finishes B2 in
  * Germany), Vertrag and Kenntnisprüfung (open until someone marks them, then done). */
 const CHAIN: WayKey[] = ["papers", "recog", "visa", "trip", "arrive", "stay"];
+/** Bearbeitung / Anerkennung hidden for now (founder 2026-11-11: "Bearbeitung wollen wir nicht, bis jetzt") */
+const SHOW_RECOG = false as boolean;
 
 export type Who = "nurse" | "facility" | "both";
 export type Tick = { id: string; who: Who; done: boolean };
@@ -98,7 +100,7 @@ export function buildWay(i: WayInput): Way {
     papers: i.docs ? i.docs.papers : null,
     contract: [mk?.contract ? 1 : 0, 1],
     kp: [mk?.urkunde ? 2 : mk?.kp_result === "passed" ? 1 : 0, 2],
-    recog: i.docs ? i.docs.bearbeitung : null,
+    recog: SHOW_RECOG && i.docs ? i.docs.bearbeitung : null,
     visa: i.docs ? [i.docs.visum[0] + vis[0], i.docs.visum[1] + vis[1]] : vis,
     trip: count(tripT),
     arrive: count(weekT),

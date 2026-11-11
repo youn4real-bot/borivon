@@ -484,13 +484,12 @@ export async function GET(req: NextRequest) {
     if (fx) {
       type Row = Record<string, unknown>;
       const by: Record<string, Record<string, Row>> = { fx_visa: {}, fx_move: {}, fx_arrival: {}, fx_settle: {}, fx_lang: {}, fx_marks: {} };
-      for (const table of Object.keys(by)) {
-        for (let i = 0; i < userIds.length; i += 80) {
-          const ids = userIds.slice(i, i + 80);
-          const { results } = await fx.run(`SELECT * FROM ${table} WHERE user_id IN (${ids.map(() => "?").join(",")})`, ids);
-          for (const r of results as Row[]) by[table][String(r.user_id)] = r;
-        }
-      }
+      const chunks: string[][] = [];
+      for (let i = 0; i < userIds.length; i += 80) chunks.push(userIds.slice(i, i + 80));
+      await Promise.all(Object.keys(by).flatMap((table) => chunks.map(async (ids) => {
+        const { results } = await fx.run(`SELECT * FROM ${table} WHERE user_id IN (${ids.map(() => "?").join(",")})`, ids);
+        for (const r of results as Row[]) by[table][String(r.user_id)] = r;
+      })));
       const steps = (r: Row | undefined): Record<string, string> => {
         try { const p = JSON.parse(String(r?.steps || "{}")); return p && typeof p === "object" && !Array.isArray(p) ? Object.fromEntries(Object.entries(p).map(([k, v]) => [k, String(v)])) : {}; } catch { return {}; }
       };

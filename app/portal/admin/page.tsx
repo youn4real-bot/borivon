@@ -5667,118 +5667,127 @@ export default function AdminPage() {
             )}
 
 
-            {/* her papers as tiles: one colour dot each (LAW #4), tap = the same preview / approve / reject as
-                before, a missing one = the same upload as before; special rows (passport first upload, Sonstiges,
-                builder docs, translations) open the old view, which keeps every rule */}
+            {/* her papers in ONE place (founder 2026-11-11): Grundlagen · Unterlagen · Visum, a pair (original +
+                translation) on one tile, Sprachzertifikat as the special Deutsch tile; Bearbeitung hidden for now.
+                Tap = the same AdminDocPreviewModal / upload calls as the old rows; special rows open the old view. */}
             {adminDocsOpen && selectedUser && (() => {
               type TileSt = "approved" | "pending" | "rejected" | "missing";
-              type Tile = { id: string; label: string; st: TileSt; doc: Doc | null; act: () => void };
+              type Sub = { label: string; st: TileSt; act: () => void };
+              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean };
               const stOf = (ds: Doc[]): TileSt => ds.length === 0 ? "missing" : ds.some(d => d.status === "rejected") ? "rejected"
                 : ds.some(d => d.status === "pending") ? "pending" : ds.every(d => d.status === "approved") ? "approved" : "pending";
               const latest = (ds: Doc[]) => [...ds].sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)))[0] ?? null;
               const toLegacy = () => { setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-admin-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
               const open = (doc: Doc | null, fallback: () => void) => () => { if (doc) setPreviewDoc(doc); else fallback(); };
-              const tr = lang === "de" ? "Übersetzung" : lang === "fr" ? "traduction" : "translation";
-              const papers: Tile[] = [];
-              for (const ph of PHASE_ITEMS) for (const it of ph.items) {
+              const L3 = (de: string, fr: string, en: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+              const tilesOf = (pi: number): Tile[] => PHASE_ITEMS[pi].items.flatMap((it): Tile[] => {
                 const ds = getAdminDocs(it.key);
-                if ((it.optional || it.key === "other") && ds.length === 0) continue;
+                if ((it.optional || it.key === "other") && ds.length === 0) return [];
                 const doc = it.key === "other" ? null : latest(ds);
                 const canUpload = it.key !== "letter" && it.key !== "cv_de" && it.key !== "other";
-                papers.push({ id: it.key, label: it.label, st: stOf(ds), doc,
-                  act: it.key === "other" ? toLegacy : open(doc, canUpload ? () => triggerAdminDocUpload(it.key, it.label) : toLegacy) });
-                if (it.transKey && ds.length > 0) {
-                  const tds = getAdminDocs(it.transKey);
-                  const td = latest(tds);
-                  papers.push({ id: it.transKey, label: `${it.label} · ${tr}`, st: stOf(tds), doc: td, act: open(td, toLegacy) });
-                }
-              }
-              const slotTiles = (phase: "bearbeitung" | "visum"): Tile[] => (phaseSlots[phase] ?? [])
+                const act = it.key === "other" ? toLegacy : open(doc, canUpload ? () => triggerAdminDocUpload(it.key, it.label) : toLegacy);
+                const label = it.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : it.label;
+                if (!it.transKey) return [{ id: it.key, label, st: stOf(ds), act, special: it.key === "langcert" }];
+                const tds = getAdminDocs(it.transKey);
+                const td = latest(tds);
+                return [{ id: it.key, label, st: stOf(ds), act, sub: [
+                  { label: L3("Original", "Original", "Original"), st: stOf(ds), act },
+                  { label: L3("Übersetzung", "Traduction", "Translation"), st: stOf(tds), act: open(td, toLegacy) },
+                ] }];
+              });
+              const visa: Tile[] = (phaseSlots["visum"] ?? [])
                 .filter((sl): sl is PhaseSlot => sl != null && !!sl.id)
                 .sort((x, y) => x.position - y.position)
-                .flatMap((sl) => {
+                .map((sl): Tile => {
                   const od = getAdminDocs(sl.id);
                   const doc = latest(od);
                   const special = !!(sl.candidate_signs || sl.candidate_fills);
-                  const out: Tile[] = [{ id: sl.id, label: sl.label, st: stOf(od), doc, act: special ? toLegacy : open(doc, () => openAdminUploadPicker(sl.id)) }];
-                  if (sl.type === "dual") {
-                    const tds = getAdminDocs(sl.id + "_de");
-                    const td = latest(tds);
-                    out.push({ id: sl.id + "_de", label: sl.label_trans ?? `${sl.label} · ${tr}`, st: stOf(tds), doc: td, act: open(td, toLegacy) });
-                  }
-                  return out;
+                  const act = special ? toLegacy : open(doc, () => openAdminUploadPicker(sl.id));
+                  if (sl.type !== "dual") return { id: sl.id, label: sl.label, st: stOf(od), act };
+                  const tds = getAdminDocs(sl.id + "_de");
+                  return { id: sl.id, label: sl.label, st: stOf(od), act, sub: [
+                    { label: L3("Original", "Original", "Original"), st: stOf(od), act },
+                    { label: L3("Übersetzung", "Traduction", "Translation"), st: stOf(tds), act: open(latest(tds), toLegacy) },
+                  ] };
                 });
-              const tabs = ([
-                ["papers", lang === "de" ? "Unterlagen" : lang === "fr" ? "Documents" : "Documents", papers],
-                ["bearbeitung", lang === "de" ? "Anerkennung" : lang === "fr" ? "Reconnaissance" : "Recognition", slotTiles("bearbeitung")],
-                ["visum", lang === "de" ? "Visum" : "Visa", slotTiles("visum")],
-              ] as const).filter(([, , ts]) => ts.length > 0);
-              const tab = tabs.find(([k]) => k === tileTab) ?? tabs[0];
-              const all = tab ? (tab[2] as Tile[]) : [];
-              const count = (st: TileSt) => all.filter(x => x.st === st).length;
-              const shown = tileFilter ? all.filter(x => x.st === tileFilter) : all;
-              const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "var(--border)" };
-              const chips: [TileSt, string][] = [
-                ["pending", lang === "de" ? "warten auf Sie" : lang === "fr" ? "à vérifier" : "waiting for you"],
-                ["rejected", lang === "de" ? "neu hochladen" : lang === "fr" ? "à refaire" : "to redo"],
-                ["missing", lang === "de" ? "fehlen" : lang === "fr" ? "manquent" : "missing"],
-                ["approved", lang === "de" ? "fertig" : lang === "fr" ? "validés" : "done"],
+              const groups: [string, Tile[]][] = [
+                [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0)],
+                [L3("Unterlagen", "Documents", "Documents"), tilesOf(1)],
+                [L3("Visum", "Visa", "Visa"), visa],
               ];
+              const flat = groups.flatMap(([, ts]) => ts.flatMap((x) => x.sub ? x.sub.map((y) => y.st) : [x.st]));
+              const count = (st: TileSt) => flat.filter((x) => x === st).length;
+              const has = (x: Tile, st: TileSt) => x.sub ? x.sub.some((y) => y.st === st) : x.st === st;
+              const chips: [TileSt, string][] = [
+                ["pending", L3("warten auf Sie", "à vérifier", "waiting for you")],
+                ["rejected", L3("neu hochladen", "à refaire", "to redo")],
+                ["missing", L3("fehlen", "manquent", "missing")],
+                ["approved", L3("fertig", "validés", "done")],
+              ];
+
+              // one tile = one paper; a pair (original + translation) = one tile with two small chips
+              const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
+              const worst = (a: TileSt[]): TileSt => a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved";
+              const tileOf = (x: Tile) => {
+                const st = x.sub ? worst(x.sub.map((y) => y.st)) : x.st;
+                return (
+                  <div key={x.id} className="relative text-center"
+                    style={{ padding: "12px 10px 10px", borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)",
+                      border: `1px solid ${x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
+                    <button type="button" onClick={x.act} title={x.label} className="block w-full" style={{ background: "none", border: 0, padding: 0, color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
+                      <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
+                      <span className="grid place-items-center" style={{ height: 52, borderRadius: 8, marginBottom: 8,
+                        ...(st === "missing" && !x.sub ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: x.special ? "transparent" : "var(--bg2)", color: x.special ? "var(--gold)" : "var(--w3)" }) }}>
+                        {x.special
+                          ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 5h9M8.5 3v2M6 5c0 4 3 7 7 8M11 5c-1 4-4 7-7 8M13 21l4-9 4 9M14.5 18h5" /></svg>
+                          : st === "missing" && !x.sub
+                          ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                          : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
+                      </span>
+                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 31, overflowWrap: "anywhere" }}>{x.label}</span>
+                    </button>
+                    {x.sub && (
+                      <span className="flex justify-center gap-1.5 mt-2">
+                        {x.sub.map((y) => (
+                          <button key={y.label} type="button" onClick={y.act} title={`${x.label} · ${y.label}`}
+                            className="inline-flex items-center gap-1.5" style={{ padding: "3px 8px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", fontSize: 11, color: "var(--w2)", cursor: "pointer" }}>
+                            <i style={{ width: 7, height: 7, borderRadius: "50%", background: DOT[y.st] }} />{y.label}
+                          </button>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                );
+              };
+              const section = (title: string, ts: Tile[]) => ts.length === 0 ? null : (
+                <div key={title} className="mb-5">
+                  <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)", marginBottom: 10 }}>{title}</div>
+                  <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))" }}>{ts.map(tileOf)}</div>
+                </div>
+              );
               return (
                 <section id="bv-admin-tiles" className="mt-6" style={{ scrollMarginTop: 80 }}>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, color: "var(--w)" }}>{lang === "de" ? "Unterlagen" : "Documents"}</h2>
-                    {tabs.length > 1 && (
-                      <div className="ml-auto inline-flex gap-[2px] p-[3px]" role="tablist" style={{ borderRadius: 999, background: "var(--bg2)" }}>
-                        {tabs.map(([k, label, ts]) => {
-                          const on = tab?.[0] === k;
-                          const wait = (ts as Tile[]).filter(x => x.st === "pending").length;
-                          return (
-                            <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setTileTab(k); setTileFilter(""); }}
-                              style={{ padding: "7px 15px", borderRadius: 999, border: 0, fontSize: 13, fontWeight: 500, cursor: "pointer",
-                                background: on ? "var(--card)" : "transparent", color: on ? "var(--w)" : "var(--w3)", boxShadow: on ? "0 2px 8px -4px rgba(21,19,15,.3)" : "none" }}>
-                              {label}{wait > 0 && <span style={{ marginLeft: 6, color: "#f59e0b" }}>{wait}</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <button type="button" onClick={() => setAdminDocsOpen(false)} aria-label={lang === "de" ? "Schließen" : "Close"}
-                      className={tabs.length > 1 ? "" : "ml-auto"} style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
+                  <div className="flex items-center gap-3 flex-wrap mb-4">
+                    <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, color: "var(--w)" }}>{L3("Unterlagen", "Documents", "Documents")}</h2>
+                    <div className="flex flex-wrap gap-2 ml-auto">
+                      {chips.filter(([st]) => count(st) > 0).map(([st, label]) => {
+                        const on = tileFilter === st;
+                        return (
+                          <button key={st} type="button" onClick={() => setTileFilter(on ? "" : st)} aria-pressed={on} className="inline-flex items-center gap-2"
+                            style={{ padding: "5px 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer", border: `1px solid ${on ? DOT[st] : "var(--border)"}`, background: on ? "var(--bg2)" : "var(--card)", color: "var(--w)" }}>
+                            <i style={{ width: 8, height: 8, borderRadius: "50%", background: DOT[st] }} />{count(st)} {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button type="button" onClick={() => setAdminDocsOpen(false)} aria-label={L3("Schließen", "Fermer", "Close")}
+                      style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-5 mb-4">
-                    {chips.filter(([st]) => count(st) > 0).map(([st, label]) => {
-                      const on = tileFilter === st;
-                      return (
-                        <button key={st} type="button" onClick={() => setTileFilter(on ? "" : st)} aria-pressed={on}
-                          className="inline-flex items-center gap-2"
-                          style={{ padding: "6px 13px", borderRadius: 999, fontSize: 13, cursor: "pointer", border: `1px solid ${on ? DOT[st] : "var(--border)"}`, background: on ? "var(--bg2)" : "var(--card)", color: "var(--w)" }}>
-                          <i style={{ width: 8, height: 8, borderRadius: "50%", background: DOT[st] === "var(--border)" ? "#d8d0c0" : DOT[st] }} />{count(st)} {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
-                    {shown.map((x) => (
-                      <button key={x.id} type="button" onClick={x.act} title={x.label}
-                        className="relative text-center"
-                        style={{ padding: "14px 12px 12px", borderRadius: 14, cursor: "pointer", background: "var(--card)", color: "var(--w)", fontFamily: "inherit",
-                          border: `1px solid ${x.st === "pending" ? "#fcd9a8" : "var(--border)"}`, boxShadow: x.st === "pending" ? "0 0 0 3px rgba(245,158,11,.10)" : "none" }}>
-                        <span className="absolute" style={{ right: 10, top: 10, width: 11, height: 11, borderRadius: "50%", background: x.st === "missing" ? "#d8d0c0" : DOT[x.st], border: "2px solid var(--card)" }} />
-                        <span className="grid place-items-center" style={{ height: 70, borderRadius: 8, marginBottom: 10,
-                          ...(x.st === "missing" ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: "var(--bg2)", color: "var(--w3)" }) }}>
-                          {x.st === "missing"
-                            ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                            : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
-                        </span>
-                        <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 32, overflowWrap: "anywhere" }}>{x.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-4 text-right">
+                  {groups.map(([title, ts]) => section(title, tileFilter ? ts.filter((x) => has(x, tileFilter as TileSt)) : ts))}
+                  <div className="text-right">
                     <button type="button" onClick={() => (legacyDocs ? setLegacyDocs(false) : toLegacy())}
                       style={{ background: "none", border: 0, padding: 0, fontSize: 12.5, color: "var(--w3)", cursor: "pointer" }}>
-                      {legacyDocs ? (lang === "de" ? "Alte Ansicht schließen" : "Close the old view") : (lang === "de" ? "Alte Ansicht" : lang === "fr" ? "Ancienne vue" : "Old view")}
+                      {legacyDocs ? L3("Alte Ansicht schließen", "Fermer l’ancienne vue", "Close the old view") : L3("Alte Ansicht", "Ancienne vue", "Old view")}
                     </button>
                   </div>
                 </section>
@@ -8962,21 +8971,17 @@ export default function AdminPage() {
           />
           </div>
           {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
-            <div role="tablist" className="inline-flex items-center ml-auto" style={{ gap: 14 }}>
-              {([
-                ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
-                ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
-                ["inactive", lang === "de" ? "Inaktiv"   : lang === "fr" ? "Inactifs"  : "Inactive"],
-              ] as const).map(([mode, label]) => {
-                const active = regView === mode;
-                return (
-                  <button key={mode} type="button" role="tab" aria-selected={active} onClick={() => setRegView(mode)}
-                    style={{ padding: "6px 0", border: 0, borderBottom: `1.5px solid ${active ? "var(--w)" : "transparent"}`, background: "transparent", fontSize: 13, fontWeight: 500, color: active ? "var(--w)" : "var(--w3)", cursor: "pointer" }}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            <label className="inline-flex items-center ml-auto" style={{ gap: 6, fontSize: 13, color: "var(--w3)", cursor: "pointer" }}
+              title={lang === "de" ? "Sortieren" : lang === "fr" ? "Trier" : "Sort"}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4" /></svg>
+              <select value={regView} onChange={(e) => setRegView(e.target.value as typeof regView)}
+                aria-label={lang === "de" ? "Sortieren" : lang === "fr" ? "Trier" : "Sort"}
+                style={{ border: 0, background: "transparent", color: "var(--w)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer", padding: "4px 0" }}>
+                <option value="default">{lang === "de" ? "Aktivität" : lang === "fr" ? "Activité" : "Activity"}</option>
+                <option value="newest">{lang === "de" ? "Neueste" : lang === "fr" ? "Récents" : "Newest"}</option>
+                <option value="inactive">{lang === "de" ? "Inaktiv" : lang === "fr" ? "Inactifs" : "Inactive"}</option>
+              </select>
+            </label>
           )}
           <AdminAdvancedFilters
             accessToken={accessToken}

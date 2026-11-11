@@ -14,9 +14,10 @@ const base = (o: Partial<WayInput> = {}): WayInput => ({
 describe("the way (lib/facility/way.ts)", () => {
   it("she is at the first open station of the chain; Deutsch never blocks it", () => {
     const w = buildWay(base());
-    expect(w.stations.map((s) => s.key)).toEqual(["lang", "papers", "contract", "recog", "visa", "trip", "arrive", "kp", "stay"]);
+    // Anerkennung is hidden for now (SHOW_RECOG)
+    expect(w.stations.map((s) => s.key)).toEqual(["lang", "papers", "contract", "visa", "trip", "arrive", "kp", "stay"]);
     expect(w.now).toBe("visa");
-    expect(w.win).toBe("recog");
+    expect(w.win).toBe("papers");
     expect(w.next).toBe("vorab");
     expect(w.ticks).toHaveLength(VISA_STEPS.length);
     expect(w.stations.find((s) => s.key === "lang")!.done).toBe(false);
