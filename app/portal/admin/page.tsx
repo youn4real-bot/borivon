@@ -809,6 +809,10 @@ export default function AdminPage() {
   // "a lot of garbage … tools on my dashboard I'd like to just hide for now")
   const [toolsOpen, setToolsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // her papers as tiles (founder 2026-11-11, mock p3); the old two-column list stays one tap away ("Alte Ansicht")
+  const [legacyDocs, setLegacyDocs] = useState(false);
+  const [tileTab, setTileTab] = useState<"papers" | "bearbeitung" | "visum">("papers");
+  const [tileFilter, setTileFilter] = useState<"" | "pending" | "rejected" | "missing" | "approved">("");
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
@@ -4843,7 +4847,7 @@ export default function AdminPage() {
             {selectedUser && (
               <div className="mt-5" id="bv-admin-weg">
                 <WayBoard key={selectedUser} userId={selectedUser} name={users[selectedUser]?.name ?? ""}
-                  onDocs={() => { setAdminDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-admin-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
+                  onDocs={() => { setAdminDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-admin-tiles")?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
               </div>
             )}
 
@@ -5663,25 +5667,139 @@ export default function AdminPage() {
             )}
 
 
-            {/* her papers: one bar until opened; gold when something waits for you */}
-            {(() => {
+            {/* her papers as tiles: one colour dot each (LAW #4), tap = the same preview / approve / reject as
+                before, a missing one = the same upload as before; special rows (passport first upload, Sonstiges,
+                builder docs, translations) open the old view, which keeps every rule */}
+            {adminDocsOpen && selectedUser && (() => {
+              type TileSt = "approved" | "pending" | "rejected" | "missing";
+              type Tile = { id: string; label: string; st: TileSt; doc: Doc | null; act: () => void };
+              const stOf = (ds: Doc[]): TileSt => ds.length === 0 ? "missing" : ds.some(d => d.status === "rejected") ? "rejected"
+                : ds.some(d => d.status === "pending") ? "pending" : ds.every(d => d.status === "approved") ? "approved" : "pending";
+              const latest = (ds: Doc[]) => [...ds].sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)))[0] ?? null;
+              const toLegacy = () => { setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-admin-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+              const open = (doc: Doc | null, fallback: () => void) => () => { if (doc) setPreviewDoc(doc); else fallback(); };
+              const tr = lang === "de" ? "Übersetzung" : lang === "fr" ? "traduction" : "translation";
+              const papers: Tile[] = [];
+              for (const ph of PHASE_ITEMS) for (const it of ph.items) {
+                const ds = getAdminDocs(it.key);
+                if ((it.optional || it.key === "other") && ds.length === 0) continue;
+                const doc = it.key === "other" ? null : latest(ds);
+                const canUpload = it.key !== "letter" && it.key !== "cv_de" && it.key !== "other";
+                papers.push({ id: it.key, label: it.label, st: stOf(ds), doc,
+                  act: it.key === "other" ? toLegacy : open(doc, canUpload ? () => triggerAdminDocUpload(it.key, it.label) : toLegacy) });
+                if (it.transKey && ds.length > 0) {
+                  const tds = getAdminDocs(it.transKey);
+                  const td = latest(tds);
+                  papers.push({ id: it.transKey, label: `${it.label} · ${tr}`, st: stOf(tds), doc: td, act: open(td, toLegacy) });
+                }
+              }
+              const slotTiles = (phase: "bearbeitung" | "visum"): Tile[] => (phaseSlots[phase] ?? [])
+                .filter((sl): sl is PhaseSlot => sl != null && !!sl.id)
+                .sort((x, y) => x.position - y.position)
+                .flatMap((sl) => {
+                  const od = getAdminDocs(sl.id);
+                  const doc = latest(od);
+                  const special = !!(sl.candidate_signs || sl.candidate_fills);
+                  const out: Tile[] = [{ id: sl.id, label: sl.label, st: stOf(od), doc, act: special ? toLegacy : open(doc, () => openAdminUploadPicker(sl.id)) }];
+                  if (sl.type === "dual") {
+                    const tds = getAdminDocs(sl.id + "_de");
+                    const td = latest(tds);
+                    out.push({ id: sl.id + "_de", label: sl.label_trans ?? `${sl.label} · ${tr}`, st: stOf(tds), doc: td, act: open(td, toLegacy) });
+                  }
+                  return out;
+                });
+              const tabs = ([
+                ["papers", lang === "de" ? "Unterlagen" : lang === "fr" ? "Documents" : "Documents", papers],
+                ["bearbeitung", lang === "de" ? "Anerkennung" : lang === "fr" ? "Reconnaissance" : "Recognition", slotTiles("bearbeitung")],
+                ["visum", lang === "de" ? "Visum" : "Visa", slotTiles("visum")],
+              ] as const).filter(([, , ts]) => ts.length > 0);
+              const tab = tabs.find(([k]) => k === tileTab) ?? tabs[0];
+              const all = tab ? (tab[2] as Tile[]) : [];
+              const count = (st: TileSt) => all.filter(x => x.st === st).length;
+              const shown = tileFilter ? all.filter(x => x.st === tileFilter) : all;
+              const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "var(--border)" };
+              const chips: [TileSt, string][] = [
+                ["pending", lang === "de" ? "warten auf Sie" : lang === "fr" ? "à vérifier" : "waiting for you"],
+                ["rejected", lang === "de" ? "neu hochladen" : lang === "fr" ? "à refaire" : "to redo"],
+                ["missing", lang === "de" ? "fehlen" : lang === "fr" ? "manquent" : "missing"],
+                ["approved", lang === "de" ? "fertig" : lang === "fr" ? "validés" : "done"],
+              ];
+              return (
+                <section id="bv-admin-tiles" className="mt-6" style={{ scrollMarginTop: 80 }}>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, color: "var(--w)" }}>{lang === "de" ? "Unterlagen" : "Documents"}</h2>
+                    {tabs.length > 1 && (
+                      <div className="ml-auto inline-flex gap-[2px] p-[3px]" role="tablist" style={{ borderRadius: 999, background: "var(--bg2)" }}>
+                        {tabs.map(([k, label, ts]) => {
+                          const on = tab?.[0] === k;
+                          const wait = (ts as Tile[]).filter(x => x.st === "pending").length;
+                          return (
+                            <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setTileTab(k); setTileFilter(""); }}
+                              style={{ padding: "7px 15px", borderRadius: 999, border: 0, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                                background: on ? "var(--card)" : "transparent", color: on ? "var(--w)" : "var(--w3)", boxShadow: on ? "0 2px 8px -4px rgba(21,19,15,.3)" : "none" }}>
+                              {label}{wait > 0 && <span style={{ marginLeft: 6, color: "#f59e0b" }}>{wait}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <button type="button" onClick={() => setAdminDocsOpen(false)} aria-label={lang === "de" ? "Schließen" : "Close"}
+                      className={tabs.length > 1 ? "" : "ml-auto"} style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-5 mb-4">
+                    {chips.filter(([st]) => count(st) > 0).map(([st, label]) => {
+                      const on = tileFilter === st;
+                      return (
+                        <button key={st} type="button" onClick={() => setTileFilter(on ? "" : st)} aria-pressed={on}
+                          className="inline-flex items-center gap-2"
+                          style={{ padding: "6px 13px", borderRadius: 999, fontSize: 13, cursor: "pointer", border: `1px solid ${on ? DOT[st] : "var(--border)"}`, background: on ? "var(--bg2)" : "var(--card)", color: "var(--w)" }}>
+                          <i style={{ width: 8, height: 8, borderRadius: "50%", background: DOT[st] === "var(--border)" ? "#d8d0c0" : DOT[st] }} />{count(st)} {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+                    {shown.map((x) => (
+                      <button key={x.id} type="button" onClick={x.act} title={x.label}
+                        className="relative text-center"
+                        style={{ padding: "14px 12px 12px", borderRadius: 14, cursor: "pointer", background: "var(--card)", color: "var(--w)", fontFamily: "inherit",
+                          border: `1px solid ${x.st === "pending" ? "#fcd9a8" : "var(--border)"}`, boxShadow: x.st === "pending" ? "0 0 0 3px rgba(245,158,11,.10)" : "none" }}>
+                        <span className="absolute" style={{ right: 10, top: 10, width: 11, height: 11, borderRadius: "50%", background: x.st === "missing" ? "#d8d0c0" : DOT[x.st], border: "2px solid var(--card)" }} />
+                        <span className="grid place-items-center" style={{ height: 70, borderRadius: 8, marginBottom: 10,
+                          ...(x.st === "missing" ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: "var(--bg2)", color: "var(--w3)" }) }}>
+                          {x.st === "missing"
+                            ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                            : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
+                        </span>
+                        <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 32, overflowWrap: "anywhere" }}>{x.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-4 text-right">
+                    <button type="button" onClick={() => (legacyDocs ? setLegacyDocs(false) : toLegacy())}
+                      style={{ background: "none", border: 0, padding: 0, fontSize: 12.5, color: "var(--w3)", cursor: "pointer" }}>
+                      {legacyDocs ? (lang === "de" ? "Alte Ansicht schließen" : "Close the old view") : (lang === "de" ? "Alte Ansicht" : lang === "fr" ? "Ancienne vue" : "Old view")}
+                    </button>
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* the old bar, kept hidden (SHOW_LEGACY) */}
+            {SHOW_LEGACY && (() => {
               const waiting = (grouped[selectedUser ?? ""] ?? []).filter(d => d.status === "pending").length;
               if (!adminDocsOpen) return null;
               return (
                 <button type="button" onClick={() => setAdminDocsOpen(o => !o)} aria-expanded={adminDocsOpen} aria-controls="bv-admin-docs"
                   className="w-full flex items-center justify-between mt-5 mb-5"
                   style={{ padding: "16px 20px", border: `1px solid ${waiting > 0 ? "var(--border-gold)" : "var(--border)"}`, borderRadius: 8, background: "var(--card)", color: "var(--w)", cursor: "pointer" }}>
-                  <span style={{ fontFamily: "var(--font-serif)", fontSize: 19 }}>
-                    {lang === "de" ? "Unterlagen" : lang === "fr" ? "Documents" : "Documents"}
-                    {waiting > 0 && <span style={{ marginLeft: 12, fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--gold)" }}>{waiting} {lang === "de" ? "warten auf Sie" : lang === "fr" ? "à vérifier" : "to review"}</span>}
-                  </span>
-                  <span style={{ fontSize: 13, color: "var(--w3)" }}>{adminDocsOpen ? (lang === "de" ? "Schließen ↑" : lang === "fr" ? "Fermer ↑" : "Close ↑") : (lang === "de" ? "Öffnen ↓" : lang === "fr" ? "Ouvrir ↓" : "Open ↓")}</span>
+                  <span style={{ fontFamily: "var(--font-serif)", fontSize: 19 }}>{lang === "de" ? "Unterlagen" : "Documents"}</span>
                 </button>
               );
             })()}
 
             {/* Always two-column: sidebar + content */}
-            <div id="bv-admin-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80, display: adminDocsOpen ? undefined : "none" }}>
+            <div id="bv-admin-docs" className="flex gap-4 sm:gap-6 items-start mt-6" style={{ scrollMarginTop: 80, display: adminDocsOpen && legacyDocs ? undefined : "none" }}>
 
               {/* Sidebar — doc phases + journey stages */}
               <aside className="shrink-0 w-[52px] sm:w-[62px]"
