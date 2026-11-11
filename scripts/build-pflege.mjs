@@ -148,7 +148,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "plattform.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in plattform.html"); }
-  else s = s.slice(0, i) + head("Die Borivon-Plattform für Ihre Einrichtung", "Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Als Dankeschön zu Ihrem Fahrplan.", "https://www.borivon.com/plattform", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Die Borivon-Plattform für Ihre Einrichtung", "Jede Pflegekraft, jeder Schritt, ein Ort: vom Lebenslauf über das Visum bis zum Ende der Probezeit. Als Dankeschön zu Ihrem Fahrplan.", "https://www.borivon.com/plattform", "https://www.borivon.com/pflege/assets/og-plattform.jpg") + s.slice(i + "<!--HEAD-->".length);
   pages.PLATTFORM_HTML = bv(s);
 }
 
