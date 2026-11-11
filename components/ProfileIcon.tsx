@@ -819,7 +819,7 @@ export function ProfileIcon() {
               {/* Theme + language — relocated here from the top bar for signed-in
                   users (the top bar keeps them only when logged out). */}
               <div style={{ borderTop: "1px solid var(--border)", marginTop: 4, paddingTop: 4 }}>
-                <button
+                {(false as boolean) && <button
                   onClick={toggleTheme}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
                   style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
@@ -830,7 +830,7 @@ export function ProfileIcon() {
                   {theme === "dark"
                     ? (lang === "de" ? "Heller Modus" : lang === "fr" ? "Mode clair" : "Light mode")
                     : (lang === "de" ? "Dunkler Modus" : lang === "fr" ? "Mode sombre" : "Dark mode")}
-                </button>
+                </button>}
                 <div className="px-3 py-2 flex items-center" style={{ gap: 8 }}>
                   {LANGS.map(l => (
                     <button key={l.code} onClick={() => setLang(l.code)} aria-label={l.label} title={l.label}

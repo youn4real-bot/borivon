@@ -478,7 +478,7 @@ export async function GET(req: NextRequest) {
   // ── The whole way per nurse, for the list (components/fx/Way.tsx WayDots/WayNext/WayWhen) ──────
   // Same numbers as her page: lib/facility/way.ts over the doc phases above + the fx tables (visa,
   // flat + journey, first weeks, six months). Any failure → no way for that list, never a 500.
-  const wayByUser: Record<string, { st: [string, 0 | 1 | 2][]; now: string; p: [number, number]; next: string | null; eta: unknown; today: string }> = {};
+  const wayByUser: Record<string, { st: [string, 0 | 1 | 2][]; now: string; p: [number, number]; next: string | null; eta: unknown; today: string; wins: { kind: string; at: string }[] }> = {};
   try {
     const fx = userIds.length > 0 ? await fxDb() : null;
     if (fx) {
@@ -495,6 +495,9 @@ export async function GET(req: NextRequest) {
         try { const p = JSON.parse(String(r?.steps || "{}")); return p && typeof p === "object" && !Array.isArray(p) ? Object.fromEntries(Object.entries(p).map(([k, v]) => [k, String(v)])) : {}; } catch { return {}; }
       };
       const today = new Date().toISOString().slice(0, 10);
+      // the small wins of the last 14 days (the dashboard's first line): only real tick times / entered dates
+      const since = new Date(Date.now() - 14 * 86400e3).toISOString().slice(0, 10);
+      const recent = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) && v.slice(0, 10) >= since && v.slice(0, 10) <= today;
       for (const uid of userIds) {
         const prof = profiles[uid] as { b2_stage?: string | null; b2_failed?: boolean | null } | undefined;
         const w = buildWay({
@@ -507,9 +510,17 @@ export async function GET(req: NextRequest) {
           today,
         });
         const cur = w.stations.find((x) => x.key === w.now);
+        const sv = steps(by.fx_visa[uid]), sm = steps(by.fx_move[uid]), s6 = steps(by.fx_settle[uid]);
+        const mk = rowMarks(by.fx_marks[uid]);
+        const wins: { kind: string; at: string }[] = [];
+        if (recent(sv.got)) wins.push({ kind: "visa", at: sv.got });
+        if (recent(sm.pickup)) wins.push({ kind: "landed", at: sm.pickup });
+        if (recent(mk.contract)) wins.push({ kind: "contract", at: mk.contract });
+        if (recent(mk.urkunde)) wins.push({ kind: "urkunde", at: mk.urkunde });
+        if (recent(s6.m6c)) wins.push({ kind: "probation", at: s6.m6c });
         wayByUser[uid] = {
           st: w.stations.map((x) => [x.key, x.done ? 2 : x.key === w.now ? 1 : 0]),
-          now: w.now, p: cur ? cur.p : [0, 0], next: w.next, eta: w.nowEta ?? w.upcoming[0] ?? w.eta, today,
+          now: w.now, p: cur ? cur.p : [0, 0], next: w.next, eta: w.nowEta ?? w.upcoming[0] ?? w.eta, today, wins,
         };
       }
     }

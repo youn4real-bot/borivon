@@ -458,6 +458,10 @@ function replaceFailedPrefix(lang: string): string {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
+/** the old nurse-page header (pills, PDF, plan link) stays in code, hidden (founder 2026-11-11: "remove so much
+ *  that we have to add stuff back later … don't delete the old version") */
+const SHOW_LEGACY = false as boolean;
+
 export default function AdminPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -804,6 +808,7 @@ export default function AdminPage() {
   // the dashboard shows search + the list; every tool folds behind one "Werkzeuge" bar (founder 2026-11-11:
   // "a lot of garbage … tools on my dashboard I'd like to just hide for now")
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
@@ -4549,6 +4554,157 @@ export default function AdminPage() {
           <PortalTopNav />
           <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
+            {/* The nurse page header, new design only: back, photo, name, one ⋯ for the rest */}
+            <div className="flex items-center gap-4 mb-6">
+              <button onClick={() => { setSelectedUser(null); setMoreOpen(false); }}
+                aria-label={lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
+                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ color: "var(--w2)", border: "1px solid var(--border)", background: "var(--card)" }}>
+                <ArrowLeft size={15} strokeWidth={1.8} />
+              </button>
+              {selectedUser && profiles[selectedUser]?.profile_photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={profiles[selectedUser]!.profile_photo!} alt="" className="rounded-full object-cover flex-shrink-0"
+                  style={{ width: 64, height: 64, boxShadow: "0 14px 30px -16px rgba(21,19,15,.5)" }} />
+              ) : (
+                <span className="rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ width: 64, height: 64, background: "var(--gdim)", color: "var(--gold)", fontSize: 18, fontWeight: 500 }}>{initialsOf(user.name)}</span>
+              )}
+              <h1 className="min-w-0 truncate" style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: "clamp(26px, 5vw, 38px)", lineHeight: 1.05, color: "var(--w)" }}>{user.name}</h1>
+              <div className="ml-auto relative flex-shrink-0">
+                <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-expanded={moreOpen}
+                  aria-label={lang === "de" ? "Mehr" : lang === "fr" ? "Plus" : "More"}
+                  style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w2)", fontSize: 18, lineHeight: 1, cursor: "pointer" }}>⋯</button>
+                {moreOpen && (<>
+                  <div className="fixed inset-0 z-[599]" onClick={() => setMoreOpen(false)} />
+                  <div className="absolute right-0 mt-2 z-[600] flex flex-col items-start gap-2 p-3"
+                    style={{ minWidth: 240, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "var(--shadow-md)" }}>
+              {/* Admin-only STATUS reminders (B2 …). Candidate never sees this. */}
+              <button
+                onClick={openStatusModal}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
+                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
+              </button>
+              {/* WhatsApp: ask the candidate to upload a missing doc — STEP BY STEP.
+                  Opens a picker of the missing docs; the admin ticks 1–2 and sends,
+                  so we never dump the whole list on her. (Self-hides if no phone /
+                  nothing missing; warns on an incomplete number.) */}
+              {selectedUser && (() => {
+                const cl = computeChecklist(
+                  docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
+                  { requiredKeys: requiredKeysForCandidate(selectedUser) },
+                );
+                // Original and translated are SEPARATE requestable docs — a
+                // qualification ships as an original + its German translation.
+                const tSuffix = lang === "fr" ? " (traduction)" : lang === "de" ? " (Übersetzung)" : " (translation)";
+                const missing: MissingDoc[] = [];
+                for (const i of cl.items) {
+                  if (i.optional) continue;
+                  // Passport (key "id") is excluded from the login-less upload link
+                  // (LAW #39 — it has its own client-only rotation flow); the mint
+                  // endpoint drops it too. Offering it here would compose a WhatsApp
+                  // message advertising a link that can never carry it.
+                  if (i.key === "id") continue;
+                  const base = missingDocLabel(i.key, lang);
+                  if (i.original === "missing" || i.original === "rejected") missing.push({ key: i.key, label: base });
+                  if (i.hasTranslation && (i.translation === "missing" || i.translation === "rejected"))
+                    missing.push({ key: `${i.key}_de`, label: base + tSuffix });
+                }
+                const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
+                // Phone: the per-candidate profile column (now repaired + kept clean by
+                // the phone formatter). Do NOT read statusCvDraft here — it isn't reset
+                // when the admin switches candidates, so it would leak the previously-
+                // opened candidate's number into THIS candidate's message.
+                return (
+                  <WhatsAppDocRequest
+                    candidateId={selectedUser}
+                    accessToken={accessToken}
+                    phoneRaw={profiles[selectedUser]?.phone ?? ""}
+                    firstName={first}
+                    docs={missing}
+                    lang={lang}
+                  />
+                );
+              })()}
+
+              {/* SEND TO <AGENCY> — the gate for the partner API.
+                  Pressing this is what lets that agency's system fetch her
+                  documents; nothing else does. So it reads as a real access
+                  grant: gold when they can see her, plain when they cannot, and
+                  it says the agency's name rather than a generic "share". */}
+              {partnerOrgs.map((org) => {
+                const on = partnerShares.includes(org.id);
+                const busy = shareBusy === org.id;
+                return (
+                  <button
+                    key={org.id}
+                    onClick={() => togglePartnerShare(org.id, !on)}
+                    disabled={busy}
+                    title={on
+                      ? (lang === "de" ? `${org.name} kann ihre Unterlagen abrufen — zum Zurückziehen klicken`
+                        : lang === "fr" ? `${org.name} peut récupérer ses documents — cliquez pour retirer`
+                        : `${org.name} can pull her documents — click to stop sharing`)
+                      : (lang === "de" ? `Unterlagen an ${org.name} freigeben`
+                        : lang === "fr" ? `Partager les documents avec ${org.name}`
+                        : `Share her documents with ${org.name}`)}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
+                    style={on
+                      ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                      : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
+                  >
+                    {busy ? <Loader2 size={12} className="animate-spin" aria-hidden />
+                      : on ? <Check size={12} strokeWidth={2.4} />
+                      : <Send size={12} strokeWidth={2} />}
+                    {on
+                      ? (lang === "de" ? `Bei ${org.name}` : lang === "fr" ? `Chez ${org.name}` : `With ${org.name}`)
+                      : (lang === "de" ? `An ${org.name}` : lang === "fr" ? `Vers ${org.name}` : `Send to ${org.name}`)}
+                  </button>
+                );
+              })}
+
+              {/* The buttons above ARE the answer to "who can pull her
+                  documents", so their absence is an answer too — and after a
+                  500, an expired JWT or a dropped connection it is the wrong
+                  one. Stand in their place and say the truth: not checked.
+                  Danger tone, never the plain "not shared" grey, so it can
+                  never be mistaken for one more agency that simply says no. */}
+              {shareLoadFailed && (
+                /* role="alert" lives on the wrapper, not on the button: putting
+                   it on the button itself would replace the button role, and a
+                   screen-reader user would hear the warning without ever being
+                   told the thing is clickable. */
+                <span role="alert" className="inline-flex flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => { void retryPartnerShares(); }}
+                  disabled={shareLoadRetrying}
+                  title={lang === "de" ? "Die Liste der Agenturen konnte nicht geladen werden — klicken zum erneuten Prüfen"
+                    : lang === "fr" ? "La liste des agences n'a pas pu être chargée — cliquez pour revérifier"
+                    : "Could not load which agencies can see her — click to check again"}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
+                  style={{ background: "var(--bg2)", color: "var(--danger)", border: "1px solid var(--danger)" }}
+                >
+                  {shareLoadRetrying
+                    ? <Loader2 size={12} className="animate-spin" aria-hidden />
+                    : <AlertTriangle size={12} strokeWidth={2} />}
+                  {lang === "de" ? "Freigaben unbekannt — erneut prüfen"
+                    : lang === "fr" ? "Partages inconnus — revérifier"
+                    : "Sharing unknown — check again"}
+                </button>
+                </span>
+              )}
+                  </div>
+                </>)}
+              </div>
+            </div>
+            {shareErr && (
+              <p className="text-[12px] -mt-3 mb-4" style={{ color: "var(--danger)" }} role="alert">
+                {lang === "de" ? "Freigabe fehlgeschlagen — nichts wurde geändert." : lang === "fr" ? "Le partage a échoué — rien n'a changé." : "Sharing failed — nothing was changed."}
+              </p>
+            )}
+
+            {SHOW_LEGACY && (<>
             {/* ── Back + premium candidate header ──
                 Top-of-detail hero: round photo (or initial) on the left, name
                 + email centered, status pills + actions clustered on the
@@ -4665,13 +4821,6 @@ export default function AdminPage() {
                   </p>
                 )}
               </div>
-              {/* Admin-only STATUS reminders (B2 …). Candidate never sees this. */}
-              <button
-                onClick={openStatusModal}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
-              </button>
               {/* her arrival plan (dates, where she lives, offices nearby, ticked steps) */}
               {selectedUser && (
                 <a href={`/portal/admin/ankunft/${selectedUser}?name=${encodeURIComponent(users[selectedUser]?.name ?? "")}`}
@@ -4686,115 +4835,9 @@ export default function AdminPage() {
                   docs={docs.filter((d: { user_id: string }) => d.user_id === selectedUser) as unknown as import("@/lib/visaBundle").BundleDoc[]} />
               )}
 
-              {/* WhatsApp: ask the candidate to upload a missing doc — STEP BY STEP.
-                  Opens a picker of the missing docs; the admin ticks 1–2 and sends,
-                  so we never dump the whole list on her. (Self-hides if no phone /
-                  nothing missing; warns on an incomplete number.) */}
-              {selectedUser && (() => {
-                const cl = computeChecklist(
-                  docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
-                  { requiredKeys: requiredKeysForCandidate(selectedUser) },
-                );
-                // Original and translated are SEPARATE requestable docs — a
-                // qualification ships as an original + its German translation.
-                const tSuffix = lang === "fr" ? " (traduction)" : lang === "de" ? " (Übersetzung)" : " (translation)";
-                const missing: MissingDoc[] = [];
-                for (const i of cl.items) {
-                  if (i.optional) continue;
-                  // Passport (key "id") is excluded from the login-less upload link
-                  // (LAW #39 — it has its own client-only rotation flow); the mint
-                  // endpoint drops it too. Offering it here would compose a WhatsApp
-                  // message advertising a link that can never carry it.
-                  if (i.key === "id") continue;
-                  const base = missingDocLabel(i.key, lang);
-                  if (i.original === "missing" || i.original === "rejected") missing.push({ key: i.key, label: base });
-                  if (i.hasTranslation && (i.translation === "missing" || i.translation === "rejected"))
-                    missing.push({ key: `${i.key}_de`, label: base + tSuffix });
-                }
-                const first = (user.name ?? "").trim().split(/\s+/)[0] || "";
-                // Phone: the per-candidate profile column (now repaired + kept clean by
-                // the phone formatter). Do NOT read statusCvDraft here — it isn't reset
-                // when the admin switches candidates, so it would leak the previously-
-                // opened candidate's number into THIS candidate's message.
-                return (
-                  <WhatsAppDocRequest
-                    candidateId={selectedUser}
-                    accessToken={accessToken}
-                    phoneRaw={profiles[selectedUser]?.phone ?? ""}
-                    firstName={first}
-                    docs={missing}
-                    lang={lang}
-                  />
-                );
-              })()}
-
-              {/* SEND TO <AGENCY> — the gate for the partner API.
-                  Pressing this is what lets that agency's system fetch her
-                  documents; nothing else does. So it reads as a real access
-                  grant: gold when they can see her, plain when they cannot, and
-                  it says the agency's name rather than a generic "share". */}
-              {partnerOrgs.map((org) => {
-                const on = partnerShares.includes(org.id);
-                const busy = shareBusy === org.id;
-                return (
-                  <button
-                    key={org.id}
-                    onClick={() => togglePartnerShare(org.id, !on)}
-                    disabled={busy}
-                    title={on
-                      ? (lang === "de" ? `${org.name} kann ihre Unterlagen abrufen — zum Zurückziehen klicken`
-                        : lang === "fr" ? `${org.name} peut récupérer ses documents — cliquez pour retirer`
-                        : `${org.name} can pull her documents — click to stop sharing`)
-                      : (lang === "de" ? `Unterlagen an ${org.name} freigeben`
-                        : lang === "fr" ? `Partager les documents avec ${org.name}`
-                        : `Share her documents with ${org.name}`)}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
-                    style={on
-                      ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
-                      : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
-                  >
-                    {busy ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                      : on ? <Check size={12} strokeWidth={2.4} />
-                      : <Send size={12} strokeWidth={2} />}
-                    {on
-                      ? (lang === "de" ? `Bei ${org.name}` : lang === "fr" ? `Chez ${org.name}` : `With ${org.name}`)
-                      : (lang === "de" ? `An ${org.name}` : lang === "fr" ? `Vers ${org.name}` : `Send to ${org.name}`)}
-                  </button>
-                );
-              })}
-
-              {/* The buttons above ARE the answer to "who can pull her
-                  documents", so their absence is an answer too — and after a
-                  500, an expired JWT or a dropped connection it is the wrong
-                  one. Stand in their place and say the truth: not checked.
-                  Danger tone, never the plain "not shared" grey, so it can
-                  never be mistaken for one more agency that simply says no. */}
-              {shareLoadFailed && (
-                /* role="alert" lives on the wrapper, not on the button: putting
-                   it on the button itself would replace the button role, and a
-                   screen-reader user would hear the warning without ever being
-                   told the thing is clickable. */
-                <span role="alert" className="inline-flex flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => { void retryPartnerShares(); }}
-                  disabled={shareLoadRetrying}
-                  title={lang === "de" ? "Die Liste der Agenturen konnte nicht geladen werden — klicken zum erneuten Prüfen"
-                    : lang === "fr" ? "La liste des agences n'a pas pu être chargée — cliquez pour revérifier"
-                    : "Could not load which agencies can see her — click to check again"}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
-                  style={{ background: "var(--bg2)", color: "var(--danger)", border: "1px solid var(--danger)" }}
-                >
-                  {shareLoadRetrying
-                    ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                    : <AlertTriangle size={12} strokeWidth={2} />}
-                  {lang === "de" ? "Freigaben unbekannt — erneut prüfen"
-                    : lang === "fr" ? "Partages inconnus — revérifier"
-                    : "Sharing unknown — check again"}
-                </button>
-                </span>
-              )}
             </div>
+
+            </>)}
 
             {/* her whole way at a glance (founder 2026-11-11: a roadmap first, the papers below) */}
             {selectedUser && (
@@ -5623,6 +5666,7 @@ export default function AdminPage() {
             {/* her papers: one bar until opened; gold when something waits for you */}
             {(() => {
               const waiting = (grouped[selectedUser ?? ""] ?? []).filter(d => d.status === "pending").length;
+              if (!adminDocsOpen) return null;
               return (
                 <button type="button" onClick={() => setAdminDocsOpen(o => !o)} aria-expanded={adminDocsOpen} aria-controls="bv-admin-docs"
                   className="w-full flex items-center justify-between mt-5 mb-5"
@@ -8718,14 +8762,47 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* Header */}
-          <div className="mb-5 text-center">
-            <span
-              className="font-[family-name:var(--font-dm-serif)] italic"
-              style={{ fontSize: "clamp(1.6rem,5vw,2rem)", color: "var(--w)", letterSpacing: "-0.01em" }}>
-              Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-            </span>
-          </div>
+          {/* The outcome first (founder 2026-11-11, the approved demo): a greeting, the small wins, then the list */}
+          {(() => {
+            const h = new Date().getHours();
+            const hi = lang === "de" ? (h < 11 ? "Guten Morgen." : h < 18 ? "Guten Tag." : "Guten Abend.")
+              : lang === "fr" ? (h < 18 ? "Bonjour." : "Bonsoir.") : (h < 12 ? "Good morning." : h < 18 ? "Good afternoon." : "Good evening.");
+            const WIN: Record<string, [string, string, string]> = {
+              visa: ["Visum da", "Visa obtenu", "Visa granted"], landed: ["Gelandet", "Arrivée", "Landed"],
+              contract: ["Vertrag unterschrieben", "Contrat signé", "Contract signed"], urkunde: ["Berufsurkunde da", "Diplôme reconnu", "Licence received"],
+              probation: ["Probezeit geschafft", "Période d’essai réussie", "Probation passed"],
+            };
+            const wins = Object.entries(wayByUser)
+              .flatMap(([uid, r]) => (r.wins ?? []).map((w) => ({ uid, ...w })))
+              .sort((x, y) => y.at.localeCompare(x.at)).slice(0, 4);
+            return (
+              <div className="mb-6">
+                <h1 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: "clamp(34px, 7vw, 46px)", lineHeight: 1, color: "var(--w)" }}>{hi}</h1>
+                {wins.length > 0 && (
+                  <div className="flex flex-wrap gap-2.5 mt-5">
+                    {wins.map((w) => {
+                      const ph = profiles[w.uid]?.profile_photo;
+                      const label = (WIN[w.kind] ?? [w.kind, w.kind, w.kind])[lang === "fr" ? 1 : lang === "en" ? 2 : 0];
+                      return (
+                        <button key={w.uid + w.kind} type="button" onClick={() => { setSelectedUser(w.uid); setActivePhase(0); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                          className="inline-flex items-center gap-2.5" title={users[w.uid]?.name ?? ""}
+                          style={{ padding: "5px 14px 5px 5px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer" }}>
+                          <span className="relative inline-flex">
+                            {ph
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={ph} alt="" className="rounded-full object-cover" style={{ width: 30, height: 30 }} />
+                              : <span className="rounded-full inline-flex items-center justify-center" style={{ width: 30, height: 30, background: "var(--gdim)", color: "var(--gold)", fontSize: 11 }}>{initialsOf(users[w.uid]?.name ?? "")}</span>}
+                            <span className="absolute inline-flex items-center justify-center rounded-full" style={{ right: -3, bottom: -3, width: 14, height: 14, background: "#16a34a", color: "#fff", fontSize: 9, border: "2px solid var(--card)" }}>✓</span>
+                          </span>
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Smart search — type plain language, get REAL candidates back. The AI only
               fills a filter server-side; the people come from the actual scoped DB, so
@@ -8758,7 +8835,7 @@ export default function AdminPage() {
           />
 
           {/* The DIY facility's own panel: its invite links + "Mit Borivon arbeiten" (renders only for it) */}
-          {isOrgAdmin && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
+          {isOrgAdmin && (toolsOpen || (pendingUserIds.length + archivedUserIds.length) === 0) && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
 
           {/* Batch tracker — pick a batch → the list below shows THOSE candidates as
               the same profile cards, least-doc-complete first. "All" = normal list. */}

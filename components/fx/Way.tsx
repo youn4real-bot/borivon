@@ -8,7 +8,7 @@ import {
   type Way, type WayInput, type WayKey, type Tick, type Eta,
 } from "@/lib/facility/way";
 import type { LangInfo, Marks } from "@/lib/facility/track";
-import { LangCard, ContractCard, KpCard, KeyPapers } from "./WayMore";
+import { LangCard, ContractCard, KpCard, KeyPapers, DatePick } from "./WayMore";
 
 /**
  * The nurse's whole way, as the approved premium mock (founder 2026-11-11: "less is more, visuals,
@@ -164,9 +164,25 @@ export function useWay(userId?: string) {
     if (tok) await fetch(`/api/portal/${kind}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` }, body: JSON.stringify({ ...(userId ? { userId } : {}), ...patch }) }).catch(() => null);
     void load();
   }, [userId, load]);
-  return { d, way, toggle, put };
+  const setDate = useCallback(async (kind: "submitted" | "flight" | "start", value: string) => {
+    setD((cur) => (cur ? { ...cur, input: { ...cur.input, dates: { ...cur.input.dates, [kind]: value } } } : cur));
+    const [path, field] = kind === "submitted" ? ["visa", "submitted"] : kind === "flight" ? ["move", "flight_date"] : ["arrival", "start"];
+    const { data } = await supabase.auth.getSession();
+    const tok = data.session?.access_token;
+    if (tok) await fetch(`/api/portal/${path}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` }, body: JSON.stringify({ ...(userId ? { userId } : {}), [field]: value }) }).catch(() => null);
+    void load();
+  }, [userId, load]);
+  return { d, way, toggle, put, setDate };
 }
 
+const SHOW_PLAN_LINK = false as boolean;
+/** the dates each station needs, and their names */
+const DATES: Partial<Record<WayKey, ("submitted" | "flight" | "start")[]>> = { visa: ["submitted"], trip: ["flight", "start"], arrive: ["start"] };
+const DATE_NAME: Record<"submitted" | "flight" | "start", Record<L, string>> = {
+  submitted: { de: "Abgegeben am", en: "Handed in on", fr: "Déposé le" },
+  flight: { de: "Flug", en: "Flight", fr: "Vol" },
+  start: { de: "Erster Arbeitstag", en: "First working day", fr: "Premier jour de travail" },
+};
 const ETA_ICON: Record<Eta["kind"], string> = { visa: "visa", flight: "trip", start: "trip", probation: "stay", exam: "lang", kp: "kp" };
 const useL = (): L => { const { lang } = useLang(); return (["de", "en", "fr"].includes(lang) ? lang : "de") as L; };
 const fmt = (s: string, a: number, b: number) => s.replace("{a}", String(a)).replace("{b}", String(b));
@@ -239,12 +255,12 @@ function Count({ eta, today, big = 19 }: { eta: Eta; today: string; big?: number
 export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void }) {
   const l = useL();
   const t = W[l];
-  const { d, way, put } = useWay();
+  const { d, way, put, toggle } = useWay();
+  const [stepsOpen, setStepsOpen] = useState(false);
   const first = (name || "").trim().split(/\s+/)[0] ?? "";
   const go = () => {
     if (!way) return;
-    const a = ANCHOR[way.now];
-    if (a) location.href = `/portal/ankunft#${a}`; else onDocs?.();
+    if (way.ticks.length > 0) setStepsOpen((o) => !o); else onDocs?.();
   };
   const cur = way?.stations.find((s) => s.key === way.now);
   const langSt = way?.stations.find((s) => s.key === "lang");
@@ -276,7 +292,12 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
           ) : cur ? (
             <div className="serif" style={{ marginTop: 8, fontSize: 30, lineHeight: 1, color: "var(--w2)" }}>{fmt(t.of, cur.p[0], cur.p[1])}</div>
           ) : null}
-          <button type="button" className="bw-btn" style={{ marginTop: 26 }} onClick={go}>{t.next} <WayIcon k="arr" size={18} /></button>
+          <button type="button" className="bw-btn" style={{ marginTop: 26 }} onClick={go} aria-expanded={way.ticks.length > 0 ? stepsOpen : undefined}>{t.next} <WayIcon k="arr" size={18} /></button>
+          {stepsOpen && way.ticks.length > 0 && (
+            <div className="bw-card" style={{ marginTop: 14, textAlign: "left" }}>
+              <Ticks ticks={way.ticks} onTick={(id, done) => toggle(way.now, id, done)} photo={d?.photo ?? null} name={name} firstEta={way.nowEta} today={d!.today} />
+            </div>
+          )}
           <div style={{ marginTop: 26, display: "flex", justifyContent: "center" }}><div style={{ width: "100%", maxWidth: 360 }}><WayLine way={way} compact /></div></div>
           {land && (
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", flexWrap: "wrap", gap: "4px 10px", marginTop: 22, fontSize: 13, color: "var(--w3)" }}>
@@ -334,7 +355,7 @@ function Ticks({ ticks, onTick, photo, name, firstEta, today }: { ticks: Tick[];
 export function WayBoard({ userId, name, onDocs }: { userId: string; name: string; onDocs?: () => void }) {
   const l = useL();
   const t = W[l];
-  const { d, way, toggle, put } = useWay(userId);
+  const { d, way, toggle, put, setDate } = useWay(userId);
   const [flatOpen, setFlatOpen] = useState(false);
   if (!d || !way) return null;
   const cur = way.stations.find((s) => s.key === way.now)!;
@@ -400,7 +421,17 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
                 {onDocs && <button type="button" className="bw-btn" style={{ marginTop: 20, height: 46, fontSize: 14 }} onClick={onDocs}>{t.open} <WayIcon k="arr" size={16} /></button>}
               </div>
             )}
-          <div style={{ marginTop: "auto", paddingTop: 14, textAlign: "right" }}><a className="bw-link" href={plan}><WayIcon k="cal" size={15} />{t.plan}<WayIcon k="arr" size={14} /></a></div>
+          {/* the dates that drive the countdowns, set right here (the long plan page stays hidden) */}
+          {DATES[way.now] && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+              {DATES[way.now]!.map((k) => (
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w2)" }}>
+                  {DATE_NAME[k][l]}<DatePick value={d.input.dates[k]} label={DATE_NAME[k][l]} onChange={(v) => setDate(k, v)} />
+                </span>
+              ))}
+            </div>
+          )}
+          {SHOW_PLAN_LINK && <div style={{ marginTop: "auto", paddingTop: 14, textAlign: "right" }}><a className="bw-link" href={plan}><WayIcon k="cal" size={15} />{t.plan}<WayIcon k="arr" size={14} /></a></div>}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignContent: "start" }}>
@@ -453,7 +484,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
 }
 
 /** one row of the facility list: where she is, as dots; what comes next; WANN */
-export type WayRow = { st: [WayKey, 0 | 1 | 2][]; now: WayKey; p: [number, number]; next: string | null; eta: Eta | null; today: string };
+export type WayRow = { st: [WayKey, 0 | 1 | 2][]; now: WayKey; p: [number, number]; next: string | null; eta: Eta | null; today: string; wins?: { kind: string; at: string }[] };
 export function WayDots({ row }: { row: WayRow }) {
   return (
     <span style={{ display: "flex", alignItems: "center", height: 17 }} aria-hidden="true">

@@ -187,7 +187,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           {/* Bug-report button: portal-only AND not on the login page.
               Public/marketing/login pages never render it so a stale cached
               session can't leak after logout. */}
-          {isPortal && <BugReportButton />}
+          {(false as boolean) && isPortal && <BugReportButton />}
           <MaintenanceNotice />
         </MobileMenuProvider>
       </LangProvider>

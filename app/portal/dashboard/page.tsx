@@ -3532,6 +3532,8 @@ export default function DashboardPage() {
           />
         )}
 
+        {/* hidden 2026-11-11 (founder: "remove so much that we have to add stuff back later") */}
+        {(false as boolean) && (<>
         {/* ── Partner Organization cards ──
             Shown for every approved org the candidate is placed in.
             Admin-initiated placements appear here within ~30 s of being set. */}
@@ -3566,6 +3568,8 @@ export default function DashboardPage() {
           </div>
         ))}
 
+
+        </>)}
 
         {/* her papers: one quiet bar until she opens them */}
         <button type="button" onClick={() => (docsOpen ? setDocsOpen(false) : openDocs())} aria-expanded={docsOpen} aria-controls="bv-docs"

@@ -48,7 +48,7 @@ function When({ date, today }: { date: string; today: string }) {
 }
 
 /** a date as a quiet chip (or a calendar icon when empty) that opens the browser's date picker */
-function DatePick({ value, label, onChange }: { value: string; label: string; onChange: (d: string) => void }) {
+export function DatePick({ value, label, onChange }: { value: string; label: string; onChange: (d: string) => void }) {
   const l = useL();
   const ref = useRef<HTMLInputElement>(null);
   const open = () => { const el = ref.current; if (!el) return; try { el.showPicker(); } catch { el.focus(); el.click(); } };

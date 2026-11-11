@@ -22,6 +22,7 @@ const PORTAL_NAV_T = {
 /** The language picker no longer sits in the top bar (see below); kept for a quick switch-back. */
 const TOP_BAR_LANG = false;
 
+const SHOW_THEME_TOGGLE = false as boolean;
 const LANGS: { code: Lang; short: string; label: string }[] = [
   { code: "fr", short: "FR", label: "Français" },
   { code: "en", short: "EN", label: "English" },
@@ -201,8 +202,8 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
           pages. Once signed in (portal) they move into the profile-avatar menu,
           so hideThemeLang suppresses them here. */}
       {!hideThemeLang && (<>
-      {/* Theme Toggle */}
-      <button
+      {/* Theme Toggle — hidden: light only since 2026-11-11 */}
+      {SHOW_THEME_TOGGLE && <button
         onClick={toggleTheme}
         aria-label={theme === "dark" ? NT.switchToLight : NT.switchToDark}
         style={{
@@ -216,7 +217,7 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
         onMouseLeave={(e) => (e.currentTarget.style.color = "var(--w3)")}
       >
         {theme === "dark" ? <Sun size={20} strokeWidth={1.8} /> : <Moon size={20} strokeWidth={1.8} />}
-      </button>
+      </button>}
 
       {/* Language selector — off in the top bar since 2026-11-10 (founder: everything German by default,
           the choice tucked away: the footer on public pages, the profile menu in the portal). */}

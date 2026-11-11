@@ -16,22 +16,14 @@ const ThemeContext = createContext<ThemeCtx>({
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("light");
 
+  // Light only (founder 2026-11-11: "make it permanent, the light one, not the dark one"). The dark theme
+  // stays in the CSS, unused; a saved "dark" choice is ignored. setTheme kept for a later return.
+  void setTheme;
   useEffect(() => {
-    const saved = localStorage.getItem("borivon-theme") as Theme | null;
-    if (saved) {
-      setTheme(saved);
-      document.documentElement.classList.toggle("light", saved === "light");
-    } else {
-      document.documentElement.classList.add("light");
-    }
+    document.documentElement.classList.add("light");
   }, []);
 
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    localStorage.setItem("borivon-theme", next);
-    document.documentElement.classList.toggle("light", next === "light");
-  };
+  const toggleTheme = () => {};
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
