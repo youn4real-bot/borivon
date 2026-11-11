@@ -255,6 +255,11 @@ function fmtDate(iso: string) {
 export default function DashboardPage() {
   const router = useRouter();
   const { t, lang } = useLang();
+  // the papers fold away under her roadmap (founder 2026-11-11: "hidden but reachable"); a deep link
+  // (bell, ?doc=, #…) opens them straight away so nothing it points at is ever hidden
+  const [docsOpen, setDocsOpen] = useState(false);
+  useEffect(() => { if (window.location.search.length > 1 || window.location.hash.length > 1) setDocsOpen(true); }, []);
+  const openDocs = () => { setDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Slot key for the in-flight file pick. Set synchronously in openPicker so
   // onFileChange never depends on the async `activeKey` state (fast-pick race).
@@ -3407,7 +3412,7 @@ export default function DashboardPage() {
       <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
         {/* her whole way on one screen, papers below (founder 2026-11-11: a roadmap first, papers hidden but reachable) */}
-        <WegMap onDocs={() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+        <WegMap onDocs={openDocs} />
 
         {/* Header — refined typographic hierarchy */}
         <div className="flex items-start justify-between mb-8">
@@ -3567,8 +3572,15 @@ export default function DashboardPage() {
         ))}
 
 
+        {/* her papers: one quiet bar until she opens them */}
+        <button type="button" onClick={() => (docsOpen ? setDocsOpen(false) : openDocs())} aria-expanded={docsOpen} aria-controls="bv-docs"
+          className="w-full flex items-center justify-between mb-5"
+          style={{ padding: "16px 20px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--card)", color: "var(--w)", cursor: "pointer" }}>
+          <span style={{ fontFamily: "var(--font-serif)", fontSize: 19 }}>{lang === "de" ? "Deine Unterlagen" : lang === "fr" ? "Tes documents" : "Your documents"}</span>
+          <span style={{ fontSize: 13, color: "var(--w3)" }}>{docsOpen ? (lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close") : (lang === "de" ? "Öffnen" : lang === "fr" ? "Ouvrir" : "Open")} {docsOpen ? "↑" : "↓"}</span>
+        </button>
         {/* Two-column: sidebar stepper + main content */}
-        <div id="bv-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80 }}>
+        <div id="bv-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80, display: docsOpen ? undefined : "none" }}>
 
           {/* ── Vertical sidebar — always visible, same pattern as the
               admin dashboard. No hamburger drawer on mobile; the rail just
