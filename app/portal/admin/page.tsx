@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { WegMap } from "@/components/fx/WegMap";
 import { VisaBundleButton } from "@/components/admin/VisaBundleButton";
 import { DiyFacilityPanel } from "@/components/admin/DiyFacilityPanel";
 import { createPortal, flushSync } from "react-dom";
@@ -4785,6 +4786,14 @@ export default function AdminPage() {
                 </span>
               )}
             </div>
+
+            {/* her whole way at a glance (founder 2026-11-11: a roadmap first, the papers below) */}
+            {selectedUser && (
+              <div className="mt-5" id="bv-admin-weg">
+                <WegMap key={selectedUser} userId={selectedUser} name={users[selectedUser]?.name ?? ""}
+                  onDocs={() => { const el = document.getElementById("bv-admin-weg"); if (el) window.scrollTo({ top: el.getBoundingClientRect().bottom + window.scrollY - 70, behavior: "smooth" }); }} />
+              </div>
+            )}
 
             {/* ── Admin-only STATUS modal (LAW #36) — candidate never sees ── */}
             {statusOpen && typeof window !== "undefined" && createPortal(

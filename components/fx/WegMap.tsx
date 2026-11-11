@@ -26,7 +26,7 @@ const T = {
     say: { papers: "Télécharge tes documents.", recog: "Ta reconnaissance est en cours.", visa: "Ton visa, étape par étape.", move: "Prépare ton logement et ton vol.", arrive: "Tes premières semaines en Allemagne.", stay: "Jusqu’à la fin de la période d’essai." } },
 };
 
-export function WegMap({ onDocs }: { onDocs?: () => void }) {
+export function WegMap({ onDocs, userId, name }: { onDocs?: () => void; userId?: string; name?: string }) {
   const { lang: l } = useLang();
   const t = T[(["de", "en", "fr"].includes(l) ? l : "de") as keyof typeof T];
   const [w, setW] = useState<W | null>(null);
@@ -36,23 +36,25 @@ export function WegMap({ onDocs }: { onDocs?: () => void }) {
     supabase.auth.getSession().then(async ({ data }) => {
       const tok = data.session?.access_token;
       if (!tok) return;
-      const r = await fetch("/api/portal/weg", { headers: { Authorization: `Bearer ${tok}` }, cache: "no-store" }).catch(() => null);
+      const r = await fetch(`/api/portal/weg${userId ? `?userId=${encodeURIComponent(userId)}` : ""}`, { headers: { Authorization: `Bearer ${tok}` }, cache: "no-store" }).catch(() => null);
       const j = r?.ok ? ((await r.json().catch(() => null)) as W | null) : null;
       if (!off && j?.prog) setW(j);
     });
     return () => { off = true; };
-  }, []);
+  }, [userId]);
   if (!w) return null;
 
+  // a nurse goes to her own page; an admin to hers (the same plan, LAW #25 scope in /api/portal/weg)
+  const base = userId ? `/portal/admin/ankunft/${userId}?name=${encodeURIComponent(name ?? "")}` : "/portal/ankunft";
   const st: { k: Key; p: P; href?: string }[] = [
     ...(w.docs ? [
       { k: "papers" as Key, p: w.docs.papers },
       { k: "recog" as Key, p: w.docs.bearbeitung },
     ] : []),
-    { k: "visa", p: w.docs ? [w.docs.visum[0] + w.prog.visa[0], w.docs.visum[1] + w.prog.visa[1]] : w.prog.visa, href: "/portal/ankunft#weg-visum" },
-    { k: "move", p: w.prog.move, href: "/portal/ankunft#weg-anreise" },
-    { k: "arrive", p: w.prog.weeks, href: "/portal/ankunft#weg-wochen" },
-    { k: "stay", p: w.prog.six, href: "/portal/ankunft#weg-monate" },
+    { k: "visa", p: w.docs ? [w.docs.visum[0] + w.prog.visa[0], w.docs.visum[1] + w.prog.visa[1]] : w.prog.visa, href: `${base}#weg-visum` },
+    { k: "move", p: w.prog.move, href: `${base}#weg-anreise` },
+    { k: "arrive", p: w.prog.weeks, href: `${base}#weg-wochen` },
+    { k: "stay", p: w.prog.six, href: `${base}#weg-monate` },
   ];
   const full = (p: P) => p[1] > 0 && p[0] >= p[1];
   const nowIdx = Math.max(0, st.findIndex((s) => s.p[1] > 0 && !full(s.p)));
@@ -61,7 +63,7 @@ export function WegMap({ onDocs }: { onDocs?: () => void }) {
 
   return (
     <section aria-label={t.h} style={{ margin: "0 0 34px", padding: "26px 24px 24px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--card)" }}>
-      <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontSize: 22, fontWeight: 500, color: "var(--w)" }}>{t.h}</p>
+      <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontSize: 22, fontWeight: 500, color: "var(--w)" }}>{userId ? (name || t.h) : t.h}</p>
       {/* the stations: one line, the one she is at in gold */}
       <ol style={{ display: "grid", gridTemplateColumns: `repeat(${st.length}, minmax(0, 1fr))`, gap: 0, margin: "22px -8px 0", padding: 0, listStyle: "none", position: "relative" }}>
         {st.map((s, i) => {
