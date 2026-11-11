@@ -79,13 +79,13 @@ export const metadata: Metadata = {
     siteName: "Borivon",
     title: "Borivon · Pflegekräfte gewinnen und halten",
     description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
-    images: [{ url: "/pflege/assets/og-fahrplan.png", width: 1200, height: 630, alt: "Borivon · Der kostenlose Pflege-Fahrplan" }],
+    images: [{ url: "/pflege/assets/og-fahrplan-2.png", width: 1200, height: 630, alt: "Borivon · Der kostenlose Pflege-Fahrplan" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Borivon · Pflegekräfte gewinnen und halten",
     description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
-    images: ["/pflege/assets/og-fahrplan.png"],
+    images: ["/pflege/assets/og-fahrplan-2.png"],
   },
   // NOTE: no `alternates.canonical` here on purpose.
   //

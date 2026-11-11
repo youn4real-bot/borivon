@@ -101,7 +101,7 @@ const HOME_LD = JSON.stringify({
   legalName: "Borivon LLC",
   url: "https://www.borivon.com/",
   logo: "https://borivon.com/logo.png",
-  image: "https://www.borivon.com/pflege/assets/og-fahrplan.png",
+  image: "https://www.borivon.com/pflege/assets/og-fahrplan-2.png",
   // the motto, word for word (it is how Borivon describes itself everywhere)
   description: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
   email: "contact@borivon.com",
@@ -139,7 +139,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in home.html"); }
   // the affiliates host shares this page: the first thing in <head> sends it to /affiliate
   else s = s.slice(0, i) + `<script>if(location.hostname.indexOf("affiliates.")===0)location.replace("/affiliate"+location.search)</script>
-` + head(META.title, META.description, "https://www.borivon.com/", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+` + head(META.title, META.description, "https://www.borivon.com/", "https://www.borivon.com/pflege/assets/og-fahrplan-2.png") + s.slice(i + "<!--HEAD-->".length);
   pages.HOME_HTML = bv(s);
 }
 
@@ -157,7 +157,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "fahrplan.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in fahrplan.html"); }
-  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "In unter 60 Sekunden: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Pflege-Fahrplan · Borivon", "In unter 60 Sekunden: was leere Stellen Sie kosten, Ihr Zeitplan bis zur ersten Fachkraft und Ihr Plan, damit sie bleibt.", "https://www.borivon.com/fahrplan", "https://www.borivon.com/pflege/assets/og-fahrplan-2.png") + s.slice(i + "<!--HEAD-->".length);
   pages.FAHRPLAN_HTML = s;
 }
 
@@ -166,7 +166,7 @@ ${canonical === "https://www.borivon.com/" ? `<script type="application/ld+json"
   let s = fs.readFileSync(path.join(SRC, "rechner.html"), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in rechner.html"); }
-  else s = s.slice(0, i) + head("Ihr Rechner zum Pflege-Fahrplan · Borivon", "Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.", "https://www.borivon.com/fahrplan/rechner", "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  else s = s.slice(0, i) + head("Ihr Rechner zum Pflege-Fahrplan · Borivon", "Was offene Stellen Sie kosten, und was Pflegekräfte bringen. Mit Ihren eigenen Zahlen, über 1, 2 und 3 Jahre.", "https://www.borivon.com/fahrplan/rechner", "https://www.borivon.com/pflege/assets/og-fahrplan-2.png") + s.slice(i + "<!--HEAD-->".length);
   pages.RECHNER_HTML = s;
 }
 
@@ -206,7 +206,7 @@ for (const [src, key, title, desc, path_] of [
   let s = fs.readFileSync(path.join(SRC, src), "utf8");
   const i = s.indexOf("<!--HEAD-->");
   if (i < 0) { problems++; console.error("NOT FOUND: <!--HEAD--> in " + src); continue; }
-  s = s.slice(0, i) + head(title, desc, path_, "https://www.borivon.com/pflege/assets/og-fahrplan.png") + s.slice(i + "<!--HEAD-->".length);
+  s = s.slice(0, i) + head(title, desc, path_, "https://www.borivon.com/pflege/assets/og-fahrplan-2.png") + s.slice(i + "<!--HEAD-->".length);
   pages[key] = bv(s);
 }
 
