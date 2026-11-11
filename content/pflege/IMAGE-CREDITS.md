@@ -50,5 +50,5 @@ Shown as "Symbolbilder" in drawn example screens, names invented, no real data.
 - av-5.webp — https://images.unsplash.com/photo-1756699279298-c89cdef354ab
 - av-6.webp — https://images.unsplash.com/photo-1662850886700-4ec19bd30d11
 
-2026-11-11: bonus.webp re-cropped to the handshake only. The original frame had a pistol lying on the table in front
+2026-11-11: bonus.webp re-cropped (now handshake.webp, renamed so no cache serves the old frame) to the handshake only. The original frame had a pistol lying on the table in front
 (easy to miss at small size). Never use the uncropped photo again; ws/bonus-meet.webp (same photo) removed.
