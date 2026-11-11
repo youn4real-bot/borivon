@@ -80,7 +80,7 @@ const CSS = `
 button.bw-card:hover{transform:translateY(-2px);border-color:var(--bw-hair);box-shadow:0 1px 2px rgba(0,0,0,.03),0 22px 40px -22px rgba(0,0,0,.24)}
 button.bw-card:active{transform:translateY(0)}
 .bw-tile{display:grid;place-items:center;border-radius:12px;background:color-mix(in srgb,var(--gold) 9%,var(--card));color:var(--gold);flex:none}
-.bw-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto 44px;gap:14px;align-items:center;min-height:54px;padding:8px 0;border:0;border-top:1px solid var(--border);font-size:15px;line-height:1.3;width:100%;background:none;color:inherit;text-align:left;cursor:pointer;font-family:inherit}
+.bw-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto 44px;gap:14px;align-items:center;min-height:48px;padding:6px 0;border:0;border-top:1px solid var(--border);font-size:15px;line-height:1.3;width:100%;background:none;color:inherit;text-align:left;cursor:pointer;font-family:inherit}
 .bw-rows>.bw-row:first-child{border-top:0}
 .bw-row:disabled{cursor:default}
 .bw-box{width:26px;height:26px;box-sizing:border-box;border-radius:50%;border:1.5px solid color-mix(in srgb,var(--w) 26%,transparent);display:grid;place-items:center;color:var(--bg);transition:background .25s var(--bw-ease),border-color .25s var(--bw-ease),transform .25s var(--bw-ease)}
@@ -176,6 +176,8 @@ export function useWay(userId?: string) {
 }
 
 const SHOW_PLAN_LINK = false as boolean;
+/** the old stacked right-hand column of the board (cards under cards) — hidden, the tabs replace it */
+const SHOW_LEGACY_BOARD = false as boolean;
 /** the dates each station needs, and their names */
 const DATES: Partial<Record<WayKey, ("submitted" | "flight" | "start")[]>> = { visa: ["submitted"], trip: ["flight", "start"], arrive: ["start"] };
 const DATE_NAME: Record<"submitted" | "flight" | "start", Record<L, string>> = {
@@ -256,11 +258,11 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
   const l = useL();
   const t = W[l];
   const { d, way, put, toggle } = useWay();
-  const [stepsOpen, setStepsOpen] = useState(false);
+  const [view, setView] = useState<"home" | "steps" | "lang">("home");
   const first = (name || "").trim().split(/\s+/)[0] ?? "";
   const go = () => {
     if (!way) return;
-    if (way.ticks.length > 0) setStepsOpen((o) => !o); else onDocs?.();
+    if (way.ticks.length > 0) setView("steps"); else onDocs?.();
   };
   const cur = way?.stations.find((s) => s.key === way.now);
   const langSt = way?.stations.find((s) => s.key === "lang");
@@ -277,7 +279,21 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
           ? <img src={d.photo} alt="" style={{ width: 46, height: 46, flex: "none", borderRadius: "50%", objectFit: "cover", boxShadow: "0 0 0 3px var(--card), 0 6px 16px -8px rgba(0,0,0,.3)" }} />
           : null}
       </div>
-      {way && (
+      {way && view !== "home" && (
+        <div className="bw-in" style={{ marginTop: 22, textAlign: "left" }}>
+          <button type="button" onClick={() => setView("home")} className="bw-link" style={{ marginBottom: 14 }}>
+            <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><WayIcon k="arr" size={14} /></span>{l === "de" ? "Zurück" : l === "fr" ? "Retour" : "Back"}
+          </button>
+          {view === "steps" && (
+            <div className="bw-card">
+              <div className="serif" style={{ fontSize: 24, marginBottom: 8 }}>{WAY_NAME[way.now][l]}</div>
+              <Ticks ticks={way.ticks} onTick={(id, done) => toggle(way.now, id, done)} photo={d?.photo ?? null} name={name} firstEta={way.nowEta} today={d!.today} />
+            </div>
+          )}
+          {view === "lang" && d?.input.lang && <LangCard lang={d.input.lang} b2={d.input.b2} full={false} canEdit today={d.today} onSave={(p) => put("lang", p)} />}
+        </div>
+      )}
+      {way && view === "home" && (
         <div className="bw-in">
           {way.win && <div style={{ marginTop: 18 }}><span className="bw-pill"><b><WayIcon k="chk" size={11} stroke={2.6} /></b>{WAY_WIN[way.win][l]}</span></div>}
           <div style={{ width: 128, height: 128, margin: "34px auto 0", borderRadius: "50%", display: "grid", placeItems: "center", background: "color-mix(in srgb, var(--gold) 11%, var(--card))", color: "var(--gold)", boxShadow: "0 0 0 12px color-mix(in srgb, var(--gold) 5%, transparent)" }}>
@@ -292,12 +308,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
           ) : cur ? (
             <div className="serif" style={{ marginTop: 8, fontSize: 30, lineHeight: 1, color: "var(--w2)" }}>{fmt(t.of, cur.p[0], cur.p[1])}</div>
           ) : null}
-          <button type="button" className="bw-btn" style={{ marginTop: 26 }} onClick={go} aria-expanded={way.ticks.length > 0 ? stepsOpen : undefined}>{t.next} <WayIcon k="arr" size={18} /></button>
-          {stepsOpen && way.ticks.length > 0 && (
-            <div className="bw-card" style={{ marginTop: 14, textAlign: "left" }}>
-              <Ticks ticks={way.ticks} onTick={(id, done) => toggle(way.now, id, done)} photo={d?.photo ?? null} name={name} firstEta={way.nowEta} today={d!.today} />
-            </div>
-          )}
+          <button type="button" className="bw-btn" style={{ marginTop: 26 }} onClick={go}>{t.next} <WayIcon k="arr" size={18} /></button>
           <div style={{ marginTop: 26, display: "flex", justifyContent: "center" }}><div style={{ width: "100%", maxWidth: 360 }}><WayLine way={way} compact /></div></div>
           {land && (
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", flexWrap: "wrap", gap: "4px 10px", marginTop: 22, fontSize: 13, color: "var(--w3)" }}>
@@ -305,15 +316,34 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
               <b className="serif" style={{ fontWeight: 400, fontSize: 20, color: "var(--w)" }}>{until(d!.today, land.date, l).word}</b>
             </div>
           )}
-          {/* her German, until B2 is done: she can set her exam date, provider and school */}
-          {langCard && d?.input.lang && (
-            <div style={{ marginTop: 26, textAlign: "left" }}>
-              <LangCard lang={d.input.lang} b2={d.input.b2} full={false} canEdit today={d.today} onSave={(p) => put("lang", p)} />
-            </div>
-          )}
+          {/* Deutsch and her papers: one tap each, their own view (no scrolling) */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 22 }}>
+            {langCard && (
+              <button type="button" onClick={() => setView("lang")} style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>
+                <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k="lang" size={16} /></span>{t.lang}
+              </button>
+            )}
+            {onDocs && (
+              <button type="button" onClick={onDocs} style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>
+                <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k="papers" size={16} /></span>{t.papers}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </section>
+  );
+}
+
+/** ‹ 1 / 3 › — flip instead of scroll */
+export function Flip({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+  const b = (dis: boolean): React.CSSProperties => ({ width: 30, height: 30, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: dis ? "var(--border)" : "var(--w2)", cursor: dis ? "default" : "pointer", display: "grid", placeItems: "center" });
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, margin: "0 0 6px" }}>
+      <button type="button" aria-label="‹" disabled={page <= 0} onClick={() => onPage(page - 1)} style={b(page <= 0)}><span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><WayIcon k="arr" size={14} /></span></button>
+      <span style={{ fontSize: 12, color: "var(--w3)", minWidth: 36, textAlign: "center" }}>{page + 1} / {pages}</span>
+      <button type="button" aria-label="›" disabled={page >= pages - 1} onClick={() => onPage(page + 1)} style={b(page >= pages - 1)}><WayIcon k="arr" size={14} /></button>
+    </div>
   );
 }
 
@@ -337,9 +367,16 @@ function Who({ who, photo, name }: { who: Tick["who"]; photo: string | null; nam
 function Ticks({ ticks, onTick, photo, name, firstEta, today }: { ticks: Tick[]; onTick: (id: string, done: boolean) => void; photo: string | null; name: string; firstEta: Eta | null; today: string }) {
   const l = useL();
   const at = firstEta ? ETA_STEP[firstEta.kind] : undefined;
+  // no scrolling (founder 2026-11-11): at most 6 rows, the rest one flip away; open on the page with the first open step
+  const PER = 6;
+  const pages = Math.max(1, Math.ceil(ticks.length / PER));
+  const firstOpenIdx = Math.max(0, ticks.findIndex((x) => !x.done));
+  const [pg, setPg] = useState(() => Math.min(pages - 1, Math.floor(firstOpenIdx / PER)));
+  const page = Math.min(pg, pages - 1);
   return (
     <div className="bw-rows">
-      {ticks.map((x) => (
+      {pages > 1 && <Flip page={page} pages={pages} onPage={setPg} />}
+      {ticks.slice(page * PER, page * PER + PER).map((x) => (
         <button key={x.id} type="button" className={`bw-row ${x.done ? "d" : ""}`} onClick={() => onTick(x.id, !x.done)} aria-pressed={x.done}>
           <span className="bw-box">{x.done && <WayIcon k="chk" size={13} stroke={2.4} />}</span>
           <span className="bw-nm">{stepName(x.id, l)}</span>
@@ -356,7 +393,8 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
   const l = useL();
   const t = W[l];
   const { d, way, toggle, put, setDate } = useWay(userId);
-  const [flatOpen, setFlatOpen] = useState(false);
+  const [flatOpen, setFlatOpen] = useState(true);
+  const [panel, setPanel] = useState<"now" | "home" | "contract" | "lang" | "kp">("now");
   if (!d || !way) return null;
   const cur = way.stations.find((s) => s.key === way.now)!;
   const docs = d.input.docs;
@@ -373,22 +411,100 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
   return (
     <section className="bw bw-in" aria-label={name}>
       <style>{CSS}</style>
-      {/* the outcome first: when she starts */}
-      {(way.win || head) && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px 16px", flexWrap: "wrap", marginBottom: 26 }}>
-        {way.win ? <span className="bw-pill"><b><WayIcon k="chk" size={11} stroke={2.6} /></b>{WAY_WIN[way.win][l]}</span> : <span />}
-        {head && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span className="bw-tile" style={{ width: 46, height: 46 }}><WayIcon k={ETA_ICON[head.kind]} size={20} /></span>
-            <div style={{ textAlign: "left" }}>
-              <small style={{ display: "block", fontSize: 12, color: "var(--w3)" }}>{ETA_NAME[head.kind][l]}{head.est ? ` · ${t.est}` : ""}</small>
-              <b className="serif" style={{ display: "block", marginTop: 2, fontWeight: 400, fontSize: 28, lineHeight: 1.05, whiteSpace: "nowrap" }}>{until(d.today, head.date, l).word}</b>
-            </div>
-          </div>
-        )}
-      </div>}
-
       <WayLine way={way} />
 
+      {/* one panel, switched by small tabs (founder 2026-11-11: "no one wants to scroll … flip to the next side") */}
+      {(() => {
+        const tabs: { k: typeof panel; icon: string; label: string; badge?: string; on: boolean }[] = [
+          { k: "now", icon: way.now, label: WAY_NAME[way.now][l], badge: way.ticks.length > 0 ? `${cur.p[0]}/${cur.p[1]}` : undefined, on: true },
+          { k: "home", icon: "home", label: t.flat, badge: `${homeDone}/${home.length}`, on: showFlat },
+          { k: "contract", icon: "contract", label: l === "de" ? "Vertrag" : l === "fr" ? "Contrat" : "Contract", badge: marks?.contract ? "✓" : undefined, on: !way.landed && !!marks },
+          { k: "lang", icon: "lang", label: t.lang, on: !!d.input.lang },
+          { k: "kp", icon: "kp", label: l === "de" ? "Kenntnisprüfung" : l === "fr" ? "Examen" : "Knowledge test", on: !!marks && (way.landed || !!marks.kp_date) },
+        ];
+        const shown = tabs.filter((x) => x.on);
+        const cur2 = shown.find((x) => x.k === panel) ? panel : "now";
+        const tabBtn = (on: boolean): React.CSSProperties => ({ display: "inline-flex", alignItems: "center", gap: 7, height: 36, padding: "0 13px", borderRadius: 999, border: `1px solid ${on ? "var(--w)" : "var(--border)"}`, background: on ? "var(--w)" : "var(--card)", color: on ? "var(--bg)" : "var(--w2)", fontSize: 13, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", flex: "none", fontFamily: "inherit" });
+        return (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "18px 0 10px" }}>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", minWidth: 0, flex: 1 }} role="tablist">
+              {shown.map((x) => (
+                <button key={x.k} type="button" role="tab" aria-selected={cur2 === x.k} onClick={() => setPanel(x.k)} style={tabBtn(cur2 === x.k)}>
+                  <WayIcon k={x.icon} size={15} />{x.label}{x.badge && <span style={{ opacity: 0.6, fontSize: 12 }}>{x.badge}</span>}
+                </button>
+              ))}
+              {onDocs && (
+                <button type="button" onClick={onDocs} style={tabBtn(false)}>
+                  <WayIcon k="papers" size={15} />{t.papers}{(docs?.pending ?? 0) > 0 && <i style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b" }} />}
+                </button>
+              )}
+            </div>
+            {/* the outcome, small and always in view: when she starts */}
+            {head && (
+              <span title={ETA_NAME[head.kind][l]} style={{ display: "inline-flex", alignItems: "center", gap: 8, flex: "none", paddingLeft: 8 }}>
+                <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k={ETA_ICON[head.kind]} size={17} /></span>
+                <span style={{ fontSize: 12, color: "var(--w3)" }}>{ETA_NAME[head.kind][l]}</span>
+                <b className="serif" style={{ fontWeight: 400, fontSize: 21, whiteSpace: "nowrap" }}>{head.est ? "~ " : ""}{until(d.today, head.date, l).word}</b>
+              </span>
+            )}
+            </div>
+            {cur2 === "now" && (
+        <div className="bw-card" style={{ display: "flex", flexDirection: "column" }}>
+          {way.now === "visa" && docs && docs.visum[1] > 0 && (
+            <button type="button" className={`bw-row ${docs.visum[0] >= docs.visum[1] ? "d" : ""}`} style={{ borderTop: 0, borderBottom: "1px solid var(--border)" }} onClick={onDocs}>
+              <span className="bw-box">{docs.visum[0] >= docs.visum[1] && <WayIcon k="chk" size={13} stroke={2.4} />}</span>
+              <span className="bw-nm">{t.visaPapers}</span>
+              <span className="bw-cd" style={{ color: "var(--w2)" }}>{docs.visum[0]}<span style={{ fontSize: 13, color: "var(--w3)" }}> / {docs.visum[1]}</span></span>
+              <span className="bw-duo" style={{ color: "var(--w3)" }}><span className="bw-who" style={{ ["--bw-s" as string]: "28px" } as React.CSSProperties}><WayIcon k="papers" size={17} /></span></span>
+            </button>
+          )}
+          {way.ticks.length > 0
+            ? <Ticks ticks={way.ticks} onTick={(id, done) => toggle(way.now, id, done)} photo={d.photo} name={name} firstEta={way.nowEta} today={d.today} />
+            : docP && (
+              <div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "6px 0 18px" }}>
+                  <span className="serif" style={{ fontSize: 44, lineHeight: 1 }}>{docP[0]}</span>
+                  <span className="serif" style={{ fontSize: 22, color: "var(--w3)" }}>/ {docP[1]}</span>
+                </div>
+                <div className="bw-docs">
+                  {Array.from({ length: Math.min(docP[1], 30) }, (_, i) => (
+                    <span key={i} className="bw-doc"><WayIcon k="papers" size={15} stroke={1.3} />{i < docP[0] && <i style={{ background: "var(--bw-ok)" }} />}</span>
+                  ))}
+                </div>
+                {way.now === "papers" && (docs?.pending ?? 0) > 0 && <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 16, fontSize: 12.5, color: "var(--w2)" }}><i style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b" }} />{t.wait.replace("{n}", String(docs!.pending))}</span>}
+                {onDocs && <button type="button" className="bw-btn" style={{ marginTop: 20, height: 46, fontSize: 14 }} onClick={onDocs}>{t.open} <WayIcon k="arr" size={16} /></button>}
+              </div>
+            )}
+          {/* the dates that drive the countdowns, set right here (the long plan page stays hidden) */}
+          {DATES[way.now] && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+              {DATES[way.now]!.map((k) => (
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w2)" }}>
+                  {DATE_NAME[k][l]}<DatePick value={d.input.dates[k]} label={DATE_NAME[k][l]} onChange={(v) => setDate(k, v)} />
+                </span>
+              ))}
+            </div>
+          )}
+          {SHOW_PLAN_LINK && <div style={{ marginTop: "auto", paddingTop: 14, textAlign: "right" }}><a className="bw-link" href={plan}><WayIcon k="cal" size={15} />{t.plan}<WayIcon k="arr" size={14} /></a></div>}
+        </div>
+            )}
+            {cur2 === "home" && (
+              <div className="bw-card">
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                  <span className="serif" style={{ fontSize: 26, lineHeight: 1.1 }}>{t.flat}</span>
+                  <span style={{ fontSize: 12, color: "var(--w3)" }}>{t.flatSub}</span>
+                </div>
+                <Ticks ticks={home} onTick={(id, done) => toggle("home", id, done)} photo={d.photo} name={name} firstEta={null} today={d.today} />
+              </div>
+            )}
+            {cur2 === "contract" && marks && <ContractCard marks={marks} canEdit={canEdit} onSave={(p) => put("marks", p)} />}
+            {cur2 === "lang" && d.input.lang && <LangCard lang={d.input.lang} b2={b2} full={canEdit} canEdit={canEdit} today={d.today} onSave={(p) => put("lang", p)} />}
+            {cur2 === "kp" && marks && <KpCard marks={marks} canEdit={canEdit} today={d.today} onSave={(p) => put("marks", p)} />}
+          </>
+        );
+      })()}
+      {SHOW_LEGACY_BOARD && (
       <div className="bw-cols">
         {/* the station she is at: who does what, tap to tick */}
         <div className="bw-card" style={{ display: "flex", flexDirection: "column" }}>
@@ -479,6 +595,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
           {marks && (way.landed || marks.kp_date) && <KpCard marks={marks} canEdit={canEdit} today={d.today} onSave={(p) => put("marks", p)} />}
         </div>
       </div>
+      )}
     </section>
   );
 }

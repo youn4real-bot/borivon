@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { WayBoard, WayDots, WayNext, WayWhen, type WayRow } from "@/components/fx/Way";
+import { WayBoard, WayDots, WayNext, WayWhen, Flip, type WayRow } from "@/components/fx/Way";
 import { VisaBundleButton } from "@/components/admin/VisaBundleButton";
 import { DiyFacilityPanel } from "@/components/admin/DiyFacilityPanel";
 import { createPortal, flushSync } from "react-dom";
@@ -809,6 +809,15 @@ export default function AdminPage() {
   // "a lot of garbage … tools on my dashboard I'd like to just hide for now")
   const [toolsOpen, setToolsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // no scrolling (founder 2026-11-11): the list shows one screen of rows, the rest one flip away
+  const [listPage, setListPage] = useState(0);
+  const [perPage, setPerPage] = useState(8);
+  useEffect(() => {
+    const fit = () => setPerPage(Math.max(4, Math.min(12, Math.floor((window.innerHeight - 380) / 82))));
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
   // her papers as tiles (founder 2026-11-11, mock p3); the old two-column list stays one tap away ("Alte Ansicht")
   const [legacyDocs, setLegacyDocs] = useState(false);
   const [tileTab, setTileTab] = useState<"papers" | "bearbeitung" | "visum">("papers");
@@ -908,6 +917,8 @@ export default function AdminPage() {
   // A search (smart bar) feeds its matching uids here → the ONE list shows them
   // (unified, spanning all candidates). null = no active search.
   const [searchFilterUids, setSearchFilterUids] = useState<string[] | null>(null);
+  // back to page 1 of the list when it changes (search, batch, sort)
+  useEffect(() => { setListPage(0); }, [searchFilterUids, selectedBatchId, regView]);
   const searchActive = searchFilterUids !== null;
   // Live, instant search over the loaded candidates — name / email / phone, as the
   // founder types, spanning ALL candidates (in or out of a batch). No server call;
@@ -4844,7 +4855,7 @@ export default function AdminPage() {
             </>)}
 
             {/* her whole way at a glance (founder 2026-11-11: a roadmap first, the papers below) */}
-            {selectedUser && (
+            {selectedUser && !adminDocsOpen && (
               <div className="mt-5" id="bv-admin-weg">
                 <WayBoard key={selectedUser} userId={selectedUser} name={users[selectedUser]?.name ?? ""}
                   onDocs={() => { setAdminDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-admin-tiles")?.scrollIntoView({ behavior: "smooth", block: "start" })); }} />
@@ -5736,7 +5747,7 @@ export default function AdminPage() {
                       border: `1px solid ${x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
                     <button type="button" onClick={x.act} title={x.label} className="block w-full" style={{ background: "none", border: 0, padding: 0, color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
                       <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
-                      <span className="grid place-items-center" style={{ height: 52, borderRadius: 8, marginBottom: 8,
+                      <span className="grid place-items-center bv-tic" style={{ height: 40, borderRadius: 8, marginBottom: 8,
                         ...(st === "missing" && !x.sub ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: x.special ? "transparent" : "var(--bg2)", color: x.special ? "var(--gold)" : "var(--w3)" }) }}>
                         {x.special
                           ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 5h9M8.5 3v2M6 5c0 4 3 7 7 8M11 5c-1 4-4 7-7 8M13 21l4-9 4 9M14.5 18h5" /></svg>
@@ -5744,7 +5755,7 @@ export default function AdminPage() {
                           ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                           : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
                       </span>
-                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 31, overflowWrap: "anywhere" }}>{x.label}</span>
+                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 31, overflowWrap: "anywhere", hyphens: "auto" }} lang="de">{x.label}</span>
                     </button>
                     {x.sub && (
                       <span className="flex justify-center gap-1.5 mt-2">
@@ -5760,7 +5771,8 @@ export default function AdminPage() {
                 );
               };
               const section = (title: string, ts: Tile[]) => ts.length === 0 ? null : (
-                <div key={title} className="mb-5">
+                <div key={title} className="mb-4">
+                  <style>{"@media (max-width:560px){.bv-tic{display:none!important}}"}</style>
                   <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)", marginBottom: 10 }}>{title}</div>
                   <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))" }}>{ts.map(tileOf)}</div>
                 </div>
@@ -8951,7 +8963,7 @@ export default function AdminPage() {
               tick granular facets (B2 full-cert/partial/…, docs, passport, stage, …)
               with live per-option counts. Scoped server-side (LAW #25). */}
           {/* The DIY facility's own panel: its invite links + "Mit Borivon arbeiten" (renders only for it) */}
-          {isOrgAdmin && (toolsOpen || (pendingUserIds.length + archivedUserIds.length) === 0) && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
+          {isOrgAdmin && !toolsOpen && (pendingUserIds.length + archivedUserIds.length) === 0 && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
 
           {/* Batch tracker — pick a batch → the list below shows THOSE candidates as
               the same profile cards, least-doc-complete first. "All" = normal list. */}
@@ -9210,14 +9222,15 @@ export default function AdminPage() {
             }
 
             return (
-            // Cap the candidate list to ~8 rows and scroll INSIDE the box so the
+            <>
+            {/* Cap the candidate list to ~8 rows and scroll INSIDE the box so the
             // page itself never grows. Applies to every admin (org + Borivon).
-            // Row ≈ 71px → 8 rows ≈ 568px; clamp to viewport on short screens.
-            <div className="bv-enter-stagger bv-cand-scroll"
-              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, maxHeight: "min(640px, 72vh)", overflowY: "auto", overflowX: "hidden" }}>
+            // Row ≈ 71px → 8 rows ≈ 568px; clamp to viewport on short screens. Now: pages, no scroll. */}
+            <div className="bv-enter-stagger"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
               {/* Title row like the demo window on borivon.com/plattform (founder 2026-11-11: "inside must look like the demos") */}
               {/* no title row: the list speaks for itself (founder 2026-11-11) */}
-              {visibleIds.map(uid => {
+              {visibleIds.slice(Math.min(listPage, Math.max(0, Math.ceil(visibleIds.length / perPage) - 1)) * perPage, Math.min(listPage, Math.max(0, Math.ceil(visibleIds.length / perPage) - 1)) * perPage + perPage).map(uid => {
                 const allDocs    = grouped[uid] ?? [];
                 const pendingDocs = allDocs.filter(d => d.status === "pending");
                 const pendingCnt = pendingDocs.length;
@@ -9407,6 +9420,12 @@ export default function AdminPage() {
                 );
               })}
             </div>
+            {visibleIds.length > perPage && (
+              <div style={{ marginTop: 10 }}>
+                <Flip page={Math.min(listPage, Math.ceil(visibleIds.length / perPage) - 1)} pages={Math.ceil(visibleIds.length / perPage)} onPage={setListPage} />
+              </div>
+            )}
+            </>
             );
           })()}
 
@@ -9423,6 +9442,18 @@ export default function AdminPage() {
               <ChevronDown size={16} strokeWidth={2} style={{ color: "var(--w3)", transform: toolsOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
             </button>
           )}
+          {/* Werkzeuge as one popup (no scrolling page; founder 2026-11-11) */}
+          {roleResolved && toolsOpen && typeof window !== "undefined" && createPortal(
+            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }} onClick={() => setToolsOpen(false)}>
+              <div className="w-full max-w-[640px] rounded-[20px] p-4 sm:p-5" onClick={(e) => e.stopPropagation()}
+                style={{ background: "var(--bg)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 58px - 32px)", overflowY: "auto" }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span style={{ fontFamily: "var(--font-serif)", fontSize: 24, color: "var(--w)" }}>{lang === "de" ? "Werkzeuge" : lang === "fr" ? "Outils" : "Tools"}</span>
+                  <button type="button" onClick={() => setToolsOpen(false)} aria-label={lang === "de" ? "Schließen" : "Close"}
+                    style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
+                </div>
+                {isOrgAdmin && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
           {roleResolved && toolsOpen && (
           <div className="bv-nav-group mt-4 overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
           {/* ── Bookings — calls from /book AND the "add by hand" button. Sat only
@@ -9818,6 +9849,10 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
+          )}
+              </div>
+            </div>,
+            document.body,
           )}
 
         </div>

@@ -3415,7 +3415,7 @@ export default function DashboardPage() {
       <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
         {/* her whole way on one screen, papers below (founder 2026-11-11: a roadmap first, papers hidden but reachable) */}
-        <WayHero name={userName} onDocs={openDocs} />
+        {!docsOpen && <WayHero name={userName} onDocs={openDocs} />}
 
         {/* Header — refined typographic hierarchy */}
         <div className="flex items-start justify-between mb-8">
@@ -3574,15 +3574,13 @@ export default function DashboardPage() {
 
         </>)}
 
-        {/* her papers: one quiet bar until she opens them; open = tiles, one colour dot each (LAW #4) */}
-        <button type="button" onClick={() => (docsOpen ? setDocsOpen(false) : openDocs())} aria-expanded={docsOpen} aria-controls="bv-my-tiles"
-          className="w-full flex items-center justify-between mb-5"
-          style={{ padding: "16px 20px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--card)", color: "var(--w)", cursor: "pointer" }}>
-          <span style={{ fontFamily: "var(--font-serif)", fontSize: 20 }}>{lang === "de" ? "Unterlagen" : lang === "fr" ? "Documents" : "Documents"}</span>
-          <span aria-hidden="true" style={{ fontSize: 14, color: "var(--w3)" }}>{docsOpen ? "↑" : "↓"}</span>
-        </button>
-        {/* her papers in ONE place: Grundlagen · Unterlagen · Visum, a pair on one tile, Sprachzertifikat as the
-            special Deutsch tile; Bearbeitung hidden for now. Tap = her old row's preview / openPicker upload. */}
+        {/* her papers open in place of her way (no scrolling); back = her way again */}
+        {docsOpen && (
+          <button type="button" onClick={() => setDocsOpen(false)} className="inline-flex items-center gap-1.5 mb-4"
+            style={{ background: "none", border: 0, padding: 0, fontSize: 13, color: "var(--w3)", cursor: "pointer" }}>
+            ← {lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
+          </button>
+        )}
         {docsOpen && (() => {
               type TileSt = "approved" | "pending" | "rejected" | "missing";
               type Sub = { label: string; st: TileSt; act: () => void };
@@ -3623,7 +3621,7 @@ export default function DashboardPage() {
                       border: `1px solid ${x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
                     <button type="button" onClick={x.act} title={x.label} className="block w-full" style={{ background: "none", border: 0, padding: 0, color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
                       <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
-                      <span className="grid place-items-center" style={{ height: 52, borderRadius: 8, marginBottom: 8,
+                      <span className="grid place-items-center bv-tic" style={{ height: 40, borderRadius: 8, marginBottom: 8,
                         ...(st === "missing" && !x.sub ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: x.special ? "transparent" : "var(--bg2)", color: x.special ? "var(--gold)" : "var(--w3)" }) }}>
                         {x.special
                           ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 5h9M8.5 3v2M6 5c0 4 3 7 7 8M11 5c-1 4-4 7-7 8M13 21l4-9 4 9M14.5 18h5" /></svg>
@@ -3631,7 +3629,7 @@ export default function DashboardPage() {
                           ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                           : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
                       </span>
-                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 31, overflowWrap: "anywhere" }}>{x.label}</span>
+                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 31, overflowWrap: "anywhere", hyphens: "auto" }} lang="de">{x.label}</span>
                     </button>
                     {x.sub && (
                       <span className="flex justify-center gap-1.5 mt-2">
@@ -3647,7 +3645,8 @@ export default function DashboardPage() {
                 );
               };
               const section = (title: string, ts: Tile[]) => ts.length === 0 ? null : (
-                <div key={title} className="mb-5">
+                <div key={title} className="mb-4">
+                  <style>{"@media (max-width:560px){.bv-tic{display:none!important}}"}</style>
                   <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)", marginBottom: 10 }}>{title}</div>
                   <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))" }}>{ts.map(tileOf)}</div>
                 </div>
