@@ -119,18 +119,13 @@ export function AdminAdvancedFilters({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] font-semibold transition-colors"
-        style={{
-          borderRadius: 10,
-          border: `1px solid ${activeCount > 0 ? "var(--border-gold)" : "var(--border)"}`,
-          background: activeCount > 0 ? "var(--gdim)" : "var(--card)",
-          color: activeCount > 0 ? "var(--gold)" : "var(--w2)",
-        }}
+        className="inline-flex items-center gap-1.5 transition-colors"
+        style={{ padding: "6px 0", border: 0, background: "transparent", fontSize: 13, fontWeight: 500, color: activeCount > 0 ? "var(--w)" : "var(--w3)", cursor: "pointer" }}
       >
-        <SlidersHorizontal size={13} strokeWidth={2} />
-        {L("Advanced filters", "Filtres avancés", "Erweiterte Filter")}
+        <SlidersHorizontal size={15} strokeWidth={1.7} />
+        {L("Filter", "Filtres", "Filter")}
         {activeCount > 0 && (
-          <span className="px-1.5 rounded-full text-[10px] font-bold" style={{ background: "var(--gold)", color: "#1a1205" }}>{activeCount}</span>
+          <span className="inline-flex items-center justify-center rounded-full" style={{ minWidth: 18, height: 18, padding: "0 5px", background: "var(--w)", color: "var(--bg)", fontSize: 10.5, fontWeight: 700 }}>{activeCount}</span>
         )}
       </button>
 

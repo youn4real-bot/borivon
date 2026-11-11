@@ -8941,23 +8941,14 @@ export default function AdminPage() {
           {/* Advanced filters — deterministic Booking.com-style facet panel (no AI):
               tick granular facets (B2 full-cert/partial/…, docs, passport, stage, …)
               with live per-option counts. Scoped server-side (LAW #25). */}
-          <AdminAdvancedFilters
-            accessToken={accessToken}
-            lang={lang}
-            onOpen={(uid) => {
-              setSelectedUser(uid);
-              setActivePhase(0);
-              setPassportDataFeedback(profiles[uid]?.passport_feedback ?? "");
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-          />
-
           {/* The DIY facility's own panel: its invite links + "Mit Borivon arbeiten" (renders only for it) */}
           {isOrgAdmin && (toolsOpen || (pendingUserIds.length + archivedUserIds.length) === 0) && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
 
           {/* Batch tracker — pick a batch → the list below shows THOSE candidates as
               the same profile cards, least-doc-complete first. "All" = normal list. */}
-          {(toolsOpen || !!selectedBatchId) && (
+          {/* one quiet row: batches left, sort + filter right (founder 2026-11-11: keep them up, minimal) */}
+          <div className="flex items-center flex-wrap mb-4 mt-1" style={{ columnGap: 22, rowGap: 4 }}>
+          <div className="min-w-0" style={{ flex: "1 1 340px" }}>
           <AdminBatches
             accessToken={accessToken}
             lang={lang}
@@ -8969,7 +8960,35 @@ export default function AdminPage() {
             onCreated={(b) => setBatches((prev) => [...prev.filter((x) => x.id !== b.id), b].sort((a, c) => a.name.localeCompare(c.name)))}
             onEdited={(b) => setBatches((prev) => prev.map((x) => (x.id === b.id ? { ...x, name: b.name } : x)).sort((a, c) => a.name.localeCompare(c.name)))}
           />
+          </div>
+          {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
+            <div role="tablist" className="inline-flex items-center ml-auto" style={{ gap: 14 }}>
+              {([
+                ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
+                ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
+                ["inactive", lang === "de" ? "Inaktiv"   : lang === "fr" ? "Inactifs"  : "Inactive"],
+              ] as const).map(([mode, label]) => {
+                const active = regView === mode;
+                return (
+                  <button key={mode} type="button" role="tab" aria-selected={active} onClick={() => setRegView(mode)}
+                    style={{ padding: "6px 0", border: 0, borderBottom: `1.5px solid ${active ? "var(--w)" : "transparent"}`, background: "transparent", fontSize: 13, fontWeight: 500, color: active ? "var(--w)" : "var(--w3)", cursor: "pointer" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           )}
+          <AdminAdvancedFilters
+            accessToken={accessToken}
+            lang={lang}
+            onOpen={(uid) => {
+              setSelectedUser(uid);
+              setActivePhase(0);
+              setPassportDataFeedback(profiles[uid]?.passport_feedback ?? "");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+          </div>
 
           {/* Add people into the open batch (any admin, scoped) — pull in candidates
               who aren't in it yet, without leaving the dashboard. */}
@@ -9003,7 +9022,7 @@ export default function AdminPage() {
           {/* List sort pills — hidden while a batch is selected or a search is active.
               (The old inline search box + attribute-filter panel were removed; search
               + faceting live in the smart bar and Advanced Filters above.) */}
-          {toolsOpen && !batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
+          {SHOW_LEGACY && !batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
             // iOS segmented control: one track, the picked segment lifts out of it.
             <div role="tablist" className="mb-3 inline-flex items-center gap-[2px] p-[3px]"
               style={{ borderRadius: 999, background: "var(--bg2)", border: "1px solid var(--border)" }}>
@@ -9192,10 +9211,7 @@ export default function AdminPage() {
             <div className="bv-enter-stagger bv-cand-scroll"
               style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, maxHeight: "min(640px, 72vh)", overflowY: "auto", overflowX: "hidden" }}>
               {/* Title row like the demo window on borivon.com/plattform (founder 2026-11-11: "inside must look like the demos") */}
-              <div className="flex items-baseline justify-between gap-3 px-5 pt-5 pb-3" style={{ borderBottom: "1px solid var(--border)" }}>
-                <span style={{ fontFamily: "var(--font-serif)", fontSize: 22, color: "var(--w)" }}>{lang === "de" ? "Ihre Pflegekräfte" : lang === "fr" ? "Vos infirmières" : "Your nurses"}</span>
-                <span className="text-[10.5px] font-medium uppercase tracking-[0.14em] tabular-nums" style={{ color: "var(--w3)" }}>{visibleIds.length}</span>
-              </div>
+              {/* no title row: the list speaks for itself (founder 2026-11-11) */}
               {visibleIds.map(uid => {
                 const allDocs    = grouped[uid] ?? [];
                 const pendingDocs = allDocs.filter(d => d.status === "pending");

@@ -133,13 +133,14 @@ export function AdminBatches({
     finally { setSaving(false); }
   };
 
-  const pill = (id: string | null, label: string) => {
+  // quiet text tabs (founder 2026-11-11: "keep these up, but minimalist and cleaner"): ink + underline when picked
+  const pill = (id: string | null, label: string, count?: number) => {
     const active = selectedBatchId === id;
     return (
-      <button key={id ?? "all"} type="button" onClick={() => onSelect(id)}
-        className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
-        style={{ borderRadius: 999, border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`, background: active ? "var(--gdim)" : "transparent", color: active ? "var(--gold)" : "var(--w3)" }}>
-        {label}
+      <button key={id ?? "all"} type="button" onClick={() => onSelect(id)} aria-pressed={active}
+        className="transition-colors"
+        style={{ padding: "6px 0", border: 0, borderBottom: `1.5px solid ${active ? "var(--w)" : "transparent"}`, background: "transparent", fontSize: 13, fontWeight: 500, color: active ? "var(--w)" : "var(--w3)", whiteSpace: "nowrap", cursor: "pointer" }}>
+        {label}{count != null && <span style={{ marginLeft: 5, fontSize: 12, color: "var(--w3)", fontWeight: 400 }}>{count}</span>}
       </button>
     );
   };
@@ -147,21 +148,21 @@ export function AdminBatches({
   const inp: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 8, height: 34, fontSize: 13, padding: "0 8px", width: "100%" };
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-1.5">
-      {batches.map((b) => pill(b.id, `${b.name.replace(/_/g, " ")} ${b.count}`))}
+    <div className="flex items-center overflow-x-auto" style={{ gap: 18, flexWrap: "nowrap", scrollbarWidth: "none" }}>
       {batches.length > 0 && pill(null, L("All", "Tous", "Alle"))}
+      {batches.map((b) => pill(b.id, b.name.replace(/_/g, " "), b.count))}
       {canCreate && selectedBatchId && (
         <button type="button" onClick={() => void openEdit(selectedBatchId)} aria-label={L("Edit batch", "Modifier le lot", "Batch bearbeiten")}
           className="inline-flex items-center justify-center transition-colors"
-          style={{ width: 26, height: 26, borderRadius: 999, border: "1px solid var(--border-gold)", color: "var(--gold)", background: "var(--gdim)" }}>
-          <Pencil size={12} strokeWidth={2.2} />
+          style={{ width: 26, height: 26, border: 0, color: "var(--w3)", background: "transparent", cursor: "pointer" }}>
+          <Pencil size={13} strokeWidth={1.8} />
         </button>
       )}
       {canCreate && (
         <button type="button" onClick={openCreate} aria-label={L("New batch", "Nouveau lot", "Neuer Batch")}
           className={`inline-flex items-center justify-center gap-1 transition-colors${batches.length === 0 ? " px-2.5 text-[11.5px] font-semibold" : ""}`}
-          style={{ minWidth: 26, height: 26, borderRadius: 999, border: "1px solid var(--border)", color: "var(--w2)" }}>
-          <Plus size={14} strokeWidth={2.2} />
+          style={{ minWidth: 26, height: 26, border: 0, background: "transparent", color: "var(--w3)", cursor: "pointer" }}>
+          <Plus size={15} strokeWidth={1.8} />
           {/* A lone "+" says nothing; until the first batch exists, say what it makes. */}
           {batches.length === 0 && L("New batch", "Nouveau lot", "Neuer Batch")}
         </button>
