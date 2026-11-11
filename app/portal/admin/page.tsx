@@ -801,6 +801,9 @@ export default function AdminPage() {
   // her papers fold under her roadmap (founder 2026-11-11: "less is more, the outcome first, the docs smaller");
   // any jump to a document (bell, deep link, review) opens them
   const [adminDocsOpen, setAdminDocsOpen] = useState(false);
+  // the dashboard shows search + the list; every tool folds behind one "Werkzeuge" bar (founder 2026-11-11:
+  // "a lot of garbage … tools on my dashboard I'd like to just hide for now")
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
@@ -8759,6 +8762,7 @@ export default function AdminPage() {
 
           {/* Batch tracker — pick a batch → the list below shows THOSE candidates as
               the same profile cards, least-doc-complete first. "All" = normal list. */}
+          {(toolsOpen || !!selectedBatchId) && (
           <AdminBatches
             accessToken={accessToken}
             lang={lang}
@@ -8770,6 +8774,7 @@ export default function AdminPage() {
             onCreated={(b) => setBatches((prev) => [...prev.filter((x) => x.id !== b.id), b].sort((a, c) => a.name.localeCompare(c.name)))}
             onEdited={(b) => setBatches((prev) => prev.map((x) => (x.id === b.id ? { ...x, name: b.name } : x)).sort((a, c) => a.name.localeCompare(c.name)))}
           />
+          )}
 
           {/* Add people into the open batch (any admin, scoped) — pull in candidates
               who aren't in it yet, without leaving the dashboard. */}
@@ -8803,7 +8808,7 @@ export default function AdminPage() {
           {/* List sort pills — hidden while a batch is selected or a search is active.
               (The old inline search box + attribute-filter panel were removed; search
               + faceting live in the smart bar and Advanced Filters above.) */}
-          {!batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
+          {toolsOpen && !batchActive && !searchActive && (pendingUserIds.length + archivedUserIds.length) > 0 && (
             // iOS segmented control: one track, the picked segment lifts out of it.
             <div role="tablist" className="mb-3 inline-flex items-center gap-[2px] p-[3px]"
               style={{ borderRadius: 999, background: "var(--bg2)", border: "1px solid var(--border)" }}>
@@ -9192,6 +9197,17 @@ export default function AdminPage() {
           {/* Shortcuts as ONE grouped glass list (iOS inset-grouped, like the /pflege
               portal window): one surface, thin dividers, instead of five cards. */}
           {roleResolved && (
+            <button type="button" onClick={() => setToolsOpen((o) => !o)} aria-expanded={toolsOpen}
+              className="w-full flex items-center justify-between mt-4"
+              style={{ padding: "14px 18px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--card)", color: "var(--w2)", cursor: "pointer" }}>
+              <span className="inline-flex items-center gap-3" style={{ fontSize: 14 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+                {lang === "de" ? "Werkzeuge" : lang === "fr" ? "Outils" : "Tools"}
+              </span>
+              <ChevronDown size={16} strokeWidth={2} style={{ color: "var(--w3)", transform: toolsOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+            </button>
+          )}
+          {roleResolved && toolsOpen && (
           <div className="bv-nav-group mt-4 overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
           {/* ── Bookings — calls from /book AND the "add by hand" button. Sat only
                  in the profile dropdown, where the founder could not find it:
@@ -9286,7 +9302,7 @@ export default function AdminPage() {
           {/* ── Tools strip — invite + agencies ──
               Candidate invite: ALL admins (supreme + sub-admins).
               Org-admin + sub-admin invites: supreme only. ── */}
-          {roleResolved && (
+          {roleResolved && toolsOpen && (
             <div className="mt-4 mb-5 space-y-px" style={{ borderRadius: "22px", border: "1px solid var(--border)" }}>
 
               {/* Candidate invite row — generates a /join link that lands on
@@ -9525,7 +9541,7 @@ export default function AdminPage() {
           )}
 
           {/* Archive toggle */}
-          {archivedUserIds.length > 0 && (
+          {toolsOpen && archivedUserIds.length > 0 && (
             <div className="mt-10">
               <button
                 onClick={() => setShowArchive(v => !v)}
