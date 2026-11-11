@@ -6,6 +6,7 @@ import { MOVE_STEPS } from "@/lib/facility/move";
 import { SETTLE } from "@/lib/facility/settle";
 import { wegNow, type WegKey } from "@/lib/facility/weg";
 import { journeyOwner, askedId } from "@/lib/facility/portalAccess";
+import { docPhasesFor } from "@/lib/facility/docPhases";
 
 /** How far one nurse is on each station of the way (the dashboard card). GET ?userId= */
 export const runtime = "nodejs";
@@ -30,5 +31,7 @@ export async function GET(req: NextRequest) {
     try { const p = JSON.parse(String(r?.steps || "{}")); if (p && typeof p === "object") steps = p; } catch { steps = {}; }
     prog[k] = [IDS[k].filter((id) => steps[id]).length, IDS[k].length];
   }));
-  return NextResponse.json({ prog, now: wegNow(prog) }, { headers: { "Cache-Control": "no-store" } });
+  // the document phases before the way to Germany (papers, Anerkennung, embassy papers): null when unknown
+  const docs = await docPhasesFor(w.userId);
+  return NextResponse.json({ prog, now: wegNow(prog), docs }, { headers: { "Cache-Control": "no-store" } });
 }

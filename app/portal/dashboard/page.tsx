@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ArrivalCard } from "@/components/fx/ArrivalCard";
+import { WegMap } from "@/components/fx/WegMap";
 import { saveAs } from "file-saver";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -3406,8 +3406,8 @@ export default function DashboardPage() {
     <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
-        {/* her arrival plan, once a place is set (founder 2026-11-10: the first weeks, offices nearby) */}
-        <ArrivalCard />
+        {/* her whole way on one screen, papers below (founder 2026-11-11: a roadmap first, papers hidden but reachable) */}
+        <WegMap onDocs={() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
 
         {/* Header — refined typographic hierarchy */}
         <div className="flex items-start justify-between mb-8">
@@ -3568,7 +3568,7 @@ export default function DashboardPage() {
 
 
         {/* Two-column: sidebar stepper + main content */}
-        <div className="flex gap-4 sm:gap-6 items-start">
+        <div id="bv-docs" className="flex gap-4 sm:gap-6 items-start" style={{ scrollMarginTop: 80 }}>
 
           {/* ── Vertical sidebar — always visible, same pattern as the
               admin dashboard. No hamburger drawer on mobile; the rail just
