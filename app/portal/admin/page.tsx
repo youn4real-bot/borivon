@@ -9103,28 +9103,36 @@ export default function AdminPage() {
                         );
                       })()}
 
-                      {/* The phase they're in RIGHT NOW + how far through it. One
-                          percentage at a time — it hands over to the next phase at 100%. */}
-                      {docPct !== null ? (
-                        <span className="hidden sm:grid gap-[7px] flex-shrink-0 w-[150px]"
-                          title={jrn
-                            ? `${phaseLabel} — ${jrn.done}/${jrn.total}${jrn.allDone ? (lang === "de" ? " · alle Phasen fertig" : lang === "fr" ? " · toutes les phases terminées" : " · all phases done") : ""}`
-                            : (lang === "de" ? "Dokumente vollständig" : lang === "fr" ? "documents complétés" : "documents complete")}>
-                          <span className="flex items-baseline justify-between gap-2 tabular-nums">
-                            <span className="text-[10px] font-medium uppercase tracking-[0.12em] truncate" style={{ color: "var(--w2)" }}>
-                              {phaseLabel ?? (lang === "de" ? "Dokumente" : "Documents")}
+                      {/* Where she is on her whole way, as six dots (founder 2026-11-11: a roadmap, not
+                          a percentage): Unterlagen · Anerkennung · Visum · Wohnung & Anreise · Ankommen · Bleiben.
+                          Done = ink, now = gold ring, later = hairline. The label names the station and how far. */}
+                      {docPct !== null ? (() => {
+                        const at = jrn ? (jrn.allDone ? 3 : Math.max(0, jrn.phaseIndex)) : 0;
+                        const names = lang === "fr" ? ["Documents", "Reconnaissance", "Visa", "Logement & voyage", "Arrivée", "Rester"]
+                          : lang === "en" ? ["Documents", "Recognition", "Visa", "Flat & journey", "Arrival", "Staying"]
+                          : ["Unterlagen", "Anerkennung", "Visum", "Wohnung & Anreise", "Ankommen", "Bleiben"];
+                        return (
+                          <span className="hidden sm:grid gap-[7px] flex-shrink-0 w-[150px]"
+                            title={jrn ? `${names[at]} — ${jrn.done}/${jrn.total}` : names[0]}>
+                            <span className="flex items-center" aria-hidden="true">
+                              {names.map((_, k) => (
+                                <React.Fragment key={k}>
+                                  {k > 0 && <span className="flex-1 h-px" style={{ background: k <= at ? "var(--w)" : "var(--border)" }} />}
+                                  <span className="rounded-full flex-shrink-0" style={{
+                                    width: k === at ? 10 : 7, height: k === at ? 10 : 7,
+                                    background: k < at ? "var(--w)" : "var(--card)",
+                                    border: `1.5px solid ${k < at ? "var(--w)" : k === at ? "var(--gold)" : "var(--border)"}`,
+                                  }} />
+                                </React.Fragment>
+                              ))}
                             </span>
-                            <span className="text-[11px] font-medium" style={{ color: docPct === 100 ? "#16a34a" : docPct >= 50 ? "var(--w3)" : "#f59e0b" }}>
-                              {docPct}%
+                            <span className="flex items-baseline justify-between gap-2 tabular-nums">
+                              <span className="text-[10.5px] truncate" style={{ color: "var(--w2)" }}>{names[at]}</span>
+                              {at < 3 && <span className="text-[10.5px]" style={{ color: "var(--w3)" }}>{docPct}%</span>}
                             </span>
                           </span>
-                          {/* Thin gold thread, the /pflege progress bar. */}
-                          <span className="block h-[3px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                            <span className="block h-full rounded-full"
-                              style={{ width: `${docPct}%`, background: docPct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))", transition: "width 1.3s var(--ease)" }} />
-                          </span>
-                        </span>
-                      ) : (
+                        );
+                      })() : (
                         <span className="hidden sm:block flex-shrink-0 w-[150px]" />
                       )}
 
