@@ -165,7 +165,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       promised: "wie versprochen, hier ist Ihr Pflege-Fahrplan:", tap: "Tippen Sie hier für Ihr PDF:",
       link: `PFLEGE-FAHRPLAN – STUFE ${n}`, insideH: "Darin finden Sie:",
       inside: [`Was Stufe ${n} genau ist und was Sie gerade bremst`, "Was Sie dagegen tun können, mit Checklisten zum Abhaken", n < 5 ? `Was es braucht, um auf Stufe ${next} zu kommen` : "Was es braucht, um oben zu bleiben"],
-      note: "<b>Hinweis</b>: Im Fahrplan finden Sie auch Ihren Zeitplan, einen Rechner für Ihre eigenen Zahlen und als Bonus den Agentur-Check. Auf der letzten Seite wartet außerdem ein Dankeschön für Sie.",
+      note: "<b>Hinweis</b>: Im Fahrplan finden Sie auch Ihren Zeitplan, einen Rechner für Ihre eigenen Zahlen und als Bonus den Agentur-Check. Und weil Sie den ersten Schritt gemacht haben, wartet auf der letzten Seite eine Belohnung für Sie.",
       next: "Der Fahrplan zeigt Ihnen, was Sie als Nächstes tun.",
       ps: `P.S. Viele Einrichtungen bleiben auf Stufe ${n} hängen. Zu viel kommt auf einmal, und es ist schwer zu wissen, wo man anfängt.`,
       ps2: "In unserem Workshop in Casablanca bauen wir in 2 Tagen Ihren Plan: was Sie zuerst lösen und in welcher Reihenfolge. Am zweiten Tag lernen Sie die Pflegekräfte dafür persönlich kennen.",

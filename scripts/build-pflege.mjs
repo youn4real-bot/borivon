@@ -201,6 +201,7 @@ for (const k of Object.keys(pages)) pages[k] = pages[k].split('/pflege/assets/t.
 // ── free tools (founder 2026-11-10: expose the problem, show the lost potential; same model as the Rechner) ──
 for (const [src, key, title, desc, path_] of [
   ["warten.html", "WARTEN_HTML", "Was kostet Sie jede Woche Warten? · Borivon", "Werkzeug: Was leere Stellen Ihre Einrichtung jede Woche kosten, und was es kostet, später zu starten. Mit Ihren eigenen Zahlen.", "https://www.borivon.com/fahrplan/warten"],
+  ["kosten.html", "KOSTEN_HTML", "Was kostet Sie das? · Borivon", "Werkzeug für jede Einrichtung: Was leere Stellen, Kündigungen und jeder Monat Warten Sie kosten. Live, mit Ihren eigenen Werten.", "https://www.borivon.com/fahrplan/kosten"],
   ["bleibe-check.html", "BLEIBE_HTML", "Der Bleibe-Check · Borivon", "Werkzeug: Acht Fragen zu den ersten 90 Tagen. Sehen Sie, wo Ihnen neue Pflegekräfte in der Probezeit verloren gehen.", "https://www.borivon.com/fahrplan/bleibe-check"],
 ]) {
   let s = fs.readFileSync(path.join(SRC, src), "utf8");
@@ -232,6 +233,7 @@ fs.mkdirSync(path.join(OUT, "fahrplan"), { recursive: true });
 fs.writeFileSync(path.join(OUT, "fahrplan", "rechner.html"), pages.RECHNER_HTML);
 fs.writeFileSync(path.join(OUT, "fahrplan", "warten.html"), pages.WARTEN_HTML);
 fs.writeFileSync(path.join(OUT, "fahrplan", "bleibe-check.html"), pages.BLEIBE_HTML);
+fs.writeFileSync(path.join(OUT, "fahrplan", "kosten.html"), pages.KOSTEN_HTML);
 for (const old of [path.join(OUT, "pflege.html"), path.join(OUT, "pflege", "plattform.html")]) fs.rmSync(old, { force: true });
 console.log("public/index.html, public/plattform.html, public/fahrplan.html");
 console.log("ok" + (withVoices ? " (with testimonials)" : ""));

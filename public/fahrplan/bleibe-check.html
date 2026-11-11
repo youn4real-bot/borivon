@@ -137,7 +137,7 @@
  <div class="c">
   <a class="logo" href="/">Borivon<b>.</b></a>
   <p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
-  <div class="fl"><a href="/fahrplan">Pflege-Fahrplan</a><a href="/fahrplan/rechner">Rechner</a><a href="/fahrplan/warten">Was kostet Warten?</a><a href="/workshop">Workshop</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="#" data-consent-open>Datenschutz-Einstellungen</a></div>
+  <div class="fl"><a href="/fahrplan">Pflege-Fahrplan</a><a href="/fahrplan/rechner">Rechner</a><a href="/fahrplan/kosten">Was kostet Sie das?</a><a href="/workshop">Workshop</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a><a href="#" data-consent-open>Datenschutz-Einstellungen</a></div>
   <p class="copy">© Borivon LLC</p>
  </div>
 </footer>
@@ -182,7 +182,7 @@
       (n?'<p class="lbl2">Hier verlieren Sie sie</p><ul>'+gaps.map(function(g){return '<li>'+esc(g)+'</li>'}).join("")+'</ul>':'')+
       '<p class="stake">Geht eine Pflegekraft in der Probezeit, kostet Sie das rund <b>'+eur(dep())+'</b>: drei Monate leere Stelle, die Einarbeitung und die neue Suche. Eine Schätzung, gleiche Rechnung wie im Fahrplan.</p>'+
       '<div class="fix"><p>'+esc(fix)+'</p><a class="btn" href="/fahrplan?src=bleibe-check&amp;g='+n+'"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>'+
-      '<small>In unter 60 Sekunden · 0 € · per E-Mail. Und als Dankeschön: Ihr Zugang zu unserer Plattform.</small></div>'+
+      '<small>In unter 60 Sekunden · 0 € · per E-Mail. Und weil Sie handeln: Ihr Zugang zu unserer Plattform.</small></div>'+
       '<button type="button" class="again" id="again">Noch einmal</button>';
     step.hidden=true; out.hidden=false; if(next) next.hidden=true;
     try{ scrollTo({top:out.getBoundingClientRect().top+scrollY-96,behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"}) }catch(e){}

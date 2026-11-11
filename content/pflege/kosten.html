@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="de">
+<head>
+<!--HEAD-->
+<!--BV-->
+<style>
+/* Free tool "Was kostet Sie das?" (founder 2026-11-11): three numbers every Einrichtung has (an empty post,
+   a nurse who leaves, a month of waiting), each live and editable, each followed by the reason the Fahrplan
+   exists: it shows the way out. 5th-grade words, few of them. Same money model as the Rechner and the Fahrplan
+   (lib/roadmap/score.ts: 3 months gap, onboarding 120 h × 45 €, search 8.000 €; timeline 31 weeks). */
+.k-hero{max-width:860px;margin:0 auto;text-align:center}
+.k-hero .for{margin:22px auto 0;max-width:30em}
+.kc{max-width:760px;margin:clamp(36px,4vw,56px) auto 0;padding:clamp(22px,3.4vw,40px);border:1px solid var(--line);border-radius:8px;background:var(--white)}
+.kc .no{margin:0 0 6px;font:500 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--gold-d)}
+.kc h2{margin:0;font:500 clamp(1.7rem,1.3rem + 1.4vw,2.3rem)/1.1 var(--serif);letter-spacing:-.015em;color:var(--ink)}
+.pp{display:flex;flex-wrap:wrap;gap:6px;margin:22px 0 0;min-height:30px}
+.pp svg{width:24px;height:30px}
+.pp .ok{color:#46684b}.pp .no2{color:#9a4a33}.pp .off{color:#cfc7b7}
+.stp{display:flex;align-items:center;gap:14px;margin:18px 0 0;font-size:15px;color:var(--ink2)}
+.stp button{width:40px;height:40px;border:1px solid var(--line2);border-radius:50%;background:var(--white);font:400 20px/1 var(--sans);color:var(--ink);cursor:pointer}
+.stp button:hover{border-color:var(--ink)}
+.stp b{min-width:2ch;font:500 1.6rem/1 var(--serif);color:var(--ink);text-align:center;font-variant-numeric:tabular-nums}
+.stp input[type=range]{flex:1;accent-color:var(--ink)}
+.big{margin:22px 0 0;font:500 clamp(2.6rem,1.8rem + 3.6vw,4.4rem)/1 var(--serif);letter-spacing:-.02em;color:#9a4a33;font-variant-numeric:lining-nums tabular-nums}
+.kw{margin:10px 0 0;font-size:1.05rem;color:var(--ink)}
+.kw small{display:block;margin-top:4px;font-size:.9rem;color:var(--mute)}
+.ed{margin:16px 0 0;padding:0;border:0;background:none;font:400 13px/1 var(--sans);color:var(--mute);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.ef{display:none;margin:14px 0 0;padding:14px 0 0;border-top:1px solid var(--line)}
+.ef.on{display:grid;gap:10px}
+.ef label{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;color:var(--ink2)}
+.ef input{width:110px;height:38px;padding:0 10px;border:1px solid var(--line2);border-radius:4px;background:var(--white);font:500 15px var(--sans);text-align:right;color:var(--ink)}
+.ef p{margin:0;font-size:12.5px;line-height:1.5;color:var(--mute)}
+.fix{display:flex;gap:12px;align-items:flex-start;margin:24px 0 0;padding:16px 18px;border-radius:6px;background:#eef4ef;color:#2f4a33}
+.fix svg{flex:none;width:20px;height:20px;margin-top:2px}
+.fix p{margin:0;font-size:1rem;line-height:1.5}
+.fix a{display:inline-block;margin-top:6px;font-weight:500;color:#2f4a33}
+.cal{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;margin:22px 0 0}
+.cal i{height:26px;border-radius:3px;background:#ebe6db}
+.cal i.w{background:#9a4a33}
+.cal i.s{background:#46684b}
+.tot{max-width:760px;margin:clamp(40px,5vw,64px) auto 0;padding:clamp(28px,4vw,48px);border-radius:8px;background:var(--night);color:var(--on-night);text-align:center}
+.tot span{display:block;font-size:14px;color:var(--on-night2)}
+.tot b{display:block;margin:10px 0 0;font:500 clamp(2.6rem,1.8rem + 3.6vw,4.6rem)/1 var(--serif);letter-spacing:-.02em;color:#e7a58f;font-variant-numeric:lining-nums tabular-nums}
+.tot h2{margin:30px auto 0;max-width:20em;font:500 clamp(1.6rem,1.2rem + 1.6vw,2.4rem)/1.15 var(--serif);color:#f6f1e6}
+.tot p{margin:12px auto 26px;max-width:30em;color:var(--on-night2)}
+.tot .status{justify-content:center;color:var(--on-night2)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <symbol id="p" viewBox="0 0 24 30"><circle cx="12" cy="7" r="6" fill="currentColor"/><path d="M1 30v-6a11 9 0 0 1 22 0v6z" fill="currentColor"/></symbol>
+ <symbol id="pe" viewBox="0 0 24 30"><circle cx="12" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/><path d="M1.8 29.2v-5.2a10.2 8.2 0 0 1 20.4 0v5.2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/></symbol>
+ <symbol id="door" viewBox="0 0 24 30"><path d="M4 29V3h12v26M16 15h0" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="13" cy="16" r="1.3" fill="currentColor"/><path d="M18 15h5m-2.5-2.5L23 15l-2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+ <symbol id="ck" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#46684b"/><path d="M5.6 10.4l2.9 2.7 5.9-6" fill="none" stroke="#fff" stroke-width="2"/></symbol>
+</svg>
+
+<a class="bar" href="/workshop"><b class="lg"><i></i>Workshop in Casablanca <span>· 2 Tage mit Youness Taoufiq · alle 3 Monate · Termine ansehen</span></b><b class="sm"><i></i>Workshop in Casablanca <span>· Termine ansehen</span></b></a>
+
+<nav class="nav" aria-label="Borivon">
+ <div class="c">
+  <a class="logo" href="/">Borivon<b>.</b></a>
+  <div class="links"><a href="/fahrplan">Fahrplan</a><a href="/plattform">Plattform</a><a href="/#werkzeuge">Werkzeuge</a><a href="/workshop">Workshop</a><a href="/#gruender">Über uns</a><a href="/portal">Portal</a></div>
+  <a class="btn" href="/fahrplan?src=kosten"><span>Pflege-Fahrplan</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+ </div>
+</nav>
+
+<main>
+<header class="hero">
+ <div class="c">
+  <div class="k-hero">
+   <p class="lbl" data-r style="justify-content:center">Werkzeug · für jede Einrichtung</p>
+   <h1 class="h1" data-split><span class="main">Was kostet Sie das? <em>Jede Sekunde.</em></span></h1>
+   <p class="for" data-r>Drei Zahlen, die jede Einrichtung hat. Mit Ihren eigenen Werten. Und was sie stoppt.</p>
+  </div>
+
+  <section class="kc" data-r aria-label="Die leere Stelle">
+   <p class="no">01</p>
+   <h2>Die leere Stelle</h2>
+   <div class="pp" id="pp1" aria-hidden="true"></div>
+   <div class="stp"><button type="button" id="m1" aria-label="Eine Stelle weniger">−</button><b id="v1">3</b><span>Pflegefachkräfte fehlen</span><button type="button" id="p1" aria-label="Eine Stelle mehr">+</button></div>
+   <p class="big" id="o1" aria-live="off">−0 €</p>
+   <p class="kw">So viel kosten Sie diese Stellen schon dieses Jahr.<small id="s1"></small></p>
+   <button class="ed" type="button" data-e="e1">Werte ändern</button>
+   <div class="ef" id="e1">
+    <label>Stunden pro Monat, je Stelle <input type="number" id="h" value="160" min="1" max="250" step="1" inputmode="numeric"></label>
+    <label>Was Sie eine Stunde kostet (€) <input type="number" id="r" value="32" min="1" max="200" step="1" inputmode="numeric"></label>
+    <p>Startwert: Pflegemindestlohn 21,03 €, plus 21 % Abgaben und 25 % Zuschlag für Überstunden. Leihkräfte kosten oft mehr.</p>
+   </div>
+   <div class="fix"><svg aria-hidden="true"><use href="#ck"/></svg><p>Ihr Fahrplan zeigt, wie Sie diese Stellen füllen. Schritt für Schritt, mit Datum.<br><a href="/fahrplan?src=kosten-stelle">Ihren Fahrplan holen →</a></p></div>
+  </section>
+
+  <section class="kc" data-r aria-label="Wenn eine Pflegekraft geht">
+   <p class="no">02</p>
+   <h2>Wenn eine Pflegekraft geht</h2>
+   <div class="pp" id="pp2" aria-hidden="true"></div>
+   <div class="stp"><button type="button" id="m2" aria-label="Eine weniger">−</button><b id="v2">4</b><span>gehen pro Jahr</span><button type="button" id="p2" aria-label="Eine mehr">+</button></div>
+   <p class="big" id="o2">−0 €</p>
+   <p class="kw">So viel kostet Sie das. Jedes Jahr.<small id="s2"></small></p>
+   <button class="ed" type="button" data-e="e2">Werte ändern</button>
+   <div class="ef" id="e2">
+    <label>Neue Suche (€) <input type="number" id="q" value="8000" min="0" max="100000" step="100" inputmode="numeric"></label>
+    <label>Einarbeitung (€) <input type="number" id="ob" value="5400" min="0" max="100000" step="100" inputmode="numeric"></label>
+    <label>Monate, bis die Stelle wieder besetzt ist <input type="number" id="gap" value="3" min="0" max="24" step="1" inputmode="numeric"></label>
+    <p>Startwerte wie im Fahrplan: Einarbeitung 120 Stunden à 45 €, eine neue Suche 8.000 €. Die leeren Monate rechnen mit Ihren Werten aus 01.</p>
+   </div>
+   <div class="fix"><svg aria-hidden="true"><use href="#ck"/></svg><p>Ihr Fahrplan zeigt, warum Pflegekräfte gehen. Und was sie hält, vom ersten Tag an.<br><a href="/fahrplan?src=kosten-gehen">Ihren Fahrplan holen →</a></p></div>
+  </section>
+
+  <section class="kc" data-r aria-label="Jeder Monat Warten">
+   <p class="no">03</p>
+   <h2>Jeder Monat Warten</h2>
+   <div class="cal" id="cal" aria-hidden="true"></div>
+   <div class="stp"><span>Sie starten in</span><input type="range" id="w" min="0" max="12" value="3" step="1" aria-label="Monate bis zum Start"><b id="vw">3</b><span>Mon.</span></div>
+   <p class="big" id="o3">−0 €</p>
+   <p class="kw">So viel verlieren Sie, wenn Sie später anfangen.<small id="s3"></small></p>
+   <div class="fix"><svg aria-hidden="true"><use href="#ck"/></svg><p>Ihr Fahrplan zeigt, bis wann Sie starten müssen. Und was zuerst dran ist.<br><a href="/fahrplan?src=kosten-warten">Ihren Fahrplan holen →</a></p></div>
+  </section>
+
+  <section class="tot" data-r aria-label="Zusammen">
+   <span>Zusammen, in einem Jahr</span>
+   <b id="o4">−0 €</b>
+   <span id="s4" style="margin-top:10px">Seit Sie hier sind: −0,00 €</span>
+   <h2>Das muss nicht so bleiben.</h2>
+   <p>Ihr Fahrplan zeigt den Weg raus. Für Ihre Einrichtung, mit Ihren Zahlen.</p>
+   <a class="btn light" href="/fahrplan?src=kosten"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+   <p class="status"><i></i>In unter 60 Sekunden · 0 € · per E-Mail</p>
+  </section>
+ </div>
+</header>
+</main>
+
+<footer class="foot">
+ <div class="c">
+  <a class="logo" href="/">Borivon<b>.</b></a>
+  <p class="motto">Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.</p>
+  <div class="fl"><a href="/fahrplan">Pflege-Fahrplan</a><a href="/fahrplan/rechner">Rechner</a><a href="/fahrplan/bleibe-check">Bleibe-Check</a><a href="/workshop">Workshop</a><a href="/impressum">Impressum</a><a href="/datenschutz">Datenschutz</a></div>
+  <p class="copy">© Borivon LLC</p>
+ </div>
+</footer>
+
+<a class="mcta" href="/fahrplan?src=kosten"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
+
+<script src="/pflege/assets/t.js"></script>
+<script>
+(function(){
+  var WEEKS=31; // lib/roadmap/timeline.ts: find 6, papers 6, recognition 8, visa 8, journey 3
+  var $=function(id){return document.getElementById(id)};
+  var n1=3, n2=4, t0=Date.now();
+  function num(id,min){var v=parseFloat($(id).value);return isFinite(v)&&v>=min?v:min}
+  function eur(v,d){var t=v.toLocaleString("de-DE",{minimumFractionDigits:d||0,maximumFractionDigits:d||0});return (/[1-9]/.test(t)?"−":"")+t+" €"}
+  function perPostMonth(){return num("h",0)*num("r",0)}
+  function perDeparture(){return num("q",0)+num("ob",0)+num("gap",0)*perPostMonth()}
+  function yearFrac(){var n=new Date(),s=new Date(n.getFullYear(),0,1);return (n-s)/(365*864e5)}
+  function people(id,ok,miss,sym){var h="";for(var i=0;i<ok;i++)h+='<svg class="ok"><use href="#p"/></svg>';for(var j=0;j<miss;j++)h+='<svg class="no2"><use href="#'+sym+'"/></svg>';$(id).innerHTML=h}
+  function draw(){
+    $("v1").textContent=n1; people("pp1",Math.max(2,8-Math.min(n1,6)),Math.min(n1,14),"pe");
+    $("v2").textContent=n2; people("pp2",0,Math.min(n2,16),"door");
+    var pm=perPostMonth();
+    $("s1").textContent="Jede leere Stelle: "+Math.round(num("h",0))+" Stunden im Monat, die jemand anders leisten muss. Das sind "+eur(pm).replace("−","")+" im Monat.";
+    $("o2").textContent=eur(n2*perDeparture());
+    $("s2").textContent="Jede Kündigung: neue Suche, Einarbeitung und "+Math.round(num("gap",0))+" Monate leer. Zusammen "+eur(perDeparture()).replace("−","")+".";
+    var m=+$("w").value; $("vw").textContent=m;
+    var c="";for(var k=0;k<12;k++)c+='<i class="'+(k<m?"w":"")+'"></i>';$("cal").innerHTML=c;
+    $("o3").textContent=eur(m*n1*pm);
+    var d=new Date(Date.now()+WEEKS*7*864e5);d.setMonth(d.getMonth()+m);
+    $("s3").textContent="Ihre erste neue Pflegekraft kommt dann frühestens im "+d.toLocaleDateString("de-DE",{month:"long",year:"numeric"})+".";
+    tick();
+  }
+  function tick(){
+    var py=n1*perPostMonth()*12, s=(Date.now()-t0)/1000;
+    $("o1").textContent=eur(py*yearFrac()+s*py/31536000,2);
+    var tot=py+n2*perDeparture();
+    $("o4").textContent=eur(tot);
+    $("s4").textContent="Seit Sie hier sind: "+eur(s*tot/31536000,2);
+  }
+  $("m1").onclick=function(){n1=Math.max(1,n1-1);draw()};$("p1").onclick=function(){n1=Math.min(50,n1+1);draw()};
+  $("m2").onclick=function(){n2=Math.max(1,n2-1);draw()};$("p2").onclick=function(){n2=Math.min(60,n2+1);draw()};
+  ["h","r","q","ob","gap","w"].forEach(function(id){$(id).addEventListener("input",draw)});
+  [].forEach.call(document.querySelectorAll(".ed"),function(b){b.onclick=function(){var e=$(b.getAttribute("data-e"));var on=e.classList.toggle("on");b.textContent=on?"Fertig":"Werte ändern";b.setAttribute("aria-expanded",on)}});
+  draw();
+  setInterval(tick,window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches?1000:120);
+})();
+</script>
+<!--BVJS-->
+</body>
+</html>

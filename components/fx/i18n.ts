@@ -6,9 +6,9 @@ export const FX_T = {
     arrNurseH: "Dein Weg nach Deutschland", arrNurseP: "Visum, Wohnung, Anreise und die ersten Wochen. Schritt für Schritt, mit den Ämtern in deiner Nähe.", arrAskNurse: "Wo wirst du wohnen? Dann suchen wir die Ämter in deiner Nähe.", arrAdminH: "Visum und Ankunft", arrAdminP: "Visum, Wohnung, Anreise und die ersten Wochen, Schritt für Schritt. Die Pflegekraft sieht denselben Weg in ihrem Portal und hakt selbst ab.", arrAskAdmin: "Wo wird sie wohnen? Dann suchen wir die Ämter in der Nähe.", arrBack: "Zurück", arrDetails: "Angaben ändern",
     toPortal: "Zum Portal", pwLabel: "Passwort wählen (mindestens 8 Zeichen)", errPw: "Bitte wählen Sie ein Passwort mit mindestens 8 Zeichen.",
     // start (the gift)
-    gift: "Ein Dankeschön",
+    gift: "Weil Sie handeln",
     startH: "Ihre Plattform ist bereit{name}.",
-    startP: "Ihr eigener Bereich in der Plattform, mit der wir selbst unsere Pflegekräfte begleiten. Sie laden Ihre Pflegekräfte ein, sie laden ihre Unterlagen selbst hoch, und Sie sehen jeden Schritt: vom Lebenslauf über das Visum bis zum Ende der Probezeit.",
+    startP: "Sie haben den ersten Schritt gemacht. Das belohnen wir: Ihr eigener Bereich in der Plattform, mit der wir selbst unsere Pflegekräfte begleiten. Sie laden Ihre Pflegekräfte ein, sie laden ihre Unterlagen selbst hoch, und Sie sehen jeden Schritt: vom Lebenslauf über das Visum bis zum Ende der Probezeit.",
     f1: "Ihre Pflegekräfte laden Sie selbst ein", f2: "Unterlagen, Lebenslauf und Visum an einem Ort", f3: "Visum Schritt für Schritt, mit der Visa-Mappe als ein PDF", f4: "Wohnung, Anreise und die Ämter in ihrer Nähe", f5: "Die ersten sechs Monate, bis die Probezeit geschafft ist", f6: "Sie arbeiten allein. Borivon nur, wenn Sie möchten", picCap: "Beispielansicht mit Symbolbildern", picSt: "Visum da|Visum-Termin|Prüfen",
     yourFacility: "Ihre Einrichtung", facName: "Name der Einrichtung", street: "Straße und Hausnummer (optional)", plz: "PLZ", city: "Ort",
     kinds: { care_home: "Pflegeheim", hospital: "Klinik", home_care: "Ambulant" },
@@ -64,7 +64,7 @@ export const FX_T = {
   en: {
     arrNurseH: "Your way to Germany", arrNurseP: "Visa, flat, journey and the first weeks. Step by step, with the offices near you.", arrAskNurse: "Where will you live? Then we look for the offices near you.", arrAdminH: "Visa and arrival", arrAdminP: "Visa, flat, journey and the first weeks, step by step. The nurse sees the same way in her portal and ticks off steps herself.", arrAskAdmin: "Where will she live? Then we look for the offices nearby.", arrBack: "Back", arrDetails: "Change details",
     toPortal: "Go to the portal", pwLabel: "Choose a password (at least 8 characters)", errPw: "Please choose a password with at least 8 characters.",
-    gift: "A thank-you",
+    gift: "Because you act",
     startH: "Your platform is ready{name}.",
     startP: "Your own space in the platform we use to guide our own nurses. You invite your nurses, they upload their documents themselves, and you see every step: from the CV to the visa.",
     f1: "You invite your nurses yourself", f2: "Documents, CV and visa in one place", f3: "The visa step by step, with the visa folder as one PDF", f4: "Flat, journey and the offices near her", f5: "The first six months, until probation is passed", f6: "You work on your own. Borivon only if you want", picCap: "Example view with illustrative photos", picSt: "Visa granted|Visa appointment|Review",
@@ -115,7 +115,7 @@ export const FX_T = {
   fr: {
     arrNurseH: "Ton chemin vers l’Allemagne", arrNurseP: "Visa, logement, voyage et premières semaines. Étape par étape, avec les administrations près de chez toi.", arrAskNurse: "Où vas-tu habiter ? Nous cherchons alors les administrations près de chez toi.", arrAdminH: "Visa et arrivée", arrAdminP: "Visa, logement, voyage et premières semaines, étape par étape. L’infirmière voit le même chemin dans son portail et coche elle-même.", arrAskAdmin: "Où habitera-t-elle ? Nous cherchons alors les administrations à proximité.", arrBack: "Retour", arrDetails: "Modifier",
     toPortal: "Aller au portail", pwLabel: "Choisissez un mot de passe (8 caractères minimum)", errPw: "Veuillez choisir un mot de passe d’au moins 8 caractères.",
-    gift: "Un remerciement",
+    gift: "Parce que vous agissez",
     startH: "Votre plateforme est prête{name}.",
     startP: "Votre propre espace dans la plateforme avec laquelle nous accompagnons nos infirmières. Vous invitez vos infirmières, elles déposent elles-mêmes leurs documents, et vous voyez chaque étape : du CV au visa.",
     f1: "Vous invitez vous-même vos infirmières", f2: "Documents, CV et visa au même endroit", f3: "Le visa étape par étape, avec le dossier visa en un PDF", f4: "Logement, voyage et les administrations près de chez elle", f5: "Les six premiers mois, jusqu’à la fin de la période d’essai", f6: "Vous travaillez seul. Borivon seulement si vous le souhaitez", picCap: "Exemple avec photos d’illustration", picSt: "Visa reçu|Rendez-vous visa|À vérifier",

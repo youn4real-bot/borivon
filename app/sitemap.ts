@@ -10,6 +10,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/fahrplan`, lastModified: now, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/workshop`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
     { url: `${base}/fahrplan/rechner`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${base}/fahrplan/kosten`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/fahrplan/warten`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/fahrplan/bleibe-check`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/impressum`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
