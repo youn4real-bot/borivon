@@ -8,6 +8,7 @@ import { wegNow, type WegKey } from "@/lib/facility/weg";
 import { journeyOwner, askedId } from "@/lib/facility/portalAccess";
 import { docPhasesFor } from "@/lib/facility/docPhases";
 import type { WayInput } from "@/lib/facility/way";
+import { rowLang, rowMarks } from "@/lib/facility/track";
 
 /**
  * One nurse's whole way (components/fx/Way.tsx): the document phases, her B2 stage, the ticked steps of
@@ -41,6 +42,11 @@ export async function GET(req: NextRequest) {
     steps[k] = Object.fromEntries(IDS[k].filter((id) => s[id]).map((id) => [id, String(s[id])]));
     prog[k] = [Object.keys(steps[k]).length, IDS[k].length];
   }));
+  // her German in detail + her milestones (contract, Kenntnisprüfung, Berufsurkunde)
+  const [langRow, marksRow] = await Promise.all([
+    db.run(`SELECT * FROM fx_lang WHERE user_id = ?`, [w.userId]).then((r) => r.results[0] as Record<string, unknown> | undefined),
+    db.run(`SELECT * FROM fx_marks WHERE user_id = ?`, [w.userId]).then((r) => r.results[0] as Record<string, unknown> | undefined),
+  ]);
   // the document phases before the way to Germany (papers, Anerkennung, embassy papers): null when unknown
   const docs = await docPhasesFor(w.userId);
   const input: Omit<WayInput, "today"> = {
@@ -52,9 +58,11 @@ export async function GET(req: NextRequest) {
       flight: String(rows.move?.flight_date ?? ""),
       start: String(rows.weeks?.start ?? ""),
     },
+    lang: rowLang(langRow),
+    marks: rowMarks(marksRow),
   };
   return NextResponse.json(
-    { prog, now: wegNow(prog), docs, input, photo: docs?.photo ?? null, today: new Date().toISOString().slice(0, 10) },
+    { prog, now: wegNow(prog), docs, input, photo: docs?.photo ?? null, admin: w.admin, today: new Date().toISOString().slice(0, 10) },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

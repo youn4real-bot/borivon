@@ -80,6 +80,28 @@ const DDL = [
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
   )`,
+  // German of a portal user (nurse): level, B2 modules, exam date, provider, school (app/api/portal/lang)
+  `CREATE TABLE IF NOT EXISTS fx_lang (
+    user_id TEXT PRIMARY KEY,
+    level TEXT NOT NULL DEFAULT '',
+    modules TEXT NOT NULL DEFAULT '{}',
+    exam_date TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    school TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
+  // milestones of a portal user (nurse): contract signed, Kenntnisprüfung date + result, Berufsurkunde (app/api/portal/marks)
+  `CREATE TABLE IF NOT EXISTS fx_marks (
+    user_id TEXT PRIMARY KEY,
+    contract TEXT NOT NULL DEFAULT '',
+    kp_date TEXT NOT NULL DEFAULT '',
+    kp_result TEXT NOT NULL DEFAULT '',
+    urkunde TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the visa of a portal user (nurse): when handed in, the guide's ticked steps (app/api/portal/visa)
   `CREATE TABLE IF NOT EXISTS fx_visa (
     user_id TEXT PRIMARY KEY,
@@ -90,7 +112,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;

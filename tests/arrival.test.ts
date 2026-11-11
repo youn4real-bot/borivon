@@ -106,6 +106,38 @@ describe("arrival plan API", async () => {
     expect((await weg.GET(r("weg", "GET", {}))).status).toBe(401);
   });
 
+  it("her German and her milestones: she sets her exam date, only her facility/Borivon set results", async () => {
+    const lang = await import("../app/api/portal/lang/route");
+    const marks = await import("../app/api/portal/marks/route");
+    const r = (path: string, method: string, headers: Record<string, string>, body?: unknown, q = "") =>
+      new NextRequest(`https://borivon.com/api/portal/${path}${q}`, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+    // the nurse: exam date + provider yes, module results no
+    const mine = await (await lang.PUT(r("lang", "PUT", { "x-user": NURSE }, { exam_date: "2026-12-04", provider: "telc", modules: { lesen: "passed" }, level: "B2" }))).json();
+    expect(mine.exam_date).toBe("2026-12-04");
+    expect(mine.provider).toBe("telc");
+    expect(mine.modules.lesen).toBe("");
+    expect(mine.level).toBe("");
+    // her facility / Borivon: everything; junk is cleared
+    const adm = await (await lang.PUT(r("lang", "PUT", { "x-role": "admin" }, { userId: NURSE, modules: { lesen: "passed", sprechen: "nope" }, level: "B1", path: "b1_de", provider: "x" }))).json();
+    expect(adm.modules).toEqual({ lesen: "passed", hoeren: "", schreiben: "", sprechen: "" });
+    expect(adm.level).toBe("B1");
+    expect(adm.path).toBe("b1_de");
+    expect(adm.provider).toBe("");
+    expect(adm.exam_date).toBe("2026-12-04");
+    expect((await lang.GET(r("lang", "GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);
+    // milestones: the nurse reads, cannot write
+    expect((await marks.PUT(r("marks", "PUT", { "x-user": NURSE }, { contract: "2026-11-01" }))).status).toBe(403);
+    const m = await (await marks.PUT(r("marks", "PUT", { "x-role": "admin" }, { userId: NURSE, contract: "2026-11-01", kp_result: "passed", urkunde: "bad" }))).json();
+    expect(m).toEqual({ contract: "2026-11-01", kp_date: "", kp_result: "passed", urkunde: "" });
+    expect((await (await marks.GET(r("marks", "GET", { "x-user": NURSE }))).json()).contract).toBe("2026-11-01");
+    // the way picks both up
+    const weg = await import("../app/api/portal/weg/route");
+    const g = await (await weg.GET(r("weg", "GET", { "x-user": NURSE }))).json();
+    expect(g.input.lang.level).toBe("B1");
+    expect(g.input.marks.contract).toBe("2026-11-01");
+    expect(g.admin).toBe(false);
+  });
+
   it("an admin cannot reach a nurse outside their scope; a nurse never reaches another's plan", async () => {
     const api = await import("../app/api/portal/arrival/route");
     expect((await api.GET(req("GET", { "x-role": "admin" }, undefined, `?userId=${OTHER}`))).status).toBe(403);

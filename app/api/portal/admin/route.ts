@@ -12,6 +12,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { computeJourneyProgress, type JourneySlot } from "@/lib/journeyProgress";
 import { fxDb } from "@/lib/facility/db";
 import { buildWay, type WayInput } from "@/lib/facility/way";
+import { rowLang, rowMarks } from "@/lib/facility/track";
 import { effectiveB2Stage, normalizeB2Stage } from "@/lib/b2Journey";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { findDuplicateAccounts } from "@/lib/duplicateAccounts";
@@ -482,7 +483,7 @@ export async function GET(req: NextRequest) {
     const fx = userIds.length > 0 ? await fxDb() : null;
     if (fx) {
       type Row = Record<string, unknown>;
-      const by: Record<string, Record<string, Row>> = { fx_visa: {}, fx_move: {}, fx_arrival: {}, fx_settle: {} };
+      const by: Record<string, Record<string, Row>> = { fx_visa: {}, fx_move: {}, fx_arrival: {}, fx_settle: {}, fx_lang: {}, fx_marks: {} };
       for (const table of Object.keys(by)) {
         for (let i = 0; i < userIds.length; i += 80) {
           const ids = userIds.slice(i, i + 80);
@@ -501,12 +502,14 @@ export async function GET(req: NextRequest) {
           b2: prof ? { stage: effectiveB2Stage(normalizeB2Stage(prof.b2_stage), docsByUserAll[uid] ?? []), failed: !!prof.b2_failed } : null,
           steps: { visa: steps(by.fx_visa[uid]), move: steps(by.fx_move[uid]), weeks: steps(by.fx_arrival[uid]), six: steps(by.fx_settle[uid]) },
           dates: { submitted: String(by.fx_visa[uid]?.submitted ?? ""), flight: String(by.fx_move[uid]?.flight_date ?? ""), start: String(by.fx_arrival[uid]?.start ?? "") },
+          lang: rowLang(by.fx_lang[uid]),
+          marks: rowMarks(by.fx_marks[uid]),
           today,
         });
         const cur = w.stations.find((x) => x.key === w.now);
         wayByUser[uid] = {
           st: w.stations.map((x) => [x.key, x.done ? 2 : x.key === w.now ? 1 : 0]),
-          now: w.now, p: cur ? cur.p : [0, 0], next: w.next, eta: w.nowEta ?? w.eta, today,
+          now: w.now, p: cur ? cur.p : [0, 0], next: w.next, eta: w.nowEta ?? w.upcoming[0] ?? w.eta, today,
         };
       }
     }

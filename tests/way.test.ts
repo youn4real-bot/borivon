@@ -14,7 +14,7 @@ const base = (o: Partial<WayInput> = {}): WayInput => ({
 describe("the way (lib/facility/way.ts)", () => {
   it("she is at the first open station of the chain; Deutsch never blocks it", () => {
     const w = buildWay(base());
-    expect(w.stations.map((s) => s.key)).toEqual(["lang", "papers", "recog", "visa", "trip", "arrive", "stay"]);
+    expect(w.stations.map((s) => s.key)).toEqual(["lang", "papers", "contract", "recog", "visa", "trip", "arrive", "kp", "stay"]);
     expect(w.now).toBe("visa");
     expect(w.win).toBe("recog");
     expect(w.next).toBe("vorab");
@@ -33,7 +33,7 @@ describe("the way (lib/facility/way.ts)", () => {
 
   it("unknown documents → those stations are left out, not drawn wrong", () => {
     const w = buildWay(base({ docs: null, b2: null }));
-    expect(w.stations.map((s) => s.key)).toEqual(["visa", "trip", "arrive", "stay"]);
+    expect(w.stations.map((s) => s.key)).toEqual(["contract", "visa", "trip", "arrive", "kp", "stay"]);
     expect(w.now).toBe("visa");
   });
 
@@ -58,6 +58,28 @@ describe("the way (lib/facility/way.ts)", () => {
     expect(w.home.map((t) => [t.id, t.done, t.who])).toEqual([["find", true, "facility"], ["lease", false, "facility"], ["wgb", true, "facility"], ["keys", false, "facility"]]);
     // the flat doesn't count for the journey station
     expect(w.stations.find((s) => s.key === "trip")!.p).toEqual([0, 3]);
+  });
+
+  it("Vertrag and Kenntnisprüfung never block; German in detail", () => {
+    const lang = { level: "B1" as const, modules: { lesen: "passed" as const, hoeren: "passed" as const, schreiben: "pending" as const, sprechen: "failed" as const }, exam_date: "2026-11-20", provider: "telc" as const, school: "", path: "" as const };
+    const w = buildWay(base({ lang, marks: { contract: "", kp_date: "2027-02-01", kp_result: "", urkunde: "" } }));
+    expect(w.now).toBe("visa");
+    expect(w.stations.find((s) => s.key === "lang")!.p).toEqual([2, 4]);
+    expect(w.stations.find((s) => s.key === "contract")!.done).toBe(false);
+    expect(w.upcoming.map((e) => e.kind)).toEqual(["exam", "kp"]);
+    const all = { ...lang, modules: { lesen: "passed" as const, hoeren: "passed" as const, schreiben: "passed" as const, sprechen: "passed" as const } };
+    const w2 = buildWay(base({ b2: { stage: "studying", failed: false }, lang: all, marks: { contract: "2026-10-01", kp_date: "2026-10-01", kp_result: "passed", urkunde: "2026-11-01" } }));
+    expect(w2.stations.find((s) => s.key === "lang")!.done).toBe(true);
+    expect(w2.stations.find((s) => s.key === "contract")!.done).toBe(true);
+    expect(w2.stations.find((s) => s.key === "kp")!.done).toBe(true);
+    expect(w2.upcoming).toEqual([]);
+  });
+
+  it("landed: the way there folds; she is in Germany", () => {
+    const allVisa = Object.fromEntries(VISA_STEPS.map((s) => [s.id, "x"]));
+    const w = buildWay(base({ steps: { visa: allVisa, move: { flight: "x", pickup: "x", day1: "x" }, weeks: {}, six: {} } }));
+    expect(w.landed).toBe(true);
+    expect(buildWay(base()).landed).toBe(false);
   });
 
   it("countdown words", () => {

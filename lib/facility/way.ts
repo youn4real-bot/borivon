@@ -12,13 +12,15 @@ import { MOVE_STEPS } from "./move";
 import { STEPS } from "./steps";
 import { SETTLE, probationEnd } from "./settle";
 import { B2_STAGES, type B2Stage } from "@/lib/b2Journey";
+import { MODULES, allModulesPassed, type LangInfo, type Marks } from "./track";
 
 export type P = [number, number];
-export type WayKey = "lang" | "papers" | "recog" | "visa" | "trip" | "arrive" | "stay";
-export const WAY_ROAD: WayKey[] = ["lang", "papers", "recog", "visa", "trip", "arrive", "stay"];
-export const WAY_ABROAD: WayKey[] = ["lang", "papers", "recog", "visa", "trip"];
-export const WAY_GERMANY: WayKey[] = ["arrive", "stay"];
-/** the chain that decides where she is now (Deutsch runs beside it: a B1 nurse finishes B2 in Germany) */
+export type WayKey = "lang" | "papers" | "contract" | "recog" | "visa" | "trip" | "arrive" | "kp" | "stay";
+export const WAY_ROAD: WayKey[] = ["lang", "papers", "contract", "recog", "visa", "trip", "arrive", "kp", "stay"];
+export const WAY_ABROAD: WayKey[] = ["lang", "papers", "contract", "recog", "visa", "trip"];
+export const WAY_GERMANY: WayKey[] = ["arrive", "kp", "stay"];
+/** the chain that decides where she is now. Beside it, never blocking: Deutsch (a B1 nurse finishes B2 in
+ * Germany), Vertrag and Kenntnisprüfung (open until someone marks them, then done). */
 const CHAIN: WayKey[] = ["papers", "recog", "visa", "trip", "arrive", "stay"];
 
 export type Who = "nurse" | "facility" | "both";
@@ -30,12 +32,15 @@ export type WayInput = {
   b2: { stage: B2Stage; failed: boolean } | null;
   steps: { visa: Steps; move: Steps; weeks: Steps; six: Steps };
   dates: { submitted: string; flight: string; start: string };
+  /** her German in detail and her milestones (lib/facility/track.ts); absent = not known */
+  lang?: LangInfo | null;
+  marks?: Marks | null;
   /** YYYY-MM-DD */
   today: string;
 };
 
 export type Station = { key: WayKey; p: P; done: boolean };
-export type Eta = { kind: "visa" | "flight" | "start" | "probation"; date: string; est: boolean };
+export type Eta = { kind: "visa" | "flight" | "start" | "probation" | "exam" | "kp"; date: string; est: boolean };
 export type Way = {
   stations: Station[];
   now: WayKey;
@@ -51,6 +56,10 @@ export type Way = {
   eta: Eta | null;
   /** the countdown that belongs to the station she is at */
   nowEta: Eta | null;
+  /** every date still ahead, soonest first (B2 exam, Kenntnisprüfung, visa, flight, first day, probation) */
+  upcoming: Eta[];
+  /** she is in Germany: the way there folds to "geschafft" */
+  landed: boolean;
 };
 
 const full = (p: P) => p[1] > 0 && p[0] >= p[1];
@@ -79,9 +88,16 @@ export function buildWay(i: WayInput): Way {
 
   const b2pos = i.b2 ? (B2_STAGES.find((s) => s.key === i.b2!.stage)?.position ?? 0) : 0;
   const vis = count(visaT);
+  const lg = i.lang ?? null;
+  const mods = lg ? MODULES.filter((k) => lg.modules[k] === "passed").length : 0;
+  const anyMod = !!lg && MODULES.some((k) => lg.modules[k]);
+  const b2done = i.b2?.stage === "passed" || allModulesPassed(lg);
+  const mk = i.marks ?? null;
   const P_: Record<WayKey, P | null> = {
-    lang: i.b2 ? [b2pos, 4] : null,
+    lang: b2done ? [4, 4] : anyMod ? [mods, 4] : i.b2 ? [b2pos, 4] : lg?.level || lg?.exam_date ? [0, 4] : null,
     papers: i.docs ? i.docs.papers : null,
+    contract: [mk?.contract ? 1 : 0, 1],
+    kp: [mk?.urkunde ? 2 : mk?.kp_result === "passed" ? 1 : 0, 2],
     recog: i.docs ? i.docs.bearbeitung : null,
     visa: i.docs ? [i.docs.visum[0] + vis[0], i.docs.visum[1] + vis[1]] : vis,
     trip: count(tripT),
@@ -110,8 +126,12 @@ export function buildWay(i: WayInput): Way {
   const probEta: Eta | null = isDay(start) && !future(start) && future(probEnd) ? { kind: "probation", date: probEnd, est: false } : null;
   const eta = startEta ?? probEta ?? flightEta ?? visaEta;
   const nowEta = now === "visa" ? visaEta : now === "trip" ? (flightEta ?? startEta) : now === "arrive" ? (startEta ?? probEta) : now === "stay" ? probEta : null;
+  const examEta: Eta | null = lg && !b2done && future(lg.exam_date) ? { kind: "exam", date: lg.exam_date, est: false } : null;
+  const kpEta: Eta | null = mk && !mk.kp_result && !mk.urkunde && future(mk.kp_date) ? { kind: "kp", date: mk.kp_date, est: false } : null;
+  const upcoming = [examEta, kpEta, visaEta, flightEta, startEta, probEta].filter((x): x is Eta => !!x).sort((a, b) => a.date.localeCompare(b.date));
+  const landed = now === "arrive" || now === "stay";
 
-  return { stations, now, win, home: homeT, ticks, next, eta, nowEta };
+  return { stations, now, win, home: homeT, ticks, next, eta, nowEta, upcoming, landed };
 }
 
 /** "in 12 Tagen" / "in 7 Wochen" / "in 4 Monaten" — big number + unit, for a countdown */
@@ -144,6 +164,8 @@ type L3 = { de: string; en: string; fr: string };
 export const WAY_NAME: Record<WayKey, L3> = {
   lang: { de: "Deutsch", en: "German", fr: "Allemand" },
   papers: { de: "Unterlagen", en: "Documents", fr: "Documents" },
+  contract: { de: "Vertrag", en: "Contract", fr: "Contrat" },
+  kp: { de: "Kenntnisprüfung", en: "Knowledge test", fr: "Examen de connaissances" },
   recog: { de: "Anerkennung", en: "Recognition", fr: "Reconnaissance" },
   visa: { de: "Visum", en: "Visa", fr: "Visa" },
   trip: { de: "Anreise", en: "Journey", fr: "Voyage" },
@@ -153,6 +175,8 @@ export const WAY_NAME: Record<WayKey, L3> = {
 export const WAY_WIN: Record<WayKey, L3> = {
   lang: { de: "B2 bestanden", en: "B2 passed", fr: "B2 réussi" },
   papers: { de: "Unterlagen komplett", en: "Documents complete", fr: "Documents complets" },
+  contract: { de: "Vertrag unterschrieben", en: "Contract signed", fr: "Contrat signé" },
+  kp: { de: "Berufsurkunde da", en: "Licence received", fr: "Diplôme reconnu" },
   recog: { de: "Anerkennung geschafft", en: "Recognition done", fr: "Reconnaissance obtenue" },
   visa: { de: "Visum da", en: "Visa granted", fr: "Visa obtenu" },
   trip: { de: "Gelandet", en: "Landed", fr: "Arrivée" },
@@ -186,6 +210,8 @@ export const ETA_NAME: Record<Eta["kind"], L3> = {
   flight: { de: "Flug", en: "Flight", fr: "Vol" },
   start: { de: "Erster Tag", en: "First day", fr: "Premier jour" },
   probation: { de: "Probezeit geschafft", en: "Probation done", fr: "Fin de l’essai" },
+  exam: { de: "B2-Prüfung", en: "B2 exam", fr: "Examen B2" },
+  kp: { de: "Kenntnisprüfung", en: "Knowledge test", fr: "Examen de connaissances" },
 };
 /** the settle items have no short name: their phase ("Monat 1") is the name */
 export function stepName(id: string, lang: "de" | "en" | "fr"): string {

@@ -7,7 +7,8 @@ import {
   buildWay, until, shortDate, stepName, WAY_ABROAD, WAY_GERMANY, WAY_NAME, WAY_WIN, ETA_NAME,
   type Way, type WayInput, type WayKey, type Tick, type Eta,
 } from "@/lib/facility/way";
-import { B2_STAGES, b2StageLabel, type B2Stage } from "@/lib/b2Journey";
+import type { LangInfo, Marks } from "@/lib/facility/track";
+import { LangCard, ContractCard, KpCard, KeyPapers } from "./WayMore";
 
 /**
  * The nurse's whole way, as the approved premium mock (founder 2026-11-11: "less is more, visuals,
@@ -18,7 +19,7 @@ import { B2_STAGES, b2StageLabel, type B2Stage } from "@/lib/b2Journey";
  * Numbers: lib/facility/way.ts from /api/portal/weg. Status colours stay LAW #4 (green / orange / red).
  */
 type L = "de" | "en" | "fr";
-type Data = { input: Omit<WayInput, "today">; today: string; photo: string | null };
+type Data = { input: Omit<WayInput, "today">; today: string; photo: string | null; admin?: boolean };
 
 const TABLE: Partial<Record<WayKey, string>> = { visa: "visa", trip: "move", arrive: "arrival", stay: "settle" };
 const ANCHOR: Partial<Record<WayKey, string>> = { visa: "weg-visum", trip: "weg-anreise", arrive: "weg-wochen", stay: "weg-monate" };
@@ -27,9 +28,9 @@ const STORE: Partial<Record<WayKey, keyof WayInput["steps"]>> = { visa: "visa", 
 const ETA_STEP: Partial<Record<Eta["kind"], string>> = { visa: "got", flight: "pickup", start: "day1" };
 
 const W = {
-  de: { hi: "Hallo", abroad: "Auf dem Weg", germany: "In Deutschland", of: "{a} von {b}", next: "Weiter", plan: "Plan & Termine", flat: "Wohnung", flatSub: "vor dem Visum", papers: "Unterlagen", wait: "{n} warten", open: "Öffnen", lang: "Deutsch", failed: "1× nicht bestanden", germanyIn: "Deutschland", nurse: "Pflegekraft", facility: "Einrichtung", both: "Beide", done: "erledigt", visaPapers: "Visa-Unterlagen", est: "geschätzt" },
-  en: { hi: "Hello", abroad: "On the way", germany: "In Germany", of: "{a} of {b}", next: "Continue", plan: "Plan & dates", flat: "Flat", flatSub: "before the visa", papers: "Documents", wait: "{n} waiting", open: "Open", lang: "German", failed: "failed once", germanyIn: "Germany", nurse: "Nurse", facility: "Facility", both: "Both", done: "done", visaPapers: "Visa documents", est: "estimated" },
-  fr: { hi: "Bonjour", abroad: "En route", germany: "En Allemagne", of: "{a} sur {b}", next: "Continuer", plan: "Plan & dates", flat: "Logement", flatSub: "avant le visa", papers: "Documents", wait: "{n} en attente", open: "Ouvrir", lang: "Allemand", failed: "échoué une fois", germanyIn: "Allemagne", nurse: "Infirmière", facility: "Établissement", both: "Les deux", done: "fait", visaPapers: "Documents visa", est: "estimé" },
+  de: { hi: "Hallo", abroad: "Auf dem Weg", germany: "In Deutschland", of: "{a} von {b}", next: "Weiter", plan: "Plan & Termine", flat: "Wohnung", flatSub: "vor dem Visum", papers: "Unterlagen", wait: "{n} warten", open: "Öffnen", lang: "Deutsch", failed: "1× nicht bestanden", germanyIn: "Deutschland", doneAll: "geschafft", nurse: "Pflegekraft", facility: "Einrichtung", both: "Beide", done: "erledigt", visaPapers: "Visa-Unterlagen", est: "geschätzt" },
+  en: { hi: "Hello", abroad: "On the way", germany: "In Germany", of: "{a} of {b}", next: "Continue", plan: "Plan & dates", flat: "Flat", flatSub: "before the visa", papers: "Documents", wait: "{n} waiting", open: "Open", lang: "German", failed: "failed once", germanyIn: "Germany", doneAll: "done", nurse: "Nurse", facility: "Facility", both: "Both", done: "done", visaPapers: "Visa documents", est: "estimated" },
+  fr: { hi: "Bonjour", abroad: "En route", germany: "En Allemagne", of: "{a} sur {b}", next: "Continuer", plan: "Plan & dates", flat: "Logement", flatSub: "avant le visa", papers: "Documents", wait: "{n} en attente", open: "Ouvrir", lang: "Allemand", failed: "échoué une fois", germanyIn: "Allemagne", doneAll: "réussi", nurse: "Infirmière", facility: "Établissement", both: "Les deux", done: "fait", visaPapers: "Documents visa", est: "estimé" },
 };
 
 /* ── icons: one line style, 24 grid ─────────────────────────────────────────── */
@@ -46,6 +47,12 @@ const PATH: Record<string, string> = {
   bld: "M3 21h18M5 21V9l7-5 7 5v12M9.5 21v-5.5h5V21",
   arr: "M5 12h14M13 6l6 6-6 6",
   cal: "M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM16 2v4M8 2v4M3 10h18",
+  contract: "M3 17c3-1 4-6 6-6s1 5 3 5 2-3 4-3 2 2 5 2M3 21h18",
+  kp: "M22 10 12 5 2 10l10 5 10-5zM6 12v5c3 2 9 2 12 0v-5",
+  book: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5",
+  ear: "M6 8.5a6 6 0 1 1 12 0c0 6-6 6-6 10a3 3 0 0 1-6 0M9 9a3 3 0 0 1 6 0",
+  pen: "M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z",
+  talk: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 9h8M8 13h5",
 };
 export function WayIcon({ k, size = 20, stroke = 1.5 }: { k: string; size?: number; stroke?: number }) {
   return (
@@ -69,7 +76,7 @@ const CSS = `
 .bw-st.n{width:var(--bw-now);height:var(--bw-now);border:2px solid var(--gold);color:var(--gold);box-shadow:0 0 0 6px var(--gdim)}
 .bw-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px 22px}
 .bw-tile{display:grid;place-items:center;border-radius:12px;background:var(--bg2,var(--bg));color:var(--gold)}
-.bw-row{display:grid;grid-template-columns:28px 1fr 28px minmax(56px,auto);gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border);font-size:15px;width:100%;background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;font-family:inherit}
+.bw-row{display:grid;grid-template-columns:28px minmax(0,1fr) 28px minmax(56px,auto);gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border);font-size:15px;width:100%;background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;font-family:inherit}
 .bw-row:first-of-type{border-top:0}
 .bw-row:disabled{cursor:default}
 .bw-box{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);display:grid;place-items:center;color:var(--bg)}
@@ -86,8 +93,10 @@ const CSS = `
 .bw-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:50px;border:0;border-radius:12px;background:var(--w);color:var(--bg);font-size:15px;font-weight:600;cursor:pointer;font-family:inherit}
 .bw-link{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--w3);text-decoration:none;background:none;border:0;cursor:pointer;font-family:inherit;padding:0}
 .bw-link:hover{color:var(--w)}
-.bw-cols{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:26px}
-@media (max-width:760px){.bw-cols{grid-template-columns:1fr}}
+.bw-cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;margin-top:26px}
+.bw-cols>*{min-width:0}
+.bw{max-width:100%;min-width:0}
+@media (max-width:760px){.bw-cols{grid-template-columns:minmax(0,1fr)}.bw-card{padding:18px 16px}}
 @media (prefers-reduced-motion:no-preference){.bw-st.n{animation:bwPulse 2.4s ease-in-out infinite}}
 @keyframes bwPulse{50%{box-shadow:0 0 0 9px var(--gdim)}}
 `;
@@ -122,9 +131,18 @@ export function useWay(userId?: string) {
     if (tok) await fetch(`/api/portal/${table}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` }, body: JSON.stringify({ ...(userId ? { userId } : {}), step: id, done }) }).catch(() => null);
     void load();
   }, [userId, load]);
-  return { d, way, toggle };
+  // her German / her milestones: shown at once, saved, the truth reloaded after
+  const put = useCallback(async (kind: "lang" | "marks", patch: Partial<LangInfo> | Partial<Marks>) => {
+    setD((cur) => (cur ? { ...cur, input: { ...cur.input, [kind]: { ...(cur.input[kind] ?? {}), ...patch } } } : cur));
+    const { data } = await supabase.auth.getSession();
+    const tok = data.session?.access_token;
+    if (tok) await fetch(`/api/portal/${kind}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` }, body: JSON.stringify({ ...(userId ? { userId } : {}), ...patch }) }).catch(() => null);
+    void load();
+  }, [userId, load]);
+  return { d, way, toggle, put };
 }
 
+const ETA_ICON: Record<Eta["kind"], string> = { visa: "visa", flight: "trip", start: "trip", probation: "stay", exam: "lang", kp: "kp" };
 const useL = (): L => { const { lang } = useLang(); return (["de", "en", "fr"].includes(lang) ? lang : "de") as L; };
 const fmt = (s: string, a: number, b: number) => s.replace("{a}", String(a)).replace("{b}", String(b));
 const initials = (n: string) => n.trim().split(/\s+/).slice(0, 2).map((x) => x[0]?.toUpperCase() ?? "").join("");
@@ -157,6 +175,21 @@ export function WayLine({ way, compact = false }: { way: Way; compact?: boolean 
       </div>
     );
   };
+  // after landing: the way there folds to one "geschafft"; Deutsch moves along if B2 is still open (B1 path)
+  if (way.landed) {
+    const langOpen = way.stations.some((s) => s.key === "lang" && !s.done);
+    const ger: WayKey[] = [...(langOpen ? (["lang"] as WayKey[]) : []), ...WAY_GERMANY];
+    return (
+      <div className="bw-road" style={{ ["--bw-d" as string]: compact ? "26px" : "clamp(30px,6vw,40px)", ["--bw-now" as string]: compact ? "34px" : "clamp(40px,8vw,52px)", gap: compact ? 10 : undefined } as React.CSSProperties}
+        role="img" aria-label={[t.abroad, ...ger.map((k) => WAY_NAME[k][l])].join(" → ")}>
+        <div className="bw-grp" style={{ flex: "none" }}>
+          {!compact && <small>{t.abroad}</small>}
+          <div className="bw-line"><span className="bw-st f" title={`${t.abroad} · ${t.doneAll}`}><WayIcon k="chk" size={compact ? 12 : 17} stroke={2.4} /></span></div>
+        </div>
+        {grp(t.germany, ger)}
+      </div>
+    );
+  }
   return (
     <div className="bw-road" style={{ ["--bw-d" as string]: compact ? "26px" : "clamp(30px,6vw,40px)", ["--bw-now" as string]: compact ? "34px" : "clamp(40px,8vw,52px)", gap: compact ? 10 : undefined } as React.CSSProperties}
       role="img" aria-label={keys.map((k) => WAY_NAME[k][l]).join(" → ")}>
@@ -181,7 +214,7 @@ function Count({ eta, today, big = 19 }: { eta: Eta; today: string; big?: number
 export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void }) {
   const l = useL();
   const t = W[l];
-  const { d, way } = useWay();
+  const { d, way, put } = useWay();
   const first = (name || "").trim().split(/\s+/)[0] ?? "";
   const go = () => {
     if (!way) return;
@@ -189,7 +222,10 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
     if (a) location.href = `/portal/ankunft#${a}`; else onDocs?.();
   };
   const cur = way?.stations.find((s) => s.key === way.now);
-  const land = way && way.eta && way.eta.kind !== way.nowEta?.kind && (way.eta.kind === "flight" || way.eta.kind === "start") ? way.eta : null;
+  const langSt = way?.stations.find((s) => s.key === "lang");
+  const langCard = !!(langSt && !langSt.done && d?.input.lang);
+  // the soonest other date (the language card shows its own exam date)
+  const land = way ? way.upcoming.find((e) => e.kind !== way.nowEta?.kind && !(langCard && e.kind === "exam")) ?? null : null;
   return (
     <section className="bw" aria-label={t.hi} style={{ maxWidth: 460, margin: "0 auto 34px", textAlign: "center" }}>
       <style>{CSS}</style>
@@ -219,8 +255,14 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
           <div style={{ marginTop: 26, display: "flex", justifyContent: "center" }}><div style={{ width: "100%", maxWidth: 360 }}><WayLine way={way} compact /></div></div>
           {land && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 20, fontSize: 13, color: "var(--w3)" }}>
-              <span style={{ color: "var(--gold)" }}><WayIcon k="trip" size={18} /></span>{ETA_NAME[land.kind][l]}
+              <span style={{ color: "var(--gold)" }}><WayIcon k={ETA_ICON[land.kind]} size={18} /></span>{ETA_NAME[land.kind][l]}
               <b className="serif" style={{ fontWeight: 400, fontSize: 20, color: "var(--w)" }}>{until(d!.today, land.date, l).word}</b>
+            </div>
+          )}
+          {/* her German, until B2 is done: she can set her exam date, provider and school */}
+          {langCard && d?.input.lang && (
+            <div style={{ marginTop: 26, textAlign: "left" }}>
+              <LangCard lang={d.input.lang} b2={d.input.b2} full={false} canEdit today={d.today} onSave={(p) => put("lang", p)} />
             </div>
           )}
         </>
@@ -273,7 +315,7 @@ function Ticks({ ticks, onTick, photo, name, firstEta, today }: { ticks: Tick[];
 export function WayBoard({ userId, name, onDocs }: { userId: string; name: string; onDocs?: () => void }) {
   const l = useL();
   const t = W[l];
-  const { d, way, toggle } = useWay(userId);
+  const { d, way, toggle, put } = useWay(userId);
   const [flatOpen, setFlatOpen] = useState(false);
   if (!d || !way) return null;
   const cur = way.stations.find((s) => s.key === way.now)!;
@@ -282,9 +324,11 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
   const plan = `/portal/admin/ankunft/${userId}?name=${encodeURIComponent(name)}`;
   const home = way.home;
   const homeDone = home.filter((h) => h.done).length;
-  const showFlat = ["papers", "recog", "visa", "trip"].includes(way.now) || homeDone < home.length;
+  const showFlat = !way.landed;
+  const marks = d.input.marks ?? null;
+  const canEdit = !!d.admin;
+  const head = way.eta ?? way.upcoming[0] ?? null;
   const docP = docs ? (way.now === "recog" ? docs.bearbeitung : way.now === "visa" && docs.visum[1] > 0 ? docs.visum : docs.papers) : null;
-  const b2pos = b2 ? (B2_STAGES.find((s) => s.key === b2.stage)?.position ?? 0) : 0;
 
   return (
     <section className="bw" aria-label={name}>
@@ -292,12 +336,12 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
       {/* the outcome first: when she starts */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         {way.win ? <span className="bw-pill"><b><WayIcon k="chk" size={11} stroke={2.6} /></b>{WAY_WIN[way.win][l]}</span> : <span />}
-        {way.eta && (
+        {head && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span className="bw-tile" style={{ width: 44, height: 44 }}><WayIcon k={way.eta.kind === "visa" ? "visa" : way.eta.kind === "probation" ? "stay" : "trip"} size={20} /></span>
+            <span className="bw-tile" style={{ width: 44, height: 44 }}><WayIcon k={ETA_ICON[head.kind]} size={20} /></span>
             <div style={{ textAlign: "left" }}>
-              <small style={{ display: "block", fontSize: 12, color: "var(--w3)" }}>{ETA_NAME[way.eta.kind][l]}{way.eta.est ? ` · ${t.est}` : ""}</small>
-              <b className="serif" style={{ display: "block", fontWeight: 400, fontSize: 28, lineHeight: 1.05 }}>{until(d.today, way.eta.date, l).word}</b>
+              <small style={{ display: "block", fontSize: 12, color: "var(--w3)" }}>{ETA_NAME[head.kind][l]}{head.est ? ` · ${t.est}` : ""}</small>
+              <b className="serif" style={{ display: "block", fontWeight: 400, fontSize: 28, lineHeight: 1.05 }}>{until(d.today, head.date, l).word}</b>
             </div>
           </div>
         )}
@@ -339,7 +383,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
           <div style={{ marginTop: 14, textAlign: "right" }}><a className="bw-link" href={plan}><WayIcon k="cal" size={15} />{t.plan}<WayIcon k="arr" size={14} /></a></div>
         </div>
 
-        <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignContent: "start" }}>
           {/* the flat, beside the visa */}
           {showFlat && (
             <div className="bw-card">
@@ -355,8 +399,11 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
             </div>
           )}
 
-          {/* papers as tiles; the count that waits for you in orange */}
-          {docs && (
+          {/* before landing: the contract */}
+          {!way.landed && marks && <ContractCard marks={marks} canEdit={canEdit} onSave={(p) => put("marks", p)} />}
+
+          {/* papers as tiles; the count that waits for you in orange. After landing: the three that matter */}
+          {way.landed ? <KeyPapers onDocs={onDocs} /> : docs && (
             <button type="button" className="bw-card" onClick={onDocs} style={{ textAlign: "left", cursor: "pointer", color: "inherit", fontFamily: "inherit" }}>
               <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
                 <span className="serif" style={{ fontSize: 22 }}>{t.papers}</span>
@@ -371,26 +418,13 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
             </button>
           )}
 
-          {/* Deutsch: the way to B2 */}
-          {b2 && (
-            <div className="bw-card">
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <span className="bw-tile" style={{ width: 46, height: 46 }}><WayIcon k="lang" size={20} /></span>
-                <span style={{ flex: 1 }}><span className="serif" style={{ display: "block", fontSize: 22 }}>{t.lang} B2</span><span style={{ fontSize: 12.5, color: "var(--w3)" }}>{b2StageLabel(b2.stage as B2Stage, l)}</span></span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", marginTop: 14 }} aria-hidden="true">
-                {B2_STAGES.map((s, i) => (
-                  <span key={s.key} style={{ display: "contents" }}>
-                    {i > 0 && <span style={{ flex: 1, height: 2, background: i <= b2pos ? "var(--w)" : "var(--border)" }} />}
-                    <span style={{ width: i === b2pos ? 14 : 10, height: i === b2pos ? 14 : 10, borderRadius: "50%", flex: "none",
-                      background: i < b2pos || b2.stage === "passed" ? (b2.stage === "passed" ? "var(--bw-ok)" : "var(--w)") : "var(--card)",
-                      border: `2px solid ${b2.stage === "passed" ? "var(--bw-ok)" : i < b2pos ? "var(--w)" : i === b2pos ? "var(--gold)" : "var(--border)"}` }} />
-                  </span>
-                ))}
-              </div>
-              {b2.failed && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: "var(--danger, #dc2626)" }}><i style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor" }} />{t.failed}</span>}
-            </div>
+          {/* Deutsch: ladder, the four modules, the exam */}
+          {d.input.lang && (b2 || d.input.lang.level || d.input.lang.exam_date || !way.landed) && (
+            <LangCard lang={d.input.lang} b2={b2} full={canEdit} canEdit={canEdit} today={d.today} onSave={(p) => put("lang", p)} />
           )}
+
+          {/* after landing (or once a date is set): Kenntnisprüfung → Berufsurkunde */}
+          {marks && (way.landed || marks.kp_date) && <KpCard marks={marks} canEdit={canEdit} today={d.today} onSave={(p) => put("marks", p)} />}
         </div>
       </div>
     </section>
