@@ -1502,3 +1502,18 @@ th { font-size: 0.66rem; font-weight: 500; letter-spacing: 0.14em; text-transfor
    monospace hints ("PDF / IMG / DOCX", IDs). The public site gets its mono back
    through the site-zone style (lib/siteZone.ts). */
 .font-mono { font-family: var(--font-sans); }
+
+/* ── The portal = borivon.com (founder 2026-11-11: "the same design as the main page: colours, edges,
+   minimalism"). Light theme only; dark stays as it was for those who switch. Flat paper cards with a
+   hairline (no glass blur, no drop shadow), ink buttons with paper text (gold stays the accent), no
+   ambient glow. LAW #36 popups keep their own shadow/radius (they carry --shadow-lg and are excluded);
+   LAW #4 status colours (orange/green/red) are untouched. ── */
+:root.light { --card: #fbfaf6; --card2: #f7f4ee; }
+:root.light :is([style*="background: var(--card)"], .bv-card, .bv-surface) { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+:root.light :is([style*="background: var(--card)"][style*="border-radius: 20px"], [style*="background: var(--card)"][style*="border-radius: 22px"], [style*="background: var(--card)"][style*="border-radius: 24px"], [style*="background: var(--card)"].rounded-2xl, [style*="background: var(--card)"].rounded-3xl, .bv-card):not([style*="--shadow-lg"]) { box-shadow: none !important; }
+:root.light :is([style*="background: var(--card)"].rounded-2xl, [style*="background: var(--card)"].rounded-3xl, .bv-card):not([style*="--shadow-lg"]) { border-radius: 10px !important; }
+:root.light .bv-ambient-glow, :root.light .bv-watermark { display: none !important; }
+:root.light .bv-btn-primary, :root.light .bv-btn-primary-lg,
+:root.light button[style*="background: var(--gold)"], :root.light a[style*="background: var(--gold)"] { background: var(--w) !important; border-color: var(--w) !important; color: var(--bg) !important; }
+:root.light .bv-btn-primary:hover:not(:disabled), :root.light .bv-btn-primary-lg:hover:not(:disabled),
+:root.light button[style*="background: var(--gold)"]:hover:not(:disabled), :root.light a[style*="background: var(--gold)"]:hover { background: #2c271f !important; border-color: #2c271f !important; }
