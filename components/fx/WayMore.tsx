@@ -31,7 +31,7 @@ const NEXT_STATE: Record<ModState, ModState> = { "": "pending", pending: "passed
 const COL: Record<ModState, string> = { passed: "#16a34a", failed: "#dc2626", pending: "#f59e0b", "": "var(--border)" };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const tileS: React.CSSProperties = { width: 46, height: 46, borderRadius: 12, display: "grid", placeItems: "center", background: "var(--bg2, var(--bg))", color: "var(--gold)", flex: "none" };
+const tileS: React.CSSProperties = { width: 46, height: 46, borderRadius: 12, display: "grid", placeItems: "center", background: "color-mix(in srgb, var(--gold) 9%, var(--card))", color: "var(--gold)", flex: "none" };
 const dateS: React.CSSProperties = { height: 34, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--card)", color: "var(--w)", fontFamily: "inherit", fontSize: 13 };
 const chipS = (on: boolean): React.CSSProperties => ({ height: 32, padding: "0 12px", borderRadius: 999, border: `1px solid ${on ? "var(--w)" : "var(--border)"}`, background: on ? "var(--w)" : "var(--card)", color: on ? "var(--bg)" : "var(--w2)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" });
 const linkS: React.CSSProperties = { background: "none", border: 0, padding: 0, color: "var(--w3)", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" };
