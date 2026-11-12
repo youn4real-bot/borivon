@@ -102,6 +102,8 @@ const FILE_KEY_MAP: Record<string, { name: string; suffix: string }> = {
   // ── Essentials (no suffix) ────────────────────────────────────────────────
   id:                    { name: "reisepass",          suffix: ""         },
   langcert:              { name: "b2_sprachzertifikat",suffix: ""         },
+  lang_invite:           { name: "sprachpruefung_einladung", suffix: ""   },
+  lang_result:           { name: "sprachpruefung_ergebnis",  suffix: ""   },
   letter:                { name: "motivationsschreiben", suffix: ""       },
   // Motivation letter for the Visum/Botschaft file (its own content).
   letter_visa:           { name: "motivationsschreiben", suffix: "visum"  },

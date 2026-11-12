@@ -3,6 +3,10 @@ import { translations } from "./translations";
 const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
   id:                   "pTypeID",
   langcert:             "pTypeLangCert",
+  // beside the certificate (founder 2026-11-11): the exam invitation and a (partial) result, e.g. "Lesen
+  // bestanden". Optional, never required, never counted as the certificate (b2Journey reads langcert only).
+  lang_invite:          "pTypeLangInvite",
+  lang_result:          "pTypeLangResult",
   diploma:              "pTypeDiploma",
   studyprog:            "pTypeStudyProg",
   transcript:           "pTypeTranscript",

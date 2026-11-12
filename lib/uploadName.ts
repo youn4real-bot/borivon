@@ -7,6 +7,8 @@
 const FILE_KEY_MAP: Record<string, { name: string; suffix: string }> = {
   id:                    { name: "reisepass",           suffix: "" },
   langcert:              { name: "b2_sprachzertifikat",  suffix: "" },
+  lang_invite:           { name: "sprachpruefung_einladung", suffix: "" },
+  lang_result:           { name: "sprachpruefung_ergebnis",  suffix: "" },
   letter:                { name: "motivationsschreiben", suffix: "" },
   cv_de:                 { name: "lebenslauf",           suffix: "" },
   diploma:               { name: "diplom",                    suffix: "original" },

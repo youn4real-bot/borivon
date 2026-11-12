@@ -426,7 +426,12 @@ export default function DashboardPage() {
     { key: "work_experience_de",   label: t.pTypeWorkExpDE,          hint: t.pHintWorkExpDE, optional: true as const },
     { key: "impfung_de",           label: t.pTypeImpfungDE,          hint: t.pHintImpfungDE },
   ];
-  const _ALL_ITEMS_RAW = [...PHASES.flatMap(p => p.items), ...TRANS_ITEMS_EXTRA];
+  // the Deutsch tile's two extra boxes (exam invitation, exam result): uploadable, never shown as their own row
+  const LANG_EXTRA_ITEMS: PhItem[] = [
+    { key: "lang_invite", label: t.pTypeLangInvite, hint: "", optional: true },
+    { key: "lang_result", label: t.pTypeLangResult, hint: "", optional: true },
+  ];
+  const _ALL_ITEMS_RAW = [...PHASES.flatMap(p => p.items), ...TRANS_ITEMS_EXTRA, ...LANG_EXTRA_ITEMS];
   // Dedupe by key: a doc box can appear in more than one phase (e.g. the B2
   // certificate is CLONED into the Visum category — same fileKey "langcert" →
   // same document), but the upload handler / progress counter / slot-message
@@ -3596,7 +3601,19 @@ export default function DashboardPage() {
                 const special = SPECIAL.has(item.key) || !!item.candidate_signs || !!item.candidate_fills;
                 const act = special ? toLegacy(pi) : d ? () => handlePreview(d) : () => openPicker(item.key);
                 const label = item.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : item.label;
-                if (!item.transKey) return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act, special: item.key === "langcert" }];
+                if (item.key === "langcert") {
+                  // the special Deutsch tile: certificate, exam invitation, (partial) result — each its own upload
+                  const sub = (k: string, lbl: string): Sub => {
+                    const dx = getDoc(k);
+                    return { label: lbl, st: stOf(dx), act: dx ? () => handlePreview(dx) : () => openPicker(k) };
+                  };
+                  return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act, special: true, sub: [
+                    { label: L3("Zertifikat", "Certificat", "Certificate"), st: stOf(d), act },
+                    sub("lang_invite", L3("Einladung", "Convocation", "Invitation")),
+                    sub("lang_result", L3("Ergebnis", "Résultat", "Result")),
+                  ] }];
+                }
+                if (!item.transKey) return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act }];
                 const tk = item.transKey;
                 const td = getDoc(tk);
                 return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act, sub: [
@@ -3614,7 +3631,7 @@ export default function DashboardPage() {
               const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
               const worst = (a: TileSt[]): TileSt => a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved";
               const tileOf = (x: Tile) => {
-                const st = x.sub ? worst(x.sub.map((y) => y.st)) : x.st;
+                const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
                 return (
                   <div key={x.id} className="relative text-center"
                     style={{ padding: "12px 10px 10px", borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)",

@@ -5698,7 +5698,20 @@ export default function AdminPage() {
                 const canUpload = it.key !== "letter" && it.key !== "cv_de" && it.key !== "other";
                 const act = it.key === "other" ? toLegacy : open(doc, canUpload ? () => triggerAdminDocUpload(it.key, it.label) : toLegacy);
                 const label = it.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : it.label;
-                if (!it.transKey) return [{ id: it.key, label, st: stOf(ds), act, special: it.key === "langcert" }];
+                if (it.key === "langcert") {
+                  // the special Deutsch tile: certificate, exam invitation, (partial) result — each its own upload
+                  const sub = (k: string, lbl: string): Sub => {
+                    const xs = getAdminDocs(k);
+                    const dx = latest(xs);
+                    return { label: lbl, st: stOf(xs), act: open(dx, () => triggerAdminDocUpload(k, canonicalDocLabel(k, lang as "de" | "en" | "fr") || lbl)) };
+                  };
+                  return [{ id: it.key, label, st: stOf(ds), act, special: true, sub: [
+                    { label: L3("Zertifikat", "Certificat", "Certificate"), st: stOf(ds), act },
+                    sub("lang_invite", L3("Einladung", "Convocation", "Invitation")),
+                    sub("lang_result", L3("Ergebnis", "Résultat", "Result")),
+                  ] }];
+                }
+                if (!it.transKey) return [{ id: it.key, label, st: stOf(ds), act }];
                 const tds = getAdminDocs(it.transKey);
                 const td = latest(tds);
                 return [{ id: it.key, label, st: stOf(ds), act, sub: [
@@ -5740,7 +5753,7 @@ export default function AdminPage() {
               const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
               const worst = (a: TileSt[]): TileSt => a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved";
               const tileOf = (x: Tile) => {
-                const st = x.sub ? worst(x.sub.map((y) => y.st)) : x.st;
+                const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
                 return (
                   <div key={x.id} className="relative text-center"
                     style={{ padding: "12px 10px 10px", borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)",
