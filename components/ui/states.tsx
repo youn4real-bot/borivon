@@ -13,6 +13,7 @@
  * Tone tokens follow the global palette (`var(--gold)`, `var(--success)`, `var(--danger)`).
  */
 
+import { BvLoader } from "@/components/ui/BvLoader";
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Check, CloudOff } from "lucide-react";
@@ -42,8 +43,9 @@ export function PageLoader({ message }: { message?: string }) {
   const { t } = useLang();
   return (
     <main className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg)" }}>
-      <div className="text-center" role="status" aria-live="polite" aria-label={message ?? t.aLoading}>
-        <Spinner size="lg" />
+      <div className="text-center">
+        {/* the premium loader, same as the server shell (founder 2026-11-12: no spinning circle) */}
+        <BvLoader label={message ?? t.aLoading} />
         {message && <p className="mt-4 text-[12.5px]" style={{ color: "var(--w3)" }}>{message}</p>}
       </div>
     </main>
