@@ -1931,16 +1931,57 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
   );
 }
 
+/** the section the builder shows right now (null = the old long page); hidden ones stay mounted (state, errors) */
+const CvStepCtx = React.createContext<string | null>(null);
+const CV_STEPS: { id: string; kind: SectionKind; de: string; fr: string; en: string }[] = [
+  { id: "photo-section",     kind: "photo",     de: "Foto",       fr: "Photo",       en: "Photo" },
+  { id: "personal-section",  kind: "personal",  de: "Person",     fr: "Identité",    en: "Personal" },
+  { id: "education-section", kind: "education", de: "Ausbildung", fr: "Formation",   en: "Education" },
+  { id: "work-section",      kind: "work",      de: "Beruf",      fr: "Expérience",  en: "Work" },
+  { id: "lang-section",      kind: "languages", de: "Sprachen",   fr: "Langues",     en: "Languages" },
+  { id: "skills-section",    kind: "skills",    de: "EDV",        fr: "Informatique", en: "IT" },
+  { id: "other-section",     kind: "other",     de: "Sonstiges",  fr: "Autres",      en: "Other" },
+];
+
+/** the seven steps as one quiet line of icons; tap = go there; red dot = something to fix there */
+function CvStepper({ step, onStep, errorSections, lang }: { step: string; onStep: (id: string) => void; errorSections: Set<string>; lang: string }) {
+  const idx = CV_STEPS.findIndex((x) => x.id === step);
+  return (
+    <div className="flex items-start justify-between mb-5" role="tablist" style={{ gap: 4 }}>
+      {CV_STEPS.map((x, i) => {
+        const on = i === idx;
+        const before = i < idx;
+        return (
+          <button key={x.id} type="button" role="tab" aria-selected={on} onClick={() => onStep(x.id)}
+            className="flex flex-col items-center" style={{ flex: 1, minWidth: 0, gap: 6, background: "none", border: 0, padding: 0, cursor: "pointer" }}>
+            <span className="relative grid place-items-center" style={{ width: on ? 40 : 32, height: on ? 40 : 32, borderRadius: "50%",
+              background: on ? "var(--w)" : "var(--card)", color: on ? "var(--bg)" : before ? "var(--w)" : "var(--w3)",
+              border: `1.5px solid ${on || before ? "var(--w)" : "var(--border)"}`, transition: "all .18s ease" }}>
+              <SectionIcon kind={x.kind} size={on ? 16 : 13} />
+              {errorSections.has(x.id) && <i className="absolute" style={{ right: -2, top: -2, width: 9, height: 9, borderRadius: "50%", background: "var(--danger)", border: "2px solid var(--bg)" }} />}
+            </span>
+            <span className={on ? "" : "hidden sm:block"} style={{ fontSize: 11, color: on ? "var(--w)" : "var(--w3)", fontWeight: on ? 600 : 400, whiteSpace: "nowrap" }}>
+              {lang === "fr" ? x.fr : lang === "en" ? x.en : x.de}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SectionCard({ id, title, kind, children, action, forceOpen = false }: {
   id?: string; title: string; kind: SectionKind; children: React.ReactNode; action?: React.ReactNode; forceOpen?: boolean;
 }) {
   // Collapsible — open by default. User can collapse sections they're done with
   // to focus on what's left. Especially useful on mobile where the form is long.
   const [open, setOpen] = useState(true);
-  const isOpen = forceOpen || open;
+  const active = React.useContext(CvStepCtx);
+  const stepMode = active !== null;
+  const isOpen = stepMode || forceOpen || open;
   return (
-    <div id={id} className="mb-4 transition-all overflow-hidden"
-      style={{ background: "var(--card)", border: "none", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+    <div id={id} data-cv-section={id} className="mb-4 transition-all overflow-hidden"
+      style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "none", display: stepMode && active !== id ? "none" : undefined }}>
       <div className={`flex items-center justify-between gap-3 px-6 ${isOpen ? "pt-6 mb-6" : "py-5"}`}>
         <button
           onClick={() => setOpen(o => !o)}
@@ -1951,9 +1992,9 @@ function SectionCard({ id, title, kind, children, action, forceOpen = false }: {
             style={{ background: "var(--gdim)", color: "var(--gold)", border: "none", borderRadius: "12px" }}>
             <SectionIcon kind={kind} size={15} />
           </span>
-          <h2 className="text-[15px] font-semibold tracking-[-0.01em] flex-1 min-w-0" style={{ color: "var(--w)" }}>{title}</h2>
+          <h2 className="flex-1 min-w-0" style={{ color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, letterSpacing: "-.01em" }}>{title}</h2>
           <span className="flex items-center justify-center w-7 h-7 flex-shrink-0 transition-transform"
-            style={{ color: "var(--w3)", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+            style={{ color: "var(--w3)", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", display: stepMode ? "none" : undefined }}
             aria-hidden="true">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9"/>
@@ -3258,7 +3299,7 @@ function CVBuilderInner() {
     const e: WorkEntry = { id: uid(), isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], taetigkeiten: [], start: g.gapStart, end: g.gapEnd, gapReason: "" };
     setCvData(d => ({ ...d, workEntries: [...d.workEntries, e] }));
     setShowGapPanel(false);
-    setTimeout(() => document.getElementById("work-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    setCvStep("work-section"); setTimeout(() => document.getElementById("work-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   }
   function removeWork(id: string) { setCvData(d => ({ ...d, workEntries: d.workEntries.filter(e => e.id !== id) })); }
   function toggleWorkDept(entryId: string, de: string) {
@@ -3292,11 +3333,24 @@ function CVBuilderInner() {
   function removeEdvCustom(i: number) { setCvData(d => ({ ...d, edvCustomInputs: d.edvCustomInputs.filter((_, idx) => idx !== i) })); }
 
   // ── Scroll to the first section that has validation errors ───────────────
+  // which builder step shows (one section at a time; founder 2026-11-11: no scrolling)
+  const [cvStep, setCvStep] = useState<string>("photo-section");
+  const cvStepIdx = CV_STEPS.findIndex((x) => x.id === cvStep);
+  const goStep = (id: string) => { setCvStep(id); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
   function scrollToFirstError(errors: Set<string>) {
     // Primary: jump to the actual TOPMOST invalid field (red border) and
     // center it on screen — not just the section header. Every required
     // input tags itself with data-cv-error="1" when invalid, so we pick the
     // one nearest the top of the document.
+    // step mode: open the first step that holds an invalid field, then centre that field
+    for (const st of CV_STEPS) {
+      if (document.getElementById(st.id)?.querySelector('[data-cv-error="1"]')) {
+        setCvStep(st.id);
+        setTimeout(() => (document.getElementById(st.id)?.querySelector('[data-cv-error="1"]') as HTMLElement | null)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+        return;
+      }
+    }
     const marked = Array.from(
       document.querySelectorAll<HTMLElement>('[data-cv-error="1"]'),
     );
@@ -3324,6 +3378,7 @@ function CVBuilderInner() {
     for (const { keys, id } of checks) {
       const hit = [...errors].some(e => keys.some(k => e === k || e.startsWith(k)));
       if (!hit) continue;
+      setCvStep(id);
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
@@ -3507,7 +3562,7 @@ function CVBuilderInner() {
     if (detectedGaps.length > 0) {
       setSmartGaps(detectedGaps);
       setShowGapPanel(true);
-      setTimeout(() => document.getElementById("gap-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+      setCvStep("work-section"); setTimeout(() => document.getElementById("gap-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
       return;
     }
 
@@ -3874,13 +3929,8 @@ function CVBuilderInner() {
             />
           </div>
           <div className="text-center">
-            <h1 className="font-semibold tracking-[-0.02em] leading-tight" style={{ color: "var(--w)" }}>
-              <span className="block text-[18px] font-medium" style={{ color: "var(--w2)" }}>
-                {lang === "de" ? "Lebenslauf erstellen mit" : lang === "en" ? "Build my CV with" : "Créer mon CV avec"}
-              </span>
-              <span className="block font-[family-name:var(--font-dm-serif)] italic font-normal text-[44px] leading-[1.05] mt-1">
-                Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-              </span>
+            <h1 style={{ margin: 0, color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 40, lineHeight: 1.05, letterSpacing: "-.01em" }}>
+              {lang === "de" ? "Lebenslauf" : lang === "en" ? "CV" : "CV"}
             </h1>
           </div>
         </div>
@@ -3897,6 +3947,13 @@ function CVBuilderInner() {
           </button>
         </div>
 
+        {/* one section at a time (step mode) */}
+        <CvStepper step={cvStep} onStep={goStep} lang={lang}
+          errorSections={new Set(CV_STEPS.filter((x) => [...validationErrors].some((e) => {
+            const map: Record<string, string[]> = { "photo-section": ["photo"], "personal-section": ["firstName","lastName","birthDate","birthPlace","countryOfBirth","nationality","address","postalCode","city","countryOfResidence","phone","email","maritalStatus","kidsAnswer","kidsAges"], "education-section": ["edu_"], "work-section": ["work_"], "lang-section": ["lang_"], "skills-section": ["edvSelected"], "other-section": ["driverLicense","hobbies"] };
+            return (map[x.id] ?? []).some((k) => e === k || e.startsWith(k));
+          })).map((x) => x.id))} />
+        <CvStepCtx.Provider value={cvStep}>
         {/* ── 1. Photo ── */}
         <SectionCard id="photo-section" title={t.cvb_photoSection} kind="photo"
           forceOpen={validationErrors.has("photo")}>
@@ -5479,6 +5536,20 @@ function CVBuilderInner() {
             </div>
           </div>
         </SectionCard>
+        </CvStepCtx.Provider>
+        <div className="flex items-center justify-between mb-6" style={{ gap: 10 }}>
+          <button type="button" onClick={() => cvStepIdx > 0 && goStep(CV_STEPS[cvStepIdx - 1].id)} disabled={cvStepIdx <= 0}
+            style={{ height: 44, padding: "0 18px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: cvStepIdx <= 0 ? "var(--w3)" : "var(--w)", fontSize: 14, cursor: cvStepIdx <= 0 ? "default" : "pointer", opacity: cvStepIdx <= 0 ? 0.5 : 1 }}>
+            ← {lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
+          </button>
+          <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{cvStepIdx + 1} / {CV_STEPS.length}</span>
+          {cvStepIdx < CV_STEPS.length - 1 ? (
+            <button type="button" onClick={() => goStep(CV_STEPS[cvStepIdx + 1].id)}
+              style={{ height: 44, padding: "0 20px", borderRadius: 999, border: 0, background: "var(--w)", color: "var(--bg)", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+              {lang === "de" ? "Weiter" : lang === "fr" ? "Suivant" : "Next"} →
+            </button>
+          ) : <span style={{ width: 110 }} />}
+        </div>
 
         {/* ── Admin-only Auto-fill — drafts the German duty bullets so the admin
               doesn't type them by hand. Empty-only + fully editable. ── */}
@@ -5686,7 +5757,7 @@ function CVBuilderInner() {
           <button
             onClick={() => {
               setShowGapPanel(false);
-              setTimeout(() => document.getElementById("work-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+              setCvStep("work-section"); setTimeout(() => document.getElementById("work-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
             }}
             className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80"
             style={{ background: "var(--info-bg)", color: "var(--info)" }}>

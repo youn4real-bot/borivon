@@ -1580,13 +1580,8 @@ function MotivationsschreibenPageInner() {
               </div>
             </div>
             <div className="text-center">
-              <h1 className="font-semibold tracking-[-0.02em] leading-tight" style={{ color: "var(--w)" }}>
-                <span className="block text-[18px] font-medium" style={{ color: "var(--w2)" }}>
-                  {t.buildWith}
-                </span>
-                <span className="block font-[family-name:var(--font-dm-serif)] italic font-normal text-[44px] leading-[1.05] mt-1">
-                  Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-                </span>
+              <h1 style={{ margin: 0, color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 40, lineHeight: 1.05, letterSpacing: "-.01em" }}>
+                {lang === "de" ? "Motivationsschreiben" : lang === "fr" ? "Lettre de motivation" : "Cover letter"}
               </h1>
             </div>
           </div>
@@ -1680,7 +1675,7 @@ function MotivationsschreibenPageInner() {
               </div>
             ) : (
               <div className="p-7 text-center"
-                style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
+                style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "none" }}>
                 <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
                   style={{ background: "var(--success-bg)", color: "var(--success)" }}>
                   <CheckCircle2 size={22} strokeWidth={1.6} />
