@@ -113,6 +113,17 @@ const DDL = [
     created_by TEXT NOT NULL DEFAULT ''
   )`,
   `CREATE INDEX IF NOT EXISTS fx_extra_docs_user ON fx_extra_docs (user_id)`,
+  // her next job interview (founder 2026-11-12, "Gespräche" sample 3): when, the video link, the Einrichtung,
+  // and her own little prep ticks (app/api/portal/talk)
+  `CREATE TABLE IF NOT EXISTS fx_talk (
+    user_id TEXT PRIMARY KEY,
+    at TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
+    place TEXT NOT NULL DEFAULT '',
+    prep TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the papers filter (Alle · Anerkennung · Visum) that stays: key = "<nurse>:admin" (shared by her admins) or "<nurse>:self"
   `CREATE TABLE IF NOT EXISTS fx_docview (
     key TEXT PRIMARY KEY,
@@ -130,7 +141,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview", "fx_talk"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
