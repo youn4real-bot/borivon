@@ -102,7 +102,9 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   // Portal nav trimmed to Dashboard + Calendar for ALL users at the founder's
   // request — Community (feed) and Akademie are hidden everywhere. The routes
   // still exist; they're just no longer surfaced in the nav.
-  const portalTabs = useBottomBar && authTk && !isLoginPage ? [
+  // From the FIRST paint on portal pages (founder 2026-11-12: "it keeps glitching between old and new versions"):
+  // the route decides, not the async session — the bar never swaps logo → tabs. The login page stays bare (LAW #1).
+  const portalTabs = useBottomBar && (authTk || pathname.startsWith("/portal/")) && !isLoginPage ? [
     { label: PNT.dashboard, href: dashHref,           active: !isFeed && !isAcademy && !isCalendar },
     { label: PNT.calendar,  href: "/portal/calendar", active: isCalendar },
   ] : null;
@@ -319,7 +321,12 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
         }}
       >
         <div className="flex items-center gap-1">
-          {/* Public pages: show logo. Portal pages: show Dashboard + Community tabs. */}
+          {/* The homepage logo, always (same type as borivon.com: EB Garamond italic, gold upright dot) */}
+          <a href="/" className="no-underline hover:opacity-80 transition-opacity" aria-label="Borivon — Startseite"
+            style={{ font: "italic 500 1.5rem/1 var(--font-serif)", letterSpacing: "-.01em", color: "var(--w)", marginRight: portalTabs ? 18 : 0 }}>
+            Borivon<b style={{ fontStyle: "normal", fontWeight: 500, color: "var(--gold)" }}>.</b>
+          </a>
+          {/* Portal pages: Dashboard + Kalender beside the logo */}
           {portalTabs ? (
             portalTabs.map(tab => {
               const isCommunity = tab.href === "/portal/feed";
@@ -359,16 +366,7 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
               </Link>
               );
             })
-          ) : (
-            <a
-              href="/"
-              className="font-[family-name:var(--font-dm-serif)] italic no-underline hover:opacity-80 transition-opacity"
-              style={{ fontSize: "clamp(1.15rem,3.5vw,1.4rem)", color: "var(--w)" }}
-              aria-label="Borivon — Accueil"
-            >
-              Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-            </a>
-          )}
+          ) : null}
           {leftExtra}
         </div>
         {/* On mobile the actions live in the bottom bar — this slot is empty

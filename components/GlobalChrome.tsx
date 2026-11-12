@@ -166,8 +166,12 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
                       (logout / language / theme live in the profile menu). The
                       checklist drawer + message icon were removed at the
                       founder's request. */}
-                  <NotificationBell />
-                  <ProfileIcon />
+                  {/* a fixed slot: the two icons load after the page, so their space is held from the first paint
+                      (no jump; founder 2026-11-12 "it keeps glitching") */}
+                  <span className="inline-flex items-center justify-end" style={{ minWidth: 92, minHeight: 40 }}>
+                    <NotificationBell />
+                    <ProfileIcon />
+                  </span>
                 </>
               ) : isHome ? (
                 <HomeLoginButton />
