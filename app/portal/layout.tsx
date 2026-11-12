@@ -32,5 +32,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // normally after a Google sign-in.
   const supa = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (supa) preconnect(supa, { crossOrigin: "anonymous" });
-  return <>{children}</>;
+  // Wake the server while the page's JavaScript is still downloading (founder 2026-11-12: "loading is slow").
+  // The portal page itself now comes straight from the edge; only its data calls need the worker, and a cold
+  // worker costs 1-3 s. This tiny ping starts that cold start at once, so it overlaps the download instead of
+  // following it. Own origin only, no data, nothing stored.
+  return (
+    <>
+      <script dangerouslySetInnerHTML={{ __html: "try{fetch('/api/health',{cache:'no-store',keepalive:true}).catch(function(){})}catch(e){}" }} />
+      {children}
+    </>
+  );
 }
