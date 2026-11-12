@@ -3595,17 +3595,27 @@ export default function DashboardPage() {
         {docsOpen && (() => {
               type TileSt = "approved" | "pending" | "rejected" | "missing";
               type Sub = { label: string; st: TileSt; act: () => void; de?: boolean };
-              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean };
+              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean; neutral?: boolean };
               const stOf = (d: Doc | undefined): TileSt => !d ? "missing" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "pending";
               const toLegacy = (pi: number) => () => { setPhase(pi); setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
-              const SPECIAL = new Set(["cv_de", "letter", "cv_visa", "letter_visa", "other"]);
+              // builder docs open their builder (never a file upload); Sonstiges = pages + "+"
+              const BUILDER: Record<string, string> = { cv_de: "/portal/cv-builder", cv_visa: "/portal/cv-builder?variant=visa", letter: "/portal/motivationsschreiben", letter_visa: "/portal/motivationsschreiben?variant=visa" };
               const L3 = (de: string, fr: string, en: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
               const tilesOf = (pi: number): Tile[] => (PHASES[pi]?.items ?? []).flatMap((it): Tile[] => {
                 const item = it as typeof it & { candidate_signs?: boolean; candidate_fills?: boolean };
                 const d = getDoc(item.key);
-                if ((item.optional || item.key === "other") && !d) return [];
-                const special = SPECIAL.has(item.key) || !!item.candidate_signs || !!item.candidate_fills;
-                const act = special ? toLegacy(pi) : d ? () => handlePreview(d) : () => openPicker(item.key);
+                if (item.optional && !d) return [];
+                if (item.key === "other") {
+                  const all = getDocAll("other");
+                  const pages: Sub[] = all.map((x, i) => ({ label: String(i + 1), st: stOf(x), act: () => handlePreview(x) }));
+                  if (all.length < 5) pages.push({ label: lang === "fr" ? "Ajouter" : lang === "en" ? "Add" : "Neu", st: "missing", act: () => openPicker("other") });
+                  return [{ id: `${pi}:other`, label: item.label, st: "approved", act: () => setOpenTile(`${pi}:other`), sub: pages, neutral: true }];
+                }
+                const special = !!item.candidate_signs || !!item.candidate_fills;
+                const builder = BUILDER[item.key];
+                const act = special ? toLegacy(pi)
+                  : builder ? (d ? (item.key === "cv_visa" ? () => openVisaCvPreview() : () => handlePreview(d)) : () => router.push(builder))
+                  : d ? () => handlePreview(d) : () => openPicker(item.key);
                 const label = item.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : item.label;
                 if (item.key === "langcert") {
                   // the special Deutsch tile: certificate, exam invitation, (partial) result — each its own upload
@@ -3630,7 +3640,8 @@ export default function DashboardPage() {
               const groups: [string, Tile[]][] = [
                 [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0)],
                 [L3("Unterlagen", "Documents", "Documents"), tilesOf(1)],
-                [L3("Visum", "Visa", "Visa"), tilesOf(3)],
+                // the Visum list clones a few boxes from above (Sprachzertifikat, Impfung): show each paper once
+                [L3("Visum", "Visa", "Visa"), tilesOf(3).filter((x) => !new Set([...(PHASES[0]?.items ?? []), ...(PHASES[1]?.items ?? [])].map((i) => i.key)).has(x.id.slice(x.id.indexOf(":") + 1)))],
               ];
 
               // one tile = one paper; a pair (original + translation) = one tile whose sheets slide down on a tap
@@ -3639,6 +3650,7 @@ export default function DashboardPage() {
               const tileOf = (x: Tile) => {
                 const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
                 const isOpen = openTile === x.id;
+                const showDot = !x.neutral;
                 const label = x.label.replace(/(Motivations|Berufs|Studien|Noten|Vorab|Arbeits|Sprach|Bestätigungs)(?=[a-zäöü])/g, "$1­");
                 // step by step (founder 2026-11-11): the tile says only its name + one dot; a pair shows a few tiny dots;
                 // a tap slides its papers down as little sheets (Original · Deutsch), each one tap to open or upload
@@ -3648,9 +3660,9 @@ export default function DashboardPage() {
                       border: `1px solid ${isOpen ? "var(--w)" : x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
                     <button type="button" onClick={x.sub ? () => setOpenTile(isOpen ? null : x.id) : x.act} title={x.label} aria-expanded={x.sub ? isOpen : undefined}
                       className="block w-full" style={{ background: "none", border: 0, padding: "14px 10px 12px", color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
-                      <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
+                      {showDot && <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />}
                       <span className="block" style={{ fontSize: 13, lineHeight: 1.25, padding: "0 8px", overflowWrap: "break-word", hyphens: "manual" }} lang="de">
-                        {st === "missing" && !x.sub && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
+                        {((st === "missing" && !x.sub) || x.neutral) && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
                       </span>
                       {x.sub && (
                         <span className="flex justify-center" style={{ gap: 4, marginTop: 8 }} aria-hidden="true">
@@ -3687,8 +3699,8 @@ export default function DashboardPage() {
               const doneOf = (x: Tile) => (x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st) === "approved";
               const section = (title: string, ts: Tile[], on = true) => {
                 if (ts.length === 0) return null;
-                const open = ts.filter((x) => !doneOf(x));
-                const done = ts.length - open.length;
+                const open = ts.filter((x) => x.neutral || !doneOf(x));
+                const done = ts.filter((x) => !x.neutral && doneOf(x)).length;
                 const shown = showDone ? ts : open;
                 return (
                   <div key={title} className="mb-5 bv-sec" data-on={on ? "1" : "0"}>

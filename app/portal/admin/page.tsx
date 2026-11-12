@@ -5690,7 +5690,7 @@ export default function AdminPage() {
             {adminDocsOpen && selectedUser && (() => {
               type TileSt = "approved" | "pending" | "rejected" | "missing";
               type Sub = { label: string; st: TileSt; act: () => void; de?: boolean };
-              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean };
+              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean; neutral?: boolean };
               const stOf = (ds: Doc[]): TileSt => ds.length === 0 ? "missing" : ds.some(d => d.status === "rejected") ? "rejected"
                 : ds.some(d => d.status === "pending") ? "pending" : ds.every(d => d.status === "approved") ? "approved" : "pending";
               const latest = (ds: Doc[]) => [...ds].sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)))[0] ?? null;
@@ -5699,10 +5699,18 @@ export default function AdminPage() {
               const L3 = (de: string, fr: string, en: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
               const tilesOf = (pi: number): Tile[] => PHASE_ITEMS[pi].items.flatMap((it): Tile[] => {
                 const ds = getAdminDocs(it.key);
-                if ((it.optional || it.key === "other") && ds.length === 0) return [];
-                const doc = it.key === "other" ? null : latest(ds);
-                const canUpload = it.key !== "letter" && it.key !== "cv_de" && it.key !== "other";
-                const act = it.key === "other" ? toLegacy : open(doc, canUpload ? () => triggerAdminDocUpload(it.key, it.label) : toLegacy);
+                if (it.optional && ds.length === 0) return [];
+                if (it.key === "other") {
+                  // Sonstiges: each file is a page; "+" adds one (the same admin upload as the old row, LAW #9 cap of 5)
+                  const pages: Sub[] = [...ds].sort((x, y) => String(x.uploaded_at).localeCompare(String(y.uploaded_at)))
+                    .map((d, i) => ({ label: String(i + 1), st: stOf([d]), act: () => setPreviewDoc(d) }));
+                  if (ds.length < 5) pages.push({ label: lang === "fr" ? "Ajouter" : lang === "en" ? "Add" : "Neu", st: "missing", act: () => triggerAdminDocUpload("other", it.label) });
+                  return [{ id: "other", label: it.label, st: "approved", act: () => setOpenTile("other"), sub: pages, neutral: true }];
+                }
+                const doc = latest(ds);
+                // the CV and the letter are made in their builder (never a file upload): missing → open the builder
+                const builder = it.key === "cv_de" ? `/portal/cv-builder?candidateId=${selectedUser}` : it.key === "letter" ? `/portal/motivationsschreiben?candidate=${selectedUser}` : null;
+                const act = open(doc, builder ? () => { window.open(builder, "_blank"); } : () => triggerAdminDocUpload(it.key, it.label));
                 const label = it.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : it.label;
                 if (it.key === "langcert") {
                   // the special Deutsch tile: certificate, exam invitation, (partial) result — each its own upload
@@ -5725,6 +5733,26 @@ export default function AdminPage() {
                   { de: true, label: L3("Deutsch", "Allemand", "German"), st: stOf(tds), act: open(td, toLegacy) },
                 ] }];
               });
+              // the permanent Visum boxes (every candidate), then the slots
+              const visaPerm: Tile[] = [
+                ...[["cv_visa", t.pTypeCVvisa], ["letter_visa", t.pTypeLetterVisa]].map(([k, lbl]): Tile => {
+                  const isCv = k === "cv_visa";
+                  const d = latest(getAdminDocs(isCv ? "cv_de" : "letter_visa"));
+                  const builder = isCv ? `/portal/cv-builder?candidateId=${selectedUser}&variant=visa` : `/portal/motivationsschreiben?candidate=${selectedUser}&variant=visa`;
+                  return { id: k, label: lbl, st: d ? stOf([d]) : "missing",
+                    act: d ? () => { setPreviewRenderUrl(isCv ? `/api/portal/cv/visa?candidateId=${selectedUser}` : null); setPreviewDoc(d); } : () => { window.open(builder, "_blank"); } };
+                }),
+                ...([["ezb", t.pTypeEZB], ["zusatzblatt_a", t.pTypeZusatzblattA], ["defizitbescheid", t.pTypeDefizitbescheid], ["videx", t.pTypeVidex],
+                  ["bildungsplan", t.pTypeBildungsplan], ["vorabzustimmung", t.pTypeVorabzustimmung], ["arbeitsvertrag", t.pTypeArbeitsvertrag],
+                  ["mawista", t.pTypeMawista], ["versicherung", t.pTypeVersicherung], ["tls_rechnung", t.pTypeTlsRechnung],
+                  ["tls_bestaetigungstermin", t.pTypeTlsBestaetigung], ["berufserfahrung_visum", t.pTypeBerufserfahrungVisum]] as [string, string][])
+                  .flatMap(([k, lbl]): Tile[] => {
+                    const xs = getAdminDocs(k);
+                    if (k === "berufserfahrung_visum" && xs.length === 0) return [];
+                    const d = latest(xs);
+                    return [{ id: k, label: lbl, st: stOf(xs), act: open(d, () => triggerAdminDocUpload(k, lbl)) }];
+                  }),
+              ];
               const visa: Tile[] = (phaseSlots["visum"] ?? [])
                 .filter((sl): sl is PhaseSlot => sl != null && !!sl.id)
                 .sort((x, y) => x.position - y.position)
@@ -5743,7 +5771,7 @@ export default function AdminPage() {
               const groups: [string, Tile[]][] = [
                 [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0)],
                 [L3("Unterlagen", "Documents", "Documents"), tilesOf(1)],
-                [L3("Visum", "Visa", "Visa"), visa],
+                [L3("Visum", "Visa", "Visa"), [...visaPerm, ...visa]],
               ];
               const flat = groups.flatMap(([, ts]) => ts.flatMap((x) => x.sub ? x.sub.map((y) => y.st) : [x.st]));
               const count = (st: TileSt) => flat.filter((x) => x === st).length;
@@ -5761,6 +5789,7 @@ export default function AdminPage() {
               const tileOf = (x: Tile) => {
                 const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
                 const isOpen = openTile === x.id;
+                const showDot = !x.neutral;
                 const label = x.label.replace(/(Motivations|Berufs|Studien|Noten|Vorab|Arbeits|Sprach|Bestätigungs)(?=[a-zäöü])/g, "$1­");
                 // step by step (founder 2026-11-11): the tile says only its name + one dot; a pair shows a few tiny dots;
                 // a tap slides its papers down as little sheets (Original · Deutsch), each one tap to open or upload
@@ -5770,9 +5799,9 @@ export default function AdminPage() {
                       border: `1px solid ${isOpen ? "var(--w)" : x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
                     <button type="button" onClick={x.sub ? () => setOpenTile(isOpen ? null : x.id) : x.act} title={x.label} aria-expanded={x.sub ? isOpen : undefined}
                       className="block w-full" style={{ background: "none", border: 0, padding: "14px 10px 12px", color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
-                      <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
+                      {showDot && <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />}
                       <span className="block" style={{ fontSize: 13, lineHeight: 1.25, padding: "0 8px", overflowWrap: "break-word", hyphens: "manual" }} lang="de">
-                        {st === "missing" && !x.sub && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
+                        {((st === "missing" && !x.sub) || x.neutral) && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
                       </span>
                       {x.sub && (
                         <span className="flex justify-center" style={{ gap: 4, marginTop: 8 }} aria-hidden="true">
@@ -5809,8 +5838,8 @@ export default function AdminPage() {
               const doneOf = (x: Tile) => (x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st) === "approved";
               const section = (title: string, ts: Tile[], on = true) => {
                 if (ts.length === 0) return null;
-                const open = ts.filter((x) => !doneOf(x));
-                const done = ts.length - open.length;
+                const open = ts.filter((x) => x.neutral || !doneOf(x));
+                const done = ts.filter((x) => !x.neutral && doneOf(x)).length;
                 const shown = showDone ? ts : open;
                 return (
                   <div key={title} className="mb-5 bv-sec" data-on={on ? "1" : "0"}>
