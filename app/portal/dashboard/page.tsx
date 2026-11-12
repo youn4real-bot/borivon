@@ -263,6 +263,12 @@ export default function DashboardPage() {
   // her papers as tiles (founder 2026-11-11, mock p3); the old list stays one tap away ("Alte Ansicht")
   const [legacyDocs, setLegacyDocs] = useState(false);
   const [tileTab, setTileTab] = useState(0);
+  // on a phone the three paper sections flip (no scrolling); on a laptop all three show at once
+  const [docSec, setDocSec] = useState(0);
+  // the paper tile whose sheets are slid open (one at a time)
+  const [openTile, setOpenTile] = useState<string | null>(null);
+  // finished papers are folded; one tap shows them
+  const [showDone, setShowDone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Slot key for the in-flight file pick. Set synchronously in openPicker so
   // onFileChange never depends on the async `activeKey` state (fast-pick race).
@@ -3588,7 +3594,7 @@ export default function DashboardPage() {
         )}
         {docsOpen && (() => {
               type TileSt = "approved" | "pending" | "rejected" | "missing";
-              type Sub = { label: string; st: TileSt; act: () => void };
+              type Sub = { label: string; st: TileSt; act: () => void; de?: boolean };
               type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean };
               const stOf = (d: Doc | undefined): TileSt => !d ? "missing" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "pending";
               const toLegacy = (pi: number) => () => { setPhase(pi); setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
@@ -3618,7 +3624,7 @@ export default function DashboardPage() {
                 const td = getDoc(tk);
                 return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act, sub: [
                   { label: L3("Original", "Original", "Original"), st: stOf(d), act },
-                  { label: L3("Übersetzung", "Traduction", "Translation"), st: stOf(td), act: td ? () => handlePreview(td) : () => openPicker(tk) },
+                  { de: true, label: L3("Deutsch", "Allemand", "German"), st: stOf(td), act: td ? () => handlePreview(td) : () => openPicker(tk) },
                 ] }];
               });
               const groups: [string, Tile[]][] = [
@@ -3627,50 +3633,89 @@ export default function DashboardPage() {
                 [L3("Visum", "Visa", "Visa"), tilesOf(3)],
               ];
 
-              // one tile = one paper; a pair (original + translation) = one tile with two small chips
+              // one tile = one paper; a pair (original + translation) = one tile whose sheets slide down on a tap
               const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
               const worst = (a: TileSt[]): TileSt => a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved";
               const tileOf = (x: Tile) => {
                 const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
+                const isOpen = openTile === x.id;
+                const label = x.label.replace(/(Motivations|Berufs|Studien|Noten|Vorab|Arbeits|Sprach|Bestätigungs)(?=[a-zäöü])/g, "$1­");
+                // step by step (founder 2026-11-11): the tile says only its name + one dot; a pair shows a few tiny dots;
+                // a tap slides its papers down as little sheets (Original · Deutsch), each one tap to open or upload
                 return (
                   <div key={x.id} className="relative text-center"
-                    style={{ padding: "12px 10px 10px", borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)",
-                      border: `1px solid ${x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
-                    <button type="button" onClick={x.act} title={x.label} className="block w-full" style={{ background: "none", border: 0, padding: 0, color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
+                    style={{ borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)", zIndex: isOpen ? 31 : undefined,
+                      border: `1px solid ${isOpen ? "var(--w)" : x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
+                    <button type="button" onClick={x.sub ? () => setOpenTile(isOpen ? null : x.id) : x.act} title={x.label} aria-expanded={x.sub ? isOpen : undefined}
+                      className="block w-full" style={{ background: "none", border: 0, padding: "14px 10px 12px", color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
                       <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
-                      <span className="grid place-items-center bv-tic" style={{ height: 40, borderRadius: 8, marginBottom: 8,
-                        ...(st === "missing" && !x.sub ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: x.special ? "transparent" : "var(--bg2)", color: x.special ? "var(--gold)" : "var(--w3)" }) }}>
-                        {x.special
-                          ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 5h9M8.5 3v2M6 5c0 4 3 7 7 8M11 5c-1 4-4 7-7 8M13 21l4-9 4 9M14.5 18h5" /></svg>
-                          : st === "missing" && !x.sub
-                          ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                          : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8.5 13h7M8.5 17h5" /></svg>}
+                      <span className="block" style={{ fontSize: 13, lineHeight: 1.25, padding: "0 8px", overflowWrap: "break-word", hyphens: "manual" }} lang="de">
+                        {st === "missing" && !x.sub && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
                       </span>
-                      <span className="block" style={{ fontSize: 12.5, lineHeight: 1.25, minHeight: 31, overflowWrap: "anywhere", hyphens: "auto" }} lang="de">{x.label}</span>
+                      {x.sub && (
+                        <span className="flex justify-center" style={{ gap: 4, marginTop: 8 }} aria-hidden="true">
+                          {x.sub.map((y) => <i key={y.label} style={{ width: 6, height: 6, borderRadius: "50%", background: DOT[y.st] }} />)}
+                        </span>
+                      )}
                     </button>
-                    {x.sub && (
-                      <span className="flex justify-center gap-1.5 mt-2">
+                    {x.sub && isOpen && (<>
+                      <div className="fixed inset-0" style={{ zIndex: 30 }} onClick={() => setOpenTile(null)} />
+                      <div className="absolute left-0 right-0 flex justify-center bv-slide" style={{ top: "calc(100% + 6px)", zIndex: 32, gap: 8, padding: 10, borderRadius: 14,
+                        background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 18px 40px -18px rgba(21,19,15,.35)" }}>
+                        <style>{"@keyframes bvSlide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:no-preference){.bv-slide{animation:bvSlide .18s ease-out}}"}</style>
                         {x.sub.map((y) => (
-                          <button key={y.label} type="button" onClick={y.act} title={`${x.label} · ${y.label}`}
-                            className="inline-flex items-center gap-1.5" style={{ padding: "3px 8px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", fontSize: 11, color: "var(--w2)", cursor: "pointer" }}>
-                            <i style={{ width: 7, height: 7, borderRadius: "50%", background: DOT[y.st] }} />{y.label}
+                          <button key={y.label} type="button" onClick={() => { setOpenTile(null); y.act(); }} title={`${x.label} · ${y.label}`}
+                            className="flex flex-col items-center" style={{ flex: 1, minWidth: 0, gap: 6, background: "none", border: 0, padding: 0, cursor: "pointer", color: "var(--w2)", fontFamily: "inherit" }}>
+                            <span className="relative grid place-items-center" style={{ width: 44, height: 56, borderRadius: 6,
+                              ...(y.st === "missing" ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w3)" }) }}>
+                              {y.st === "missing"
+                                ? <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+                                : y.de ? <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", color: "var(--w2)" }}>DE</span>
+                                : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>}
+                              <i className="absolute" style={{ right: -4, top: -4, width: 10, height: 10, borderRadius: "50%", background: DOT[y.st], border: "2px solid var(--card)" }} />
+                            </span>
+                            <span style={{ fontSize: 10.5, whiteSpace: "nowrap", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{y.label}</span>
                           </button>
                         ))}
-                      </span>
-                    )}
+                      </div>
+                    </>)}
                   </div>
                 );
               };
-              const section = (title: string, ts: Tile[]) => ts.length === 0 ? null : (
-                <div key={title} className="mb-4">
-                  <style>{"@media (max-width:560px){.bv-tic{display:none!important}}"}</style>
-                  <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)", marginBottom: 10 }}>{title}</div>
-                  <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))" }}>{ts.map(tileOf)}</div>
-                </div>
-              );
+              // lean (founder 2026-11-11: "people must not get overwhelmed"): only what still needs doing shows as a tile;
+              // finished papers fold into one quiet "✓ n" per section, one tap to see them
+              const doneOf = (x: Tile) => (x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st) === "approved";
+              const section = (title: string, ts: Tile[], on = true) => {
+                if (ts.length === 0) return null;
+                const open = ts.filter((x) => !doneOf(x));
+                const done = ts.length - open.length;
+                const shown = showDone ? ts : open;
+                return (
+                  <div key={title} className="mb-5 bv-sec" data-on={on ? "1" : "0"}>
+                    <style>{".bv-tic{display:none!important}@media (max-width:640px){.bv-sec:not([data-on='1']){display:none}}@media (min-width:641px){.bv-sec-tabs{display:none!important}}"}</style>
+                    <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)" }}>{title}</span>
+                      {done > 0 && (
+                        <button type="button" onClick={() => setShowDone((v) => !v)} aria-pressed={showDone}
+                          className="inline-flex items-center" style={{ gap: 6, background: "none", border: 0, padding: 0, fontSize: 12.5, color: showDone ? "var(--w)" : "var(--w3)", cursor: "pointer" }}>
+                          <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#16a34a", color: "#fff", display: "inline-grid", placeItems: "center", fontSize: 10 }}>✓</span>{done}
+                        </button>
+                      )}
+                    </div>
+                    {shown.length > 0
+                      ? <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(176px, 44%), 1fr))" }}>{shown.map(tileOf)}</div>
+                      : <div style={{ fontSize: 13, color: "var(--w3)", padding: "6px 0" }}>{lang === "de" ? "Alles fertig." : lang === "fr" ? "Tout est prêt." : "All done."}</div>}
+                  </div>
+                );
+              };
               return (
                 <section id="bv-my-tiles" className="mb-6" style={{ scrollMarginTop: 80 }}>
-                  {groups.map(([title, ts]) => section(title, ts))}
+                  <div className="bv-sec-tabs flex gap-1.5 mb-3">
+                    {groups.filter(([, ts]) => ts.length > 0).map(([title], i) => (
+                      <button key={title} type="button" onClick={() => setDocSec(i)} style={{ height: 32, padding: "0 12px", borderRadius: 999, border: `1px solid ${docSec === i ? "var(--w)" : "var(--border)"}`, background: docSec === i ? "var(--w)" : "var(--card)", color: docSec === i ? "var(--bg)" : "var(--w2)", fontSize: 12.5, cursor: "pointer" }}>{title}</button>
+                    ))}
+                  </div>
+                  {groups.filter(([, ts]) => ts.length > 0).map(([title, ts], i) => section(title, ts, i === docSec))}
                   <div className="text-right">
                     <button type="button" onClick={() => setLegacyDocs((v) => !v)} style={{ background: "none", border: 0, padding: 0, fontSize: 12.5, color: "var(--w3)", cursor: "pointer" }}>
                       {legacyDocs ? L3("Alte Ansicht schließen", "Fermer l’ancienne vue", "Close the old view") : L3("Alte Ansicht", "Ancienne vue", "Old view")}
