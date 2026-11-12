@@ -5768,8 +5768,19 @@ export default function AdminPage() {
                     { de: true, label: L3("Deutsch", "Allemand", "German"), st: stOf(tds), act: open(latest(tds), toLegacy) },
                   ] };
                 });
+              const KEYS = new Set(["id", "cv_de", "letter"]);
+              const keyDocs = (k: string) => latest(getAdminDocs(k));
+              const pass = keyDocs("id"), cvD = keyDocs("cv_de"), letD = keyDocs("letter");
+              const keyCards = [
+                { id: "id", icon: "id", label: t.pTypeID, st: pass ? stOf([pass]) : "missing" as TileSt, open: pass ? () => setPreviewDoc(pass) : null,
+                  btn: pass ? L3("Öffnen", "Ouvrir", "Open") : L3("Hochladen", "Téléverser", "Upload"), onBtn: pass ? () => setPreviewDoc(pass) : () => triggerAdminDocUpload("id", t.pTypeID) },
+                { id: "cv", icon: "cv", label: t.pTypeCVde, st: cvD ? stOf([cvD]) : "missing" as TileSt, open: cvD ? () => setPreviewDoc(cvD) : null,
+                  btn: L3("Bearbeiten", "Modifier", "Edit"), onBtn: () => { window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank"); } },
+                { id: "letter", icon: "letter", label: t.pTypeLetter, st: letD ? stOf([letD]) : "missing" as TileSt, open: letD ? () => setPreviewDoc(letD) : null,
+                  btn: L3("Bearbeiten", "Modifier", "Edit"), onBtn: () => { window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank"); } },
+              ];
               const groups: [string, Tile[]][] = [
-                [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0)],
+                [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0).filter((x) => !KEYS.has(x.id))],
                 [L3("Unterlagen", "Documents", "Documents"), tilesOf(1)],
                 [L3("Visum", "Visa", "Visa"), [...visaPerm, ...visa]],
               ];
@@ -5836,6 +5847,26 @@ export default function AdminPage() {
               // lean (founder 2026-11-11: "people must not get overwhelmed"): only what still needs doing shows as a tile;
               // finished papers fold into one quiet "✓ n" per section, one tap to see them
               const doneOf = (x: Tile) => (x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st) === "approved";
+              // the three special boxes, always in view (founder 2026-11-11: "passport, CV, motivation letter are special
+              // boxes … each still a button into its tool"); everything else is plain upload / download below
+              const KEY_ICON: Record<string, string> = {
+                id: "M7 2.5h10a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2zM12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM8.5 17h7",
+                cv: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4",
+                letter: "M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z",
+              };
+              const keyCard = (k: { id: string; icon: string; label: string; st: TileSt; open: (() => void) | null; btn: string; onBtn: () => void }) => (
+                <div key={k.id} className="relative flex flex-col bv-key" style={{ padding: "14px 14px 12px", borderRadius: 14, background: "var(--card)", border: `1px solid ${k.st === "pending" ? "#fcd9a8" : "var(--border)"}`, minWidth: 0 }}>
+                  <span className="absolute" style={{ right: 10, top: 10, width: 10, height: 10, borderRadius: "50%", background: DOT[k.st], border: "2px solid var(--card)" }} />
+                  <style>{"@media (max-width:640px){.bv-key{padding:12px 8px 10px!important;align-items:stretch}.bv-key-top{flex-direction:column;text-align:center!important;gap:8px!important}.bv-key-name{font-size:14px!important}.bv-key-btn{align-self:stretch!important;padding:0 6px!important;font-size:11.5px!important}.bv-key-arr{display:none}}"}</style>
+                  <button type="button" onClick={k.open ?? k.onBtn} className="flex items-center text-left bv-key-top" style={{ gap: 10, background: "none", border: 0, padding: 0, color: "var(--w)", cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}>
+                    <span className="grid place-items-center flex-none" style={{ width: 38, height: 38, borderRadius: 10, background: "var(--bg2)", color: "var(--gold)" }}>
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={KEY_ICON[k.icon]} /></svg>
+                    </span>
+                    <span className="bv-key-name" style={{ fontFamily: "var(--font-serif)", fontSize: 18, lineHeight: 1.15, overflowWrap: "normal", hyphens: "manual" }} lang="de">{k.label.replace(/(Motivations|Lebens|Reise)(?=[a-zäöü])/g, "$1­")}</span>
+                  </button>
+                  <button type="button" onClick={k.onBtn} className="self-start bv-key-btn" style={{ marginTop: 12, height: 32, padding: "0 13px", borderRadius: 999, border: 0, background: "var(--w)", color: "var(--bg)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{k.btn}<span className="bv-key-arr"> →</span></button>
+                </div>
+              );
               const section = (title: string, ts: Tile[], on = true) => {
                 if (ts.length === 0) return null;
                 const open = ts.filter((x) => x.neutral || !doneOf(x));
@@ -5877,6 +5908,7 @@ export default function AdminPage() {
                     <button type="button" onClick={() => setAdminDocsOpen(false)} aria-label={L3("Schließen", "Fermer", "Close")}
                       style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
                   </div>
+                  <div className="grid gap-2.5 mb-5" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>{keyCards.map(keyCard)}</div>
                   <div className="bv-sec-tabs flex gap-1.5 mb-3">
                     {groups.filter(([, ts]) => ts.length > 0).map(([title], i) => (
                       <button key={title} type="button" onClick={() => setDocSec(i)} style={{ height: 32, padding: "0 12px", borderRadius: 999, border: `1px solid ${docSec === i ? "var(--w)" : "var(--border)"}`, background: docSec === i ? "var(--w)" : "var(--card)", color: docSec === i ? "var(--bg)" : "var(--w2)", fontSize: 12.5, cursor: "pointer" }}>{title}</button>
