@@ -3335,7 +3335,6 @@ function CVBuilderInner() {
   // ── Scroll to the first section that has validation errors ───────────────
   // which builder step shows (one section at a time; founder 2026-11-11: no scrolling)
   const [cvStep, setCvStep] = useState<string>("photo-section");
-  const cvStepIdx = CV_STEPS.findIndex((x) => x.id === cvStep);
   const goStep = (id: string) => { setCvStep(id); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   function scrollToFirstError(errors: Set<string>) {
@@ -5537,19 +5536,8 @@ function CVBuilderInner() {
           </div>
         </SectionCard>
         </CvStepCtx.Provider>
-        <div className="flex items-center justify-between mb-6" style={{ gap: 10 }}>
-          <button type="button" onClick={() => cvStepIdx > 0 && goStep(CV_STEPS[cvStepIdx - 1].id)} disabled={cvStepIdx <= 0}
-            style={{ height: 44, padding: "0 18px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: cvStepIdx <= 0 ? "var(--w3)" : "var(--w)", fontSize: 14, cursor: cvStepIdx <= 0 ? "default" : "pointer", opacity: cvStepIdx <= 0 ? 0.5 : 1 }}>
-            ← {lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
-          </button>
-          <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{cvStepIdx + 1} / {CV_STEPS.length}</span>
-          {cvStepIdx < CV_STEPS.length - 1 ? (
-            <button type="button" onClick={() => goStep(CV_STEPS[cvStepIdx + 1].id)}
-              style={{ height: 44, padding: "0 20px", borderRadius: 999, border: 0, background: "var(--w)", color: "var(--bg)", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-              {lang === "de" ? "Weiter" : lang === "fr" ? "Suivant" : "Next"} →
-            </button>
-          ) : <span style={{ width: 110 }} />}
-        </div>
+        {/* no Zurück / Weiter (founder 2026-11-12): the icons on top switch the steps */}
+        <div className="mb-6" />
 
         {/* ── Admin-only Auto-fill — drafts the German duty bullets so the admin
               doesn't type them by hand. Empty-only + fully editable. ── */}
