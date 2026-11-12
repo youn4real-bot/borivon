@@ -134,6 +134,14 @@ const DDL = [
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
   )`,
+  // her first salary ("Gehalt", sample 3): her three ticks so it arrives on time + the payday her admins enter
+  `CREATE TABLE IF NOT EXISTS fx_salary (
+    user_id TEXT PRIMARY KEY,
+    payday TEXT NOT NULL DEFAULT '',
+    ticks TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the papers filter (Alle · Anerkennung · Visum) that stays: key = "<nurse>:admin" (shared by her admins) or "<nurse>:self"
   `CREATE TABLE IF NOT EXISTS fx_docview (
     key TEXT PRIMARY KEY,
@@ -151,7 +159,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview", "fx_talk", "fx_start"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview", "fx_talk", "fx_start", "fx_salary"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
