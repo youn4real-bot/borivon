@@ -49,9 +49,10 @@ function balanceWrap(text: string, capacity: number): string[] {
 
 export async function renderLetterPdf(data: LetterData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const f = await embedFonts(doc, ["Lexend-Regular.ttf", "Lexend-Bold.ttf"]);
-  const reg = f["Lexend-Regular.ttf"];
-  const bold = f["Lexend-Bold.ttf"];
+  // the normal text font everywhere (Inter), like the CV (founder 2026-11-12)
+  const f = await embedFonts(doc, ["Inter-Regular-pdf.ttf", "Inter-SemiBold-pdf.ttf"]);
+  const reg = f["Inter-Regular-pdf.ttf"];
+  const bold = f["Inter-SemiBold-pdf.ttf"];
 
   const [PW, PH] = PageSizes.A4;
   const padL = 64;

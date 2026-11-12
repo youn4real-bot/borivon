@@ -66,15 +66,17 @@ export async function renderCvPdf(data: CVData, brand?: CVBrand): Promise<Uint8A
   const noBranding = !!brand?.noBranding;
   const doc = await PDFDocument.create();
   const f = await embedFonts(doc, [
-    "Lexend-Regular.ttf",
-    "Lexend-SemiBold.ttf",
-    "Lexend-Bold.ttf",
-    "DMSerifDisplay-Italic.ttf",
+    "Inter-Regular-pdf.ttf",
+    "Inter-Medium-pdf.ttf",
+    "Inter-SemiBold-pdf.ttf",
+    "EBGaramond-Italic-pdf.ttf",
+    "EBGaramond-Medium-pdf.ttf",
   ]);
-  const reg = f["Lexend-Regular.ttf"];
-  const semi = f["Lexend-SemiBold.ttf"];
-  const bold = f["Lexend-Bold.ttf"];
-  const serif = f["DMSerifDisplay-Italic.ttf"];
+  const reg = f["Inter-Regular-pdf.ttf"];
+  const semi = f["Inter-Medium-pdf.ttf"];
+  const bold = f["Inter-SemiBold-pdf.ttf"];
+  const gItal = f["EBGaramond-Italic-pdf.ttf"];
+  const gUp = f["EBGaramond-Medium-pdf.ttf"];
 
   const [PW, PH] = PageSizes.A4;
   const padL = 44;
@@ -430,11 +432,12 @@ export async function renderCvPdf(data: CVData, brand?: CVBrand): Promise<Uint8A
         if (w > 240) { w = 240; h = 240 * (logo.height / logo.width); }
         s.image(logo.image, PW / 2 - w / 2, 18, w, h);
       } else {
-        const wB = serif.widthOf("Borivon", 22);
-        const wDot = serif.widthOf(".", 22);
+        // the logo = the homepage wordmark (EB Garamond italic + gold dot); all text is Inter (founder 2026-11-12)
+        const wB = gItal.widthOf("Borivon", 24);
+        const wDot = gUp.widthOf(".", 24);
         const lx = PW / 2 - (wB + wDot) / 2;
-        s.text("Borivon", lx, 18, serif, 22, DARK);
-        s.text(".", lx + wB, 18, serif, 22, GOLD);
+        s.text("Borivon", lx, 16, gItal, 24, DARK);
+        s.text(".", lx + wB, 16, gUp, 24, GOLD);
       }
       // Footer lines (centered, pinned to bottom)
       const fLineH = lineAdv(7.5, 1.55);
