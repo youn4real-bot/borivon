@@ -23,6 +23,14 @@ import staticAssetsIncrementalCache from "@opennextjs/cloudflare/overrides/incre
  *
  * Needs NO new bucket and NO new binding.
  */
-export default defineCloudflareConfig({
+const config = defineCloudflareConfig({
   incrementalCache: staticAssetsIncrementalCache,
 });
+
+// PERF (founder 2026-11-12 "faster data"): `next build`, then cut packages that can never run on Workers
+// out of the server output BEFORE OpenNext bundles the worker (scripts/strip-workers-only.mjs — today
+// @react-pdf/renderer, the Vercel-only PDF path). Every cold isolate parses the whole worker, so dead bytes
+// cost real seconds. Vercel / plain `npm run build` are unaffected (OpenNext only).
+config.buildCommand = "npm run build && node scripts/strip-workers-only.mjs";
+
+export default config;

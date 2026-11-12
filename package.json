@@ -13,7 +13,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cf:build": "cross-env BV_CF_BUILD=1 opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && node scripts/edge-shells.mjs",
+    "cf:build": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && node scripts/edge-shells.mjs",
     "cf:preview": "opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare deploy"
   },
