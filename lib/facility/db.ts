@@ -124,6 +124,16 @@ const DDL = [
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
   )`,
+  // her first working day ("Arbeitsstart", founder 2026-11-12 sample 1): the hour and the ward (the date is
+  // fx_arrival.start), and her own "what to bring" ticks (app/api/portal/start)
+  `CREATE TABLE IF NOT EXISTS fx_start (
+    user_id TEXT PRIMARY KEY,
+    time TEXT NOT NULL DEFAULT '',
+    ward TEXT NOT NULL DEFAULT '',
+    bring TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the papers filter (Alle · Anerkennung · Visum) that stays: key = "<nurse>:admin" (shared by her admins) or "<nurse>:self"
   `CREATE TABLE IF NOT EXISTS fx_docview (
     key TEXT PRIMARY KEY,
@@ -141,7 +151,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview", "fx_talk"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview", "fx_talk", "fx_start"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
