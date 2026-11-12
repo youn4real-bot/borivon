@@ -68,6 +68,9 @@ const SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: CSP_DIRECTIVES },
 ];
 
+/** true only for `npm run cf:build` (Cloudflare Workers via OpenNext) */
+const CF_BUILD = process.env.BV_CF_BUILD === "1";
+
 const nextConfig: NextConfig = {
   // ESLint is skipped during build (deprecated upstream; we lint/verify
   // separately). TypeScript type-checking stays ON for Vercel builds — it's a
@@ -98,7 +101,8 @@ const nextConfig: NextConfig = {
       ? { exclude: ["error", "warn"] }
       : false,
   },
-  serverExternalPackages: ["@react-pdf/renderer"],
+  // On the Cloudflare build @react-pdf is not external but aliased away (see webpack below).
+  serverExternalPackages: CF_BUILD ? [] : ["@react-pdf/renderer"],
   // Ensure font/logo files used by the PDF generator are included in the
   // serverless function bundle — Vercel's file tracer misses dynamic path.join refs.
   outputFileTracingIncludes: {
@@ -151,6 +155,16 @@ const nextConfig: NextConfig = {
       // that against the installed package, so a Resend upgrade that starts
       // parsing elsewhere fails the suite instead of failing an email.
       config.resolve.alias["postal-mime"] = false;
+
+      // PERF (Cloudflare Workers, founder 2026-11-12 "faster data") — keep @react-pdf out of the WORKER.
+      //
+      // @react-pdf/renderer (+ pdfkit, fontkit, brotli, yoga, hyphen, linebreak …) is the Vercel-only PDF
+      // path: every server use sits behind an ON_WORKERS branch that renders with pdf-lib (lib/pdflib/*)
+      // and only `await import("@react-pdf/renderer")` in the other branch (letter/generate, b2-report,
+      // passport-data-pdf ×2, lib/cvRender, lib/assistantWrites). On Workers that code never runs, yet the
+      // package was bundled and parsed on every cold isolate. Aliased to an empty module ONLY in the
+      // Cloudflare build (BV_CF_BUILD=1, set by `npm run cf:build`); Vercel / `next build` are unchanged.
+      if (CF_BUILD) config.resolve.alias["@react-pdf/renderer"] = false;
     }
     return config;
   },

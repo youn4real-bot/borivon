@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { preconnect } from "react-dom";
+import { preconnect, preload } from "react-dom";
 
 /**
  * Portal layout — providers + navbar + bug button live in the root layout
@@ -32,6 +32,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // normally after a Google sign-in.
   const supa = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (supa) preconnect(supa, { crossOrigin: "anonymous" });
+  // in <head>: the browser asks at once, before the CSS and scripts (the inline ping below then reuses it)
+  preload("/api/health", { as: "fetch", crossOrigin: "anonymous" });
   // Wake the server while the page's JavaScript is still downloading (founder 2026-11-12: "loading is slow").
   // The portal page itself now comes straight from the edge; only its data calls need the worker, and a cold
   // worker costs 1-3 s. This tiny ping starts that cold start at once, so it overlaps the download instead of
