@@ -1,5 +1,6 @@
 "use client";
 
+import { DocList, useDocMeta, type DocRow, type DocKey, type DocSt } from "@/components/fx/DocList";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WayHero } from "@/components/fx/Way";
 import { saveAs } from "file-saver";
@@ -262,6 +263,8 @@ export default function DashboardPage() {
   const openDocs = () => { setDocsOpen(true); requestAnimationFrame(() => document.getElementById("bv-my-tiles")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
   // her papers as tiles (founder 2026-11-11, mock p3); the old list stays one tap away ("Alte Ansicht")
   const [legacyDocs, setLegacyDocs] = useState(false);
+  // her extra papers + the filter that stays (founder 2026-11-12)
+  const myDocMeta = useDocMeta(null, docsOpen);
   const [tileTab, setTileTab] = useState(0);
   // on a phone the three paper sections flip (no scrolling); on a laptop all three show at once
   const [docSec, setDocSec] = useState(0);
@@ -3592,136 +3595,77 @@ export default function DashboardPage() {
             ← {lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
           </button>
         )}
+        {/* her papers in ONE list (founder 2026-11-12, sample "2"): the three special boxes (whole box = the action),
+            then every paper, most important first, the row coloured by its state; her agency / employer / own
+            extras close the list. Tap = the same preview / upload calls as the old boxes. */}
         {docsOpen && (() => {
-              type TileSt = "approved" | "pending" | "rejected" | "missing";
-              type Sub = { label: string; st: TileSt; act: () => void; de?: boolean };
-              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean };
-              const stOf = (d: Doc | undefined): TileSt => !d ? "missing" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "pending";
-              const toLegacy = (pi: number) => () => { setPhase(pi); setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
-              const SPECIAL = new Set(["cv_de", "letter", "cv_visa", "letter_visa", "other"]);
+              const stOf = (d: Doc | undefined): DocSt => !d ? "missing" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "pending";
               const L3 = (de: string, fr: string, en: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
-              const tilesOf = (pi: number): Tile[] => (PHASES[pi]?.items ?? []).flatMap((it): Tile[] => {
-                const item = it as typeof it & { candidate_signs?: boolean; candidate_fills?: boolean };
-                const d = getDoc(item.key);
-                if ((item.optional || item.key === "other") && !d) return [];
-                const special = SPECIAL.has(item.key) || !!item.candidate_signs || !!item.candidate_fills;
-                const act = special ? toLegacy(pi) : d ? () => handlePreview(d) : () => openPicker(item.key);
-                const label = item.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : item.label;
-                if (item.key === "langcert") {
-                  // the special Deutsch tile: certificate, exam invitation, (partial) result — each its own upload
-                  const sub = (k: string, lbl: string): Sub => {
-                    const dx = getDoc(k);
-                    return { label: lbl, st: stOf(dx), act: dx ? () => handlePreview(dx) : () => openPicker(k) };
-                  };
-                  return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act, special: true, sub: [
-                    { label: L3("Zertifikat", "Certificat", "Certificate"), st: stOf(d), act },
-                    sub("lang_invite", L3("Einladung", "Convocation", "Invitation")),
-                    sub("lang_result", L3("Ergebnis", "Résultat", "Result")),
-                  ] }];
-                }
-                if (!item.transKey) return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act }];
-                const tk = item.transKey;
-                const td = getDoc(tk);
-                return [{ id: `${pi}:${item.key}`, label, st: stOf(d), act, sub: [
-                  { label: L3("Original", "Original", "Original"), st: stOf(d), act },
-                  { de: true, label: L3("Deutsch", "Allemand", "German"), st: stOf(td), act: td ? () => handlePreview(td) : () => openPicker(tk) },
+              const act = (k: string) => { const d = getDoc(k); return d ? () => handlePreview(d) : () => openPicker(k); };
+              const orig = L3("Original", "Original", "Original");
+              const germ = L3("Deutsch", "Allemand", "German");
+              const paper = (k: string, tags: string, label?: string, more: Partial<DocRow> = {}): DocRow[] => {
+                const it = ALL_ITEMS.find((i) => i.key === k) as (PhItem & { transKey?: string }) | undefined;
+                if (!it) return [];
+                const d = getDoc(k);
+                const lbl = label ?? it.label;
+                if (!it.transKey) return [{ id: k, label: lbl, st: stOf(d), tags, act: act(k), ...more }];
+                const tk = it.transKey;
+                return [{ id: k, label: lbl, st: stOf(d), tags, act: act(k), ...more, sub: [
+                  { label: orig, st: stOf(d), act: act(k) },
+                  { de: true, label: germ, st: stOf(getDoc(tk)), act: act(tk) },
                 ] }];
-              });
-              const groups: [string, Tile[]][] = [
-                [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0)],
-                [L3("Unterlagen", "Documents", "Documents"), tilesOf(1)],
-                [L3("Visum", "Visa", "Visa"), tilesOf(3)],
+              };
+              const langD = getDoc("langcert");
+              const langRow: DocRow = { id: "langcert", label: L3("Sprachzertifikat", "Certificat de langue", "Language certificate"), st: stOf(langD), tags: "AV", act: act("langcert"), special: true, sub: [
+                { label: L3("Zertifikat", "Certificat", "Certificate"), st: stOf(langD), act: act("langcert") },
+                { label: L3("Einladung", "Convocation", "Invitation"), st: stOf(getDoc("lang_invite")), act: act("lang_invite") },
+                { label: L3("Ergebnis", "Résultat", "Result"), st: stOf(getDoc("lang_result")), act: act("lang_result") },
+              ] };
+              const scoped = (sl: PhaseSlot) => !!((sl as { org_id?: string | null }).org_id || (sl as { employer_id?: string | null }).employer_id);
+              const slotRow = (sl: PhaseSlot, tags: string, extra: boolean): DocRow => {
+                const d = getDoc(sl.id);
+                if (sl.type !== "dual") return { id: sl.id, label: sl.label, st: stOf(d), tags, act: act(sl.id), extra };
+                return { id: sl.id, label: sl.label, st: stOf(d), tags, act: act(sl.id), extra, sub: [
+                  { label: orig, st: stOf(d), act: act(sl.id) },
+                  { de: true, label: germ, st: stOf(getDoc(sl.id + "_de")), act: act(sl.id + "_de") },
+                ] };
+              };
+              const bySort = (a: PhaseSlot, b: PhaseSlot) => a.position - b.position;
+              const vis = [...dynamicSlots.vis].sort(bySort);
+              const bea = [...dynamicSlots.bea].sort(bySort);
+              const otherDocs = getDocAll("other");
+              const rows: DocRow[] = [
+                ...paper("diploma", "A"), ...paper("transcript", "A"), ...paper("studyprog", "A"),
+                ...paper("workcert", "A", undefined, { onInfo: () => setShowWorkGuide(true) }),
+                ...paper("abitur", "A"), ...paper("abitur_transcript", "A"),
+                langRow,
+                ...paper("impfung", "AV"), ...paper("work_experience", "A"), ...paper("praktikum", "A"),
+                ...paper("defizitbescheid", "AV"),
+                ...paper("ezb", "V", L3("Erklärung zum Beschäftigungsverhältnis", "Déclaration d’emploi (EZB)", "Employment declaration (EZB)")),
+                ...paper("zusatzblatt_a", "V"), ...paper("vorabzustimmung", "V"), ...paper("arbeitsvertrag", "V"),
+                ...paper("videx", "V"), ...paper("bildungsplan", "V"), ...paper("versicherung", "V"), ...paper("mawista", "V"),
+                ...paper("tls_rechnung", "V"), ...paper("tls_bestaetigungstermin", "V"),
+                ...(getDoc("berufserfahrung_visum") ? paper("berufserfahrung_visum", "V") : []),
+                ...vis.filter((sl) => !scoped(sl)).map((sl) => slotRow(sl, "V", false)),
+                ...bea.filter((sl) => !scoped(sl)).map((sl) => slotRow(sl, "A", false)),
+                { id: "other", label: t.pTypeOther, st: otherDocs.length ? stOf(otherDocs[0]) : "missing", tags: "AV",
+                  act: () => { setPhase(0); setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); } },
+                // her extras: the agency / employer set she is placed under, then the papers added for her alone
+                ...bea.filter(scoped).map((sl) => slotRow(sl, "A", true)),
+                ...vis.filter(scoped).map((sl) => slotRow(sl, "V", true)),
+                ...myDocMeta.extras.map((ex): DocRow => ({ id: ex.id, label: ex.label, st: stOf(getDoc(ex.id)), tags: ex.phase, extra: true, act: act(ex.id) })),
               ];
-
-              // one tile = one paper; a pair (original + translation) = one tile whose sheets slide down on a tap
-              const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
-              const worst = (a: TileSt[]): TileSt => a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved";
-              const tileOf = (x: Tile) => {
-                const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
-                const isOpen = openTile === x.id;
-                const label = x.label.replace(/(Motivations|Berufs|Studien|Noten|Vorab|Arbeits|Sprach|Bestätigungs)(?=[a-zäöü])/g, "$1­");
-                // step by step (founder 2026-11-11): the tile says only its name + one dot; a pair shows a few tiny dots;
-                // a tap slides its papers down as little sheets (Original · Deutsch), each one tap to open or upload
-                return (
-                  <div key={x.id} className="relative text-center"
-                    style={{ borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)", zIndex: isOpen ? 31 : undefined,
-                      border: `1px solid ${isOpen ? "var(--w)" : x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
-                    <button type="button" onClick={x.sub ? () => setOpenTile(isOpen ? null : x.id) : x.act} title={x.label} aria-expanded={x.sub ? isOpen : undefined}
-                      className="block w-full" style={{ background: "none", border: 0, padding: "14px 10px 12px", color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
-                      <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
-                      <span className="block" style={{ fontSize: 13, lineHeight: 1.25, padding: "0 8px", overflowWrap: "break-word", hyphens: "manual" }} lang="de">
-                        {st === "missing" && !x.sub && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
-                      </span>
-                      {x.sub && (
-                        <span className="flex justify-center" style={{ gap: 4, marginTop: 8 }} aria-hidden="true">
-                          {x.sub.map((y) => <i key={y.label} style={{ width: 6, height: 6, borderRadius: "50%", background: DOT[y.st] }} />)}
-                        </span>
-                      )}
-                    </button>
-                    {x.sub && isOpen && (<>
-                      <div className="fixed inset-0" style={{ zIndex: 30 }} onClick={() => setOpenTile(null)} />
-                      <div className="absolute left-0 right-0 flex justify-center bv-slide" style={{ top: "calc(100% + 6px)", zIndex: 32, gap: 8, padding: 10, borderRadius: 14,
-                        background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 18px 40px -18px rgba(21,19,15,.35)" }}>
-                        <style>{"@keyframes bvSlide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:no-preference){.bv-slide{animation:bvSlide .18s ease-out}}"}</style>
-                        {x.sub.map((y) => (
-                          <button key={y.label} type="button" onClick={() => { setOpenTile(null); y.act(); }} title={`${x.label} · ${y.label}`}
-                            className="flex flex-col items-center" style={{ flex: 1, minWidth: 0, gap: 6, background: "none", border: 0, padding: 0, cursor: "pointer", color: "var(--w2)", fontFamily: "inherit" }}>
-                            <span className="relative grid place-items-center" style={{ width: 44, height: 56, borderRadius: 6,
-                              ...(y.st === "missing" ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w3)" }) }}>
-                              {y.st === "missing"
-                                ? <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
-                                : y.de ? <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", color: "var(--w2)" }}>DE</span>
-                                : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>}
-                              <i className="absolute" style={{ right: -4, top: -4, width: 10, height: 10, borderRadius: "50%", background: DOT[y.st], border: "2px solid var(--card)" }} />
-                            </span>
-                            <span style={{ fontSize: 10.5, whiteSpace: "nowrap", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{y.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>)}
-                  </div>
-                );
-              };
-              // lean (founder 2026-11-11: "people must not get overwhelmed"): only what still needs doing shows as a tile;
-              // finished papers fold into one quiet "✓ n" per section, one tap to see them
-              const doneOf = (x: Tile) => (x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st) === "approved";
-              const section = (title: string, ts: Tile[], on = true) => {
-                if (ts.length === 0) return null;
-                const open = ts.filter((x) => !doneOf(x));
-                const done = ts.length - open.length;
-                const shown = showDone ? ts : open;
-                return (
-                  <div key={title} className="mb-5 bv-sec" data-on={on ? "1" : "0"}>
-                    <style>{".bv-tic{display:none!important}@media (max-width:640px){.bv-sec:not([data-on='1']){display:none}}@media (min-width:641px){.bv-sec-tabs{display:none!important}}"}</style>
-                    <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)" }}>{title}</span>
-                      {done > 0 && (
-                        <button type="button" onClick={() => setShowDone((v) => !v)} aria-pressed={showDone}
-                          className="inline-flex items-center" style={{ gap: 6, background: "none", border: 0, padding: 0, fontSize: 12.5, color: showDone ? "var(--w)" : "var(--w3)", cursor: "pointer" }}>
-                          <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#16a34a", color: "#fff", display: "inline-grid", placeItems: "center", fontSize: 10 }}>✓</span>{done}
-                        </button>
-                      )}
-                    </div>
-                    {shown.length > 0
-                      ? <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(176px, 44%), 1fr))" }}>{shown.map(tileOf)}</div>
-                      : <div style={{ fontSize: 13, color: "var(--w3)", padding: "6px 0" }}>{lang === "de" ? "Alles fertig." : lang === "fr" ? "Tout est prêt." : "All done."}</div>}
-                  </div>
-                );
-              };
+              const keys: DocKey[] = [
+                { id: "id", label: t.pTypeID, st: stOf(getDoc("id")), act: act("id") },
+                { id: "cv", label: t.pTypeCVde, st: stOf(getDoc("cv_de")), spark: true, act: () => router.push("/portal/cv-builder") },
+                { id: "letter", label: t.pTypeLetter, st: stOf(getDoc("letter")), spark: true, act: () => router.push("/portal/motivationsschreiben") },
+              ];
               return (
-                <section id="bv-my-tiles" className="mb-6" style={{ scrollMarginTop: 80 }}>
-                  <div className="bv-sec-tabs flex gap-1.5 mb-3">
-                    {groups.filter(([, ts]) => ts.length > 0).map(([title], i) => (
-                      <button key={title} type="button" onClick={() => setDocSec(i)} style={{ height: 32, padding: "0 12px", borderRadius: 999, border: `1px solid ${docSec === i ? "var(--w)" : "var(--border)"}`, background: docSec === i ? "var(--w)" : "var(--card)", color: docSec === i ? "var(--bg)" : "var(--w2)", fontSize: 12.5, cursor: "pointer" }}>{title}</button>
-                    ))}
-                  </div>
-                  {groups.filter(([, ts]) => ts.length > 0).map(([title, ts], i) => section(title, ts, i === docSec))}
-                  <div className="text-right">
-                    <button type="button" onClick={() => setLegacyDocs((v) => !v)} style={{ background: "none", border: 0, padding: 0, fontSize: 12.5, color: "var(--w3)", cursor: "pointer" }}>
-                      {legacyDocs ? L3("Alte Ansicht schließen", "Fermer l’ancienne vue", "Close the old view") : L3("Alte Ansicht", "Ancienne vue", "Old view")}
-                    </button>
-                  </div>
-                </section>
+                <div id="bv-my-tiles" className="mb-6">
+                  <DocList lang={lang} keys={keys} rows={rows} mode={myDocMeta.mode} onMode={myDocMeta.setMode}
+                    onLegacy={() => setLegacyDocs((v) => !v)} legacyOpen={legacyDocs} />
+                </div>
               );
         })()}
         {/* Two-column: sidebar stepper + main content */}

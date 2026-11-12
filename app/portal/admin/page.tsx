@@ -1,5 +1,6 @@
 "use client";
 
+import { DocList, useDocMeta, type DocRow, type DocSub, type DocKey, type DocSt } from "@/components/fx/DocList";
 import React, { useEffect, useRef, useState } from "react";
 import { WayBoard, WayDots, WayNext, WayWhen, Flip, type WayRow } from "@/components/fx/Way";
 import { VisaBundleButton } from "@/components/admin/VisaBundleButton";
@@ -826,6 +827,8 @@ export default function AdminPage() {
   }, []);
   // her papers as tiles (founder 2026-11-11, mock p3); the old two-column list stays one tap away ("Alte Ansicht")
   const [legacyDocs, setLegacyDocs] = useState(false);
+  // her extra papers + the filter that stays (founder 2026-11-12)
+  const docMeta = useDocMeta(selectedUser, adminDocsOpen && !!selectedUser);
   const [tileTab, setTileTab] = useState<"papers" | "bearbeitung" | "visum">("papers");
   const [tileFilter, setTileFilter] = useState<"" | "pending" | "rejected" | "missing" | "approved">("");
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
@@ -5684,183 +5687,102 @@ export default function AdminPage() {
             )}
 
 
-            {/* her papers in ONE place (founder 2026-11-11): Grundlagen · Unterlagen · Visum, a pair (original +
-                translation) on one tile, Sprachzertifikat as the special Deutsch tile; Bearbeitung hidden for now.
-                Tap = the same AdminDocPreviewModal / upload calls as the old rows; special rows open the old view. */}
+            {/* her papers in ONE list (founder 2026-11-12, sample "2"): the three special boxes, then every paper,
+                most important first, the row coloured by its state; agency / employer / her own extras close the
+                list (admins add + remove her own). Tap = the same preview / upload calls as the old rows; sign /
+                fill slots and Sonstiges open the old view. */}
             {adminDocsOpen && selectedUser && (() => {
-              type TileSt = "approved" | "pending" | "rejected" | "missing";
-              type Sub = { label: string; st: TileSt; act: () => void; de?: boolean };
-              type Tile = { id: string; label: string; st: TileSt; act: () => void; sub?: Sub[]; special?: boolean };
-              const stOf = (ds: Doc[]): TileSt => ds.length === 0 ? "missing" : ds.some(d => d.status === "rejected") ? "rejected"
+              const stOf = (ds: Doc[]): DocSt => ds.length === 0 ? "missing" : ds.some(d => d.status === "rejected") ? "rejected"
                 : ds.some(d => d.status === "pending") ? "pending" : ds.every(d => d.status === "approved") ? "approved" : "pending";
               const latest = (ds: Doc[]) => [...ds].sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)))[0] ?? null;
               const toLegacy = () => { setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-admin-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); };
               const open = (doc: Doc | null, fallback: () => void) => () => { if (doc) setPreviewDoc(doc); else fallback(); };
               const L3 = (de: string, fr: string, en: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
-              const tilesOf = (pi: number): Tile[] => PHASE_ITEMS[pi].items.flatMap((it): Tile[] => {
-                const ds = getAdminDocs(it.key);
-                if ((it.optional || it.key === "other") && ds.length === 0) return [];
-                const doc = it.key === "other" ? null : latest(ds);
-                const canUpload = it.key !== "letter" && it.key !== "cv_de" && it.key !== "other";
-                const act = it.key === "other" ? toLegacy : open(doc, canUpload ? () => triggerAdminDocUpload(it.key, it.label) : toLegacy);
-                const label = it.key === "langcert" ? L3("Sprachzertifikat", "Certificat de langue", "Language certificate") : it.label;
-                if (it.key === "langcert") {
-                  // the special Deutsch tile: certificate, exam invitation, (partial) result — each its own upload
-                  const sub = (k: string, lbl: string): Sub => {
-                    const xs = getAdminDocs(k);
-                    const dx = latest(xs);
-                    return { label: lbl, st: stOf(xs), act: open(dx, () => triggerAdminDocUpload(k, canonicalDocLabel(k, lang as "de" | "en" | "fr") || lbl)) };
-                  };
-                  return [{ id: it.key, label, st: stOf(ds), act, special: true, sub: [
-                    { label: L3("Zertifikat", "Certificat", "Certificate"), st: stOf(ds), act },
-                    sub("lang_invite", L3("Einladung", "Convocation", "Invitation")),
-                    sub("lang_result", L3("Ergebnis", "Résultat", "Result")),
-                  ] }];
-                }
-                if (!it.transKey) return [{ id: it.key, label, st: stOf(ds), act }];
-                const tds = getAdminDocs(it.transKey);
-                const td = latest(tds);
-                return [{ id: it.key, label, st: stOf(ds), act, sub: [
-                  { label: L3("Original", "Original", "Original"), st: stOf(ds), act },
-                  { de: true, label: L3("Deutsch", "Allemand", "German"), st: stOf(tds), act: open(td, toLegacy) },
-                ] }];
-              });
-              const visa: Tile[] = (phaseSlots["visum"] ?? [])
-                .filter((sl): sl is PhaseSlot => sl != null && !!sl.id)
-                .sort((x, y) => x.position - y.position)
-                .map((sl): Tile => {
-                  const od = getAdminDocs(sl.id);
-                  const doc = latest(od);
-                  const special = !!(sl.candidate_signs || sl.candidate_fills);
-                  const act = special ? toLegacy : open(doc, () => openAdminUploadPicker(sl.id));
-                  if (sl.type !== "dual") return { id: sl.id, label: sl.label, st: stOf(od), act };
-                  const tds = getAdminDocs(sl.id + "_de");
-                  return { id: sl.id, label: sl.label, st: stOf(od), act, sub: [
-                    { label: L3("Original", "Original", "Original"), st: stOf(od), act },
-                    { de: true, label: L3("Deutsch", "Allemand", "German"), st: stOf(tds), act: open(latest(tds), toLegacy) },
-                  ] };
-                });
-              const groups: [string, Tile[]][] = [
-                [L3("Grundlagen", "Essentiels", "Essentials"), tilesOf(0)],
-                [L3("Unterlagen", "Documents", "Documents"), tilesOf(1)],
-                [L3("Visum", "Visa", "Visa"), visa],
-              ];
-              const flat = groups.flatMap(([, ts]) => ts.flatMap((x) => x.sub ? x.sub.map((y) => y.st) : [x.st]));
-              const count = (st: TileSt) => flat.filter((x) => x === st).length;
-              const has = (x: Tile, st: TileSt) => x.sub ? x.sub.some((y) => y.st === st) : x.st === st;
-              const chips: [TileSt, string][] = [
-                ["pending", L3("warten auf Sie", "à vérifier", "waiting for you")],
-                ["rejected", L3("neu hochladen", "à refaire", "to redo")],
-                ["missing", L3("fehlen", "manquent", "missing")],
-                ["approved", L3("fertig", "validés", "done")],
-              ];
-
-              // one tile = one paper; a pair (original + translation) = one tile whose sheets slide down on a tap
-              const DOT: Record<TileSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
-              const worst = (a: TileSt[]): TileSt => a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved";
-              const tileOf = (x: Tile) => {
-                const st = x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st;
-                const isOpen = openTile === x.id;
-                const label = x.label.replace(/(Motivations|Berufs|Studien|Noten|Vorab|Arbeits|Sprach|Bestätigungs)(?=[a-zäöü])/g, "$1­");
-                // step by step (founder 2026-11-11): the tile says only its name + one dot; a pair shows a few tiny dots;
-                // a tap slides its papers down as little sheets (Original · Deutsch), each one tap to open or upload
-                return (
-                  <div key={x.id} className="relative text-center"
-                    style={{ borderRadius: 14, background: x.special ? "rgba(168,132,58,.07)" : "var(--card)", color: "var(--w)", zIndex: isOpen ? 31 : undefined,
-                      border: `1px solid ${isOpen ? "var(--w)" : x.special ? "rgba(168,132,58,.35)" : st === "pending" ? "#fcd9a8" : "var(--border)"}` }}>
-                    <button type="button" onClick={x.sub ? () => setOpenTile(isOpen ? null : x.id) : x.act} title={x.label} aria-expanded={x.sub ? isOpen : undefined}
-                      className="block w-full" style={{ background: "none", border: 0, padding: "14px 10px 12px", color: "inherit", cursor: "pointer", fontFamily: "inherit" }}>
-                      <span className="absolute" style={{ right: 9, top: 9, width: 10, height: 10, borderRadius: "50%", background: DOT[st], border: "2px solid var(--card)" }} />
-                      <span className="block" style={{ fontSize: 13, lineHeight: 1.25, padding: "0 8px", overflowWrap: "break-word", hyphens: "manual" }} lang="de">
-                        {st === "missing" && !x.sub && <span style={{ color: "var(--gold)", marginRight: 5 }}>+</span>}{label}
-                      </span>
-                      {x.sub && (
-                        <span className="flex justify-center" style={{ gap: 4, marginTop: 8 }} aria-hidden="true">
-                          {x.sub.map((y) => <i key={y.label} style={{ width: 6, height: 6, borderRadius: "50%", background: DOT[y.st] }} />)}
-                        </span>
-                      )}
-                    </button>
-                    {x.sub && isOpen && (<>
-                      <div className="fixed inset-0" style={{ zIndex: 30 }} onClick={() => setOpenTile(null)} />
-                      <div className="absolute left-0 right-0 flex justify-center bv-slide" style={{ top: "calc(100% + 6px)", zIndex: 32, gap: 8, padding: 10, borderRadius: 14,
-                        background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 18px 40px -18px rgba(21,19,15,.35)" }}>
-                        <style>{"@keyframes bvSlide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:no-preference){.bv-slide{animation:bvSlide .18s ease-out}}"}</style>
-                        {x.sub.map((y) => (
-                          <button key={y.label} type="button" onClick={() => { setOpenTile(null); y.act(); }} title={`${x.label} · ${y.label}`}
-                            className="flex flex-col items-center" style={{ flex: 1, minWidth: 0, gap: 6, background: "none", border: 0, padding: 0, cursor: "pointer", color: "var(--w2)", fontFamily: "inherit" }}>
-                            <span className="relative grid place-items-center" style={{ width: 44, height: 56, borderRadius: 6,
-                              ...(y.st === "missing" ? { border: "1.5px dashed #d8d0c0", color: "var(--gold)" } : { background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w3)" }) }}>
-                              {y.st === "missing"
-                                ? <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
-                                : y.de ? <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", color: "var(--w2)" }}>DE</span>
-                                : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>}
-                              <i className="absolute" style={{ right: -4, top: -4, width: 10, height: 10, borderRadius: "50%", background: DOT[y.st], border: "2px solid var(--card)" }} />
-                            </span>
-                            <span style={{ fontSize: 10.5, whiteSpace: "nowrap", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{y.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>)}
-                  </div>
-                );
+              const upload = (k: string, lbl: string) => () => triggerAdminDocUpload(k, lbl);
+              const orig = L3("Original", "Original", "Original");
+              const germ = L3("Deutsch", "Allemand", "German");
+              // a paper (one file) or a pair (original + German translation; the translation keeps the old view's upload)
+              const paper = (k: string, label: string, tags: string, trans?: string): DocRow => {
+                const ds = getAdminDocs(k);
+                const act = open(latest(ds), upload(k, label));
+                if (!trans) return { id: k, label, st: stOf(ds), tags, act };
+                const tds = getAdminDocs(trans);
+                return { id: k, label, st: stOf(ds), tags, act, sub: [
+                  { label: orig, st: stOf(ds), act },
+                  { de: true, label: germ, st: stOf(tds), act: open(latest(tds), toLegacy) },
+                ] };
               };
-              // lean (founder 2026-11-11: "people must not get overwhelmed"): only what still needs doing shows as a tile;
-              // finished papers fold into one quiet "✓ n" per section, one tap to see them
-              const doneOf = (x: Tile) => (x.sub && !x.special ? worst(x.sub.map((y) => y.st)) : x.st) === "approved";
-              const section = (title: string, ts: Tile[], on = true) => {
-                if (ts.length === 0) return null;
-                const open = ts.filter((x) => !doneOf(x));
-                const done = ts.length - open.length;
-                const shown = showDone ? ts : open;
-                return (
-                  <div key={title} className="mb-5 bv-sec" data-on={on ? "1" : "0"}>
-                    <style>{".bv-tic{display:none!important}@media (max-width:640px){.bv-sec:not([data-on='1']){display:none}}@media (min-width:641px){.bv-sec-tabs{display:none!important}}"}</style>
-                    <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--w3)" }}>{title}</span>
-                      {done > 0 && (
-                        <button type="button" onClick={() => setShowDone((v) => !v)} aria-pressed={showDone}
-                          className="inline-flex items-center" style={{ gap: 6, background: "none", border: 0, padding: 0, fontSize: 12.5, color: showDone ? "var(--w)" : "var(--w3)", cursor: "pointer" }}>
-                          <span style={{ width: 16, height: 16, borderRadius: "50%", background: "#16a34a", color: "#fff", display: "inline-grid", placeItems: "center", fontSize: 10 }}>✓</span>{done}
-                        </button>
-                      )}
-                    </div>
-                    {shown.length > 0
-                      ? <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(176px, 44%), 1fr))" }}>{shown.map(tileOf)}</div>
-                      : <div style={{ fontSize: 13, color: "var(--w3)", padding: "6px 0" }}>{lang === "de" ? "Alles fertig." : lang === "fr" ? "Tout est prêt." : "All done."}</div>}
-                  </div>
-                );
+              const langDs = getAdminDocs("langcert");
+              const langAct = open(latest(langDs), upload("langcert", t.pTypeLangCert));
+              const langSub = (k: string, lbl: string): DocSub => {
+                const xs = getAdminDocs(k);
+                return { label: lbl, st: stOf(xs), act: open(latest(xs), upload(k, canonicalDocLabel(k, lang as "de" | "en" | "fr") || lbl)) };
               };
+              const langRow: DocRow = { id: "langcert", label: L3("Sprachzertifikat", "Certificat de langue", "Language certificate"), st: stOf(langDs), tags: "AV", act: langAct, special: true, sub: [
+                { label: L3("Zertifikat", "Certificat", "Certificate"), st: stOf(langDs), act: langAct },
+                langSub("lang_invite", L3("Einladung", "Convocation", "Invitation")),
+                langSub("lang_result", L3("Ergebnis", "Résultat", "Result")),
+              ] };
+              const isGlobal = (sl: PhaseSlot) => !(sl as { org_id?: string | null }).org_id && !(sl as { employer_id?: string | null }).employer_id;
+              const slotsOf = (ph: string) => (phaseSlots[ph] ?? []).filter((sl): sl is PhaseSlot => sl != null && !!sl.id).sort((x, y) => x.position - y.position);
+              const slotRow = (sl: PhaseSlot, tags: string, extra: boolean): DocRow => {
+                const od = getAdminDocs(sl.id);
+                const act = (sl.candidate_signs || sl.candidate_fills) ? toLegacy : open(latest(od), () => openAdminUploadPicker(sl.id));
+                if (sl.type !== "dual") return { id: sl.id, label: sl.label, st: stOf(od), tags, act, extra };
+                const tds = getAdminDocs(sl.id + "_de");
+                return { id: sl.id, label: sl.label, st: stOf(od), tags, act, extra, sub: [
+                  { label: orig, st: stOf(od), act },
+                  { de: true, label: germ, st: stOf(tds), act: open(latest(tds), toLegacy) },
+                ] };
+              };
+              const visaSlots = slotsOf("visum");
+              const bearSlots = slotsOf("bearbeitung");
+              const otherDs = getAdminDocs("other");
+              const rows: DocRow[] = [
+                paper("diploma", t.pTypeDiploma, "A", "diploma_de"),
+                paper("transcript", t.pTypeTranscript, "A", "transcript_de"),
+                paper("studyprog", t.pTypeStudyProg, "A", "studyprog_de"),
+                paper("workcert", t.pTypeWorkCert, "A", "workcert_de"),
+                paper("abitur", t.pTypeAbitur, "A", "abitur_de"),
+                paper("abitur_transcript", t.pTypeAbiturTranscript, "A", "abitur_transcript_de"),
+                langRow,
+                paper("impfung", t.pTypeImpfung, "AV", "impfung_de"),
+                paper("work_experience", t.pTypeWorkExp, "A", "work_experience_de"),
+                paper("praktikum", t.pTypePraktikum, "A", "praktikum_de"),
+                paper("defizitbescheid", t.pTypeDefizitbescheid, "AV"),
+                paper("ezb", L3("Erklärung zum Beschäftigungsverhältnis", "Déclaration d’emploi (EZB)", "Employment declaration (EZB)"), "V"),
+                paper("zusatzblatt_a", t.pTypeZusatzblattA, "V"),
+                paper("vorabzustimmung", t.pTypeVorabzustimmung, "V"),
+                paper("arbeitsvertrag", t.pTypeArbeitsvertrag, "V"),
+                paper("videx", t.pTypeVidex, "V"),
+                paper("bildungsplan", t.pTypeBildungsplan, "V"),
+                paper("versicherung", t.pTypeVersicherung, "V"),
+                paper("mawista", t.pTypeMawista, "V"),
+                paper("tls_rechnung", t.pTypeTlsRechnung, "V"),
+                paper("tls_bestaetigungstermin", t.pTypeTlsBestaetigung, "V"),
+                ...(getAdminDocs("berufserfahrung_visum").length ? [paper("berufserfahrung_visum", t.pTypeBerufserfahrungVisum, "V")] : []),
+                ...visaSlots.filter(isGlobal).map((sl) => slotRow(sl, "V", false)),
+                ...bearSlots.filter(isGlobal).map((sl) => slotRow(sl, "A", false)),
+                { id: "other", label: t.pTypeOther, st: otherDs.length ? stOf(otherDs) : "missing", tags: "AV", act: toLegacy },
+                // extras: the agency / employer set this nurse is placed under, then hers alone
+                ...bearSlots.filter((sl) => !isGlobal(sl)).map((sl) => slotRow(sl, "A", true)),
+                ...visaSlots.filter((sl) => !isGlobal(sl)).map((sl) => slotRow(sl, "V", true)),
+                ...docMeta.extras.map((ex): DocRow => {
+                  const ds = getAdminDocs(ex.id);
+                  return { id: ex.id, label: ex.label, st: stOf(ds), tags: ex.phase, extra: true, act: open(latest(ds), () => openAdminUploadPicker(ex.id)),
+                    onRemove: ds.length === 0 ? () => { if (window.confirm(L3(`„${ex.label}“ entfernen?`, `Retirer « ${ex.label} » ?`, `Remove “${ex.label}”?`))) void docMeta.remove(ex.id); } : undefined };
+                }),
+              ];
+              const keys: DocKey[] = [
+                { id: "id", label: t.pTypeID, st: stOf(getAdminDocs("id")), act: open(latest(getAdminDocs("id")), upload("id", t.pTypeID)) },
+                { id: "cv", label: t.pTypeCVde, st: stOf(getAdminDocs("cv_de")), spark: true, act: () => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank") },
+                { id: "letter", label: t.pTypeLetter, st: stOf(getAdminDocs("letter")), spark: true, act: () => window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank") },
+              ];
               return (
-                <section id="bv-admin-tiles" className="mt-6" style={{ scrollMarginTop: 80 }}>
-                  <div className="flex items-center gap-3 flex-wrap mb-4">
-                    <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, color: "var(--w)" }}>{L3("Unterlagen", "Documents", "Documents")}</h2>
-                    <div className="flex flex-wrap gap-2 ml-auto">
-                      {chips.filter(([st]) => st === "pending" && count(st) > 0).map(([st, label]) => {
-                        const on = tileFilter === st;
-                        return (
-                          <button key={st} type="button" onClick={() => setTileFilter(on ? "" : st)} aria-pressed={on} className="inline-flex items-center gap-2"
-                            style={{ padding: "5px 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer", border: `1px solid ${on ? DOT[st] : "var(--border)"}`, background: on ? "var(--bg2)" : "var(--card)", color: "var(--w)" }}>
-                            <i style={{ width: 8, height: 8, borderRadius: "50%", background: DOT[st] }} />{count(st)}<span className="hidden sm:inline">&nbsp;{label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button type="button" onClick={() => setAdminDocsOpen(false)} aria-label={L3("Schließen", "Fermer", "Close")}
-                      style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
-                  </div>
-                  <div className="bv-sec-tabs flex gap-1.5 mb-3">
-                    {groups.filter(([, ts]) => ts.length > 0).map(([title], i) => (
-                      <button key={title} type="button" onClick={() => setDocSec(i)} style={{ height: 32, padding: "0 12px", borderRadius: 999, border: `1px solid ${docSec === i ? "var(--w)" : "var(--border)"}`, background: docSec === i ? "var(--w)" : "var(--card)", color: docSec === i ? "var(--bg)" : "var(--w2)", fontSize: 12.5, cursor: "pointer" }}>{title}</button>
-                    ))}
-                  </div>
-                  {groups.filter(([, ts]) => ts.length > 0).map(([title, ts], i) => section(title, tileFilter ? ts.filter((x) => has(x, tileFilter as TileSt)) : ts, i === docSec))}
-                  <div className="text-right">
-                    <button type="button" onClick={() => (legacyDocs ? setLegacyDocs(false) : toLegacy())}
-                      style={{ background: "none", border: 0, padding: 0, fontSize: 12.5, color: "var(--w3)", cursor: "pointer" }}>
-                      {legacyDocs ? L3("Alte Ansicht schließen", "Fermer l’ancienne vue", "Close the old view") : L3("Alte Ansicht", "Ancienne vue", "Old view")}
-                    </button>
-                  </div>
-                </section>
+                <div id="bv-admin-tiles">
+                  <DocList lang={lang} keys={keys} rows={rows} mode={docMeta.mode} onMode={docMeta.setMode} onAdd={docMeta.add}
+                    onClose={() => setAdminDocsOpen(false)} onLegacy={() => (legacyDocs ? setLegacyDocs(false) : toLegacy())} legacyOpen={legacyDocs} />
+                </div>
               );
             })()}
 

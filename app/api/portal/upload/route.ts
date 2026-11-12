@@ -1,3 +1,4 @@
+import { extraDocLabel } from "@/lib/facility/extraDocs";
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
@@ -954,7 +955,7 @@ export async function POST(req: NextRequest) {
     const dbForSlot = getServiceSupabase();
     const { data: slotRow } = await dbForSlot
       .from("phase_slots").select("label").eq("id", fileKey).maybeSingle();
-    const label = (slotRow as { label?: string | null } | null)?.label ?? "dokument";
+    const label = (slotRow as { label?: string | null } | null)?.label ?? (await extraDocLabel(fileKey)) ?? "dokument";
     const slug = slugifyGerman(label);
     const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
     const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
@@ -1159,7 +1160,7 @@ export async function POST(req: NextRequest) {
   if (UPLOAD_UUID_RE.test(fileType)) {
     const { data: slotRow } = await db
       .from("phase_slots").select("label").eq("id", fileType).maybeSingle();
-    const slotLabel = (slotRow as { label?: string | null } | null)?.label;
+    const slotLabel = (slotRow as { label?: string | null } | null)?.label ?? (await extraDocLabel(fileType));
     if (slotLabel) notifDocType = slotLabel;
   }
   // Only candidate-originated uploads notify admins. ANY admin tier (supreme /

@@ -102,6 +102,24 @@ const DDL = [
     updated_at TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT ''
   )`,
+  // extra papers for ONE nurse, added by her admins (founder 2026-11-12: one general list for all; agency /
+  // employer extras per nurse). Uploads use the row id as their file key, like a phase slot (app/api/portal/doclist)
+  `CREATE TABLE IF NOT EXISTS fx_extra_docs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'A',
+    created_at TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT ''
+  )`,
+  `CREATE INDEX IF NOT EXISTS fx_extra_docs_user ON fx_extra_docs (user_id)`,
+  // the papers filter (Alle · Anerkennung · Visum) that stays: key = "<nurse>:admin" (shared by her admins) or "<nurse>:self"
+  `CREATE TABLE IF NOT EXISTS fx_docview (
+    key TEXT PRIMARY KEY,
+    mode TEXT NOT NULL DEFAULT 'all',
+    updated_at TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+  )`,
   // the visa of a portal user (nurse): when handed in, the guide's ticked steps (app/api/portal/visa)
   `CREATE TABLE IF NOT EXISTS fx_visa (
     user_id TEXT PRIMARY KEY,
@@ -112,7 +130,7 @@ const DDL = [
   )`,
 ];
 
-const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks"];
+const TABLES = ["fx_geo", "fx_places", "fx_orgs", "fx_arrival", "fx_visa", "fx_move", "fx_settle", "fx_lang", "fx_marks", "fx_extra_docs", "fx_docview"];
 
 let ready: Promise<void> | null = null;
 let readyFor: D1Runner | null = null;
