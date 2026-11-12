@@ -1,5 +1,6 @@
 "use client";
 
+import { Wordmark } from "@/components/Wordmark";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PdfViewer } from "@/components/PdfViewer";
@@ -85,8 +86,8 @@ function Viewer() {
     // borivon.com look (content/pflege/bv.css): a night reading room, paper accents, square corners
     <div style={{ background: "#12110e", minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px clamp(12px,3vw,28px)", borderBottom: "1px solid #2c2924", flexWrap: "wrap" }}>
-        <a href="/" style={{ fontFamily: "var(--font-serif-v), Georgia, serif", fontStyle: "italic", fontWeight: 500, fontSize: 24, color: "#f4efe4", textDecoration: "none" }}>
-          Borivon<span style={{ color: "#d4b676", fontStyle: "normal" }}>.</span>
+        <a href="/" style={{ textDecoration: "none", lineHeight: 1 }}>
+          <Wordmark size={24} color="#f4efe4" dot="#d4b676" />
         </a>
         <div style={{ display: "flex", gap: 2, border: "1px solid #2c2924", borderRadius: 4, padding: 3 }}>
           {tab("plan", T.plan)}{tab("bonus", T.bonus)}

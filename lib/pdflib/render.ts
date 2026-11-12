@@ -29,6 +29,7 @@ import {
   clip,
   endPath,
   type RGB,
+  type PDFEmbeddedPage,
 } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { loadPublicAsset } from "./assets";
@@ -116,6 +117,37 @@ export async function embedFonts(
     out[f] = wrapDocFont(pdf);
   }
   return out;
+}
+
+// ── The Borivon wordmark (one logo everywhere, founder 2026-11-12) ────────────
+// public/brand/wordmark.pdf is the homepage logo (content/pflege/bv.css .logo: EB Garamond italic 500,
+// letter-spacing -.01em, the dot upright bold gold) printed by Chrome at 100px — vector, exact.
+// Its page = the logo plus padding 14 / 10 / 24 / 10 px; 1 px = 0.75 pt, so the font size is 75 pt.
+const WM_FONT_PT = 75;
+const WM_PAD_TOP_PT = 14 * 0.75;
+const WM_PAD_X_PT = 10 * 0.75;
+const wordmarkByDoc = new WeakMap<PDFDocument, Promise<PDFEmbeddedPage>>();
+
+/** Draw the wordmark at font size `size` (pt), its text top at `top` (top-origin), centred on `cx`
+ *  or ending at `right` or starting at `left`. Embeds the vector logo once per document. */
+export async function drawWordmark(
+  doc: PDFDocument,
+  s: Surface,
+  o: { size: number; top: number; cx?: number; right?: number; left?: number },
+): Promise<{ width: number; height: number }> {
+  let p = wordmarkByDoc.get(doc);
+  if (!p) {
+    p = loadPublicAsset("brand/wordmark.pdf").then((b) => doc.embedPdf(b, [0])).then(([e]) => e);
+    wordmarkByDoc.set(doc, p);
+  }
+  const emb = await p;
+  const k = o.size / WM_FONT_PT;
+  const w = emb.width * k;
+  const h = emb.height * k;
+  const x = o.cx != null ? o.cx - w / 2 : o.right != null ? o.right - w + WM_PAD_X_PT * k : (o.left ?? 0) - WM_PAD_X_PT * k;
+  const yTop = o.top - WM_PAD_TOP_PT * k;
+  s.page.drawPage(emb, { x, y: s.height - yTop - h, width: w, height: h });
+  return { width: w - 2 * WM_PAD_X_PT * k, height: h };
 }
 
 // ── Surface (top-origin drawing over a pdf-lib page) ──────────────────────────

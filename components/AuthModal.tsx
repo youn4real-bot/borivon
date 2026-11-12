@@ -1,5 +1,6 @@
 "use client";
 
+import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -319,10 +320,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 
           {/* Logo */}
           <div className="text-center mb-7">
-            <span className="font-[family-name:var(--font-dm-serif)] italic"
-              style={{ fontSize: "1.9rem", color: "var(--w)", letterSpacing: "-0.01em" }}>
-              Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-            </span>
+            <Wordmark size="1.9rem" />
           </div>
 
           {checkEmail ? (

@@ -1,4 +1,5 @@
 "use client";
+import { Wordmark } from "@/components/Wordmark";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLang } from "./LangContext";
@@ -110,8 +111,8 @@ export function Footer() {
       <footer className="relative z-10 bg-bg2 border-t border-border px-4 sm:px-[3.5vw] pt-8 sm:pt-[2.5rem] pb-4 flex flex-col gap-4">
         {/* Main row */}
         <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-0">
-          <div className="flex-1 sm:text-left font-[family-name:var(--font-dm-serif)] text-[1.15rem] italic text-w">
-            Borivon<span className="text-gold not-italic">.</span>
+          <div className="flex-1 sm:text-left">
+            <Wordmark size="1.15rem" />
           </div>
 
           <nav className="flex-1 flex justify-center gap-[4px] flex-wrap" aria-label="Legal links">

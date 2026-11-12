@@ -11,7 +11,7 @@
  * virtually always one page); the footer is drawn once, on the last page.
  */
 import { PDFDocument, PageSizes } from "pdf-lib";
-import { embedFonts, hexColor, wrapText, Surface, type DocFont } from "./render";
+import { drawWordmark, embedFonts, hexColor, wrapText, Surface, type DocFont } from "./render";
 
 // Type-only import — erased at compile, so the @react-pdf-importing component is
 // NEVER pulled into the Workers bundle.
@@ -125,11 +125,8 @@ export async function renderPassportDataPdf(opts: {
   // ── Footer (last page, pinned bottom) ──
   s.hline(padX, padX + contentW, footerTop, RULE, 1);
   const rowTop = footerTop + 1 + 12; // border + paddingTop
-  const wB = dmSerif.widthOf("Borivon", 14);
-  const wDot = dmSerif.widthOf(".", 14);
-  const logoX = padX + contentW - (wB + wDot);
-  s.text("Borivon", logoX, rowTop, dmSerif, 14, DARK);
-  s.text(".", logoX + wB, rowTop, dmSerif, 14, GOLD);
+  // one logo everywhere: exactly the homepage wordmark, right-aligned (founder 2026-11-12)
+  await drawWordmark(doc, s, { size: 14, top: rowTop, right: padX + contentW });
 
   const now = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
   const noteText = `Generated ${now}`;

@@ -1,5 +1,6 @@
 "use client";
 
+import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -160,8 +161,7 @@ function CallbackInner() {
       <main className="min-h-screen flex items-center justify-center px-4"
         style={{ background: "var(--bg, #161614)" }}>
         <div className="w-full max-w-sm text-center">
-          <p className="text-[1.05rem] font-semibold tracking-[0.18em] uppercase mb-7"
-            style={{ color: "var(--gold, #c9a240)" }}>Borivon</p>
+          <p className="mb-7"><Wordmark size="1.9rem" /></p>
           <p className="text-[13.5px] mb-6" style={{ color: "rgba(238,236,234,0.55)" }}>{error}</p>
           <a href="/portal" className="text-sm underline underline-offset-4"
             style={{ color: "var(--gold, #c9a240)" }}>
@@ -176,8 +176,7 @@ function CallbackInner() {
     <main className="min-h-screen flex items-center justify-center"
       style={{ background: "var(--bg, #161614)" }}>
       <div className="text-center">
-        <p className="text-[1.05rem] font-semibold tracking-[0.18em] uppercase mb-7"
-          style={{ color: "var(--gold, #c9a240)" }}>Borivon</p>
+        <p className="mb-7"><Wordmark size="1.9rem" /></p>
         <div className="flex justify-center"><Spinner size="lg" /></div>
         <p className="mt-4 text-[12.5px]" style={{ color: "rgba(238,236,234,0.5)" }}>
           {cbT.verifying}
@@ -192,8 +191,7 @@ function CallbackFallback() {
     <main className="min-h-screen flex items-center justify-center"
       style={{ background: "var(--bg, #161614)" }}>
       <div className="text-center">
-        <p className="text-[1.05rem] font-semibold tracking-[0.18em] uppercase mb-7"
-          style={{ color: "var(--gold, #c9a240)" }}>Borivon</p>
+        <p className="mb-7"><Wordmark size="1.9rem" /></p>
         <div className="flex justify-center"><Spinner size="lg" /></div>
       </div>
     </main>

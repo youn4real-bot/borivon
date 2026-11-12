@@ -16,6 +16,7 @@ import { PDFDocument, PageSizes } from "pdf-lib";
 import {
   embedFonts,
   embedDataUriImage,
+  drawWordmark,
   hexColor,
   measure,
   wrapText,
@@ -69,14 +70,10 @@ export async function renderCvPdf(data: CVData, brand?: CVBrand): Promise<Uint8A
     "Inter-Regular-pdf.ttf",
     "Inter-Medium-pdf.ttf",
     "Inter-SemiBold-pdf.ttf",
-    "EBGaramond-Italic-pdf.ttf",
-    "EBGaramond-Medium-pdf.ttf",
   ]);
   const reg = f["Inter-Regular-pdf.ttf"];
   const semi = f["Inter-Medium-pdf.ttf"];
   const bold = f["Inter-SemiBold-pdf.ttf"];
-  const gItal = f["EBGaramond-Italic-pdf.ttf"];
-  const gUp = f["EBGaramond-Medium-pdf.ttf"];
 
   const [PW, PH] = PageSizes.A4;
   const padL = 44;
@@ -432,12 +429,8 @@ export async function renderCvPdf(data: CVData, brand?: CVBrand): Promise<Uint8A
         if (w > 240) { w = 240; h = 240 * (logo.height / logo.width); }
         s.image(logo.image, PW / 2 - w / 2, 18, w, h);
       } else {
-        // the logo = the homepage wordmark (EB Garamond italic + gold dot); all text is Inter (founder 2026-11-12)
-        const wB = gItal.widthOf("Borivon", 24);
-        const wDot = gUp.widthOf(".", 24);
-        const lx = PW / 2 - (wB + wDot) / 2;
-        s.text("Borivon", lx, 16, gItal, 24, DARK);
-        s.text(".", lx + wB, 16, gUp, 24, GOLD);
+        // the logo = exactly the homepage wordmark (vector, public/brand/wordmark.pdf); all text is Inter (founder 2026-11-12)
+        await drawWordmark(doc, s, { size: 24, top: 16, cx: PW / 2 });
       }
       // Footer lines (centered, pinned to bottom)
       const fLineH = lineAdv(7.5, 1.55);

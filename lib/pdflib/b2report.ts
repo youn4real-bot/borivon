@@ -8,7 +8,7 @@
  * layout so the Workers output matches Vercel.
  */
 import { PDFDocument, PageSizes } from "pdf-lib";
-import { embedFonts, hexColor, Surface, wrapText } from "./render";
+import { drawWordmark, embedFonts, hexColor, Surface, wrapText } from "./render";
 import { B2_STAGE_BY_KEY, type B2Stage } from "@/lib/b2Journey";
 import type { B2ReportRow } from "@/components/B2ReportDocument";
 
@@ -35,10 +35,9 @@ const statusDe = (stage: B2Stage): string =>
 
 export async function renderB2ReportPdf(rows: B2ReportRow[], generatedAt: string): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const f = await embedFonts(doc, ["Lexend-Regular.ttf", "Lexend-Bold.ttf", "DMSerifDisplay-Italic.ttf"]);
+  const f = await embedFonts(doc, ["Lexend-Regular.ttf", "Lexend-Bold.ttf"]);
   const reg = f["Lexend-Regular.ttf"];
   const bold = f["Lexend-Bold.ttf"];
-  const serif = f["DMSerifDisplay-Italic.ttf"];
 
   const [PW, PH] = PageSizes.A4;
   const padL = 44;
@@ -174,11 +173,8 @@ export async function renderB2ReportPdf(rows: B2ReportRow[], generatedAt: string
 
   // ── Per-page chrome ──
   for (const s of pages) {
-    const wB = serif.widthOf("Borivon", 22);
-    const wDot = serif.widthOf(".", 22);
-    const lx = PW / 2 - (wB + wDot) / 2;
-    s.text("Borivon", lx, 18, serif, 22, DARK);
-    s.text(".", lx + wB, 18, serif, 22, GOLD);
+    // one logo everywhere: exactly the homepage wordmark (founder 2026-11-12)
+    await drawWordmark(doc, s, { size: 22, top: 18, cx: PW / 2 });
     const fLineH = adv(7.5, 1.55);
     s.text("contact@borivon.com", PW / 2 - reg.widthOf("contact@borivon.com", 7.5) / 2, PH - 11 - fLineH, reg, 7.5, FOOTER_COLOR);
   }

@@ -11,6 +11,7 @@
  *   routed into the portal.
  */
 
+import { Wordmark as BvWordmark } from "@/components/Wordmark";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -40,9 +41,7 @@ type Doc = { key: string; uploaded: boolean };
 function Wordmark() {
   return (
     <div style={{ textAlign: "center", marginBottom: 20 }}>
-      <span style={{ fontFamily: "var(--font-dm-serif), Georgia, serif", fontStyle: "italic", fontSize: 26, letterSpacing: "-0.01em", color: "var(--w)" }}>
-        Borivon<span style={{ color: "var(--gold)", fontStyle: "normal" }}>.</span>
-      </span>
+      <BvWordmark size={26} />
     </div>
   );
 }

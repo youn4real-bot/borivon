@@ -1,5 +1,6 @@
 "use client";
 
+import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -177,9 +178,8 @@ export default function JoinPage() {
   const Shell = ({ children }: { children: React.ReactNode }) => (
     <main className="min-h-screen flex flex-col items-center justify-center px-4"
       style={{ background: "var(--bg)" }}>
-      <p className="text-[22px] font-semibold italic mb-10 tracking-tight"
-        style={{ fontFamily: "var(--font-dm-serif)", color: "var(--w)" }}>
-        Borivon<span style={{ color: "var(--gold)" }}>.</span>
+      <p className="mb-10">
+        <Wordmark size={22} />
       </p>
       <div className="w-full max-w-[400px] text-center">
         {children}
@@ -260,9 +260,8 @@ export default function JoinPage() {
       <div className="w-full max-w-[400px]">
 
         {/* Logo */}
-        <p className="text-center text-[22px] font-semibold italic mb-10 tracking-tight"
-          style={{ fontFamily: "var(--font-dm-serif)", color: "var(--w)" }}>
-          Borivon<span style={{ color: "var(--gold)" }}>.</span>
+        <p className="text-center mb-10">
+          <Wordmark size={22} />
         </p>
 
         {/* Card */}

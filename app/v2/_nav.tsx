@@ -10,6 +10,7 @@
  * background/shadow under the page's continuous aurora → no stale-paint). Height
  * steps once at the threshold. Reduced-motion users just get the instant toggle.
  */
+import { Wordmark as BvWordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -32,9 +33,9 @@ const LANGS: { code: Lang; flag: string; label: string }[] = [
 
 function Wordmark() {
   return (
-    // Same wordmark as the portal Navbar: Playfair italic 400 + upright gold dot.
-    <Link href="/v2" aria-label="Borivon" className="select-none" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 400, fontSize: "clamp(1.15rem, 3.5vw, 1.4rem)", color: "var(--w)" }}>
-      Borivon<span style={{ color: "var(--gold)", fontStyle: "normal" }}>.</span>
+    // the one logo (= the homepage wordmark)
+    <Link href="/v2" aria-label="Borivon" className="select-none" style={{ lineHeight: 1 }}>
+      <BvWordmark size="clamp(1.15rem, 3.5vw, 1.4rem)" />
     </Link>
   );
 }
@@ -194,9 +195,7 @@ export function V2Footer() {
       <div className="mx-auto max-w-[1200px]">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
-            <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "1.5rem", color: "var(--w)" }}>
-              Borivon<span style={{ color: "var(--gold)" }}>.</span>
-            </span>
+            <BvWordmark size="1.5rem" />
             <p className="mt-2.5" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "1.05rem", color: "var(--gold)" }}>{MOTTO}</p>
           </div>
           <div>

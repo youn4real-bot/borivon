@@ -17,6 +17,7 @@
  * mode is supported but the dashboard button won't show).
  */
 
+import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X as XIcon } from "lucide-react";
@@ -182,8 +183,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
               <div className="mt-3 flex justify-center">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full"
                   style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-                  <span className="font-[family-name:var(--font-dm-serif)] italic"
-                    style={{ color: "var(--w2)" }}>Borivon<span style={{ color: "var(--gold)" }}>.</span></span>
+                  <Wordmark size="1.1em" color="var(--w2)" />
                   ·
                   <span>{lang === "de" ? "Verifiziertes Profil" : lang === "en" ? "Verified profile" : "Profil vérifié"}</span>
                 </span>

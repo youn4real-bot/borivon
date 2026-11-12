@@ -6,6 +6,7 @@
  * URL IS the key. Read-only, no candidate PII — just the affiliate's own
  * numbers. Simple yet clear.
  */
+import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Copy, Check, Link2, Users, Plane, Wallet, Loader2, MessageCircle } from "lucide-react";
@@ -66,8 +67,8 @@ export default function AffiliateDashboard() {
     <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--w)" }}>
       {/* Minimal header (portal chrome is suppressed on /affiliate) */}
       <header className="flex items-center justify-between px-5 sm:px-8 h-[58px] border-b" style={{ borderColor: "var(--border)", background: "var(--nav-bg)" }}>
-        <span className="font-[family-name:var(--font-dm-serif)] italic" style={{ fontSize: "1.3rem", color: "var(--w)" }}>
-          Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
+        <span>
+          <Wordmark size="1.3rem" />
           <span className="not-italic ml-2 align-middle text-[11px] font-semibold tracking-wide" style={{ color: "var(--w3)" }}>{L("AFFILIATE", "AFFILIÉ", "AFFILIATE")}</span>
         </span>
         <div className="flex gap-1">

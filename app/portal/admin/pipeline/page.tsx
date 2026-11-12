@@ -9,6 +9,7 @@
  * Read-only overview; edits happen in the candidate's journey checklist.
  */
 
+import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -1190,7 +1191,7 @@ export default function AdminPipelinePage() {
               {/* Brand header — Borivon, never an individual admin (LAW). */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, paddingBottom: 14, borderBottom: "2px solid var(--gold)" }}>
                 <div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: "var(--gold)", letterSpacing: -0.5 }}>Borivon</div>
+                  <div style={{ lineHeight: 1 }}><Wordmark size={24} /></div>
                   <div style={{ fontSize: 11, color: "var(--w3)" }}>{T("Vetted nursing candidate", "Geprüfte Pflegekraft", "Candidat infirmier vérifié")}</div>
                 </div>
                 {peek.sellable?.sellable && (

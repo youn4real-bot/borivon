@@ -3,6 +3,7 @@
 /** Landing at affiliates.borivon.com (no token). Points affiliates to their
  *  private dashboard link. Its own chrome (global navbar is suppressed on the
  *  affiliate subdomain). Translated FR/EN/DE with a self-contained toggle. */
+import { Wordmark } from "@/components/Wordmark";
 import { useState } from "react";
 import { Link2, Mail, LogIn } from "lucide-react";
 
@@ -15,8 +16,8 @@ export default function AffiliateLanding() {
   return (
     <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--w)", display: "flex", flexDirection: "column" }}>
       <header className="flex items-center justify-between px-5 sm:px-8 h-[58px] border-b" style={{ borderColor: "var(--border)", background: "var(--nav-bg)" }}>
-        <span className="font-[family-name:var(--font-dm-serif)] italic" style={{ fontSize: "1.3rem" }}>
-          Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
+        <span>
+          <Wordmark size="1.3rem" />
           <span className="not-italic ml-2 align-middle text-[11px] font-semibold tracking-wide" style={{ color: "var(--w3)" }}>{L("AFFILIATE", "AFFILIÉ", "AFFILIATE")}</span>
         </span>
         <div className="flex gap-1">

@@ -1,5 +1,7 @@
 "use client";
 
+import { Wordmark } from "@/components/Wordmark";
+import { BvLoader } from "@/components/ui/BvLoader";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -495,7 +497,7 @@ function PortalPageInner() {
   if (checkingSession) {
     return (
       <main className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
-        <span className="w-7 h-7 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} aria-label="Loading" />
+        <BvLoader />
       </main>
     );
   }
@@ -574,10 +576,7 @@ function PortalPageInner() {
 
           {/* Logo */}
           <div className="text-center mb-8">
-            <span className="font-[family-name:var(--font-dm-serif)] italic"
-              style={{ fontSize: "2rem", color: "var(--w)", letterSpacing: "-0.01em" }}>
-              Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-            </span>
+            <Wordmark size="2rem" />
           </div>
 
           {/* Title */}

@@ -1,4 +1,5 @@
 "use client";
+import { Wordmark } from "@/components/Wordmark";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -323,8 +324,8 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
         <div className="flex items-center gap-1">
           {/* The homepage logo, always (same type as borivon.com: EB Garamond italic, gold upright dot) */}
           <a href="/" className="no-underline hover:opacity-80 transition-opacity" aria-label="Borivon — Startseite"
-            style={{ font: "italic 500 1.5rem/1 var(--font-serif)", letterSpacing: "-.01em", color: "var(--w)", marginRight: portalTabs ? 18 : 0 }}>
-            Borivon<b style={{ fontStyle: "normal", fontWeight: 500, color: "var(--gold)" }}>.</b>
+            style={{ lineHeight: 1, marginRight: portalTabs ? 18 : 0 }}>
+            <Wordmark />
           </a>
           {/* Portal pages: Dashboard + Kalender beside the logo */}
           {portalTabs ? (

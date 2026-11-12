@@ -941,16 +941,17 @@ html.bv-embedded, html.bv-embedded body { min-height: 0 !important; height: auto
   color: var(--w3);
 }
 
+/* the one logo (= the homepage .logo): EB Garamond italic 500 + upright bold gold dot */
 .bv-wordmark {
   font-family: var(--font-display);
   font-style: italic;
-  font-weight: 400;
+  font-weight: 500;
   font-size: clamp(1.15rem, 3.5vw, 1.4rem);
   letter-spacing: -0.01em;
   color: var(--w);
   text-decoration: none;
 }
-.bv-wordmark-dot { color: var(--gold); font-style: normal; }
+.bv-wordmark-dot { color: var(--gold); font-style: normal; font-weight: 700; }
 
 .bv-num {
   font-family: var(--font-sans);
