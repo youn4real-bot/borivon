@@ -10,6 +10,7 @@ import {
 import type { LangInfo, Marks } from "@/lib/facility/track";
 import { LangCard, ContractCard, KpCard, KeyPapers, DatePick } from "./WayMore";
 import { TalkView, useTalk, talkDays } from "./Talk";
+import { ProfileCard } from "./Profile";
 
 /**
  * The nurse's whole way, as the approved premium mock (founder 2026-11-11: "less is more, visuals,
@@ -55,6 +56,7 @@ const PATH: Record<string, string> = {
   ear: "M6 8.5a6 6 0 1 1 12 0c0 6-6 6-6 10a3 3 0 0 1-6 0M9 9a3 3 0 0 1 6 0",
   pen: "M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z",
   talk: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 9h8M8 13h5",
+  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
 };
 export function WayIcon({ k, size = 20, stroke = 1.5 }: { k: string; size?: number; stroke?: number }) {
   return (
@@ -259,7 +261,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
   const l = useL();
   const t = W[l];
   const { d, way, put, toggle } = useWay();
-  const [view, setView] = useState<"home" | "steps" | "lang" | "talk">("home");
+  const [view, setView] = useState<"home" | "steps" | "lang" | "talk" | "profile">("home");
   // her next job interview (founder 2026-11-12, "Gespräche" sample 3): a button only while one is coming up
   const { talk } = useTalk();
   const talkSoon = !!talk && (talkDays(talk.at) ?? -1) >= 0;
@@ -296,6 +298,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
           )}
           {view === "lang" && d?.input.lang && <LangCard lang={d.input.lang} b2={d.input.b2} full={false} canEdit today={d.today} onSave={(p) => put("lang", p)} />}
           {view === "talk" && <div className="bw-card"><TalkView /></div>}
+          {view === "profile" && <div className="bw-card"><ProfileCard name={name} photo={d?.photo ?? null} cvHref="/portal/cv-builder" /></div>}
         </div>
       )}
       {way && view === "home" && (
@@ -338,6 +341,10 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
                 <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k="papers" size={16} /></span>{t.papers}
               </button>
             )}
+            {/* her profile card, as the Einrichtungen see it (founder 2026-11-12, "Profil" sample 1) */}
+            <button type="button" onClick={() => setView("profile")} style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>
+              <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k="user" size={16} /></span>{l === "de" ? "Profil" : l === "fr" ? "Profil" : "Profile"}
+            </button>
           </div>
         </div>
       )}
@@ -404,7 +411,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
   const t = W[l];
   const { d, way, toggle, put, setDate } = useWay(userId);
   const [flatOpen, setFlatOpen] = useState(true);
-  const [panel, setPanel] = useState<"now" | "home" | "contract" | "lang" | "kp" | "talk">("now");
+  const [panel, setPanel] = useState<"now" | "home" | "contract" | "lang" | "kp" | "talk" | "profile">("now");
   if (!d || !way) return null;
   const cur = way.stations.find((s) => s.key === way.now)!;
   const docs = d.input.docs;
@@ -431,6 +438,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
           { k: "contract", icon: "contract", label: l === "de" ? "Vertrag" : l === "fr" ? "Contrat" : "Contract", badge: marks?.contract ? "✓" : undefined, on: !way.landed && !!marks },
           { k: "lang", icon: "lang", label: t.lang, on: !!d.input.lang },
           { k: "talk", icon: "talk", label: l === "de" ? "Gespräch" : l === "fr" ? "Entretien" : "Interview", on: canEdit && !way.landed },
+          { k: "profile", icon: "user", label: l === "de" ? "Profil" : l === "fr" ? "Profil" : "Profile", on: true },
           { k: "kp", icon: "kp", label: l === "de" ? "Kenntnisprüfung" : l === "fr" ? "Examen" : "Knowledge test", on: !!marks && (way.landed || !!marks.kp_date) },
         ];
         const shown = tabs.filter((x) => x.on);
@@ -512,6 +520,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
             {cur2 === "contract" && marks && <ContractCard marks={marks} canEdit={canEdit} onSave={(p) => put("marks", p)} />}
             {cur2 === "lang" && d.input.lang && <LangCard lang={d.input.lang} b2={b2} full={canEdit} canEdit={canEdit} today={d.today} onSave={(p) => put("lang", p)} />}
             {cur2 === "talk" && <div className="bw-card"><TalkView userId={userId} /></div>}
+            {cur2 === "profile" && <div className="bw-card"><ProfileCard userId={userId} name={name} photo={d.photo ?? null} cvHref={`/portal/cv-builder?candidateId=${userId}`} /></div>}
             {cur2 === "kp" && marks && <KpCard marks={marks} canEdit={canEdit} today={d.today} onSave={(p) => put("marks", p)} />}
           </>
         );
