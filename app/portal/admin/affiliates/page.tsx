@@ -11,9 +11,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import {
-  ArrowLeft, Plus, Copy, Check, Loader2, RefreshCw, Play, Pause, Link2, KeyRound, Users, ChevronDown, MessageCircle,
+  Plus, Copy, Check, Loader2, RefreshCw, Play, Pause, Link2, KeyRound, Users, ChevronDown, MessageCircle,
 } from "lucide-react";
 import { normalizeWaPhone, isValidWaPhone, waMeUrl } from "@/lib/waLink";
+import { Modal } from "@/components/ui/Modal";
+import { PageHead, Btn, Card, Field, Empty, Dot, Pager, usePaged, STATUS_TINT } from "@/components/fx/kit";
 
 type Affiliate = {
   id: string; code: string; name: string; email: string | null; phone: string | null;
@@ -46,6 +48,8 @@ export default function AdminAffiliatesPage() {
 
   // per-row commission edits
   const [commEdit, setCommEdit] = useState<Record<string, string>>({});
+  // the one design: which partner's actions popup is open (view only)
+  const [openId, setOpenId] = useState<string | null>(null);
 
   // "who referred whom" — expandable per affiliate (supreme-only, loaded on demand)
   type Referral = { name: string; arrived: boolean; status: string | null };
@@ -139,204 +143,258 @@ export default function AdminAffiliatesPage() {
     setBusy("");
   };
 
-  const card: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" };
-  const input: React.CSSProperties = { background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--w)", padding: "10px 12px", fontSize: 13, width: "100%" };
+  const open = rows.find((a) => a.id === openId) ?? null;
+  const short = (u: string) => u.replace(/^https?:\/\//, "");
+  const alertRow = (text: string) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.pending, fontSize: 13, color: "var(--w)" }}>
+      <Dot st="pending" />{text}
+    </div>
+  );
 
+  // the one design (founder 2026-11-13): serif head, one black "new" pill, the partners as hairline rows that flip,
+  // the owed sum big in serif; every per-partner action + the forms in the universal popup (LAW #36)
   return (
     <div id="bv-main" style={{ minHeight: "100dvh", background: "var(--bg)" }}>
-      <div className="mx-auto w-full max-w-[860px] px-4 sm:px-6 py-6">
-        <button onClick={() => router.push("/portal/admin")} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold mb-4" style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-          <ArrowLeft size={15} /> {L("Back", "Retour", "Zurück")}
-        </button>
-
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h1 className="text-[21px] font-bold tracking-tight" style={{ color: "var(--w)" }}>{L("Affiliates", "Affiliés", "Affiliates")}</h1>
-            <p className="text-[12.5px] mt-0.5" style={{ color: "var(--w3)" }}>{L("Referral partners · you pay a fixed € per nurse placed in Germany.", "Partenaires · vous payez un montant fixe par infirmière placée en Allemagne.", "Empfehlungspartner · fester € pro in Deutschland vermittelter Pflegekraft.")}</p>
-          </div>
-          {!forbidden && (
-            <button onClick={() => { setShowForm((v) => !v); setCreated(null); }} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-semibold flex-shrink-0" style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: "pointer" }}>
-              <Plus size={15} /> {L("New affiliate", "Nouvel affilié", "Neuer Affiliate")}
-            </button>
-          )}
-        </div>
+      <div className="mx-auto w-full px-4 sm:px-6 py-6" style={{ maxWidth: 760, paddingTop: 88 }}>
+        <PageHead back={{ label: L("Back", "Retour", "Zurück"), onClick: () => router.push("/portal/admin") }}
+          title={L("Affiliates", "Affiliés", "Affiliates")}
+          sub={L("Referral partners · you pay a fixed € per nurse placed in Germany.", "Partenaires · vous payez un montant fixe par infirmière placée en Allemagne.", "Empfehlungspartner · fester € pro in Deutschland vermittelter Pflegekraft.")}
+          actions={!forbidden && (<>
+            <Btn kind="ghost" size="sm" icon onClick={() => load(token)} aria-label={L("Refresh", "Actualiser", "Aktualisieren")} title={L("Refresh", "Actualiser", "Aktualisieren")}><RefreshCw size={14} /></Btn>
+            <Btn kind="primary" size="sm" onClick={() => { setShowForm((v) => !v); setCreated(null); }}><Plus size={14} strokeWidth={2} />{L("New affiliate", "Nouvel affilié", "Neuer Affiliate")}</Btn>
+          </>)} />
 
         {loading && <div className="flex justify-center py-20"><Loader2 className="animate-spin" style={{ color: "var(--gold)" }} /></div>}
 
         {!loading && forbidden && (
-          <div className="text-center py-20" style={card}>
-            <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>{L("Supreme admin only", "Admin suprême uniquement", "Nur Super-Admin")}</p>
-            <p className="text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>{L("Affiliate payouts are restricted to the supreme admin.", "Les paiements d'affiliation sont réservés à l'admin suprême.", "Affiliate-Auszahlungen sind dem Super-Admin vorbehalten.")}</p>
-          </div>
-        )}
-
-        {/* Created / new-link reveal (shown once) */}
-        {created && (
-          <div className="rounded-2xl p-4 mb-5" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-            <p className="text-[13px] font-bold" style={{ color: "var(--w)" }}>{created.name}</p>
-            <p className="text-[11.5px] mt-1 mb-3" style={{ color: "var(--warning)" }}>⚠️ {L("Copy the private dashboard link now — it's shown only once.", "Copiez le lien privé maintenant — affiché une seule fois.", "Kopieren Sie den privaten Link jetzt — nur einmal sichtbar.")}</p>
-            {created.shareUrl && (
-              <LinkRow label={L("Referral link (share this)", "Lien de parrainage (à partager)", "Empfehlungslink (teilen)")} value={created.shareUrl} k="c-share" copied={copied} onCopy={copy} />
-            )}
-            <LinkRow label={L("Private dashboard (give to the affiliate)", "Tableau de bord privé (pour l'affilié)", "Privates Dashboard (für den Affiliate)")} value={created.dashUrl} k="c-dash" copied={copied} onCopy={copy} />
-            <button onClick={() => setCreated(null)} className="text-[11.5px] font-semibold mt-1" style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>{L("Done", "Terminé", "Fertig")}</button>
-          </div>
-        )}
-
-        {/* Create form */}
-        {showForm && !forbidden && (
-          <div className="p-4 mb-5" style={card}>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div><label className="text-[11px] font-semibold" style={{ color: "var(--w3)" }}>{L("Name", "Nom", "Name")} *</label><input style={input} value={fName} onChange={(e) => setFName(e.target.value)} placeholder={L("Affiliate name", "Nom de l'affilié", "Name")} /></div>
-              <div><label className="text-[11px] font-semibold" style={{ color: "var(--w3)" }}>{L("Commission € / placement", "Commission € / placement", "Provision € / Vermittlung")} *</label><input style={input} type="number" min={0} value={fComm} onChange={(e) => setFComm(e.target.value)} placeholder="0" /></div>
-              <div><label className="text-[11px] font-semibold" style={{ color: "var(--w3)" }}>{L("Email", "E-mail", "E-Mail")}</label><input style={input} value={fEmail} onChange={(e) => setFEmail(e.target.value)} placeholder="—" /></div>
-              <div><label className="text-[11px] font-semibold" style={{ color: "var(--w3)" }}>{L("Phone", "Téléphone", "Telefon")}</label><input style={input} value={fPhone} onChange={(e) => setFPhone(e.target.value)} placeholder="—" /></div>
-            </div>
-            <div className="flex gap-2 mt-3">
-              <button disabled={creating || !fName.trim()} onClick={create} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40" style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: "pointer" }}>{creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {L("Create", "Créer", "Erstellen")}</button>
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-full text-[12.5px] font-semibold" style={{ background: "transparent", color: "var(--w3)", border: "1px solid var(--border)", cursor: "pointer" }}>{L("Cancel", "Annuler", "Abbrechen")}</button>
-            </div>
-          </div>
+          <Card>
+            <Empty>
+              <span style={{ color: "var(--w)", fontWeight: 500 }}>{L("Supreme admin only", "Admin suprême uniquement", "Nur Super-Admin")}</span>
+              <span style={{ fontSize: 12.5, marginTop: -4 }}>{L("Affiliate payouts are restricted to the supreme admin.", "Les paiements d'affiliation sont réservés à l'admin suprême.", "Affiliate-Auszahlungen sind dem Super-Admin vorbehalten.")}</span>
+            </Empty>
+          </Card>
         )}
 
         {/* List */}
         {!loading && !forbidden && rows.length === 0 && (
-          <div className="text-center py-16" style={card}><p className="text-[13px]" style={{ color: "var(--w3)" }}>{L("No affiliates yet. Create your first one.", "Aucun affilié. Créez le premier.", "Noch keine Affiliates. Erstellen Sie den ersten.")}</p></div>
+          <Card><Empty>{L("No affiliates yet. Create your first one.", "Aucun affilié. Créez le premier.", "Noch keine Affiliates. Erstellen Sie den ersten.")}</Empty></Card>
         )}
 
-        <div className="space-y-3">
-          {rows.map((a) => (
-            <div key={a.id} className="p-4" style={card}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[14px] font-bold flex items-center gap-2 flex-wrap" style={{ color: "var(--w)" }}>
-                    {a.name}
-                    {!a.active && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>{L("Paused", "En pause", "Pausiert")}</span>}
-                    {a.termsAccepted === true && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--success-bg, rgba(22,163,74,0.14))", color: "var(--success)" }}>{L("Terms ✓", "CGV ✓", "AGB ✓")}</span>}
-                    {a.termsAccepted === false && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--warning-bg, rgba(245,158,11,0.14))", color: "var(--warning)" }}>{L("Terms pending", "CGV en attente", "AGB ausstehend")}</span>}
-                  </p>
-                  {(a.email || a.phone) && <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>{[a.email, a.phone].filter(Boolean).join(" · ")}</p>}
+        {rows.length > 0 && (
+          <Paged items={rows} per={5} perPhone={3}>
+            {(slice) => (
+              <Card style={{ padding: "2px 18px" }}>
+                {slice.map((a, i) => (
+                  <div key={a.id} style={{ padding: "14px 0", borderTop: i ? "1px solid var(--border)" : "none" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 15, fontWeight: 500, color: "var(--w)" }}>{a.name}</span>
+                          {!a.active && <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "var(--w3)" }}><Dot st="missing" size={7} />{L("Paused", "En pause", "Pausiert")}</span>}
+                          {a.termsAccepted === true && <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "var(--w)" }}><Dot st="approved" size={7} />{L("Terms", "CGV", "AGB")}</span>}
+                          {a.termsAccepted === false && <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "var(--w)" }}><Dot st="pending" size={7} />{L("Terms pending", "CGV en attente", "AGB ausstehend")}</span>}
+                        </div>
+                        {(a.email || a.phone) && <div style={{ fontSize: 12.5, color: "var(--w3)", marginTop: 2, overflowWrap: "anywhere" }}>{[a.email, a.phone].filter(Boolean).join(" · ")}</div>}
+                        <div style={{ fontSize: 12.5, color: "var(--w2)", marginTop: 6 }}>
+                          {a.clicks} {L("clicks", "clics", "Klicks")} · {a.referred} {L("referred", "parrainés", "empfohlen")} · {a.placed} {L("placed", "placés", "vermittelt")} · {money(a.commission_eur, a.currency)} / {L("placement", "placement", "Vermittlung")}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right", flex: "none" }}>
+                        <div style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1, color: "var(--w)" }}>{money(a.owedEur, a.currency)}</div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--w3)", marginTop: 6 }}>
+                          {a.owedEur > 0 && <Dot st="pending" size={7} />}{L("owed", "dû", "offen")} · {money(a.paidEur, a.currency)} {L("paid", "payé", "bezahlt")}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                      <Btn kind="ghost" size="sm" onClick={() => copy(a.shareUrl, `s-${a.id}`)} title={a.shareUrl}
+                        style={{ flex: "0 1 auto", minWidth: 0, justifyContent: "flex-start" }}>
+                        <Link2 size={13} style={{ color: "var(--gold)", flex: "none" }} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{short(a.shareUrl)}</span>
+                        {copied === `s-${a.id}` ? <Check size={13} style={{ flex: "none" }} /> : <Copy size={13} style={{ flex: "none", color: "var(--w3)" }} />}
+                      </Btn>
+                      <Btn kind="ghost" size="sm" onClick={() => setOpenId(a.id)} style={{ marginLeft: "auto", flex: "none" }}>
+                        {L("Manage", "Gérer", "Verwalten")}
+                      </Btn>
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            )}
+          </Paged>
+        )}
+      </div>
+
+      {/* One partner: every action, as before — the universal popup */}
+      <Modal open={!!open} onClose={() => setOpenId(null)} size="md" chromeless>
+        {open && (() => {
+          const a = open;
+          const wa = a.owedEur > 0 && isValidWaPhone(normalizeWaPhone(a.phone));
+          return (
+            <div style={{ padding: 22 }}>
+              <PopHead title={a.name} sub={`${money(a.owedEur, a.currency)} ${L("owed", "dû", "offen")} · ${money(a.paidEur, a.currency)} ${L("paid", "payé", "bezahlt")}`} onClose={() => setOpenId(null)} closeLabel={L("Close", "Fermer", "Schließen")} />
+
+              {a.owedEur > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                  <Btn kind="primary" size="sm" disabled={busy === `pay-${a.id}`} onClick={() => markPaid(a.id)}>
+                    {busy === `pay-${a.id}` ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {L("Mark owed as paid", "Marquer dû comme payé", "Als bezahlt markieren")}
+                  </Btn>
+                  {/* Tell the affiliate on WhatsApp (compose-only — you send it). Shown
+                      when there's money owed and a valid phone. */}
+                  {wa && (() => {
+                    const d = normalizeWaPhone(a.phone);
+                    const m = money(a.owedEur, a.currency);
+                    const msg = L(
+                      `Hi ${a.name}, this is Borivon. Your affiliate commission of ${m} for ${a.placed} placement(s) is ready — let's arrange your payout. Thank you for your referrals!`,
+                      `Bonjour ${a.name}, ici Borivon. Votre commission d'affilié de ${m} pour ${a.placed} placement(s) est prête — organisons votre paiement. Merci pour vos parrainages !`,
+                      `Hallo ${a.name}, hier ist Borivon. Ihre Affiliate-Provision von ${m} für ${a.placed} Vermittlung(en) ist bereit — wir veranlassen die Auszahlung. Danke für Ihre Empfehlungen!`,
+                    );
+                    return (
+                      <a href={waMeUrl(d, msg)} target="_blank" rel="noopener noreferrer" className="bvk-btn bvk-ghost bvk-sm">
+                        <MessageCircle size={13} style={{ color: "#16a34a" }} /> WhatsApp
+                      </a>
+                    );
+                  })()}
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-[18px] font-bold leading-none" style={{ color: "var(--warning)" }}>{money(a.owedEur, a.currency)}</p>
-                  <p className="text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{L("owed", "dû", "offen")} · {money(a.paidEur, a.currency)} {L("paid", "payé", "bezahlt")}</p>
-                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Btn kind="ghost" size="sm" disabled={busy === `t-${a.id}`} onClick={() => patch({ id: a.id, active: !a.active }, `t-${a.id}`)}>
+                  {a.active ? <><Pause size={13} /> {L("Pause", "Pause", "Pausieren")}</> : <><Play size={13} /> {L("Activate", "Activer", "Aktivieren")}</>}
+                </Btn>
+                <Btn kind="ghost" size="sm" disabled={busy === `k-${a.id}`} onClick={() => patch({ id: a.id, regenerateToken: true }, `k-${a.id}`)}>
+                  <KeyRound size={13} /> {L("New dashboard link", "Nouveau lien privé", "Neuer Dashboard-Link")}
+                </Btn>
               </div>
 
-              {/* stats */}
-              <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-[12px]" style={{ color: "var(--w2)" }}>
-                <span>{a.clicks} {L("clicks", "clics", "Klicks")}</span>
-                <span>{a.referred} {L("referred", "parrainés", "empfohlen")}</span>
-                <span>{a.placed} {L("placed", "placés", "vermittelt")}</span>
-                <span>{money(a.commission_eur, a.currency)} / {L("placement", "placement", "Vermittlung")}</span>
-              </div>
-
-              {/* share link */}
-              <div className="flex items-center gap-2 mt-3">
-                <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                  <Link2 size={13} style={{ color: "var(--gold)", flexShrink: 0 }} />
-                  <span className="text-[12px] truncate" style={{ color: "var(--w2)" }}>{a.shareUrl}</span>
+              {/* commission inline edit */}
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginTop: 16 }}>
+                <div style={{ width: 240, maxWidth: "100%" }}>
+                  <Field label={L("Commission € / placement", "Commission € / placement", "Provision € / Vermittlung")}>
+                    <input type="number" min={0} className="bvk-input" value={commEdit[a.id] ?? String(a.commission_eur)} onChange={(e) => setCommEdit((m) => ({ ...m, [a.id]: e.target.value }))} />
+                  </Field>
                 </div>
-                <button onClick={() => copy(a.shareUrl, `s-${a.id}`)} className="flex items-center gap-1 px-3 py-2 rounded-lg text-[12px] font-semibold flex-shrink-0" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
-                  {copied === `s-${a.id}` ? <Check size={13} /> : <Copy size={13} />}
-                </button>
-              </div>
-
-              {/* actions */}
-              <div className="flex flex-wrap items-center gap-2 mt-3">
-                {a.owedEur > 0 && (
-                  <button disabled={busy === `pay-${a.id}`} onClick={() => markPaid(a.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold disabled:opacity-50" style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: "pointer" }}>
-                    {busy === `pay-${a.id}` ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {L("Mark owed as paid", "Marquer dû comme payé", "Als bezahlt markieren")}
-                  </button>
+                {commEdit[a.id] !== undefined && Number(commEdit[a.id]) !== a.commission_eur && (
+                  <Btn kind="ghost" disabled={busy === `c-${a.id}`} onClick={() => patch({ id: a.id, commission_eur: Number(commEdit[a.id]) || 0 }, `c-${a.id}`)}>
+                    <Check size={13} /> {L("Save €", "Enreg. €", "€ speichern")}
+                  </Btn>
                 )}
-                {/* Tell the affiliate on WhatsApp (compose-only — you send it). Shown
-                    when there's money owed and a valid phone. */}
-                {a.owedEur > 0 && isValidWaPhone(normalizeWaPhone(a.phone)) && (() => {
-                  const d = normalizeWaPhone(a.phone);
-                  const m = money(a.owedEur, a.currency);
-                  const msg = L(
-                    `Hi ${a.name}, this is Borivon. Your affiliate commission of ${m} for ${a.placed} placement(s) is ready — let's arrange your payout. Thank you for your referrals!`,
-                    `Bonjour ${a.name}, ici Borivon. Votre commission d'affilié de ${m} pour ${a.placed} placement(s) est prête — organisons votre paiement. Merci pour vos parrainages !`,
-                    `Hallo ${a.name}, hier ist Borivon. Ihre Affiliate-Provision von ${m} für ${a.placed} Vermittlung(en) ist bereit — wir veranlassen die Auszahlung. Danke für Ihre Empfehlungen!`,
-                  );
-                  return (
-                    <a href={waMeUrl(d, msg)} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold no-underline"
-                      style={{ background: "rgba(37,211,102,0.14)", color: "#1a9c4e", border: "1px solid rgba(37,211,102,0.35)" }}>
-                      <MessageCircle size={12} /> WhatsApp
-                    </a>
-                  );
-                })()}
-                <button disabled={busy === `t-${a.id}`} onClick={() => patch({ id: a.id, active: !a.active }, `t-${a.id}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: "transparent", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
-                  {a.active ? <><Pause size={12} /> {L("Pause", "Pause", "Pausieren")}</> : <><Play size={12} /> {L("Activate", "Activer", "Aktivieren")}</>}
-                </button>
-                <button disabled={busy === `k-${a.id}`} onClick={() => patch({ id: a.id, regenerateToken: true }, `k-${a.id}`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: "transparent", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
-                  <KeyRound size={12} /> {L("New dashboard link", "Nouveau lien privé", "Neuer Dashboard-Link")}
-                </button>
-                <button onClick={() => toggleReferrals(a.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: expanded === a.id ? "var(--gdim)" : "transparent", color: expanded === a.id ? "var(--gold)" : "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
-                  <Users size={12} /> {L("Who referred", "Qui a parrainé", "Wer empfahl")}
-                  <ChevronDown size={12} style={{ transition: "transform .18s", transform: expanded === a.id ? "rotate(180deg)" : "none" }} />
-                </button>
-                {/* commission inline edit */}
-                <span className="inline-flex items-center gap-1.5">
-                  <input type="number" min={0} value={commEdit[a.id] ?? String(a.commission_eur)} onChange={(e) => setCommEdit((m) => ({ ...m, [a.id]: e.target.value }))} className="w-[70px] text-[12px]" style={{ ...input, padding: "6px 8px" }} />
-                  {commEdit[a.id] !== undefined && Number(commEdit[a.id]) !== a.commission_eur && (
-                    <button disabled={busy === `c-${a.id}`} onClick={() => patch({ id: a.id, commission_eur: Number(commEdit[a.id]) || 0 }, `c-${a.id}`)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11.5px] font-semibold" style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: "pointer" }}>
-                      <Check size={12} /> {L("Save €", "Enreg. €", "€ speichern")}
-                    </button>
-                  )}
-                </span>
-                <button disabled={busy === `r-${a.id}`} onClick={() => load(token)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11.5px] font-semibold ml-auto" style={{ background: "transparent", color: "var(--w3)", border: "1px solid var(--border)", cursor: "pointer" }}>
-                  <RefreshCw size={12} />
-                </button>
               </div>
 
               {/* Who referred whom — supreme-admin-only visibility (affiliates never see this). */}
-              {expanded === a.id && (
-                <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                  {refLoading === a.id ? (
-                    <div className="flex justify-center py-3"><Loader2 size={15} className="animate-spin" style={{ color: "var(--gold)" }} /></div>
-                  ) : (refs[a.id]?.length ?? 0) === 0 ? (
-                    <p className="text-[12px] py-2" style={{ color: "var(--w3)" }}>{L("No referred candidates yet.", "Aucun candidat parrainé pour l'instant.", "Noch keine empfohlenen Kandidaten.")}</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {refs[a.id].map((c, i) => {
-                        const label = c.status === "paid"
-                          ? { t: L("Paid", "Payé", "Bezahlt"), bg: "var(--success-bg, rgba(22,163,74,0.14))", fg: "var(--success)" }
-                          : c.status === "owed"
-                          ? { t: L("Owed", "Dû", "Offen"), bg: "var(--warning-bg, rgba(245,158,11,0.14))", fg: "var(--warning)" }
-                          : c.arrived
-                          ? { t: L("Placed", "Placé", "Vermittelt"), bg: "var(--warning-bg, rgba(245,158,11,0.14))", fg: "var(--warning)" }
-                          : { t: L("Referred", "Parrainé", "Empfohlen"), bg: "var(--bg2)", fg: "var(--w3)" };
-                        return (
-                          <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded-lg" style={{ background: "var(--bg2)" }}>
-                            <span className="text-[12.5px]" style={{ color: "var(--w)" }}>{c.name}</span>
-                            <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: label.bg, color: label.fg }}>{label.t}</span>
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                <Btn kind="quiet" size="sm" onClick={() => toggleReferrals(a.id)} aria-expanded={expanded === a.id} style={{ color: "var(--w)", fontWeight: 600 }}>
+                  <Users size={13} /> {L("Who referred", "Qui a parrainé", "Wer empfahl")}
+                  <ChevronDown size={13} style={{ transition: "transform .18s", transform: expanded === a.id ? "rotate(180deg)" : "none" }} />
+                </Btn>
+                {expanded === a.id && (
+                  <div style={{ marginTop: 10 }}>
+                    {refLoading === a.id ? (
+                      <div className="flex justify-center py-3"><Loader2 size={15} className="animate-spin" style={{ color: "var(--gold)" }} /></div>
+                    ) : (refs[a.id]?.length ?? 0) === 0 ? (
+                      <p style={{ fontSize: 12.5, color: "var(--w3)", padding: "4px 0" }}>{L("No referred candidates yet.", "Aucun candidat parrainé pour l'instant.", "Noch keine empfohlenen Kandidaten.")}</p>
+                    ) : (
+                      <Paged items={refs[a.id].map((c, i) => ({ c, i }))} per={6} perPhone={5}>
+                        {(slice) => (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {slice.map(({ c, i }) => {
+                              const label = c.status === "paid"
+                                ? { t: L("Paid", "Payé", "Bezahlt"), st: "approved" as const }
+                                : c.status === "owed"
+                                ? { t: L("Owed", "Dû", "Offen"), st: "pending" as const }
+                                : c.arrived
+                                ? { t: L("Placed", "Placé", "Vermittelt"), st: "pending" as const }
+                                : { t: L("Referred", "Parrainé", "Empfohlen"), st: "missing" as const };
+                              return (
+                                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 14px", borderRadius: 12,
+                                  background: STATUS_TINT[label.st], border: label.st === "missing" ? "1px solid var(--border)" : "1px solid transparent" }}>
+                                  <span style={{ fontSize: 13.5, color: "var(--w)" }}>{c.name}</span>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: label.st === "missing" ? "var(--w3)" : "var(--w)" }}>{label.t}</span>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+                        )}
+                      </Paged>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          ))}
+          );
+        })()}
+      </Modal>
+
+      {/* Create form — the universal popup */}
+      <Modal open={showForm && !forbidden} onClose={() => setShowForm(false)} size="sm" chromeless busy={creating}>
+        <div style={{ padding: 22 }}>
+          <PopHead title={L("New affiliate", "Nouvel affilié", "Neuer Affiliate")} onClose={() => setShowForm(false)} closeLabel={L("Close", "Fermer", "Schließen")} disabled={creating} />
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label={`${L("Name", "Nom", "Name")} *`}><input className="bvk-input" value={fName} onChange={(e) => setFName(e.target.value)} placeholder={L("Affiliate name", "Nom de l'affilié", "Name")} autoFocus /></Field>
+            <Field label={`${L("Commission € / placement", "Commission € / placement", "Provision € / Vermittlung")} *`}><input className="bvk-input" type="number" min={0} value={fComm} onChange={(e) => setFComm(e.target.value)} placeholder="0" /></Field>
+            <Field label={L("Email", "E-mail", "E-Mail")}><input className="bvk-input" value={fEmail} onChange={(e) => setFEmail(e.target.value)} placeholder="—" /></Field>
+            <Field label={L("Phone", "Téléphone", "Telefon")}><input className="bvk-input" value={fPhone} onChange={(e) => setFPhone(e.target.value)} placeholder="—" /></Field>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+            <Btn kind="ghost" onClick={() => setShowForm(false)} disabled={creating} style={{ flex: 1 }}>{L("Cancel", "Annuler", "Abbrechen")}</Btn>
+            <Btn kind="primary" disabled={creating || !fName.trim()} onClick={create} style={{ flex: 1 }}>
+              {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} {L("Create", "Créer", "Erstellen")}
+            </Btn>
+          </div>
         </div>
-      </div>
+      </Modal>
+
+      {/* Created / new-link reveal (shown once) — only "Done" closes it */}
+      <Modal open={!!created} onClose={() => { /* the private link is shown once: only "Done" closes this */ }} closeOnBackdrop={false} size="sm" chromeless>
+        {created && (
+          <div style={{ padding: 22 }}>
+            <h2 style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)" }}>{created.name}</h2>
+            <div style={{ marginBottom: 14 }}>{alertRow(L("Copy the private dashboard link now — it's shown only once.", "Copiez le lien privé maintenant — affiché une seule fois.", "Kopieren Sie den privaten Link jetzt — nur einmal sichtbar."))}</div>
+            {created.shareUrl && (
+              <LinkRow label={L("Referral link (share this)", "Lien de parrainage (à partager)", "Empfehlungslink (teilen)")} value={created.shareUrl} k="c-share" copied={copied} onCopy={copy} />
+            )}
+            <LinkRow label={L("Private dashboard (give to the affiliate)", "Tableau de bord privé (pour l'affilié)", "Privates Dashboard (für den Affiliate)")} value={created.dashUrl} k="c-dash" copied={copied} onCopy={copy} />
+            <Btn kind="primary" onClick={() => setCreated(null)} style={{ width: "100%", marginTop: 8 }}>{L("Done", "Terminé", "Fertig")}</Btn>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
 
 function LinkRow({ label, value, k, copied, onCopy }: { label: string; value: string; k: string; copied: string; onCopy: (v: string, k: string) => void }) {
   return (
-    <div className="mb-2">
-      <p className="text-[10.5px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{label}</p>
-      <div className="flex items-center gap-2">
-        <div className="flex-1 min-w-0 px-3 py-2 rounded-lg text-[12px] truncate" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}>{value}</div>
-        <button onClick={() => onCopy(value, k)} className="flex items-center gap-1 px-3 py-2 rounded-lg text-[12px] font-semibold flex-shrink-0" style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: "pointer" }}>
-          {copied === k ? <Check size={13} /> : <Copy size={13} />}
-        </button>
-      </div>
+    <div style={{ marginBottom: 12 }}>
+      <Field label={label}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="bvk-input" style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 13 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{value}</span>
+          </span>
+          <Btn kind="ghost" icon onClick={() => onCopy(value, k)} aria-label="Copy" style={{ flex: "none" }}>
+            {copied === k ? <Check size={14} /> : <Copy size={14} />}
+          </Btn>
+        </span>
+      </Field>
     </div>
   );
+}
+
+/** popup head in the one look: serif title, quiet sub, round close */
+function PopHead({ title, sub, onClose, closeLabel, disabled }: { title: string; sub?: string; onClose: () => void; closeLabel: string; disabled?: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+      <div style={{ minWidth: 0 }}>
+        <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)", overflowWrap: "anywhere" }}>{title}</h2>
+        {sub && <div style={{ marginTop: 3, fontSize: 12.5, color: "var(--w3)" }}>{sub}</div>}
+      </div>
+      <button type="button" onClick={onClose} disabled={disabled} aria-label={closeLabel}
+        style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer", flex: "none", fontFamily: "inherit" }}>✕</button>
+    </div>
+  );
+}
+
+/** lists flip instead of scrolling (components/fx/kit usePaged + Pager) */
+function Paged<I>({ items, per, perPhone, children }: { items: I[]; per: number; perPhone: number; children: (slice: I[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
 }

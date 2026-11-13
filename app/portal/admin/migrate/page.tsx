@@ -8,6 +8,7 @@
  */
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { PageHead, Btn, Card, Seg, Dot, STATUS_TINT, type Status } from "@/components/fx/kit";
 
 type Failed = { id: string; reason: string; name: string | null; type: string | null };
 
@@ -22,6 +23,9 @@ export default function MigrateToR2Page() {
   const [auditComplete, setAuditComplete] = useState(false);
   const [vLog, setVLog] = useState<string[]>([]);
   const [vSummary, setVSummary] = useState<{ verified: number; unchecked: number; missing: number; mismatch: number; notMigrated: number; total: number } | null>(null);
+
+  // the one design: on a phone the two steps show one at a time (view only)
+  const [tool, setTool] = useState<"copy" | "verify">("copy");
 
   const add = (line: string) => setLog(l => [...l, line]);
   const vadd = (line: string) => setVLog(l => [...l, line]);
@@ -117,92 +121,108 @@ export default function MigrateToR2Page() {
     setVerifying(false);
   }
 
+  const logBox: React.CSSProperties = {
+    marginTop: 14, padding: 12, background: "var(--bg2)", borderRadius: 12, color: "var(--w2)",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: 11.5, lineHeight: 1.5,
+    whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto",
+  };
+  const num = (n: number, label: string, st?: Status) => (
+    <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6, fontSize: 12.5, color: "var(--w3)" }}>
+      {st && <span style={{ alignSelf: "center" }}><Dot st={st} size={7} /></span>}
+      <b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{n}</b>{label}
+    </span>
+  );
+  const h2: React.CSSProperties = { margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 21, lineHeight: 1.2, color: "var(--w)" };
+  const p: React.CSSProperties = { fontSize: 13, lineHeight: 1.5, color: "var(--w3)", margin: "6px 0 14px" };
+
+  // the verify verdict as one status row (kit palette)
+  const verdict: [Status, string] | null = !vSummary ? null
+    : verifying ? ["pending", "checking…"]
+    : !auditComplete ? ["pending", "incomplete, click Verify again"]
+    : vSummary.missing || vSummary.mismatch || vSummary.notMigrated ? ["rejected", "see the problems in the log"]
+    : vSummary.unchecked ? ["pending", "present in R2, but NOT verified against Google (Google unreachable)"]
+    : ["approved", "all files confirmed in R2"];
+
+  // the one design (founder 2026-11-13): serif head, the two steps as paper cards, one black pill, numbers in serif,
+  // status as dots (no emojis in the page itself — the log lines stay exactly as the tool writes them)
   return (
-    <div style={{ maxWidth: 680, margin: "48px auto", padding: 24, fontFamily: "system-ui, sans-serif", color: "#e7e7e7" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Migrate files: Google Drive → Cloudflare R2</h1>
-      <p style={{ fontSize: 14, lineHeight: 1.5, opacity: 0.8, marginBottom: 20 }}>
-        One-time copy of every existing document into R2. <b>Safe:</b> it copies + verifies before recording,
-        never deletes anything from Drive, and skips files already copied — so you can click it as many times as you like.
-        Keep this tab open until it says <b>remaining: 0</b>.
-      </p>
+    <main style={{ maxWidth: 980, margin: "0 auto", padding: "88px 16px 64px" }}>
+      <style>{".bvm-tabs{display:none}@media (max-width:640px){.bvm-tabs{display:block}.bvm-card{display:none}.bvm-card[data-on=\"1\"]{display:block}}"}</style>
+      <PageHead back={{ label: "Back", href: "/portal/admin" }}
+        title="Migrate files: Google Drive → Cloudflare R2"
+        sub="Temporary one-time tool: copy every document into R2, then prove nothing was lost." />
 
-      <button
-        onClick={run}
-        disabled={running}
-        style={{
-          background: running ? "#555" : "var(--gold)",
-          color: "#131312", fontWeight: 700, fontSize: 14,
-          padding: "12px 20px", borderRadius: 10, border: "none",
-          cursor: running ? "default" : "pointer",
-        }}
-      >
-        {running ? "Copying…" : "Copy files to R2"}
-      </button>
+      <div className="bvm-tabs" style={{ marginBottom: 12 }}>
+        <Seg value={tool} onChange={setTool} options={[["copy", "Copy"], ["verify", "Verify"]]} />
+      </div>
 
-      {remaining !== null && (
-        <p style={{ marginTop: 16, fontSize: 15 }}>
-          Copied: <b>{copied}</b> · Failed: <b style={{ color: failed ? "#ef4444" : undefined }}>{failed}</b> · Remaining: <b>{remaining}</b>
-          {remaining === 0 ? "  ✅ done" : ""}
-        </p>
-      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, alignItems: "start" }}>
+        <Card className="bvm-card" data-on={tool === "copy" ? "1" : "0"} style={{ padding: "18px 20px" }}>
+          <h2 style={h2}>Copy every file to R2</h2>
+          <p style={p}>
+            One-time copy of every existing document into R2. <b style={{ color: "var(--w2)", fontWeight: 600 }}>Safe:</b> it copies + verifies before recording,
+            never deletes anything from Drive, and skips files already copied — click it as often as you like.
+            Keep this tab open until it says <b style={{ color: "var(--w2)", fontWeight: 600 }}>remaining: 0</b>.
+          </p>
 
-      {log.length > 0 && (
-        <pre style={{
-          marginTop: 16, padding: 14, background: "#1a1a1a", borderRadius: 10,
-          fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 360, overflow: "auto",
-        }}>{log.join("\n")}</pre>
-      )}
+          <Btn kind="primary" onClick={run} disabled={running}>
+            {running ? "Copying…" : "Copy files to R2"}
+          </Btn>
 
-      <hr style={{ margin: "32px 0", border: "none", borderTop: "1px solid #333" }} />
+          {remaining !== null && (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "6px 18px", marginTop: 16 }}>
+              {num(copied, "copied", "approved")}
+              {num(failed, "failed", failed ? "rejected" : undefined)}
+              {num(remaining, "remaining", remaining === 0 ? "approved" : "pending")}
+              {remaining === 0 && <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--w)" }}>done</span>}
+            </div>
+          )}
 
-      <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Verify every file is in R2</h2>
-      <p style={{ fontSize: 14, lineHeight: 1.5, opacity: 0.8, marginBottom: 16 }}>
-        Read-only audit. For each document it confirms the file <b>exists in R2</b> and its
-        <b> byte-size matches the original in Google Drive</b> — proof, file by file, that nothing was lost.
-      </p>
+          {log.length > 0 && <pre style={logBox}>{log.join("\n")}</pre>}
+        </Card>
 
-      <button
-        onClick={verify}
-        disabled={verifying}
-        style={{
-          background: verifying ? "#555" : "#2f6f6a",
-          color: "#fff", fontWeight: 700, fontSize: 14,
-          padding: "12px 20px", borderRadius: 10, border: "none",
-          cursor: verifying ? "default" : "pointer",
-        }}
-      >
-        {verifying ? "Verifying…" : "Verify all files"}
-      </button>
+        <Card className="bvm-card" data-on={tool === "verify" ? "1" : "0"} style={{ padding: "18px 20px" }}>
+          <h2 style={h2}>Verify every file is in R2</h2>
+          <p style={p}>
+            Read-only audit. For each document it confirms the file <b style={{ color: "var(--w2)", fontWeight: 600 }}>exists in R2</b> and its
+            <b style={{ color: "var(--w2)", fontWeight: 600 }}> byte-size matches the original in Google Drive</b> — proof, file by file, that nothing was lost.
+          </p>
 
-      {vSummary && (
-        <p style={{ marginTop: 16, fontSize: 15 }}>
-          ✅ Verified: <b>{vSummary.verified}</b> / {vSummary.total} ·
-          {" "}❌ Missing: <b style={{ color: vSummary.missing ? "#ef4444" : undefined }}>{vSummary.missing}</b> ·
-          {" "}⚠️ Size diff: <b style={{ color: vSummary.mismatch ? "#f59e0b" : undefined }}>{vSummary.mismatch}</b> ·
-          {" "}⏭ Not copied: <b style={{ color: vSummary.notMigrated ? "#f59e0b" : undefined }}>{vSummary.notMigrated}</b> ·
-          {" "}🔍 Unchecked: <b style={{ color: vSummary.unchecked ? "#f59e0b" : undefined }}>{vSummary.unchecked}</b>
-          {/* The all-clear now has to be EARNED. It used to require only
-              missing === 0 && mismatch === 0 — but the Drive size comparison is
-              wrapped in a catch that yields -1, and a -1 skipped the comparison
-              and still counted the row as verified. So once the Google
-              credentials went away every run printed the celebration while
-              checking nothing, and `notMigrated` was not even part of the
-              condition: the one document that never made it to R2 was listed in
-              the log while the banner said all files confirmed. */}
-          {verifying ? "  — checking…"
-            : !auditComplete ? "  — incomplete, click Verify again"
-            : vSummary.missing || vSummary.mismatch || vSummary.notMigrated ? "  — ⚠️ see problems above"
-            : vSummary.unchecked ? "  — ⚠️ present in R2, but NOT verified against Google (Google unreachable)"
-            : "  — ✅ all files confirmed in R2 🎉"}
-        </p>
-      )}
+          <Btn kind="ghost" onClick={verify} disabled={verifying}>
+            {verifying ? "Verifying…" : "Verify all files"}
+          </Btn>
 
-      {vLog.length > 0 && (
-        <pre style={{
-          marginTop: 16, padding: 14, background: "#1a1a1a", borderRadius: 10,
-          fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 360, overflow: "auto",
-        }}>{vLog.join("\n")}</pre>
-      )}
-    </div>
+          {vSummary && (
+            <>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "6px 18px", marginTop: 16 }}>
+                <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6, fontSize: 12.5, color: "var(--w3)" }}>
+                  <span style={{ alignSelf: "center" }}><Dot st="approved" size={7} /></span>
+                  <b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{vSummary.verified}</b>/ {vSummary.total} verified
+                </span>
+                {num(vSummary.missing, "missing", vSummary.missing ? "rejected" : undefined)}
+                {num(vSummary.mismatch, "size diff", vSummary.mismatch ? "pending" : undefined)}
+                {num(vSummary.notMigrated, "not copied", vSummary.notMigrated ? "pending" : undefined)}
+                {num(vSummary.unchecked, "unchecked", vSummary.unchecked ? "pending" : undefined)}
+              </div>
+              {/* The all-clear now has to be EARNED. It used to require only
+                  missing === 0 && mismatch === 0 — but the Drive size comparison is
+                  wrapped in a catch that yields -1, and a -1 skipped the comparison
+                  and still counted the row as verified. So once the Google
+                  credentials went away every run printed the celebration while
+                  checking nothing, and `notMigrated` was not even part of the
+                  condition: the one document that never made it to R2 was listed in
+                  the log while the banner said all files confirmed. */}
+              {verdict && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "9px 14px", borderRadius: 12, background: STATUS_TINT[verdict[0]], fontSize: 13, color: "var(--w)" }}>
+                  <Dot st={verdict[0]} size={8} />{verdict[1]}
+                </div>
+              )}
+            </>
+          )}
+
+          {vLog.length > 0 && <pre style={logBox}>{vLog.join("\n")}</pre>}
+        </Card>
+      </div>
+    </main>
   );
 }

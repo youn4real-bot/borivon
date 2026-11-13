@@ -21,7 +21,7 @@ const fmtDur = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 function scoreColor(score: number) {
   if (score >= 70) return { fg: "var(--success)", bg: "var(--success-bg)", bd: "var(--success-border)" };
-  if (score >= 45) return { fg: "var(--gold)", bg: "var(--gdim)", bd: "var(--border-gold)" };
+  if (score >= 45) return { fg: "#b45309", bg: "rgba(245,158,11,.16)", bd: "rgba(245,158,11,.35)" };
   return { fg: "var(--danger)", bg: "var(--danger-bg)", bd: "var(--danger-border)" };
 }
 

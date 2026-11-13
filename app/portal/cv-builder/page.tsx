@@ -3905,9 +3905,9 @@ function CVBuilderInner() {
         <div className="mb-8">
           <div className="flex items-center justify-between gap-3 mb-5">
             <button onClick={() => adminCandidateId ? router.push("/portal/admin") : router.push("/portal/dashboard")}
-              className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-medium px-2 py-1"
-              style={{ color: "var(--w3)" }}>
-              <ArrowLeft size={13} strokeWidth={1.8} /> {adminCandidateId ? t.cvbBackToAdmin : t.cvb_backToPortal}
+              className="inline-flex items-center gap-1.5"
+              style={{ background: "none", border: 0, padding: 0, fontSize: 13, color: "var(--w3)", cursor: "pointer", fontFamily: "inherit" }}>
+              <span aria-hidden="true">←</span>{lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
             </button>
             <div className="flex items-center gap-3">
               {/* Always include selfPeer so the row is visible even before the
@@ -3927,21 +3927,20 @@ function CVBuilderInner() {
               viewerRole={viewerRole}
             />
           </div>
-          <div className="text-center">
-            <h1 style={{ margin: 0, color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 40, lineHeight: 1.05, letterSpacing: "-.01em" }}>
-              {lang === "de" ? "Lebenslauf" : lang === "en" ? "CV" : "CV"}
-            </h1>
-          </div>
+          {/* the one design head (kit PageHead): serif 32px, left, like Motivationsschreiben */}
+          <h1 style={{ margin: 0, color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 32, lineHeight: 1.1, letterSpacing: "-.01em" }}>
+            {lang === "de" ? "Lebenslauf" : lang === "en" ? "CV" : "CV"}
+          </h1>
         </div>
 
         {/* Top Generate button — same action as the sticky one at the bottom, so
             you don't have to scroll all the way down to (re)generate the CV. */}
         <div className="mb-7 text-center">
           <button onClick={handleGenerate} disabled={generating}
-            className="bv-glow-gold bv-press inline-flex items-center gap-2 px-7 py-3.5 text-[13.5px] font-semibold tracking-tight disabled:opacity-50 w-full sm:w-auto justify-center"
-            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-lg)" }}>
+            className="bv-press inline-flex items-center gap-2 text-[14px] font-semibold disabled:opacity-50 w-full sm:w-auto justify-center"
+            style={{ height: 46, padding: "0 26px", background: "var(--w)", color: "var(--bg)", border: "1px solid var(--w)", borderRadius: 999, cursor: "pointer" }}>
             {generating ? (
-              <><Spinner size="sm" color="#131312" /> {t.cvb_generating}</>
+              <><Spinner size="sm" color="var(--bg)" /> {t.cvb_generating}</>
             ) : <><FileText size={15} strokeWidth={1.8} /> {t.cvb_generateBtn}</>}
           </button>
         </div>

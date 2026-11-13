@@ -49,8 +49,8 @@ const T = {
 };
 
 const OWNER_STYLE: Record<JourneyOwner, { bg: string; fg: string; border: string }> = {
-  borivon:      { bg: "var(--gdim)", fg: "var(--gold)", border: "var(--border-gold)" },
-  organization: { bg: "rgba(59,130,246,0.13)", fg: "#3b82f6", border: "rgba(59,130,246,0.4)" },
+  borivon:      { bg: "var(--bg2)", fg: "var(--w)", border: "var(--border)" },
+  organization: { bg: "transparent", fg: "var(--w3)", border: "var(--border)" },
   candidate:    { bg: "rgba(16,163,74,0.13)", fg: "#16a34a", border: "rgba(16,163,74,0.4)" },
 };
 function OwnerIcon({ owner, size = 11 }: { owner: JourneyOwner; size?: number }) {
@@ -283,7 +283,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
             onChange={e => setEditText(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void saveEdit(it); } else if (e.key === "Escape") setEditingId(null); }}
             onBlur={() => void saveEdit(it)}
-            style={{ flex: "1 1 auto", minWidth: 0, fontSize: 13.5, padding: "2px 6px", borderRadius: 6, border: "1px solid var(--border-gold)", background: "var(--bg2)", color: "var(--w)" }} />
+            style={{ flex: "1 1 auto", minWidth: 0, fontSize: 13.5, padding: "2px 6px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg2)", color: "var(--w)" }} />
         ) : (
           <span
             onClick={canEditText(it) ? () => { setEditingId(it.id); setEditText(it.text); } : undefined}
@@ -374,7 +374,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
           <AlertTriangle size={13} style={{ color: "var(--warning)", flexShrink: 0 }} />
           <span style={{ fontSize: 12, lineHeight: 1.4, color: "var(--w2)", flex: 1 }}>{journeyLoadFailedText(lang)}</span>
           <button onClick={() => { if (token) void load(token); }}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--gold)", fontSize: 11.5, fontWeight: 700, padding: 0 }}>
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--w2)", fontSize: 12, fontWeight: 600, padding: 0 }}>
             {lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again"}
           </button>
         </div>
@@ -388,7 +388,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
             <span><strong style={{ color: "var(--w)" }}>{pct}%</strong> {L.complete}</span>
           </div>
           <div style={{ height: 7, borderRadius: 4, background: "var(--bg2)", overflow: "hidden" }}>
-            <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#16a34a" : pct >= 50 ? "#f59e0b" : "var(--gold)", transition: "width .3s" }} />
+            <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#16a34a" : "var(--w)", transition: "width .3s" }} />
           </div>
         </div>
       )}
@@ -452,8 +452,8 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
           <button onClick={() => void addItem()} disabled={!newText.trim() || adding} aria-label={L.add}
             style={{ flexShrink: 0, width: 40, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 9, border: "none",
               cursor: newText.trim() && !adding ? "pointer" : "default",
-              background: newText.trim() && !adding ? "var(--gold)" : "var(--card)",
-              color: newText.trim() && !adding ? "#131312" : "var(--w3)", opacity: adding ? 0.6 : 1 }}>
+              background: newText.trim() && !adding ? "var(--w)" : "var(--card)",
+              color: newText.trim() && !adding ? "var(--bg)" : "var(--w3)", opacity: adding ? 0.6 : 1 }}>
             <Plus size={18} strokeWidth={2.4} />
           </button>
         </div>

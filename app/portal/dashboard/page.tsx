@@ -2990,21 +2990,17 @@ export default function DashboardPage() {
           onClick={() => setDocHintOpen(null)} />
         <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
           <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
-            style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
-            <div className="px-6 pt-6 pb-2 text-center">
-              <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-                style={{ background: "var(--info-bg)", color: "var(--info)" }}>
-                <Info size={20} strokeWidth={1.8} />
-              </span>
-              <h3 className="text-[16px] font-semibold mb-3" style={{ color: "var(--w)" }}>{docHintOpen.title}</h3>
-              <p className="text-[13.5px] leading-relaxed text-left" style={{ color: "var(--w2)" }}>
+            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "20px", boxShadow: "0 30px 80px -30px rgba(21,19,15,.45)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+            <div className="px-6 pt-6 pb-2">
+              <h3 style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, letterSpacing: "-.01em", color: "var(--w)" }}>{docHintOpen.title}</h3>
+              <p className="leading-relaxed" style={{ margin: 0, fontSize: 14, color: "var(--w2)" }}>
                 {docHintOpen.hint}
               </p>
             </div>
-            <div className="p-4">
+            <div className="px-6 pt-3 pb-6">
               <button type="button" onClick={() => setDocHintOpen(null)}
-                className="bv-glow-gold bv-press block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", border: "none", cursor: "pointer" }}>
+                className="bv-press block w-full text-center"
+                style={{ height: 46, background: "var(--w)", color: "var(--bg)", border: "1px solid var(--w)", borderRadius: 999, fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>
                 {lang === "de" ? "Verstanden" : lang === "en" ? "Got it" : "Compris"}
               </button>
             </div>
@@ -6311,15 +6307,14 @@ export default function DashboardPage() {
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setExampleUrl(null)}>
           <div className="relative max-w-lg w-full rounded-[20px] overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 30px 80px -30px rgba(21,19,15,.45)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
             onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4"
-              style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pExampleBtn}</p>
-              <button onClick={() => setExampleUrl(null)}
-                className="bv-row-hover text-sm px-3 py-1"
-                style={{ color: "var(--w3)" }}>
-                {t.pExampleClose}
+            <div className="flex items-center justify-between px-6 pt-5 pb-3">
+              <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.15, color: "var(--w)" }}>{t.pExampleBtn}</p>
+              <button onClick={() => setExampleUrl(null)} aria-label={t.pExampleClose}
+                className="flex items-center justify-center flex-shrink-0"
+                style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>
+                <XIcon size={14} strokeWidth={1.8} />
               </button>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}

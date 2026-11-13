@@ -217,6 +217,16 @@ export function LetterCollabCaret({
   const eRect = editor.getBoundingClientRect();
   const activePeers = peers.filter(p => !p.isSelf && remote[p.id]);
   if (activePeers.length === 0) return null;
+  // The letter now scrolls inside its own card (one design, 2026-11-13). A caret that is
+  // scrolled out of that card must not be drawn over the page head or the PDF button:
+  // clip to the nearest scrolling ancestor's visible box.
+  let clipTop = -Infinity, clipBottom = Infinity;
+  for (let el: HTMLElement | null = editor.parentElement; el; el = el.parentElement) {
+    const oy = getComputedStyle(el).overflowY;
+    if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight) {
+      const r = el.getBoundingClientRect(); clipTop = r.top; clipBottom = r.bottom; break;
+    }
+  }
   // Suppress reference-only react warning for `tick`.
   void tick;
 
@@ -254,6 +264,7 @@ export function LetterCollabCaret({
         const c = remote[peer.id]!;
         const caretLeft = eRect.left + c.x;
         const caretTop  = eRect.top  + c.y;
+        if (caretTop + c.h < clipTop || caretTop > clipBottom) return null;
         const peerIsAdmin = peer.role === "admin" || peer.role === "sub_admin";
         const anonymise = viewerRole === "candidate";
         const label = anonymise ? "Borivon" : (peer.displayName || peer.email || "—");

@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
-import { ArrowLeft, ChevronDown, Check, Clock, X, Minus, Search } from "lucide-react";
+import { Search } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { PageHead, Card, Dot, Empty, Pager, usePaged, STATUS_DOT } from "@/components/fx/kit";
 import {
   computeChecklist,
   CHECKLIST_ITEMS,
@@ -17,7 +19,7 @@ import {
 const t = {
   en: {
     title: "Candidate progress", desc: "Where everyone is with their papers",
-    back: "Portal", candidates: "candidates", avg: "avg complete",
+    back: "Back", candidates: "candidates", avg: "avg complete",
     search: "Search name or email…", none: "No candidates yet",
     noneSub: "Candidates show up here once they sign up.",
     complete: "complete", essentials: "Essentials", qualifications: "Qualifications",
@@ -27,7 +29,7 @@ const t = {
   },
   fr: {
     title: "Progression des candidats", desc: "Où en est chacun avec ses papiers",
-    back: "Portail", candidates: "candidats", avg: "complété en moy.",
+    back: "Retour", candidates: "candidats", avg: "complété en moy.",
     search: "Rechercher nom ou e-mail…", none: "Aucun candidat",
     noneSub: "Les candidats apparaissent ici dès leur inscription.",
     complete: "complété", essentials: "Essentiels", qualifications: "Qualifications",
@@ -37,7 +39,7 @@ const t = {
   },
   de: {
     title: "Kandidaten-Fortschritt", desc: "Wo jeder mit seinen Unterlagen steht",
-    back: "Portal", candidates: "Kandidaten", avg: "Ø abgeschlossen",
+    back: "Zurück", candidates: "Kandidaten", avg: "Ø abgeschlossen",
     search: "Name oder E-Mail suchen…", none: "Noch keine Kandidaten",
     noneSub: "Kandidaten erscheinen hier nach ihrer Anmeldung.",
     complete: "abgeschlossen", essentials: "Grundlagen", qualifications: "Qualifikationen",
@@ -47,20 +49,8 @@ const t = {
   },
 };
 
-// LAW #4 — status conveyed by COLOR + icon, never a text label on the item.
-const STATUS_STYLE: Record<ItemStatus, { color: string }> = {
-  approved: { color: "#16a34a" },
-  pending:  { color: "#f59e0b" },
-  rejected: { color: "#ef4444" },
-  missing:  { color: "#9ca3af" },
-};
-function StatusIcon({ s, size = 15 }: { s: ItemStatus; size?: number }) {
-  const c = STATUS_STYLE[s].color;
-  if (s === "approved") return <Check size={size} style={{ color: c }} strokeWidth={3} />;
-  if (s === "pending")  return <Clock size={size} style={{ color: c }} />;
-  if (s === "rejected") return <X size={size} style={{ color: c }} strokeWidth={3} />;
-  return <Minus size={size} style={{ color: c }} />;
-}
+// LAW #4 — status conveyed by COLOR, never a text label on the item: the kit's status dots
+// (components/fx/kit Dot — green approved · orange pending · red rejected · grey missing).
 
 type Cand = { userId: string; name: string; email: string; checklist: Checklist };
 
@@ -137,116 +127,145 @@ export default function AdminProgressPage() {
     ? Math.round(cands.reduce((s, c) => s + c.checklist.pct, 0) / cands.length)
     : 0;
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg2)" }}>
-      <PortalTopNav />
-      <main style={{ maxWidth: 980, margin: "0 auto", padding: "1.25rem 1rem 4rem" }}>
-        <button onClick={() => router.push("/portal/admin")}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--w3)", fontSize: 13, marginBottom: 14, background: "none", border: "none", cursor: "pointer" }}>
-          <ArrowLeft size={15} /> {T.back}
-        </button>
+  const open = cands.find(c => c.userId === expanded) ?? null;
+  const legend: [ItemStatus, string][] = [["approved", T.legDone], ["pending", T.legPending], ["rejected", T.legRej], ["missing", T.legMiss]];
 
-        <div style={{ marginBottom: 18 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--w)" }}>{T.title}</h1>
-          <p style={{ fontSize: 13.5, color: "var(--w3)", marginTop: 2 }}>{T.desc}</p>
-        </div>
+  // the one design (founder 2026-11-13): serif head, the two numbers big, colour = status (LAW #4: dots, no words),
+  // the candidates as hairline rows that flip; one candidate's papers in the universal popup (LAW #36)
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
+      <PortalTopNav />
+      <main style={{ maxWidth: 860, margin: "0 auto", padding: "88px 1rem 4rem" }}>
+        <PageHead back={{ label: T.back, onClick: () => router.push("/portal/admin") }} title={T.title} sub={T.desc} />
 
         {loading ? (
-          <div style={{ textAlign: "center", color: "var(--w3)", padding: "3rem 0" }}>…</div>
+          <Card><Empty>…</Empty></Card>
         ) : cands.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--w3)" }}>
-            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--w2)" }}>{T.none}</p>
-            <p style={{ fontSize: 13, marginTop: 4 }}>{T.noneSub}</p>
-          </div>
+          <Card>
+            <Empty>
+              <span style={{ color: "var(--w)", fontWeight: 500 }}>{T.none}</span>
+              <span style={{ fontSize: 12.5, marginTop: -4 }}>{T.noneSub}</span>
+            </Empty>
+          </Card>
         ) : (
           <>
             {/* Summary + search */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ fontSize: 13, color: "var(--w2)" }}>
-                <strong style={{ color: "var(--w)" }}>{cands.length}</strong> {T.candidates}
-                <span style={{ color: "var(--w3)", margin: "0 8px" }}>·</span>
-                <strong style={{ color: "var(--w)" }}>{avgPct}%</strong> {T.avg}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 18, fontSize: 13, color: "var(--w3)" }}>
+                <span><b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 28, color: "var(--w)", marginRight: 6 }}>{cands.length}</b>{T.candidates}</span>
+                <span><b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 28, color: "var(--w)", marginRight: 6 }}>{avgPct}%</b>{T.avg}</span>
               </div>
               <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 320 }}>
-                <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
-                <input value={q} onChange={e => setQ(e.target.value)} placeholder={T.search}
-                  style={{ width: "100%", padding: "8px 10px 8px 32px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13 }} />
+                <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder={T.search} className="bvk-input" style={{ paddingLeft: 36 }} />
               </div>
             </div>
 
-            {/* Legend */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 11.5, color: "var(--w3)", marginBottom: 12 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><StatusIcon s="approved" size={13} /> {T.legDone}</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><StatusIcon s="pending" size={13} /> {T.legPending}</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><StatusIcon s="rejected" size={13} /> {T.legRej}</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><StatusIcon s="missing" size={13} /> {T.legMiss}</span>
+            {/* Legend — LAW #4: the colour is the status */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", fontSize: 12, color: "var(--w3)", marginBottom: 12 }}>
+              {legend.map(([s, l]) => <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Dot st={s} size={8} />{l}</span>)}
             </div>
 
-            {/* Rows */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {filtered.map(c => {
-                const open = expanded === c.userId;
-                const { pct, counts } = c.checklist;
-                const barColor = pct === 100 ? "#16a34a" : pct >= 50 ? "#f59e0b" : "#ef4444";
-                return (
-                  <div key={c.userId} style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--card)", overflow: "hidden" }}>
-                    <button onClick={() => setExpanded(open ? null : c.userId)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
-                      <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
-                        {c.email && <div style={{ fontSize: 11.5, color: "var(--w3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.email}</div>}
-                      </div>
-                      {/* count chips (icon + number, no status words → LAW #4) */}
-                      <div style={{ display: "flex", gap: 10, fontSize: 12, color: "var(--w2)" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><StatusIcon s="approved" size={13} />{counts.complete}</span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><StatusIcon s="pending" size={13} />{counts.pending}</span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><StatusIcon s="rejected" size={13} />{counts.rejected}</span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><StatusIcon s="missing" size={13} />{counts.missing}</span>
-                      </div>
-                      {/* progress */}
-                      <div style={{ width: 90, flexShrink: 0 }}>
-                        <div style={{ height: 6, borderRadius: 3, background: "var(--bg2)", overflow: "hidden" }}>
-                          <div style={{ width: `${pct}%`, height: "100%", background: barColor, transition: "width .3s" }} />
-                        </div>
-                        <div style={{ fontSize: 11, color: "var(--w3)", marginTop: 3, textAlign: "right" }}>{pct}% {T.complete}</div>
-                      </div>
-                      <ChevronDown size={16} style={{ color: "var(--w3)", flexShrink: 0, transition: "transform .2s", transform: open ? "rotate(180deg)" : "none" }} />
-                    </button>
-
-                    {open && (
-                      <div style={{ borderTop: "1px solid var(--border)", padding: "10px 14px 14px" }}>
-                        {(["essentials", "qualifications"] as const).map(group => (
-                          <div key={group} style={{ marginTop: 8 }}>
-                            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "var(--w3)", marginBottom: 6 }}>
-                              {group === "essentials" ? T.essentials : T.qualifications}
-                            </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 6 }}>
-                              {c.checklist.items.filter(i => i.group === group).map(i => (
-                                <div key={i.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--w2)", padding: "3px 0" }}>
-                                  <StatusIcon s={i.original} />
-                                  <span style={{ flex: "1 1 auto" }}>
-                                    {T.labels[i.key] ?? i.key}
-                                    {i.optional && <span style={{ color: "var(--w3)", fontSize: 10.5 }}> ({T.optional})</span>}
-                                  </span>
-                                  {i.hasTranslation && i.translation && (
-                                    <span title={T.trans} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--w3)", fontSize: 10.5 }}>
-                                      {T.trans.slice(0, 2)} <StatusIcon s={i.translation} size={13} />
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <ProgressRows rows={filtered} onOpen={(id) => setExpanded(expanded === id ? null : id)} complete={T.complete} />
           </>
         )}
       </main>
+
+      {/* one candidate's papers — the universal popup */}
+      <Modal open={!!open} onClose={() => setExpanded(null)} size="md" chromeless>
+        {open && (
+          <div style={{ padding: 22 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)", overflowWrap: "anywhere" }}>{open.name}</h2>
+                <div style={{ marginTop: 3, fontSize: 12.5, color: "var(--w3)", overflowWrap: "anywhere" }}>{open.checklist.pct}% {T.complete}{open.email ? ` · ${open.email}` : ""}</div>
+              </div>
+              <button type="button" onClick={() => setExpanded(null)} aria-label="✕"
+                style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer", flex: "none", fontFamily: "inherit" }}>✕</button>
+            </div>
+            {(["essentials", "qualifications"] as const).map(group => (
+              <div key={group} style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 12.5, color: "var(--w3)", marginBottom: 6 }}>
+                  {group === "essentials" ? T.essentials : T.qualifications}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "4px 18px" }}>
+                  {open.checklist.items.filter(i => i.group === group).map(i => (
+                    <div key={i.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w)", padding: "4px 0" }}>
+                      <Dot st={i.original} />
+                      <span style={{ flex: "1 1 auto" }}>
+                        {T.labels[i.key] ?? i.key}
+                        {i.optional && <span style={{ color: "var(--w3)", fontSize: 11.5 }}> ({T.optional})</span>}
+                      </span>
+                      {i.hasTranslation && i.translation && (
+                        <span title={T.trans} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--w3)", fontSize: 11.5 }}>
+                          {T.trans.slice(0, 2)} <Dot st={i.translation} size={8} />
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
+  );
+}
+
+/** the candidates as hairline rows that flip (components/fx/kit usePaged + Pager) */
+function ProgressRows({ rows, onOpen, complete }: { rows: Cand[]; onOpen: (id: string) => void; complete: string }) {
+  const { slice, page, pages, setPage, narrow } = usePaged(rows, 7, 5);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <Card style={{ padding: "2px 16px" }}>
+        {slice.map((c, i) => {
+          const { pct, counts } = c.checklist;
+          const barColor = pct === 100 ? STATUS_DOT.approved : pct >= 50 ? STATUS_DOT.pending : STATUS_DOT.rejected;
+          const countDots = (
+            <span style={{ display: "inline-flex", gap: 10, fontSize: 12, color: "var(--w2)", fontVariantNumeric: "tabular-nums", flex: "none" }}>
+              {([["approved", counts.complete], ["pending", counts.pending], ["rejected", counts.rejected], ["missing", counts.missing]] as [ItemStatus, number][]).map(([s, n]) => (
+                <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Dot st={s} size={8} />{n}</span>
+              ))}
+            </span>
+          );
+          const bar = (
+            <span style={{ display: "block", width: narrow ? "100%" : 96 }}>
+              <span style={{ display: "block", height: 6, borderRadius: 999, background: "var(--bg2)", overflow: "hidden" }}>
+                <span style={{ display: "block", width: `${pct}%`, height: "100%", borderRadius: 999, background: barColor, transition: "width .3s" }} />
+              </span>
+            </span>
+          );
+          return (
+            <button key={c.userId} type="button" onClick={() => onOpen(c.userId)}
+              style={{ width: "100%", display: "block", padding: "11px 0", background: "none", border: "none", borderTop: i ? "1px solid var(--border)" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+              {narrow ? (
+                <>
+                  <span style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: "var(--w)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                    <span style={{ fontSize: 12, color: "var(--w3)", flex: "none" }}>{pct}% {complete}</span>
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>{countDots}<span style={{ flex: 1 }}>{bar}</span></span>
+                </>
+              ) : (
+                <span style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <span style={{ flex: "1 1 auto", minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</span>
+                    {c.email && <span style={{ display: "block", fontSize: 12.5, color: "var(--w3)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.email}</span>}
+                  </span>
+                  {countDots}
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
+                    {bar}
+                    <span style={{ fontSize: 12, color: "var(--w3)", width: 124, textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{pct}% {complete}</span>
+                  </span>
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </Card>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
   );
 }

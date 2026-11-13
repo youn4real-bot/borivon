@@ -16,7 +16,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, KeyRound, Copy, Check, Trash2, Loader2, TriangleAlert } from "lucide-react";
+import { KeyRound, Copy, Check, Trash2, Loader2 } from "lucide-react";
+import { PageHead, Btn, Card, Dot, Empty, Pager, usePaged, STATUS_TINT } from "@/components/fx/kit";
 
 type Key = {
   id: string; orgId: string; agency: string | null; prefix: string; label: string;
@@ -109,22 +110,21 @@ export default function PartnerKeysPage() {
 
   const live = keys.filter((k) => !k.revokedAt);
   const dead = keys.filter((k) => k.revokedAt);
+  const mono: React.CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" };
 
+  // the one design (founder 2026-11-13): serif head, the new-key form in one paper card with one black pill,
+  // the keys as hairline rows that flip; the fresh key stays loud (orange, shown once) — never a popup that
+  // could be closed by accident
   return (
-    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 780 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-      </button>
-
-      <h1 className="bv-h1">{T("Partner keys", "Partner-Schlüssel", "Clés partenaires")}</h1>
-      <p className="bv-body mt-1 mb-6">
-        {T("A key lets a partner agency's system pull the documents of every candidate you have sent to them. Nothing else.",
-           "Ein Schlüssel erlaubt dem System einer Partneragentur, die Unterlagen aller an sie gesendeten Kandidatinnen abzurufen. Sonst nichts.",
-           "Une clé permet au système d'une agence partenaire de récupérer les documents des candidates que vous lui avez envoyées. Rien d'autre.")}
-      </p>
+    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 720, paddingTop: 88 }}>
+      <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Partner keys", "Partner-Schlüssel", "Clés partenaires")}
+        sub={T("A key lets a partner agency's system pull the documents of the candidates sent to them — nothing else.",
+               "Ein Schlüssel lässt das System einer Partneragentur die Unterlagen der an sie gesendeten Kandidatinnen abrufen — sonst nichts.",
+               "Une clé permet au système d'une agence partenaire de récupérer les documents des candidates envoyées — rien d'autre.")} />
 
       {needsMigration && (
-        <div className="p-4 mb-6 rounded-2xl text-[13px]" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+        <div role="alert" style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
           {T("Run supabase/partner_api.sql first — the tables do not exist yet.",
              "Zuerst supabase/partner_api.sql ausführen — die Tabellen fehlen noch.",
              "Exécutez d'abord supabase/partner_api.sql — les tables n'existent pas encore.")}
@@ -134,29 +134,27 @@ export default function PartnerKeysPage() {
       {/* THE KEY, shown once. Deliberately loud and deliberately not dismissible
           by accident: once this box is gone the value is unrecoverable. */}
       {fresh && (
-        <div className="p-4 mb-6 rounded-2xl" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-          <p className="text-[13px] font-semibold mb-1 inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
-            <TriangleAlert size={14} strokeWidth={2.2} />
+        <div style={{ marginBottom: 14, padding: 16, borderRadius: 16, background: STATUS_TINT.pending }}>
+          <p style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 4px", fontSize: 14, fontWeight: 600, color: "var(--w)" }}>
+            <Dot st="pending" />
             {T(`Key for ${fresh.agency} — copy it now`, `Schlüssel für ${fresh.agency} — jetzt kopieren`, `Clé pour ${fresh.agency} — copiez-la maintenant`)}
           </p>
-          <p className="text-[12px] mb-3" style={{ color: "var(--w2)" }}>
+          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--w2)" }}>
             {T("This is the only time it can be seen. If you lose it, revoke this one and make another.",
                "Dies ist das einzige Mal, dass er sichtbar ist. Bei Verlust diesen widerrufen und einen neuen erstellen.",
                "C'est la seule fois où elle est visible. Si vous la perdez, révoquez-la et créez-en une autre.")}
           </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-[12px] px-3 py-2.5 rounded-xl break-all"
-              style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>{fresh.key}</code>
-            <button
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <code className="bvk-input" style={{ ...mono, display: "flex", alignItems: "center", flex: 1, minWidth: 0, height: "auto", minHeight: 42, padding: "9px 12px", fontSize: 12.5, wordBreak: "break-all", background: "var(--card)", userSelect: "all" }}>{fresh.key}</code>
+            <Btn kind="primary" style={{ flex: "none" }}
               onClick={async () => {
                 try { await navigator.clipboard.writeText(fresh.key); setCopied(true); setTimeout(() => setCopied(false), 2000); }
                 catch { /* clipboard blocked — the value is on screen to select */ }
-              }}
-              className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5 flex-shrink-0">
-              {copied ? <><Check size={13} /> {T("Copied", "Kopiert", "Copié")}</> : <><Copy size={13} /> {T("Copy", "Kopieren", "Copier")}</>}
-            </button>
+              }}>
+              {copied ? <><Check size={14} /> {T("Copied", "Kopiert", "Copié")}</> : <><Copy size={14} /> {T("Copy", "Kopieren", "Copier")}</>}
+            </Btn>
           </div>
-          <p className="text-[11.5px] mt-3" style={{ color: "var(--w3)" }}>
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--w3)" }}>
             {T("Send it to them privately, with docs/PARTNER_API.md. Never in a group chat.",
                "Privat zusammen mit docs/PARTNER_API.md senden. Niemals in einem Gruppenchat.",
                "Envoyez-la en privé avec docs/PARTNER_API.md. Jamais dans un groupe.")}
@@ -165,89 +163,94 @@ export default function PartnerKeysPage() {
       )}
 
       {/* Create */}
-      <div className="p-4 mb-8 rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-        <p className="text-[13px] font-semibold mb-3" style={{ color: "var(--w)" }}>
-          {T("New key", "Neuer Schlüssel", "Nouvelle clé")}
-        </p>
+      <Card style={{ padding: 16, marginBottom: 18 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--w)", marginBottom: 10 }}>{T("New key", "Neuer Schlüssel", "Nouvelle clé")}</div>
         <div className="flex flex-col sm:flex-row gap-2">
-          <select value={orgId} onChange={(e) => setOrgId(e.target.value)}
-            className="flex-1 px-3 py-2.5 rounded-xl text-[13px] outline-none"
-            style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+          <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className="bvk-input" style={{ flex: 1, minHeight: 42 }}>
             <option value="">{T("Which agency?", "Welche Agentur?", "Quelle agence ?")}</option>
             {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <input value={label} onChange={(e) => setLabel(e.target.value)}
             placeholder={T("Note (optional) — e.g. their developer's name", "Notiz (optional)", "Note (optionnel)")}
-            className="flex-1 px-3 py-2.5 rounded-xl text-[13px] outline-none"
-            style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-          <button onClick={createKey} disabled={!orgId || creating}
-            className="bv-glow-gold bv-press px-4 py-2.5 rounded-xl text-[13px] font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
-            style={{ background: "var(--gold)", color: "#131312" }}>
+            className="bvk-input" style={{ flex: 1, minHeight: 42 }} />
+          <Btn kind="primary" onClick={createKey} disabled={!orgId || creating} style={{ flex: "none" }}>
             {creating ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} strokeWidth={2.2} />}
             {T("Create", "Erstellen", "Créer")}
-          </button>
+          </Btn>
         </div>
-        {err && <p className="text-[12px] mt-2" style={{ color: "var(--danger)" }} role="alert">{err}</p>}
-      </div>
+        {err && <div role="alert" style={{ marginTop: 10, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>{err}</div>}
+      </Card>
 
       {/* Live keys */}
       {live.length === 0 ? (
-        <p className="text-[13px] text-center py-8" style={{ color: "var(--w3)" }}>
-          {T("No keys yet. Nobody outside Borivon can read anything.",
+        <Card><Empty>{T("No keys yet. Nobody outside Borivon can read anything.",
              "Noch keine Schlüssel. Niemand außerhalb von Borivon kann etwas lesen.",
-             "Aucune clé. Personne en dehors de Borivon ne peut rien lire.")}
-        </p>
+             "Aucune clé. Personne en dehors de Borivon ne peut rien lire.")}</Empty></Card>
       ) : (
-        <div className="space-y-2.5">
-          {live.map((k) => (
-            <div key={k.id} className="p-4 rounded-2xl flex items-start justify-between gap-3"
-              style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
-              <div className="min-w-0">
-                <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>{k.agency ?? "—"}</p>
-                <code className="text-[11.5px]" style={{ color: "var(--w3)" }}>{k.prefix}…</code>
-                {k.label && <p className="text-[12px] mt-0.5" style={{ color: "var(--w2)" }}>{k.label}</p>}
-                <p className="text-[11px] mt-1" style={{ color: "var(--w3)" }}>
-                  {T("Created", "Erstellt", "Créée")} {fmt(k.createdAt)}
-                  {" · "}
-                  {/* "Never used" is the useful signal: it means their side has
-                      not been wired up yet, or the key never reached them. */}
-                  {k.lastUsedAt
-                    ? `${T("last used", "zuletzt genutzt", "dernière utilisation")} ${fmt(k.lastUsedAt)}`
-                    : T("never used", "nie genutzt", "jamais utilisée")}
-                </p>
-              </div>
-              <button onClick={() => revoke(k.id)} disabled={busy === k.id}
-                title={T("Revoke — takes effect immediately", "Widerrufen — sofort wirksam", "Révoquer — effet immédiat")}
-                className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5 flex-shrink-0"
-                style={{ color: "var(--danger)" }}>
-                {busy === k.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                {T("Revoke", "Widerrufen", "Révoquer")}
-              </button>
-            </div>
-          ))}
-        </div>
+        <Paged items={live} per={5} perPhone={3}>
+          {(slice) => (
+            <Card style={{ padding: "2px 16px" }}>
+              {slice.map((k, i) => (
+                <div key={k.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "13px 0", borderTop: i ? "1px solid var(--border)" : "none" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      {/* green = in use · orange = never used yet (their side may not be wired up) */}
+                      <Dot st={k.lastUsedAt ? "approved" : "pending"} size={8} />
+                      <span style={{ fontSize: 14, fontWeight: 500, color: "var(--w)" }}>{k.agency ?? "—"}</span>
+                      <code style={{ ...mono, fontSize: 12, color: "var(--w3)" }}>{k.prefix}…</code>
+                    </div>
+                    {k.label && <div style={{ fontSize: 12.5, marginTop: 2, color: "var(--w2)" }}>{k.label}</div>}
+                    <div style={{ fontSize: 12, marginTop: 3, color: "var(--w3)" }}>
+                      {T("Created", "Erstellt", "Créée")} {fmt(k.createdAt)}
+                      {" · "}
+                      {/* "Never used" is the useful signal: it means their side has
+                          not been wired up yet, or the key never reached them. */}
+                      {k.lastUsedAt
+                        ? `${T("last used", "zuletzt genutzt", "dernière utilisation")} ${fmt(k.lastUsedAt)}`
+                        : T("never used", "nie genutzt", "jamais utilisée")}
+                    </div>
+                  </div>
+                  <Btn kind="danger" size="sm" onClick={() => revoke(k.id)} disabled={busy === k.id} style={{ flex: "none" }}
+                    title={T("Revoke — takes effect immediately", "Widerrufen — sofort wirksam", "Révoquer — effet immédiat")}>
+                    {busy === k.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    {T("Revoke", "Widerrufen", "Révoquer")}
+                  </Btn>
+                </div>
+              ))}
+            </Card>
+          )}
+        </Paged>
       )}
 
       {/* Revoked keys are kept, not deleted: they are the record of who was ever
           given access, which is the question that matters after the fact. */}
       {dead.length > 0 && (
         <>
-          <p className="text-[12px] mt-8 mb-2" style={{ color: "var(--w3)" }}>
+          <div style={{ fontSize: 12.5, color: "var(--w3)", margin: "18px 0 8px 2px" }}>
             {T("Revoked", "Widerrufen", "Révoquées")} ({dead.length})
-          </p>
-          <div className="space-y-2">
-            {dead.map((k) => (
-              <div key={k.id} className="p-3 rounded-xl" style={{ background: "var(--bg2)", border: "1px solid var(--border)", opacity: 0.6 }}>
-                <span className="text-[12.5px]" style={{ color: "var(--w2)" }}>{k.agency ?? "—"}</span>
-                <code className="text-[11px] ml-2" style={{ color: "var(--w3)" }}>{k.prefix}…</code>
-                <span className="text-[11px] ml-2" style={{ color: "var(--w3)" }}>
-                  {T("revoked", "widerrufen", "révoquée")} {fmt(k.revokedAt)}
-                </span>
-              </div>
-            ))}
           </div>
+          <Paged items={dead} per={3} perPhone={2}>
+            {(slice) => (
+              <Card style={{ padding: "2px 16px" }}>
+                {slice.map((k, i) => (
+                  <div key={k.id} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 10px", padding: "10px 0", borderTop: i ? "1px solid var(--border)" : "none", opacity: 0.6 }}>
+                    <Dot st="missing" size={8} />
+                    <span style={{ fontSize: 13, color: "var(--w2)" }}>{k.agency ?? "—"}</span>
+                    <code style={{ ...mono, fontSize: 11.5, color: "var(--w3)" }}>{k.prefix}…</code>
+                    <span style={{ fontSize: 12, color: "var(--w3)" }}>{T("revoked", "widerrufen", "révoquée")} {fmt(k.revokedAt)}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+          </Paged>
         </>
       )}
     </main>
   );
+}
+
+/** lists flip instead of scrolling (components/fx/kit usePaged + Pager) */
+function Paged<I>({ items, per, perPhone, children }: { items: I[]; per: number; perPhone: number; children: (slice: I[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
 }

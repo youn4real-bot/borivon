@@ -10,7 +10,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Copy, Check, Link2, EyeOff, Eye } from "lucide-react";
+import { Copy, Check, Link2, EyeOff, Eye } from "lucide-react";
+import { PageHead, Btn, Card, Seg, Dot, Pager, usePaged, STATUS_TINT, STATUS_DOT } from "@/components/fx/kit";
 
 type R = Record<string, unknown>;
 type Data = {
@@ -38,13 +39,29 @@ const CHANNELS = [
 ];
 const TARGETS = [["/fahrplan", "Fahrplan (Formular)"], ["/workshop", "Workshop-Seite"], ["/workshop#termin", "Workshop: Kalender"], ["/", "Startseite"], ["/plattform", "Plattform"]];
 
-const card: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 18, padding: 18 };
-const th: React.CSSProperties = { textAlign: "left", fontWeight: 500, color: "var(--w3)", fontSize: 12, padding: "6px 8px", whiteSpace: "nowrap" };
-const td: React.CSSProperties = { padding: "7px 8px", fontSize: 13, color: "var(--w)", borderTop: "1px solid var(--border)", verticalAlign: "top" };
-
-function H({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-[15px] font-medium mb-3" style={{ color: "var(--w)" }}>{children}</h2>;
-}
+// the one design: each part of the data is one view of a segmented switch (nobody scrolls)
+type View = "weg" | "links" | "quellen" | "quiz" | "antworten" | "anfragen" | "besuche";
+const VIEWS: [View, string][] = [["weg", "Weg"], ["links", "Links"], ["quellen", "Quellen"], ["quiz", "Quiz"], ["antworten", "Antworten"], ["anfragen", "Anfragen"], ["besuche", "Besuche"]];
+const TRAFFIC_CSS = `
+.bvt-funnel{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px 20px}
+.bvt-form{display:grid;grid-template-columns:minmax(0,1fr) 150px 200px auto;gap:8px}
+.bvt-two-col{column-count:2;column-gap:36px}
+.bvt-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}
+.bvt-tabs::-webkit-scrollbar{display:none}
+.bvt-chart{height:80px}
+.bvt-num{font-size:30px}
+@media (min-width:641px){.bvt-show-sm{display:none}}
+@media (max-width:640px){
+.bvt-funnel{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.bvt-chart{height:48px}
+.bvt-tabs{margin:0 -16px;padding:0 16px}
+.bvt-num{font-size:24px}
+.bvt-hide-sm{display:none}
+.bvt-form{grid-template-columns:1fr 1fr}
+.bvt-form .bvt-name,.bvt-form button{grid-column:1/-1}
+.bvt-two-col{column-count:1}
+.bvt-tabs .bvk-seg button{padding:6px 11px}
+}`;
 
 export default function TrafficPage() {
   const router = useRouter();
@@ -56,6 +73,7 @@ export default function TrafficPage() {
   const [made, setMade] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [mine, setMine] = useState(false);
+  const [view, setView] = useState<View>("weg");
 
   useEffect(() => {
     try { setMine(localStorage.getItem("bv_no_track") === "1"); } catch { /* blocked */ }
@@ -123,238 +141,326 @@ export default function TrafficPage() {
 
   if (!data && loading) return <PageLoader />;
 
-  return (
-    <main className="mx-auto px-4 pt-[96px] pb-20" style={{ maxWidth: 1180 }}>
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => router.push("/portal/admin")} aria-label="Zurück" className="bv-tap" style={{ color: "var(--w2)" }}>
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className="text-[22px] font-medium" style={{ color: "var(--w)" }}>Besucher &amp; Quellen</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {[7, 30, 90, 365].map((d) => (
-            <button key={d} type="button" onClick={() => setDays(d)} className="text-[12px] px-3 py-1.5"
-              style={{ borderRadius: 999, border: "1px solid var(--border)", background: days === d ? "var(--gold)" : "transparent", color: days === d ? "#131312" : "var(--w2)", fontWeight: days === d ? 600 : 400 }}>
-              {d === 365 ? "1 Jahr" : `${d} Tage`}
-            </button>
-          ))}
-          <button type="button" onClick={toggleMine} title="Ihre eigenen Besuche nicht mitzählen (nur dieser Browser)"
-            className="text-[12px] px-3 py-1.5 flex items-center gap-1.5" style={{ borderRadius: 999, border: "1px solid var(--border)", color: "var(--w3)" }}>
-            {mine ? <EyeOff size={13} /> : <Eye size={13} />} {mine ? "Dieser Browser zählt nicht" : "Mich nicht zählen"}
-          </button>
-        </div>
-      </div>
+  const caption = (text: string) => <div className="bvt-hide-sm" style={{ fontSize: 12.5, color: "var(--w3)", margin: "0 0 10px 2px" }}>{text}</div>;
+  const yes = (on: boolean, extra?: string) => on
+    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Dot st="approved" size={8} />{extra}</span>
+    : <span style={{ color: "var(--w3)" }}>–</span>;
+  const daily = data?.daily ?? [];
+  const barGap = daily.length > 120 ? 0 : daily.length > 45 ? 1 : 3;
 
-      {data?.errors?.length ? <p className="text-[12px] mb-4" style={{ color: "#ef4444" }}>Teilweise nicht geladen: {data.errors.join(" · ")}</p> : null}
+  // the one design (founder 2026-11-13): serif head, the period + each part of the data as a segmented switch,
+  // big numbers in serif, every table as hairline rows that flip — nobody scrolls. The numbers are computed as before.
+  return (
+    <main className="mx-auto px-4 pb-20" style={{ maxWidth: 1100, paddingTop: 84 }}>
+      <style>{TRAFFIC_CSS}</style>
+      <PageHead back={{ label: "Zurück", onClick: () => router.push("/portal/admin") }}
+        title="Besucher & Quellen"
+        actions={<>
+          <Seg value={String(days)} onChange={(v) => setDays(Number(v))}
+            options={[["7", "7 Tage"], ["30", "30 Tage"], ["90", "90 Tage"], ["365", "1 Jahr"]]} />
+          <Btn kind="quiet" size="sm" onClick={toggleMine} title="Ihre eigenen Besuche nicht mitzählen (nur dieser Browser)" aria-label={mine ? "Dieser Browser zählt nicht" : "Mich nicht zählen"}>
+            {mine ? <EyeOff size={14} /> : <Eye size={14} />} <span className="bvt-hide-sm">{mine ? "Dieser Browser zählt nicht" : "Mich nicht zählen"}</span>
+          </Btn>
+        </>} />
+
+      {data?.errors?.length ? (
+        <div role="alert" style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
+          Teilweise nicht geladen: {data.errors.join(" · ")}
+        </div>
+      ) : null}
+
+      <div className="bvt-tabs" style={{ marginBottom: 14 }}>
+        <Seg value={view} onChange={setView} options={VIEWS} />
+      </div>
 
       {/* the whole funnel, step by step */}
-      <section style={card} className="mb-4">
-        <H>Der Weg: vom Klick bis zur Buchung</H>
-        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-          {funnel.map(([label, v], i) => (
-            <div key={label} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px" }}>
-              <div className="text-[12px]" style={{ color: "var(--w3)" }}>{label}</div>
-              <div className="text-[24px] font-medium" style={{ color: "var(--w)" }}>{v}</div>
-              {i > 0 && <div className="text-[11px]" style={{ color: "var(--w3)" }}>{pct(v, funnel[i - 1][1])} vom Schritt davor</div>}
-            </div>
-          ))}
-        </div>
-        {/* the gift on the PDF's last page → the facility platform (founder 2026-11-10) */}
-        <p className="text-[12.5px] mt-3" style={{ color: "var(--w3)" }}>
-          Plattform (Geschenk auf der letzten PDF-Seite): <b style={{ color: "var(--w)" }}>{n(t.platformOpen)}</b> Link geöffnet · <b style={{ color: "var(--w)" }}>{n(t.platformSignup)}</b> Zugang eröffnet ({pct(n(t.platformSignup), n(t.platformOpen))})
-        </p>
-        {/* visitors per day */}
-        <div className="flex items-end gap-[3px] mt-5" style={{ height: 80 }} aria-label="Besucher pro Tag">
-          {(data?.daily ?? []).map((d) => (
-            <div key={s(d.d)} title={`${s(d.d)}: ${n(d.visitors)} Besucher, ${n(d.submits)} Anfragen, ${n(d.bookings)} Buchungen`}
-              style={{ flex: 1, minWidth: 3, height: `${Math.max(3, (80 * n(d.visitors)) / maxDay)}px`, background: n(d.bookings) ? "#16a34a" : n(d.submits) ? "var(--gold)" : "var(--border-gold, #c9a24066)", borderRadius: 3 }} />
-          ))}
-        </div>
-        <p className="text-[11px] mt-2" style={{ color: "var(--w3)" }}>Balken = Besucher pro Tag · gold = mit Anfrage · grün = mit Buchung</p>
-        <p className="text-[12px] mt-2" style={{ color: "var(--w2)" }}>
-          Besucher, Seiten, Quiz und Felder zählen nur, wer im Datenschutz-Hinweis zugestimmt hat ({n(t.consents)} Zustimmungen).
-          Link-Klicks, Anfragen, Bestätigungen, PDF und Buchungen zählen immer alle.
-        </p>
-      </section>
-
-      {/* tracked links */}
-      <section style={card} className="mb-4">
-        <H>Ihre Links (für jeden Post, jedes Video, jede Mail einen)</H>
-        <form onSubmit={makeLink} className="flex flex-wrap gap-2 mb-3">
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="z. B. LinkedIn-Post 12.11. Pflegeheime"
-            className="bv-input flex-1" style={{ minWidth: 220 }} maxLength={120} />
-          <select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })} className="bv-input" style={{ width: 150 }}>
-            {CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <select value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} className="bv-input" style={{ width: 200 }}>
-            {TARGETS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <button type="submit" className="bv-btn bv-btn-primary" style={{ background: "var(--gold)", color: "#131312" }}>
-            <Link2 size={14} /> Link erstellen
-          </button>
-        </form>
-        {made && (
-          <p className="text-[13px] mb-3 flex items-center gap-2" style={{ color: "var(--w)" }}>
-            Neu: <b>{made}</b>
-            <button type="button" onClick={() => copy(made)} className="flex items-center gap-1 text-[12px]" style={{ color: "var(--gold)" }}>
-              {copied === made ? <Check size={13} /> : <Copy size={13} />} kopieren
-            </button>
-          </p>
-        )}
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Name</th><th style={th}>Link</th><th style={th}>Kanal</th><th style={th}>Ziel</th><th style={th}>Klicks</th><th style={th}>Besucher</th><th style={th}>Anfragen</th><th style={th} /></tr></thead>
-            <tbody>
-              {(data?.links ?? []).map((l) => {
-                const url = `https://borivon.com/l/${s(l.code)}`;
-                return (
-                  <tr key={s(l.code)} style={{ opacity: n(l.archived) ? 0.45 : 1 }}>
-                    <td style={td}>{s(l.name)}</td>
-                    <td style={td}>
-                      <button type="button" onClick={() => copy(url)} className="flex items-center gap-1" style={{ color: "var(--gold)" }}>
-                        {copied === url ? <Check size={12} /> : <Copy size={12} />} /l/{s(l.code)}
-                      </button>
-                    </td>
-                    <td style={td}>{CHANNELS.find(([v]) => v === s(l.channel))?.[1] ?? s(l.channel)}</td>
-                    <td style={td}>{TARGETS.find(([v]) => v === s(l.target))?.[1] ?? s(l.target)}</td>
-                    <td style={td}>{n(l.clicks)}</td><td style={td}>{n(l.visitors)}</td><td style={td}>{n(l.submits)}</td>
-                    <td style={td}>
-                      <button type="button" onClick={() => archive(s(l.code), !n(l.archived))} className="text-[12px]" style={{ color: "var(--w3)" }}>
-                        {n(l.archived) ? "wieder zeigen" : "ausblenden"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!(data?.links ?? []).length && <tr><td style={td} colSpan={8}>Noch keine Links. Erstellen Sie oben den ersten.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* sources */}
-      <section style={card} className="mb-4">
-        <H>Woher sie kommen</H>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Quelle</th><th style={th}>Klicks</th><th style={th}>Besucher</th><th style={th}>Quiz begonnen</th><th style={th}>Anfragen</th><th style={th}>Buchungen</th><th style={th}>Ø Zeit auf Seite</th></tr></thead>
-            <tbody>
-              {(data?.sources ?? []).map((r) => (
-                <tr key={s(r.source)}>
-                  <td style={td}>{s(r.source)}</td><td style={td}>{n(r.clicks)}</td><td style={td}>{n(r.visitors)}</td>
-                  <td style={td}>{n(r.quiz)}</td><td style={td}>{n(r.submits)}</td><td style={td}>{n(r.bookings)}</td>
-                  <td style={td}>{r.avgSec != null ? `${n(r.avgSec)} s` : "–"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-[11px] mt-2" style={{ color: "var(--w3)" }}>pdf = aus dem Fahrplan-PDF · mail = aus den E-Mails · ein Code (z. B. li-abc) = Ihr Link · sonst die Seite, von der sie kamen</p>
-      </section>
-
-      <div className="grid gap-4 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
-        {/* quiz drop-off */}
-        <section style={card}>
-          <H>Fahrplan-Quiz: wo sie aussteigen</H>
-          {(data?.quiz ?? []).map((q) => (
-            <div key={s(q.q)} className="mb-2">
-              <div className="flex justify-between text-[12.5px]" style={{ color: "var(--w2)" }}>
-                <span>{Q_LABEL[s(q.q)] ?? s(q.q)}</span><span>{n(q.reached)} · {pct(n(q.reached), quizTop)}</span>
-              </div>
-              <div style={{ height: 6, background: "var(--border)", borderRadius: 3 }}>
-                <div style={{ height: 6, width: `${(100 * n(q.reached)) / quizTop}%`, background: "var(--gold)", borderRadius: 3 }} />
-              </div>
-            </div>
-          ))}
-          {!(data?.quiz ?? []).length && <p className="text-[13px]" style={{ color: "var(--w3)" }}>Noch keine Daten.</p>}
-          {(data?.fields ?? []).length > 0 && (
-            <>
-              <p className="text-[12px] mt-4 mb-1" style={{ color: "var(--w3)" }}>Kontaktfelder (nur ob angeklickt und ausgefüllt, nie der Inhalt)</p>
-              {(data?.fields ?? []).map((f) => (
-                <div key={s(f.field)} className="flex justify-between text-[12.5px]" style={{ color: "var(--w2)" }}>
-                  <span>{F_LABEL[s(f.field)] ?? s(f.field)}</span><span>{n(f.entered)} angeklickt · {n(f.filled)} ausgefüllt</span>
+      {view === "weg" && (
+        <>
+          {caption("Der Weg: vom Klick bis zur Buchung")}
+          <Card style={{ padding: "18px 20px" }}>
+            <div className="bvt-funnel">
+              {funnel.map(([label, v], i) => (
+                <div key={label} style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: "var(--w3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", columnGap: 7 }}>
+                    <span className="bvt-num" style={{ fontFamily: "var(--font-serif)", fontWeight: 400, lineHeight: 1.15, color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{v}</span>
+                    {i > 0 && <span style={{ fontSize: 11.5, color: "var(--w3)", whiteSpace: "nowrap" }}>{pct(v, funnel[i - 1][1])}<span className="bvt-hide-sm"> vom Schritt davor</span></span>}
+                  </div>
                 </div>
               ))}
+            </div>
+            {/* the gift on the PDF's last page → the facility platform (founder 2026-11-10) */}
+            <p style={{ fontSize: 12.5, color: "var(--w3)", marginTop: 16 }}>
+              Plattform (Geschenk auf der letzten PDF-Seite): <b style={{ color: "var(--w)", fontWeight: 600 }}>{n(t.platformOpen)}</b> Link geöffnet · <b style={{ color: "var(--w)", fontWeight: 600 }}>{n(t.platformSignup)}</b> Zugang eröffnet ({pct(n(t.platformSignup), n(t.platformOpen))})
+            </p>
+            {/* visitors per day */}
+            <div aria-label="Besucher pro Tag" className="bvt-chart" style={{ display: "flex", alignItems: "flex-end", gap: barGap, marginTop: 14, overflow: "hidden" }}>
+              {daily.map((d) => (
+                <div key={s(d.d)} title={`${s(d.d)}: ${n(d.visitors)} Besucher, ${n(d.submits)} Anfragen, ${n(d.bookings)} Buchungen`}
+                  style={{ flex: 1, minWidth: 0, height: `${Math.max(4, (100 * n(d.visitors)) / maxDay)}%`, background: n(d.bookings) ? STATUS_DOT.approved : n(d.submits) ? STATUS_DOT.pending : STATUS_DOT.missing, borderRadius: 3 }} />
+              ))}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 14px", fontSize: 11.5, color: "var(--w3)", marginTop: 8 }}>
+              <span className="bvt-hide-sm">Balken = Besucher pro Tag</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Dot st="pending" size={7} />mit Anfrage</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Dot st="approved" size={7} />mit Buchung</span>
+              <span className="bvt-show-sm">% = vom Schritt davor</span>
+            </div>
+          </Card>
+          <p style={{ fontSize: 12, lineHeight: 1.5, color: "var(--w3)", margin: "10px 2px 0" }}>
+            Besucher, Seiten, Quiz und Felder zählen nur, wer im Datenschutz-Hinweis zugestimmt hat ({n(t.consents)} Zustimmungen).
+            Link-Klicks, Anfragen, Bestätigungen, PDF und Buchungen zählen immer alle.
+          </p>
+        </>
+      )}
+
+      {/* tracked links */}
+      {view === "links" && (
+        <>
+          {caption("Ihre Links (für jeden Post, jedes Video, jede Mail einen)")}
+          <Card style={{ padding: 14, marginBottom: 12 }}>
+            <form onSubmit={makeLink} className="bvt-form">
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="z. B. LinkedIn-Post 12.11. Pflegeheime"
+                className="bvk-input bvt-name" maxLength={120} />
+              <select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })} className="bvk-input">
+                {CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <select value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} className="bvk-input">
+                {TARGETS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <Btn kind="primary" type="submit"><Link2 size={14} /> Link erstellen</Btn>
+            </form>
+            {made && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 10, padding: "9px 14px", borderRadius: 12, background: STATUS_TINT.approved, fontSize: 13, color: "var(--w)" }}>
+                <span style={{ overflowWrap: "anywhere" }}>Neu: <b style={{ fontWeight: 600 }}>{made}</b></span>
+                <Btn kind="quiet" size="sm" onClick={() => copy(made)} style={{ color: "var(--w)" }}>
+                  {copied === made ? <Check size={13} /> : <Copy size={13} />} kopieren
+                </Btn>
+              </div>
+            )}
+          </Card>
+          <Rows per={7} perPhone={2} main={0} empty="Noch keine Links. Erstellen Sie oben den ersten."
+            cols={[{ label: "Name", wrap: true }, { label: "Link" }, { label: "Kanal" }, { label: "Ziel" }, { label: "Klicks", num: true }, { label: "Besucher", num: true }, { label: "Anfragen", num: true }, { label: "" }]}
+            rows={(data?.links ?? []).map((l) => {
+              const url = `https://borivon.com/l/${s(l.code)}`;
+              return {
+                key: s(l.code), dim: !!n(l.archived),
+                cells: [
+                  s(l.name),
+                  <button key="c" type="button" onClick={() => copy(url)} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: 0, padding: 0, color: "var(--w)", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+                    {copied === url ? <Check size={12} /> : <Copy size={12} style={{ color: "var(--gold)" }} />} /l/{s(l.code)}
+                  </button>,
+                  CHANNELS.find(([v]) => v === s(l.channel))?.[1] ?? s(l.channel),
+                  TARGETS.find(([v]) => v === s(l.target))?.[1] ?? s(l.target),
+                  n(l.clicks), n(l.visitors), n(l.submits),
+                  <Btn key="a" kind="quiet" size="sm" onClick={() => archive(s(l.code), !n(l.archived))} style={{ fontSize: 12.5 }}>
+                    {n(l.archived) ? "wieder zeigen" : "ausblenden"}
+                  </Btn>,
+                ],
+              };
+            })} />
+        </>
+      )}
+
+      {/* sources */}
+      {view === "quellen" && (
+        <>
+          {caption("Woher sie kommen")}
+          <Rows per={10} perPhone={5} main={0} empty="Noch keine Daten."
+            cols={[{ label: "Quelle" }, { label: "Klicks", num: true }, { label: "Besucher", num: true }, { label: "Quiz begonnen", num: true }, { label: "Anfragen", num: true }, { label: "Buchungen", num: true }, { label: "Ø Zeit auf Seite", num: true, ph: "pre" }]}
+            rows={(data?.sources ?? []).map((r) => ({
+              key: s(r.source),
+              cells: [s(r.source), n(r.clicks), n(r.visitors), n(r.quiz), n(r.submits), n(r.bookings), r.avgSec != null ? `${n(r.avgSec)} s` : "–"],
+            }))} />
+          <p style={{ fontSize: 11.5, color: "var(--w3)", margin: "10px 2px 0" }}>pdf = aus dem Fahrplan-PDF · mail = aus den E-Mails · ein Code (z. B. li-abc) = Ihr Link · sonst die Seite, von der sie kamen</p>
+        </>
+      )}
+
+      {/* quiz drop-off */}
+      {view === "quiz" && (
+        <>
+          {caption("Fahrplan-Quiz: wo sie aussteigen")}
+          <Card style={{ padding: "16px 20px" }}>
+            {(data?.quiz ?? []).length ? (
+              <Paged items={data?.quiz ?? []} per={14} perPhone={6}>
+                {(slice) => (
+                  <div className="bvt-two-col">
+                    {slice.map((q) => (
+                      <div key={s(q.q)} style={{ breakInside: "avoid", paddingBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, color: "var(--w2)", marginBottom: 4 }}>
+                          <span>{Q_LABEL[s(q.q)] ?? s(q.q)}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{n(q.reached)} · {pct(n(q.reached), quizTop)}</span>
+                        </div>
+                        <Bar w={(100 * n(q.reached)) / quizTop} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Paged>
+            ) : <p style={{ fontSize: 13, color: "var(--w3)" }}>Noch keine Daten.</p>}
+          </Card>
+          {(data?.fields ?? []).length > 0 && (
+            <>
+              <div style={{ fontSize: 12.5, color: "var(--w3)", margin: "14px 0 8px 2px" }}>Kontaktfelder (nur ob angeklickt und ausgefüllt, nie der Inhalt)</div>
+              <Card style={{ padding: "4px 20px" }}>
+                {(data?.fields ?? []).map((f, i) => (
+                  <div key={s(f.field)} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", fontSize: 13, color: "var(--w)", borderTop: i ? "1px solid var(--border)" : "none" }}>
+                    <span>{F_LABEL[s(f.field)] ?? s(f.field)}</span><span style={{ color: "var(--w3)", fontVariantNumeric: "tabular-nums" }}>{n(f.entered)} angeklickt · {n(f.filled)} ausgefüllt</span>
+                  </div>
+                ))}
+              </Card>
             </>
           )}
-        </section>
+        </>
+      )}
 
-        {/* who they are: quiz answers */}
-        <section style={card}>
-          <H>Wer kommt: Antworten im Quiz</H>
-          {Object.entries(answerGroups).map(([q, list]) => (
-            <div key={q} className="mb-3">
-              <div className="text-[12px] mb-1" style={{ color: "var(--w3)" }}>{Q_LABEL[q] ?? q}</div>
-              <div className="flex flex-wrap gap-1.5">
-                {list.slice(0, 8).map((a) => (
-                  <span key={s(a.v)} className="text-[12px] px-2 py-0.5" style={{ borderRadius: 999, border: "1px solid var(--border)", color: "var(--w2)" }}>
-                    {s(a.v) || "–"} · {n(a.n)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-          {!Object.keys(answerGroups).length && <p className="text-[13px]" style={{ color: "var(--w3)" }}>Noch keine Daten.</p>}
-        </section>
-      </div>
+      {/* who they are: quiz answers */}
+      {view === "antworten" && (
+        <>
+          {caption("Wer kommt: Antworten im Quiz")}
+          <Card style={{ padding: "16px 20px" }}>
+            {Object.keys(answerGroups).length ? (
+              <Paged items={Object.entries(answerGroups)} per={8} perPhone={4}>
+                {(slice) => (
+                  <div className="bvt-two-col">
+                    {slice.map(([q, list]) => (
+                      <div key={q} style={{ breakInside: "avoid", paddingBottom: 14 }}>
+                        <div style={{ fontSize: 12.5, color: "var(--w3)", marginBottom: 6 }}>{Q_LABEL[q] ?? q}</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {list.slice(0, 8).map((a) => (
+                            <span key={s(a.v)} style={{ fontSize: 12.5, padding: "5px 11px", borderRadius: 999, background: "var(--bg2)", color: "var(--w)" }}>
+                              {s(a.v) || "–"} <b style={{ fontWeight: 600 }}>{n(a.n)}</b>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Paged>
+            ) : <p style={{ fontSize: 13, color: "var(--w3)" }}>Noch keine Daten.</p>}
+          </Card>
+        </>
+      )}
 
       {/* every Fahrplan lead, and how far they got */}
-      <section style={card} className="mb-4">
-        <H>Fahrplan-Anfragen: wie weit jede gekommen ist</H>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Wann</th><th style={th}>Wer</th><th style={th}>Quelle</th><th style={th}>Stufe</th><th style={th}>Bestätigt</th><th style={th}>PDF</th><th style={th}>Workshop</th><th style={th}>Gebucht</th><th style={th}>IP</th></tr></thead>
-            <tbody>
-              {(data?.leads ?? []).map((l) => (
-                <tr key={s(l.id)}>
-                  <td style={td}>{when(l.createdAt)}</td>
-                  <td style={td}>{s(l.name)}<div style={{ color: "var(--w3)", fontSize: 12 }}>{s(l.email)}{l.facility ? ` · ${s(l.facility)}` : ""}</div></td>
-                  <td style={td}>{s(l.src) || s(l.ref) || "–"}</td>
-                  <td style={td}>{s(l.level) || "–"}</td>
-                  <td style={td}>{l.confirmedAt ? "✓" : "–"}</td>
-                  <td style={td}>{n(l.pdf) ? `✓ ${n(l.pdf)}×` : "–"}</td>
-                  <td style={td}>{n(l.workshop) ? "✓" : "–"}</td>
-                  <td style={td}>{n(l.booked) ? "✓" : "–"}</td>
-                  <td style={td}>{s(l.ip)}</td>
-                </tr>
-              ))}
-              {!(data?.leads ?? []).length && <tr><td style={td} colSpan={9}>Keine Anfragen in diesem Zeitraum.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {view === "anfragen" && (
+        <>
+          {caption("Fahrplan-Anfragen: wie weit jede gekommen ist")}
+          <Rows per={7} perPhone={4} main={1} empty="Keine Anfragen in diesem Zeitraum."
+            cols={[{ label: "Wann" }, { label: "Wer", wrap: true }, { label: "Quelle", ph: "pre" }, { label: "Stufe", ph: "pre" }, { label: "Bestätigt", ph: "pre" }, { label: "PDF", ph: "pre" }, { label: "Workshop", ph: "pre" }, { label: "Gebucht", ph: "pre" }, { label: "IP", ph: "pre" }]}
+            rows={(data?.leads ?? []).map((l) => ({
+              key: s(l.id),
+              cells: [
+                when(l.createdAt),
+                <span key="w">{s(l.name)}<span style={{ display: "block", color: "var(--w3)", fontSize: 12, fontWeight: 400 }}>{s(l.email)}{l.facility ? ` · ${s(l.facility)}` : ""}</span></span>,
+                s(l.src) || s(l.ref) || "–",
+                s(l.level) || "–",
+                yes(!!l.confirmedAt),
+                yes(!!n(l.pdf), n(l.pdf) ? `${n(l.pdf)}×` : undefined),
+                yes(!!n(l.workshop)),
+                yes(!!n(l.booked)),
+                s(l.ip),
+              ],
+            }))} />
+        </>
+      )}
 
       {/* recent visits */}
-      <section style={card}>
-        <H>Letzte Besuche</H>
-        <div style={{ overflowX: "auto" }}>
+      {view === "besuche" && (
+        <>
+          {caption("Letzte Besuche")}
+          <Rows per={7} perPhone={3} main={0} empty="Noch keine Besuche erfasst."
+            cols={[{ label: "Wann" }, { label: "Quelle" }, { label: "Ort" }, { label: "Netzwerk", wrap: true }, { label: "Gerät", wrap: true }, { label: "IP (gekürzt)", ph: "pre" }, { label: "Seiten", wrap: true }, { label: "Gelesen", num: true }, { label: "Dauer", num: true, ph: "plain" }, { label: "Ergebnis" }]}
+            rows={(data?.visits ?? []).map((v) => ({
+              key: s(v.sid),
+              cells: [
+                when(v.start),
+                s(v.src) || s(v.ref) || "direkt",
+                [s(v.city), s(v.country)].filter(Boolean).join(", "),
+                s(v.org),
+                [s(v.device), s(v.os), s(v.browser)].filter(Boolean).join(" · "),
+                s(v.ip),
+                s(v.paths).split(",").join(" → "),
+                v.scroll != null ? `${n(v.scroll)} %` : "–",
+                n(v.ms) ? `${Math.round(n(v.ms) / 1000)} s` : "–",
+                n(v.booked) ? "gebucht" : n(v.submitted) ? "angefragt" : n(v.answers) ? `${n(v.answers)} Antworten` : "",
+              ],
+            }))} />
+          <p style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--w3)", margin: "10px 2px 0" }}>
+            Erfasst ohne Cookies und ohne Speicherung auf dem Gerät. IPs gekürzt, Formularinhalte nie (nur ob ein Feld ausgefüllt wurde).
+            Volle IP und Name nur bei Anfragen (Einwilligung). Netzwerk = Firma/Anbieter hinter der IP, z. B. ein Klinikverbund.
+          </p>
+        </>
+      )}
+    </main>
+  );
+}
+
+/** a thin magnitude bar in the one look */
+function Bar({ w }: { w: number }) {
+  return (
+    <div style={{ height: 6, background: "var(--bg2)", borderRadius: 999 }}>
+      <div style={{ height: 6, width: `${w}%`, background: "var(--w2)", borderRadius: 999 }} />
+    </div>
+  );
+}
+
+/** lists flip instead of scrolling (components/fx/kit usePaged + Pager) */
+function Paged<I>({ items, per, perPhone, children }: { items: I[]; per: number; perPhone: number; children: (slice: I[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
+}
+
+/** ph = how the cell reads on the phone line: value only ("plain"), "label value" ("pre") or "value label" ("post") */
+type Col = { label: string; num?: boolean; wrap?: boolean; ph?: "plain" | "pre" | "post" };
+type RowT = { key: string; cells: React.ReactNode[]; dim?: boolean };
+/** a table on the laptop, two quiet lines per row on the phone; both flip page by page */
+function Rows({ cols, rows, per, perPhone, main, empty }: { cols: Col[]; rows: RowT[]; per: number; perPhone: number; main: number; empty: string }) {
+  const { slice, page, pages, setPage, narrow } = usePaged(rows, per, perPhone);
+  const blank = (c: React.ReactNode) => c === "" || c == null;
+  return (
+    <>
+      <Card style={{ padding: narrow ? "2px 16px" : "10px 12px 4px" }}>
+        {rows.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--w3)", padding: "12px 4px" }}>{empty}</p>
+        ) : narrow ? (
+          slice.map((r, i) => {
+            const bits = cols.map((c, j) => {
+              if (j === main || blank(r.cells[j])) return null;
+              const mode = c.ph ?? (c.num ? "post" : "plain");
+              const v = <span style={{ color: "var(--w2)" }}>{r.cells[j]}</span>;
+              return mode === "plain" || !c.label ? v : mode === "pre" ? <>{c.label} {v}</> : <>{v} {c.label}</>;
+            }).filter(Boolean);
+            return (
+              <div key={r.key} style={{ padding: "11px 0", borderTop: i ? "1px solid var(--border)" : "none", opacity: r.dim ? 0.45 : 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: "var(--w)", overflowWrap: "anywhere" }}>{r.cells[main]}</div>
+                <div style={{ marginTop: 3, fontSize: 12.5, lineHeight: 1.6, color: "var(--w3)", overflowWrap: "anywhere" }}>
+                  {bits.map((b, k) => <span key={k}>{k ? <span aria-hidden="true"> · </span> : null}{b}</span>)}
+                </div>
+              </div>
+            );
+          })
+        ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Wann</th><th style={th}>Quelle</th><th style={th}>Ort</th><th style={th}>Netzwerk</th><th style={th}>Gerät</th><th style={th}>IP (gekürzt)</th><th style={th}>Seiten</th><th style={th}>Gelesen</th><th style={th}>Dauer</th><th style={th}>Ergebnis</th></tr></thead>
+            <thead>
+              <tr>{cols.map((c, j) => (
+                <th key={j} style={{ textAlign: c.num ? "right" : "left", fontWeight: 500, fontSize: 12, color: "var(--w3)", padding: "2px 8px 8px", whiteSpace: "nowrap", textTransform: "none", letterSpacing: "normal" }}>{c.label}</th>
+              ))}</tr>
+            </thead>
             <tbody>
-              {(data?.visits ?? []).map((v) => (
-                <tr key={s(v.sid)}>
-                  <td style={td}>{when(v.start)}</td>
-                  <td style={td}>{s(v.src) || s(v.ref) || "direkt"}</td>
-                  <td style={td}>{[s(v.city), s(v.country)].filter(Boolean).join(", ")}</td>
-                  <td style={td}>{s(v.org)}</td>
-                  <td style={td}>{[s(v.device), s(v.os), s(v.browser)].filter(Boolean).join(" · ")}</td>
-                  <td style={td}>{s(v.ip)}</td>
-                  <td style={td}>{s(v.paths).split(",").join(" → ")}</td>
-                  <td style={td}>{v.scroll != null ? `${n(v.scroll)} %` : "–"}</td>
-                  <td style={td}>{n(v.ms) ? `${Math.round(n(v.ms) / 1000)} s` : "–"}</td>
-                  <td style={td}>{n(v.booked) ? "gebucht" : n(v.submitted) ? "angefragt" : n(v.answers) ? `${n(v.answers)} Antworten` : ""}</td>
+              {slice.map((r) => (
+                <tr key={r.key} style={{ opacity: r.dim ? 0.45 : 1 }}>
+                  {r.cells.map((cell, j) => (
+                    <td key={j} style={{ padding: "9px 8px", fontSize: 13, color: "var(--w)", borderTop: "1px solid var(--border)", verticalAlign: "top", whiteSpace: cols[j]?.wrap ? "normal" : "nowrap",
+                      textAlign: cols[j]?.num ? "right" : "left", fontVariantNumeric: cols[j]?.num ? "tabular-nums" : undefined, fontWeight: j === main ? 500 : 400 }}>{cell}</td>
+                  ))}
                 </tr>
               ))}
-              {!(data?.visits ?? []).length && <tr><td style={td} colSpan={10}>Noch keine Besuche erfasst.</td></tr>}
             </tbody>
           </table>
-        </div>
-        <p className="text-[11px] mt-3" style={{ color: "var(--w3)" }}>
-          Erfasst ohne Cookies und ohne Speicherung auf dem Gerät. IPs gekürzt, Formularinhalte nie (nur ob ein Feld ausgefüllt wurde).
-          Volle IP und Name nur bei Anfragen (Einwilligung). Netzwerk = Firma/Anbieter hinter der IP, z. B. ein Klinikverbund.
-        </p>
-      </section>
-    </main>
+        )}
+      </Card>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
   );
 }

@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { meToken } from "@/lib/meApi";
-import { CheckCircle2 } from "@/components/PortalIcons";
-import { ArrowLeft, Trash2, Users, Copy, ChevronDown } from "lucide-react";
-import { PageLoader, EmptyState } from "@/components/ui/states";
+import { Trash2, Users, Copy, ChevronDown, Check, Plus } from "lucide-react";
+import { PageLoader } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
+import { Modal } from "@/components/ui/Modal";
+import { PageHead, Btn, Card, Field, Empty, Pager, usePaged, STATUS_TINT } from "@/components/fx/kit";
 
 const t = {
   en: {
     pageTitle: "Manage admins",
     pageDesc: "Give each agent a list of candidates to look after",
-    accessNote: "This list decides who looks after whom. It does NOT restrict access: a sub-admin in an organisation sees that organisation’s approved candidates, and a sub-admin in none sees every candidate — assigned or not.",
+    accessNote: "Who looks after whom — not who may see: a sub-admin in an organisation sees its approved candidates, one in none sees all.",
+    back: "Back",
+    cancel: "Cancel",
     addSection: "Add an admin",
     emailLabel: "Email *",
     nameLabel: "Name",
@@ -42,7 +45,9 @@ const t = {
   fr: {
     pageTitle: "Gérer les admins",
     pageDesc: "Donner à chaque agent une liste de candidats à suivre",
-    accessNote: "Cette liste définit qui suit qui. Elle NE restreint PAS l’accès : un sous-admin rattaché à une organisation voit les candidats approuvés de celle-ci, et un sous-admin sans organisation voit tous les candidats — assignés ou non.",
+    accessNote: "Qui suit qui — pas qui voit : un sous-admin d’une organisation voit ses candidats approuvés, sans organisation il voit tout.",
+    back: "Retour",
+    cancel: "Annuler",
     addSection: "Ajouter un admin",
     emailLabel: "E-mail *",
     nameLabel: "Nom",
@@ -70,7 +75,9 @@ const t = {
   de: {
     pageTitle: "Admins verwalten",
     pageDesc: "Jedem Agenten eine Liste von Kandidaten zur Betreuung geben",
-    accessNote: "Diese Liste legt fest, wer wen betreut. Sie beschränkt den Zugriff NICHT: Ein Sub-Admin in einer Organisation sieht deren freigegebene Kandidaten, ein Sub-Admin ohne Organisation sieht alle Kandidaten — zugewiesen oder nicht.",
+    accessNote: "Wer wen betreut — nicht, wer was sieht: Sub-Admins einer Organisation sehen deren freigegebene Kandidaten, ohne Organisation alle.",
+    back: "Zurück",
+    cancel: "Abbrechen",
     addSection: "Admin hinzufügen",
     emailLabel: "E-Mail *",
     nameLabel: "Name",
@@ -126,6 +133,15 @@ export default function ManageAdminsPage() {
   const [copyOpenFor, setCopyOpenFor]     = useState<string | null>(null);
   // Track the in-flight "copy from" so we can show a spinner state
   const [copyingFrom, setCopyingFrom]     = useState<string | null>(null);
+
+  // the one design: "Admin hinzufügen" opens the form as a popup (view only).
+  // It closes itself once a save went through (adding true → false, no error).
+  const [formOpen, setFormOpen] = useState(false);
+  const addingWas = useRef(false);
+  useEffect(() => {
+    if (addingWas.current && !adding && !addError) setFormOpen(false);
+    addingWas.current = adding;
+  }, [adding, addError]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -251,34 +267,18 @@ export default function ManageAdminsPage() {
 
   if (loading) return <PageLoader />;
 
-  const inputCls = "w-full px-3 py-2.5 text-[13px] outline-none transition-colors focus:border-[var(--gold)]";
-  const inputSt: React.CSSProperties = {
-    background: "var(--bg2)",
-    border: "1px solid transparent",
-    color: "var(--w)",
-    borderRadius: "12px",
-  };
+  const editing = subAdmins.find(sa => sa.email === expandedEmail) ?? null;
 
+  // the one design (founder 2026-11-13): serif head, one black "add" pill, the agents as hairline rows that flip,
+  // assigning + adding in the universal popup (LAW #36 via components/ui/Modal)
   return (
     <>
     <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
       <div className="max-w-[680px] mx-auto px-4 pt-8 pb-16">
-
-        {/* Header — refined */}
-        <div className="flex items-center gap-3 mb-8">
-          <button onClick={() => router.back()} aria-label="Back"
-            className="bv-icon-btn w-9 h-9 flex items-center justify-center flex-shrink-0 rounded-full"
-            style={{ color: "var(--w2)" }}>
-            <ArrowLeft size={15} strokeWidth={1.8} />
-          </button>
-          <div>
-            <h1 className="text-[20px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>{T.pageTitle}</h1>
-            <p className="text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>
-              {T.pageDesc}
-            </p>
-          </div>
-        </div>
+        <PageHead back={{ label: T.back, onClick: () => router.back() }}
+          title={T.pageTitle} sub={T.pageDesc}
+          actions={<Btn kind="primary" size="sm" onClick={() => setFormOpen(true)}><Plus size={14} strokeWidth={2} />{T.addAdmin}</Btn>} />
 
         {/*
           Bug 9. This page said "Assign agents access to specific candidates"
@@ -307,204 +307,180 @@ export default function ManageAdminsPage() {
           sub-admin with no assignment rows would lose all ~93 candidates at
           once. That is a founder's decision, not a bug fix.
         */}
-        <p className="text-[12px] mb-6 px-3 py-2"
-          style={{ color: "var(--w2)", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10 }}>
-          {T.accessNote}
-        </p>
-
-        {/* Add new sub-admin — quieter section card */}
-        <div className="p-5 mb-6"
-          style={{ background: "var(--card)", border: "none", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-4" style={{ color: "var(--w3)" }}>{T.addSection}</p>
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.emailLabel}</label>
-                <input
-                  type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-                  placeholder={T.emailPlaceholder}
-                  className={inputCls} style={inputSt}
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.nameLabel}</label>
-                <input
-                  type="text" value={newName} onChange={e => setNewName(e.target.value)}
-                  placeholder={T.namePlaceholder}
-                  className={inputCls} style={inputSt}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.roleLabelField}</label>
-              <input
-                type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)}
-                placeholder={T.rolePlaceholder}
-                className={inputCls} style={inputSt}
-              />
-            </div>
-            {addError && (
-              <p className="text-[12px] px-3 py-2 rounded-lg"
-                style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                {addError}
-              </p>
-            )}
-            <button onClick={addSubAdmin} disabled={adding}
-              className="w-full py-2.5 text-[13px] font-semibold tracking-tight transition-opacity disabled:opacity-50"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-sm)" }}>
-              {adding ? T.adding : T.addAdmin}
-            </button>
-          </div>
-        </div>
+        <p style={{ margin: "-6px 0 16px", fontSize: 12.5, lineHeight: 1.5, color: "var(--w3)" }}>{T.accessNote}</p>
 
         {actionError && (
-          <p className="text-[12px] px-3 py-2 rounded-lg mb-4"
-            style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+          <div role="alert" style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
             {T.actionError}
-          </p>
+          </div>
         )}
 
         {/* Sub-admin list */}
         {subAdmins.length === 0 ? (
-          <EmptyState
-            Icon={Users}
-            title={T.noAdmins}
-            sub={T.noAdminsSub}
-          />
+          <Card>
+            <Empty icon={<Users size={20} strokeWidth={1.6} style={{ color: "var(--gold)" }} />}>
+              <span style={{ color: "var(--w)", fontWeight: 500 }}>{T.noAdmins}</span>
+              <span style={{ fontSize: 12.5, marginTop: -4 }}>{T.noAdminsSub}</span>
+            </Empty>
+          </Card>
         ) : (
-          <div className="overflow-hidden"
-            style={{
-              background: "var(--card)",
-              borderRadius: "20px",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-            }}>
-            {subAdmins.map(sa => {
-              const assigned = assignments.filter(a => a.sub_admin_email === sa.email).map(a => a.candidate_user_id);
-              const isExpanded = expandedEmail === sa.email;
-              return (
-                <div key={sa.email} className="bv-row-hover overflow-hidden transition-colors"
-                  style={{ borderBottom: "1px solid var(--border)" }}>
-
-                  {/* Sub-admin row */}
-                  <div className="px-3 py-3 flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-semibold tracking-wider flex-shrink-0"
-                      style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-                      {(sa.name || sa.email).charAt(0).toUpperCase()}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
-                        {sa.name || sa.email}
-                      </p>
-                      <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
-                        {sa.email}{sa.label ? ` · ${sa.label}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-[10.5px] font-semibold tracking-wide px-2 py-0.5 rounded-full"
-                        style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                        {T.candidates(assigned.length)}
-                      </span>
-                      <button
-                        onClick={() => setExpandedEmail(isExpanded ? null : sa.email)}
-                        className="text-[12px] font-medium px-3 py-1.5 transition-colors"
-                        style={{ background: isExpanded ? "var(--gdim)" : "var(--bg2)", color: isExpanded ? "var(--gold)" : "var(--w2)", border: `1px solid ${isExpanded ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                        {isExpanded ? T.close : T.assign}
-                      </button>
-                      <button onClick={() => removeSubAdmin(sa.email)} aria-label="Remove"
-                        className="bv-icon-btn bv-icon-btn--reject w-7 h-7 rounded-full flex items-center justify-center">
-                        <Trash2 size={12} strokeWidth={1.8} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Candidate assignment panel */}
-                  {isExpanded && (
-                    <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
-                      {/* Copy-from-other-admin row */}
-                      {subAdmins.filter(o => o.email !== sa.email).length > 0 && candidates.length > 0 && (
-                        <div className="px-5 py-3 flex items-center justify-between gap-3 relative"
-                          style={{ borderBottom: "1px solid var(--border)" }}>
-                          <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>
-                            {T.mirrorDesc}
-                          </p>
-                          <div className="relative">
-                            <button
-                              onClick={() => setCopyOpenFor(copyOpenFor === sa.email ? null : sa.email)}
-                              className="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1.5 transition-colors"
-                              style={{ background: copyOpenFor === sa.email ? "var(--gdim)" : "var(--card)", color: copyOpenFor === sa.email ? "var(--gold)" : "var(--w2)", border: `1px solid ${copyOpenFor === sa.email ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                              <Copy size={11} strokeWidth={1.8} />
-                              {T.copyFrom}
-                              <ChevronDown size={10} strokeWidth={2} style={{ transform: copyOpenFor === sa.email ? "rotate(180deg)" : "rotate(0deg)", transition: "transform var(--dur-2) var(--ease)" }} />
-                            </button>
-                            {copyOpenFor === sa.email && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setCopyOpenFor(null)} />
-                                <div className="absolute right-0 top-full mt-1 z-20 overflow-hidden min-w-[220px]"
-                                  style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-md)" }}>
-                                  {subAdmins.filter(o => o.email !== sa.email).map(other => {
-                                    const otherCount = assignments.filter(a => a.sub_admin_email === other.email).length;
-                                    const myAssigned = new Set(assignments.filter(a => a.sub_admin_email === sa.email).map(a => a.candidate_user_id));
-                                    const overlap = assignments.filter(a => a.sub_admin_email === other.email && myAssigned.has(a.candidate_user_id)).length;
-                                    const newOnes = otherCount - overlap;
-                                    const disabled = newOnes === 0 || copyingFrom === other.email;
-                                    return (
-                                      <button key={other.email}
-                                        disabled={disabled}
-                                        onClick={() => copyAssignmentsFrom(sa.email, other.email)}
-                                        className="bv-row-hover w-full text-left px-3 py-2.5 disabled:opacity-40">
-                                        <p className="text-[12.5px] font-medium" style={{ color: "var(--w)" }}>{other.name || other.email}</p>
-                                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                                          {copyingFrom === other.email ? T.copying
-                                            : newOnes === 0 ? T.alreadyShares
-                                            : T.newCandidates(newOnes, otherCount)}
-                                        </p>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </>
-                            )}
-                          </div>
+          <Paged items={subAdmins} per={8} perPhone={5}>
+            {(slice) => (
+              <Card style={{ padding: "2px 16px" }}>
+                {slice.map((sa, i) => {
+                  const assigned = assignments.filter(a => a.sub_admin_email === sa.email).map(a => a.candidate_user_id);
+                  const isExpanded = expandedEmail === sa.email;
+                  return (
+                    <div key={sa.email} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderTop: i ? "1px solid var(--border)" : "none" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sa.name || sa.email}</div>
+                        <div style={{ fontSize: 12.5, color: "var(--w3)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {sa.email}{sa.label ? ` · ${sa.label}` : ""}
                         </div>
-                      )}
-                      {candidates.length === 0 ? (
-                        <p className="px-5 py-4 text-[12px]" style={{ color: "var(--w3)" }}>{T.noCandidates}</p>
-                      ) : candidates.map((c, ci) => {
-                        const isAssigned = assigned.includes(c.userId);
-                        return (
-                          <div key={c.userId}>
-                            {ci > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
-                            <div className="px-5 py-3 flex items-center gap-3">
-                              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10.5px] font-semibold tracking-wider flex-shrink-0"
-                                style={{ background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                                {c.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[12.5px] font-medium truncate tracking-tight" style={{ color: "var(--w)" }}>{c.name}</p>
-                                <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{c.email}</p>
-                              </div>
-                              <button
-                                onClick={() => toggleAssignment(sa.email, c.userId)}
-                                className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 font-semibold transition-all flex-shrink-0"
-                                style={isAssigned
-                                  ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-sm)" }
-                                  : { background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)" }
-                                }>
-                                {isAssigned ? <><CheckCircle2 size={11} strokeWidth={1.8} /> {T.assigned}</> : T.assign}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      </div>
+                      <span title={T.candidates(assigned.length)} aria-label={T.candidates(assigned.length)}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: "var(--w3)", fontVariantNumeric: "tabular-nums", flex: "none" }}>
+                        <Users size={13} strokeWidth={1.7} />{assigned.length}
+                      </span>
+                      <Btn kind="ghost" size="sm" onClick={() => setExpandedEmail(isExpanded ? null : sa.email)}>
+                        {isExpanded ? T.close : T.assign}
+                      </Btn>
+                      <Btn kind="quiet" size="sm" icon onClick={() => removeSubAdmin(sa.email)} aria-label="Remove" title="Remove">
+                        <Trash2 size={14} strokeWidth={1.8} />
+                      </Btn>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </Card>
+            )}
+          </Paged>
         )}
       </div>
     </main>
+
+    {/* Candidate assignment — the universal popup */}
+    <Modal open={!!editing} onClose={() => setExpandedEmail(null)} size="md" chromeless>
+      {editing && (() => {
+        const sa = editing;
+        const assigned = assignments.filter(a => a.sub_admin_email === sa.email).map(a => a.candidate_user_id);
+        const others = subAdmins.filter(o => o.email !== sa.email);
+        const copyOpen = copyOpenFor === sa.email;
+        return (
+          <div style={{ padding: 22 }}>
+            <PopHead title={sa.name || sa.email} sub={T.candidates(assigned.length)} onClose={() => setExpandedEmail(null)} closeLabel={T.close} />
+
+            {actionError && (
+              <div role="alert" style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
+                {T.actionError}
+              </div>
+            )}
+
+            {/* Copy-from-other-admin row */}
+            {others.length > 0 && candidates.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "4px 0 12px" }}>
+                <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{T.mirrorDesc}</span>
+                <Btn kind="ghost" size="sm" onClick={() => setCopyOpenFor(copyOpen ? null : sa.email)} aria-expanded={copyOpen}>
+                  <Copy size={13} strokeWidth={1.8} />{T.copyFrom}
+                  <ChevronDown size={12} strokeWidth={2} style={{ transform: copyOpen ? "rotate(180deg)" : "none", transition: "transform .18s" }} />
+                </Btn>
+              </div>
+            )}
+
+            {copyOpen ? (
+              /* the other agents to copy from (same handler as before) */
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {others.map(other => {
+                  const otherCount = assignments.filter(a => a.sub_admin_email === other.email).length;
+                  const myAssigned = new Set(assigned);
+                  const overlap = assignments.filter(a => a.sub_admin_email === other.email && myAssigned.has(a.candidate_user_id)).length;
+                  const newOnes = otherCount - overlap;
+                  const disabled = newOnes === 0 || copyingFrom === other.email;
+                  return (
+                    <button key={other.email} type="button" disabled={disabled} onClick={() => copyAssignmentsFrom(sa.email, other.email)}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--card)", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, fontFamily: "inherit" }}>
+                      <span style={{ display: "block", fontSize: 13.5, fontWeight: 500, color: "var(--w)" }}>{other.name || other.email}</span>
+                      <span style={{ display: "block", fontSize: 12.5, color: "var(--w3)", marginTop: 2 }}>
+                        {copyingFrom === other.email ? T.copying : newOnes === 0 ? T.alreadyShares : T.newCandidates(newOnes, otherCount)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : candidates.length === 0 ? (
+              <Empty>{T.noCandidates}</Empty>
+            ) : (
+              <Paged items={candidates} per={7} perPhone={6}>
+                {(slice) => (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {slice.map(c => {
+                      const isAssigned = assigned.includes(c.userId);
+                      return (
+                        <div key={c.userId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 8px 9px 14px", borderRadius: 12,
+                          background: isAssigned ? STATUS_TINT.approved : "transparent", border: `1px solid ${isAssigned ? "transparent" : "var(--border)"}` }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                            <div style={{ fontSize: 12, color: "var(--w3)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.email}</div>
+                          </div>
+                          <Btn kind={isAssigned ? "quiet" : "ghost"} size="sm" onClick={() => toggleAssignment(sa.email, c.userId)}
+                            style={isAssigned ? { color: "var(--w)", fontWeight: 600, padding: "0 10px" } : undefined}>
+                            {isAssigned ? <><Check size={13} strokeWidth={2.4} style={{ color: "#16a34a" }} />{T.assigned}</> : T.assign}
+                          </Btn>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Paged>
+            )}
+          </div>
+        );
+      })()}
+    </Modal>
+
+    {/* Add an admin — the universal popup */}
+    <Modal open={formOpen} onClose={() => setFormOpen(false)} size="sm" chromeless busy={adding}>
+      <div style={{ padding: 22 }}>
+        <PopHead title={T.addSection} onClose={() => setFormOpen(false)} closeLabel={T.close} disabled={adding} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Field label={T.emailLabel}>
+            <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder={T.emailPlaceholder} className="bvk-input" autoFocus />
+          </Field>
+          <Field label={T.nameLabel}>
+            <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder={T.namePlaceholder} className="bvk-input" />
+          </Field>
+          <Field label={T.roleLabelField}>
+            <input type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder={T.rolePlaceholder} className="bvk-input" />
+          </Field>
+          {addError && (
+            <div role="alert" style={{ padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>{addError}</div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+          <Btn kind="ghost" onClick={() => setFormOpen(false)} disabled={adding} style={{ flex: 1 }}>{T.cancel}</Btn>
+          <Btn kind="primary" onClick={addSubAdmin} disabled={adding} style={{ flex: 1 }}>{adding ? T.adding : T.addAdmin}</Btn>
+        </div>
+      </div>
+    </Modal>
     </>
   );
+}
+
+/** popup head in the one look: serif title, quiet sub, round close */
+function PopHead({ title, sub, onClose, closeLabel, disabled }: { title: string; sub?: string; onClose: () => void; closeLabel: string; disabled?: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+      <div style={{ minWidth: 0 }}>
+        <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)", overflowWrap: "anywhere" }}>{title}</h2>
+        {sub && <div style={{ marginTop: 3, fontSize: 12.5, color: "var(--w3)" }}>{sub}</div>}
+      </div>
+      <button type="button" onClick={onClose} disabled={disabled} aria-label={closeLabel}
+        style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer", flex: "none", fontFamily: "inherit" }}>✕</button>
+    </div>
+  );
+}
+
+/** lists flip instead of scrolling (components/fx/kit usePaged + Pager) */
+function Paged<I>({ items, per, perPhone, children }: { items: I[]; per: number; perPhone: number; children: (slice: I[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
 }

@@ -15,7 +15,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { PageHead, Btn, Card, Dot, STATUS_TINT, type Status } from "@/components/fx/kit";
 
 type Info = {
   configured: boolean; host: string; path: string;
@@ -100,94 +101,78 @@ export default function AdminBotPage() {
   if (loading) return <PageLoader />;
 
   const good = info?.onCloudflare;
+  const code: React.CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: 12.5, color: "var(--w)", overflowWrap: "anywhere" };
+  const head = (st: Status, text: string) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Dot st={st} />
+      <span style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 21, lineHeight: 1.2, color: "var(--w)" }}>{text}</span>
+    </div>
+  );
+  const row = (st: Status, text: React.ReactNode) => (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "9px 14px", borderRadius: 12, background: STATUS_TINT[st], fontSize: 13, lineHeight: 1.45, color: "var(--w)" }}>
+      <span style={{ marginTop: 5 }}><Dot st={st} size={7} /></span><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{text}</span>
+    </div>
+  );
 
+  // the one design (founder 2026-11-13): serif head, each connection as a paper card with its status as a dot,
+  // the one action as the black pill
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 80px" }}>
-      <button onClick={() => router.push("/portal/admin")} className="mb-6 inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--w3)" }}>
-        <ArrowLeft size={15} /> {T("Back", "Zurück", "Retour")}
-      </button>
-
-      <h1 className="text-xl font-semibold" style={{ color: "var(--w)" }}>
-        {T("Bot connection", "Bot-Verbindung", "Connexion du bot")}
-      </h1>
-      <p className="mt-1 text-sm" style={{ color: "var(--w3)" }}>
-        {T("Where Telegram delivers the bot's messages. It must point at Cloudflare before Vercel is deleted.",
-           "Wohin Telegram die Bot-Nachrichten liefert. Muss auf Cloudflare zeigen, bevor Vercel gelöscht wird.",
-           "Où Telegram livre les messages du bot. Doit pointer vers Cloudflare avant de supprimer Vercel.")}
-      </p>
+    <main style={{ maxWidth: 720, margin: "0 auto", padding: "88px 16px 80px" }}>
+      <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Bot connection", "Bot-Verbindung", "Connexion du bot")}
+        sub={T("Where Telegram delivers the bot's messages. It must point at Cloudflare before Vercel is deleted.",
+               "Wohin Telegram die Bot-Nachrichten liefert. Muss auf Cloudflare zeigen, bevor Vercel gelöscht wird.",
+               "Où Telegram livre les messages du bot. Doit pointer vers Cloudflare avant de supprimer Vercel.")} />
 
       {info && (
-        <div className="mt-6 rounded-2xl p-5" style={{ background: "var(--card)", border: `1px solid ${good ? "rgba(22,163,74,0.4)" : "rgba(245,158,11,0.45)"}` }}>
-          <div className="flex items-center gap-2">
-            {good
-              ? <CheckCircle2 size={20} style={{ color: "#16a34a" }} />
-              : <AlertTriangle size={20} style={{ color: "#f59e0b" }} />}
-            <span className="font-medium" style={{ color: "var(--w)" }}>
-              {!info.configured
-                ? T("No webhook set", "Kein Webhook gesetzt", "Aucun webhook défini")
-                : good
-                  ? T("Connected to Cloudflare", "Mit Cloudflare verbunden", "Connecté à Cloudflare")
-                  : info.onVercel
-                    ? T("Still pointing at Vercel", "Zeigt noch auf Vercel", "Pointe encore vers Vercel")
-                    : T("Pointing somewhere else", "Zeigt woanders hin", "Pointe ailleurs")}
-            </span>
-          </div>
-          <div className="mt-3 text-sm" style={{ color: "var(--w2)" }}>
+        <Card style={{ padding: "18px 20px" }}>
+          {head(good ? "approved" : "pending",
+            !info.configured
+              ? T("No webhook set", "Kein Webhook gesetzt", "Aucun webhook défini")
+              : good
+                ? T("Connected to Cloudflare", "Mit Cloudflare verbunden", "Connecté à Cloudflare")
+                : info.onVercel
+                  ? T("Still pointing at Vercel", "Zeigt noch auf Vercel", "Pointe encore vers Vercel")
+                  : T("Pointing somewhere else", "Zeigt woanders hin", "Pointe ailleurs"))}
+          <div style={{ marginTop: 10, fontSize: 13.5, color: "var(--w3)" }}>
             {info.configured
-              ? <>{T("Currently: ", "Aktuell: ", "Actuellement : ")}<code style={{ color: "var(--gold)" }}>{info.host}{info.path}</code></>
+              ? <>{T("Currently: ", "Aktuell: ", "Actuellement : ")}<code style={code}>{info.host}{info.path}</code></>
               : T("The bot has no webhook configured yet.", "Der Bot hat noch keinen Webhook.", "Le bot n'a pas encore de webhook.")}
           </div>
-          {info.lastError && (
-            <div className="mt-2 text-xs" style={{ color: "#ef4444" }}>
-              {T("Last error from Telegram: ", "Letzter Telegram-Fehler: ", "Dernière erreur Telegram : ")}{info.lastError}
-            </div>
-          )}
+          {info.lastError && row("rejected", <>{T("Last error from Telegram: ", "Letzter Telegram-Fehler: ", "Dernière erreur Telegram : ")}{info.lastError}</>)}
 
           {!good && (
-            <button
-              onClick={repoint}
-              disabled={busy}
-              className="mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
-              style={{ background: "var(--gold-gradient)", color: "#1a1205", opacity: busy ? 0.6 : 1 }}
-            >
-              <RefreshCw size={15} className={busy ? "animate-spin" : ""} />
+            <Btn kind="primary" onClick={repoint} disabled={busy} style={{ marginTop: 16 }}>
+              <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
               {T("Point the bot at Cloudflare", "Bot auf Cloudflare umstellen", "Pointer le bot vers Cloudflare")}
-            </button>
+            </Btn>
           )}
-          {good && (
-            <p className="mt-4 text-sm" style={{ color: "#16a34a" }}>
-              {T("Nothing to do — Vercel can be safely deleted.", "Nichts zu tun — Vercel kann sicher gelöscht werden.", "Rien à faire — Vercel peut être supprimé en toute sécurité.")}
-            </p>
-          )}
-        </div>
+          {good && row("approved", T("Nothing to do — Vercel can be safely deleted.", "Nichts zu tun — Vercel kann sicher gelöscht werden.", "Rien à faire — Vercel peut être supprimé en toute sécurité."))}
+        </Card>
       )}
 
       {!drive && (
-        <div className="mt-4 rounded-2xl p-5 text-[13px]" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w3)" }}>
+        <Card style={{ padding: "18px 20px", marginTop: 12, fontSize: 13, color: "var(--w3)" }}>
           {T("Checking Google Drive…", "Prüfe Google Drive…", "Vérification de Google Drive…")}
-        </div>
+        </Card>
       )}
       {drive && (
-        <div className="mt-4 rounded-2xl p-5" style={{ background: "var(--card)", border: `1px solid ${drive.ok ? "rgba(22,163,74,0.4)" : "rgba(239,68,68,0.45)"}` }}>
-          <div className="flex items-center gap-2">
-            {drive.ok ? <CheckCircle2 size={20} style={{ color: "#16a34a" }} /> : <AlertTriangle size={20} style={{ color: "#ef4444" }} />}
-            <span className="font-medium" style={{ color: "var(--w)" }}>
-              {drive.ok
-                ? T("Google Drive connected", "Google Drive verbunden", "Google Drive connecté")
-                : T("Google Drive NOT reachable", "Google Drive NICHT erreichbar", "Google Drive INACCESSIBLE")}
-            </span>
-          </div>
-          <div className="mt-2 text-sm" style={{ color: "var(--w2)" }}>
+        <Card style={{ padding: "18px 20px", marginTop: 12 }}>
+          {head(drive.ok ? "approved" : "rejected",
+            drive.ok
+              ? T("Google Drive connected", "Google Drive verbunden", "Google Drive connecté")
+              : T("Google Drive NOT reachable", "Google Drive NICHT erreichbar", "Google Drive INACCESSIBLE"))}
+          <div style={{ marginTop: 10, fontSize: 13.5, color: "var(--w3)" }}>
             {drive.ok
-              ? <>{T("Candidate files can be copied to the agency folder.", "Kandidatendateien können in den Agenturordner kopiert werden.", "Les fichiers candidats peuvent être copiés vers le dossier de l'agence.")}{drive.connectedAs ? <> <code style={{ color: "var(--gold)" }}>{drive.connectedAs}</code></> : null}</>
+              ? <>{T("Candidate files can be copied to the agency folder.", "Kandidatendateien können in den Agenturordner kopiert werden.", "Les fichiers candidats peuvent être copiés vers le dossier de l'agence.")}{drive.connectedAs ? <> <code style={code}>{drive.connectedAs}</code></> : null}</>
               : T("The batch sync would copy nothing. Tell Claude — this needs a fix.", "Die Batch-Synchronisierung würde nichts kopieren. Sag Claude Bescheid.", "La synchronisation ne copierait rien. Préviens Claude.")}
           </div>
-          {!drive.ok && drive.detail && <div className="mt-2 text-xs" style={{ color: "var(--w3)" }}>{drive.detail}</div>}
-          {!drive.ok && drive.hint && <div className="mt-2 text-xs" style={{ color: "var(--w3)" }}>{drive.hint}</div>}
-        </div>
+          {!drive.ok && drive.detail && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--w3)", overflowWrap: "anywhere" }}>{drive.detail}</div>}
+          {!drive.ok && drive.hint && <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--w3)", overflowWrap: "anywhere" }}>{drive.hint}</div>}
+        </Card>
       )}
 
-      {msg && <p className="mt-4 text-sm" style={{ color: "var(--w2)" }}>{msg}</p>}
+      {msg && <p style={{ marginTop: 14, fontSize: 13.5, color: "var(--w2)" }}>{msg}</p>}
     </main>
   );
 }

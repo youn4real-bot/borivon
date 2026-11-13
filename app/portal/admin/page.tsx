@@ -3,6 +3,7 @@
 import { DocList, useDocMeta, type DocRow, type DocSub, type DocKey, type DocSt } from "@/components/fx/DocList";
 import React, { useEffect, useRef, useState } from "react";
 import { WayBoard, WayDots, WayNext, WayWhen, Flip, type WayRow } from "@/components/fx/Way";
+import { KitStyle, Btn, Card, Dot, Seg, Pager, usePaged, BackLink } from "@/components/fx/kit";
 import { VisaBundleButton } from "@/components/admin/VisaBundleButton";
 import { DiyFacilityPanel } from "@/components/admin/DiyFacilityPanel";
 import { createPortal, flushSync } from "react-dom";
@@ -27,7 +28,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Loader2, Check, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, Copy as DupIcon } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Loader2, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, GraduationCap, Syringe, NotebookPen, ListChecks, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck, UserPlus, Copy as DupIcon } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { passportReplaceRefusalText } from "@/lib/passportReplace";
 import { reportIfMaintenance } from "@/lib/maintenance";
@@ -243,8 +244,7 @@ function DeDateInput({ value, onChange }: { value: string | null; onChange: (v: 
   return (
     <div className="relative">
       <input readOnly value={ger} placeholder="TT.MM.JJJJ"
-        className="w-full rounded-lg px-2.5 py-2 text-xs outline-none cursor-pointer"
-        style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+        className="bvk-input" style={{ cursor: "pointer" }} />
       <input type="date" value={iso}
         onClick={e => { const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void }; el.showPicker?.(); }}
         onChange={e => onChange(e.target.value || null)}
@@ -273,11 +273,37 @@ function StatusSection({ title, first, children }: { title: string; first?: bool
   return (
     <section className="space-y-3">
       {!first && <div style={{ height: 1, background: "var(--border)" }} />}
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] pt-1" style={{ color: "var(--gold)" }}>{title}</p>
+      <p style={{ margin: "0 0 14px", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)" }}>{title}</p>
       <div className="space-y-3">{children}</div>
     </section>
   );
 }
+
+/** The one design (components/fx/kit): a list that flips (‹ 1 / 3 ›) instead of scrolling — for lists drawn
+ *  after this page's early returns, where the usePaged hook cannot sit. */
+function KitPagedList<T>({ items, perLaptop, perPhone, children }: { items: T[]; perLaptop: number; perPhone: number; children: (slice: T[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, perLaptop, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
+}
+
+/** Hover + phone rules for the ⋯ menu, the Werkzeuge popup and the Status popup (inline styles cannot hover). */
+const BVX_CSS = ".bvx-row{transition:background .15s}.bvx-row:hover:not(:disabled){background:var(--bg2)}"
+  + ".bvx-rail{width:84px}.bvx-sbody{padding:20px 22px}"
+  + ".bvx-cl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;row-gap:8px}"
+  + ".bvx-vx{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;row-gap:12px;align-items:start}.bvx-vxseg{display:none}"
+  + "@media (max-width:640px){.bvx-tsub{display:none!important}.bvx-rail{width:76px}.bvx-sbody{padding:16px 14px}"
+  + ".bvx-cl{grid-template-columns:minmax(0,1fr);row-gap:5px}.bvx-vx{grid-template-columns:minmax(0,1fr)}.bvx-vxseg{display:block}.bvx-vx>[data-off]{display:none}}";
+/** Werkzeuge rows: hairline rows in one card — quiet icon, the name, one quiet sub line (hidden on a phone), a quiet chevron */
+const BVX_TROW: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "8px 14px", background: "none", border: 0, textAlign: "left", cursor: "pointer", fontFamily: "inherit" };
+/** an invite-link row: icon, the word, a small ghost button on the right (wraps under the word only on a narrow phone) */
+const BVX_IROW: React.CSSProperties = { gap: "6px 12px", padding: "7px 10px 7px 14px", minHeight: 48 };
+const BVX_TLINE = "1px solid var(--border)";
+const BVX_TICON: React.CSSProperties = { color: "var(--w3)", flex: "none" };
+const BVX_TNAME: React.CSSProperties = { display: "block", fontSize: 14, lineHeight: 1.35, color: "var(--w)" };
+const BVX_TSUB: React.CSSProperties = { display: "block", marginTop: 1, fontSize: 12.5, lineHeight: 1.35, color: "var(--w3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+/** a popover panel (the ⋯ menu, the org picker) and its full-width rows */
+const BVX_POP: React.CSSProperties = { padding: 6, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "0 18px 40px -18px rgba(21,19,15,.35)" };
+const BVX_MROW: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, width: "100%", height: 40, padding: "0 10px", borderRadius: 10, background: "none", border: 0, fontSize: 14, color: "var(--w)", cursor: "pointer", fontFamily: "inherit", textAlign: "left", whiteSpace: "nowrap" };
 
 function timeAgo(iso: string, lang?: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -1243,6 +1269,8 @@ export default function AdminPage() {
   // Left-rail category (like the candidate dashboard). Add a tab id here +
   // an entry in STATUS_TABS + a content block to introduce a new project.
   const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes" | "docs" | "journey" | "engagement">("b2");
+  // presentation only: on a phone the Impfungen tab flips Masern | Varizell (nobody scrolls); a laptop shows both
+  const [vaxView, setVaxView]             = useState<VaxKey>("masern");
   // Non-persisted view toggle for the assign tab. Defaults to whatever the
   // canonical assignment implies; admin can flip it manually to view the
   // other branch before picking. Cleared on modal close.
@@ -4601,14 +4629,17 @@ export default function AdminPage() {
                   style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w2)", fontSize: 18, lineHeight: 1, cursor: "pointer" }}>⋯</button>
                 {moreOpen && (<>
                   <div className="fixed inset-0 z-[599]" onClick={() => setMoreOpen(false)} />
-                  <div className="absolute right-0 mt-2 z-[600] flex flex-col items-start gap-2 p-3"
-                    style={{ minWidth: 240, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "var(--shadow-md)" }}>
+                  {/* ONE clean menu (the one design, founder 2026-11-13): full-width rows, icon + word, hover = paper */}
+                  <div className="absolute right-0 mt-2 z-[600] flex flex-col"
+                    style={{ ...BVX_POP, minWidth: 250, gap: 2 }}>
+                    <style>{BVX_CSS}</style>
               {/* Admin-only STATUS reminders (B2 …). Candidate never sees this. */}
               <button
+                type="button"
                 onClick={openStatusModal}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
+                className="bvx-row"
+                style={BVX_MROW}>
+                <SlidersHorizontal size={15} strokeWidth={1.7} style={{ color: "var(--w3)", flex: "none" }} /> {lang === "fr" ? "Statut" : "Status"}
               </button>
               {/* WhatsApp: ask the candidate to upload a missing doc — STEP BY STEP.
                   Opens a picker of the missing docs; the admin ticks 1–2 and sends,
@@ -4655,16 +4686,19 @@ export default function AdminPage() {
               {/* SEND TO <AGENCY> — the gate for the partner API.
                   Pressing this is what lets that agency's system fetch her
                   documents; nothing else does. So it reads as a real access
-                  grant: gold when they can see her, plain when they cannot, and
-                  it says the agency's name rather than a generic "share". */}
+                  grant: a green dot when they can see her, a grey one when they
+                  cannot, and it says the agency's name rather than a generic "share". */}
+              {(partnerOrgs.length > 0 || shareLoadFailed) && <div aria-hidden="true" style={{ height: 1, background: "var(--border)", margin: "4px 8px" }} />}
               {partnerOrgs.map((org) => {
                 const on = partnerShares.includes(org.id);
                 const busy = shareBusy === org.id;
                 return (
                   <button
+                    type="button"
                     key={org.id}
                     onClick={() => togglePartnerShare(org.id, !on)}
                     disabled={busy}
+                    aria-pressed={on}
                     title={on
                       ? (lang === "de" ? `${org.name} kann ihre Unterlagen abrufen — zum Zurückziehen klicken`
                         : lang === "fr" ? `${org.name} peut récupérer ses documents — cliquez pour retirer`
@@ -4672,14 +4706,12 @@ export default function AdminPage() {
                       : (lang === "de" ? `Unterlagen an ${org.name} freigeben`
                         : lang === "fr" ? `Partager les documents avec ${org.name}`
                         : `Share her documents with ${org.name}`)}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
-                    style={on
-                      ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
-                      : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
+                    className="bvx-row"
+                    style={{ ...BVX_MROW, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}
                   >
-                    {busy ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                      : on ? <Check size={12} strokeWidth={2.4} />
-                      : <Send size={12} strokeWidth={2} />}
+                    <span style={{ width: 15, display: "inline-flex", justifyContent: "center", flex: "none" }}>
+                      {busy ? <Loader2 size={14} className="animate-spin" style={{ color: "var(--w3)" }} aria-hidden /> : <Dot st={on ? "approved" : "missing"} size={8} />}
+                    </span>
                     {on
                       ? (lang === "de" ? `Bei ${org.name}` : lang === "fr" ? `Chez ${org.name}` : `With ${org.name}`)
                       : (lang === "de" ? `An ${org.name}` : lang === "fr" ? `Vers ${org.name}` : `Send to ${org.name}`)}
@@ -4698,7 +4730,7 @@ export default function AdminPage() {
                    it on the button itself would replace the button role, and a
                    screen-reader user would hear the warning without ever being
                    told the thing is clickable. */
-                <span role="alert" className="inline-flex flex-shrink-0">
+                <span role="alert" style={{ display: "block" }}>
                 <button
                   type="button"
                   onClick={() => { void retryPartnerShares(); }}
@@ -4706,12 +4738,12 @@ export default function AdminPage() {
                   title={lang === "de" ? "Die Liste der Agenturen konnte nicht geladen werden — klicken zum erneuten Prüfen"
                     : lang === "fr" ? "La liste des agences n'a pas pu être chargée — cliquez pour revérifier"
                     : "Could not load which agencies can see her — click to check again"}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50 flex-shrink-0"
-                  style={{ background: "var(--bg2)", color: "var(--danger)", border: "1px solid var(--danger)" }}
+                  className="bvx-row"
+                  style={{ ...BVX_MROW, color: "#dc2626", cursor: shareLoadRetrying ? "default" : "pointer", opacity: shareLoadRetrying ? 0.6 : 1 }}
                 >
                   {shareLoadRetrying
-                    ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                    : <AlertTriangle size={12} strokeWidth={2} />}
+                    ? <Loader2 size={15} className="animate-spin" style={{ flex: "none" }} aria-hidden />
+                    : <AlertTriangle size={15} strokeWidth={1.8} style={{ flex: "none" }} />}
                   {lang === "de" ? "Freigaben unbekannt — erneut prüfen"
                     : lang === "fr" ? "Partages inconnus — revérifier"
                     : "Sharing unknown — check again"}
@@ -4875,15 +4907,19 @@ export default function AdminPage() {
             {statusOpen && typeof window !== "undefined" && createPortal(
               (() => {
                 const L = lang === "fr"
-                  ? { title:"Statut", q1:"B2 terminé ?", yes:"Oui", no:"Non", cert:"Date du certificat", save:"Enregistrer", cancel:"Annuler", loading:"Chargement…", hint:"Visible uniquement par les admins — le candidat ne voit rien.", wroteQ:"A-t-il passé l'examen ?", wrote:"A passé l'examen", notwrote:"Pas encore passé", examWritten:"Date de l'examen passé", resultsExpected:"Date prévue des résultats", plannedExam:"Date prévue de l'examen", regPaid:"Inscrit — frais payés", regWaiting:"En attente d'ouverture du site", secB2:"B2", secVax:"Vaccins", got:"Reçu", notgot:"Pas encore", doseDate:"Date du vaccin", doseExpected:"Date prévue", certExpected:"Certificat / complet le", dose:"Dose", addDose:"Ajouter une dose", mand:"obligatoire", vaxPreset:"Standard UKSH/Calmaroi (2 Masern + 2 Varizell)", vaxPresetHint:"Crée les doses requises en un clic" }
+                  ? { title:"Statut", q1:"B2 terminé ?", yes:"Oui", no:"Non", cert:"Date du certificat", save:"Enregistrer", cancel:"Annuler", loading:"Chargement…", hint:"Visible uniquement par les admins.", wroteQ:"A-t-il passé l'examen ?", wrote:"A passé l'examen", notwrote:"Pas encore passé", examWritten:"Date de l'examen passé", resultsExpected:"Date prévue des résultats", plannedExam:"Date prévue de l'examen", regPaid:"Inscrit — frais payés", regWaiting:"En attente d'ouverture du site", secB2:"B2", secVax:"Vaccins", got:"Reçu", notgot:"Pas encore", doseDate:"Date du vaccin", doseExpected:"Date prévue", certExpected:"Certificat / complet le", dose:"Dose", addDose:"Ajouter une dose", mand:"obligatoire", vaxPreset:"Standard UKSH/Calmaroi (2 Masern + 2 Varizell)", vaxPresetHint:"Crée les doses requises en un clic" }
                   : lang === "de"
-                  ? { title:"Status", q1:"B2 abgeschlossen?", yes:"Ja", no:"Nein", cert:"Zertifikatsdatum", save:"Speichern", cancel:"Abbrechen", loading:"Laden…", hint:"Nur für Admins sichtbar — der Kandidat sieht nichts.", wroteQ:"Prüfung abgelegt?", wrote:"Prüfung abgelegt", notwrote:"Noch nicht abgelegt", examWritten:"Datum der abgelegten Prüfung", resultsExpected:"Voraussichtliches Ergebnisdatum", plannedExam:"Voraussichtlicher Prüfungstermin", regPaid:"Angemeldet — Gebühren bezahlt", regWaiting:"Wartet auf Öffnung der Website", secB2:"B2", secVax:"Impfungen", got:"Geimpft", notgot:"Noch nicht", doseDate:"Impfdatum", doseExpected:"Voraussichtliches Datum", certExpected:"Nachweis / vollständig bis", dose:"Dosis", addDose:"Dosis hinzufügen", mand:"Pflicht", vaxPreset:"Standard UKSH/Calmaroi (2 Masern + 2 Varizell)", vaxPresetHint:"Erstellt die nötigen Dosen mit einem Klick" }
-                  : { title:"Status", q1:"B2 complete?", yes:"Yes", no:"No", cert:"Certificate date", save:"Save", cancel:"Cancel", loading:"Loading…", hint:"Admin-only — the candidate never sees this.", wroteQ:"Did they write the exam?", wrote:"Wrote the exam", notwrote:"Didn't write yet", examWritten:"Exam written on", resultsExpected:"Expected results date", plannedExam:"Expected exam date", regPaid:"Registered — fees paid", regWaiting:"Waiting for website to open", secB2:"B2", secVax:"Vaccines", got:"Received", notgot:"Not yet", doseDate:"Vaccination date", doseExpected:"Expected date", certExpected:"Certificate / complete by", dose:"Dose", addDose:"Add a dose", mand:"required", vaxPreset:"UKSH/Calmaroi standard (2 Masern + 2 Varizell)", vaxPresetHint:"Create the required doses in one click" };
-                const pill = (active: boolean) => ({
-                  background: active ? "var(--gdim)" : "var(--bg2)",
-                  color: active ? "var(--gold)" : "var(--w3)",
-                  border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                  ? { title:"Status", q1:"B2 abgeschlossen?", yes:"Ja", no:"Nein", cert:"Zertifikatsdatum", save:"Speichern", cancel:"Abbrechen", loading:"Laden…", hint:"Nur für Admins sichtbar.", wroteQ:"Prüfung abgelegt?", wrote:"Prüfung abgelegt", notwrote:"Noch nicht abgelegt", examWritten:"Datum der abgelegten Prüfung", resultsExpected:"Voraussichtliches Ergebnisdatum", plannedExam:"Voraussichtlicher Prüfungstermin", regPaid:"Angemeldet — Gebühren bezahlt", regWaiting:"Wartet auf Öffnung der Website", secB2:"B2", secVax:"Impfungen", got:"Geimpft", notgot:"Noch nicht", doseDate:"Impfdatum", doseExpected:"Voraussichtliches Datum", certExpected:"Nachweis / vollständig bis", dose:"Dosis", addDose:"Dosis hinzufügen", mand:"Pflicht", vaxPreset:"Standard UKSH/Calmaroi (2 Masern + 2 Varizell)", vaxPresetHint:"Erstellt die nötigen Dosen mit einem Klick" }
+                  : { title:"Status", q1:"B2 complete?", yes:"Yes", no:"No", cert:"Certificate date", save:"Save", cancel:"Cancel", loading:"Loading…", hint:"Visible to admins only.", wroteQ:"Did they write the exam?", wrote:"Wrote the exam", notwrote:"Didn't write yet", examWritten:"Exam written on", resultsExpected:"Expected results date", plannedExam:"Expected exam date", regPaid:"Registered — fees paid", regWaiting:"Waiting for website to open", secB2:"B2", secVax:"Vaccines", got:"Received", notgot:"Not yet", doseDate:"Vaccination date", doseExpected:"Expected date", certExpected:"Certificate / complete by", dose:"Dose", addDose:"Add a dose", mand:"required", vaxPreset:"UKSH/Calmaroi standard (2 Masern + 2 Varizell)", vaxPresetHint:"Create the required doses in one click" };
+                // the one design: a chosen option = ink pill, the others = hairline pills
+                const pill = (active: boolean): React.CSSProperties => ({
+                  height: 36, padding: "0 14px", borderRadius: 999, fontSize: 13, fontWeight: 500, fontFamily: "inherit", whiteSpace: "nowrap", cursor: "pointer",
+                  background: active ? "var(--w)" : "var(--card)",
+                  color: active ? "var(--bg)" : "var(--w2)",
+                  border: `1px solid ${active ? "var(--w)" : "var(--border)"}`,
                 });
+                // a form label in the one look (11px uppercase, .08em, quiet)
+                const fieldLbl: React.CSSProperties = { display: "block", marginBottom: 6, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)" };
                 // Left-rail categories — add a project = one more entry here
                 // + one more `statusTab === "<id>"` content block below.
                 const STATUS_TABS = ([
@@ -4915,58 +4951,58 @@ export default function AdminPage() {
                       save:"Create & assign", cancel:"Cancel" };
                 return (
                 <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
-                  style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                  style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                   onClick={closeStatusModal}>
                   <div className="w-full max-w-2xl rounded-[20px] overflow-hidden flex flex-col"
                     onClick={e => e.stopPropagation()}
-                    style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)",
+                    style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)",
                       // FIXED medium height (not content-adaptive) — extra
                       // space is fine; only shrinks on a short viewport.
-                      height: "min(560px, calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px))",
+                      height: "min(680px, calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px))",
                       maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
-                    <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-                      <div>
-                        <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>{L.title}</p>
-                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>{L.hint}</p>
+                    <KitStyle />
+                    <style>{BVX_CSS}</style>
+                    <div className="flex items-center justify-between flex-shrink-0" style={{ gap: 12, padding: "16px 18px 14px 22px", borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.2, color: "var(--w)" }}>{L.title}</h2>
+                        <p style={{ margin: "2px 0 0", fontSize: 12.5, color: "var(--w3)" }}>{L.hint}</p>
                       </div>
-                      <button onClick={closeStatusModal}
-                        className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
+                      <button type="button" onClick={closeStatusModal} aria-label={lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close"}
+                        style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer", display: "grid", placeItems: "center", flex: "none" }}>
                         <XIcon size={14} strokeWidth={1.8} />
                       </button>
                     </div>
                     <div className="flex flex-1" style={{ minHeight: 0 }}>
-                      {/* Left category rail — EXACTLY the candidate-dashboard
-                          sidebar language: floating (no border), premium
-                          minimalist icon + tiny label, gold + slight scale on
-                          active, thin connector line between items. */}
-                      <div className="flex-shrink-0 w-[64px] sm:w-[76px] overflow-y-auto py-4">
-                        {STATUS_TABS.map((tb, ti) => {
+                      {/* Left category rail — the one design: quiet icon +
+                          label, the chosen one in ink with a small gold dot,
+                          a hairline to the content. */}
+                      <div className="bvx-rail flex-shrink-0 overflow-y-auto" style={{ padding: "12px 0", borderRight: "1px solid var(--border)" }}>
+                        {STATUS_TABS.map((tb) => {
                           const isActive = statusTab === tb.id;
                           const Icon = tb.Icon;
                           return (
                             <div key={tb.id} className="flex flex-col items-center">
-                              <button onClick={() => setStatusTab(tb.id)} title={tb.label}
-                                className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
-                                style={{ background: "transparent", border: "none" }}>
-                                <span className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none"
+                              <button type="button" onClick={() => setStatusTab(tb.id)} title={tb.label} aria-current={isActive ? "true" : undefined}
+                                className="w-full flex flex-col items-center cursor-pointer"
+                                style={{ gap: 3, padding: "6px 2px", background: "transparent", border: "none", fontFamily: "inherit" }}>
+                                <span className="relative flex items-center justify-center rounded-full leading-none select-none"
                                   style={{
-                                    color: isActive ? "var(--gold)" : "var(--w3)",
-                                    transform: isActive ? "scale(1.08)" : "scale(1)",
-                                    transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
+                                    width: 30, height: 30,
+                                    color: isActive ? "var(--w)" : "var(--w3)",
+                                    background: isActive ? "var(--bg2)" : "transparent",
+                                    transition: "color var(--dur-1) var(--ease), background var(--dur-1) var(--ease)",
                                   }}>
-                                  <Icon size={15} strokeWidth={1.7} />
+                                  <Icon size={15} strokeWidth={isActive ? 1.9 : 1.7} />
+                                  {isActive && <i aria-hidden="true" style={{ position: "absolute", right: -1, top: 1, width: 6, height: 6, borderRadius: "50%", background: "var(--gold)" }} />}
                                 </span>
-                                <span className="text-[8.5px] text-center leading-tight font-medium px-0.5 w-full"
-                                  style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>{tb.label}</span>
+                                <span className="text-center w-full"
+                                  style={{ fontSize: 10.5, lineHeight: 1.2, fontWeight: isActive ? 600 : 500, color: isActive ? "var(--w)" : "var(--w3)", overflowWrap: "anywhere" }}>{tb.label}</span>
                               </button>
-                              {ti < STATUS_TABS.length - 1 && (
-                                <div className="w-px" style={{ height: 18, background: "var(--border)" }} />
-                              )}
                             </div>
                           );
                         })}
                       </div>
-                      <div className="flex-1 px-5 py-5 overflow-y-auto" style={{ minHeight: 0 }}>
+                      <div className="bvx-sbody flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
                       {statusLoading ? (
                         <p className="text-xs text-center py-6" style={{ color: "var(--w3)" }}>{L.loading}</p>
                       ) : (
@@ -4977,8 +5013,7 @@ export default function AdminPage() {
                               row with a full upsert — tell the admin their edits
                               aren't saving. */}
                           {statusLoadFailed && (
-                            <div className="mb-4 rounded-xl px-3 py-2.5 text-[12px]"
-                              style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid #ef4444" }}>
+                            <div role="alert" style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 12, fontSize: 13, lineHeight: 1.45, background: "rgba(220,38,38,.12)", color: "#b91c1c" }}>
                               {lang === "fr" ? "Impossible de charger le statut — vos modifications ne seront PAS enregistrées. Fermez puis rouvrez cette fenêtre."
                                 : lang === "de" ? "Status konnte nicht geladen werden — Änderungen werden NICHT gespeichert. Bitte schließen und erneut öffnen."
                                 : "Couldn't load the status — your edits will NOT be saved. Close and reopen this window."}
@@ -5002,40 +5037,35 @@ export default function AdminPage() {
                               docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status })),
                               { requiredKeys: requiredKeysForCandidate(selectedUser) }
                             );
-                            const COLOR: Record<ItemStatus, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#ef4444", missing: "#9ca3af" };
-                            const Icn = ({ s, size = 15 }: { s: ItemStatus; size?: number }) => (
-                              s === "approved" ? <CheckCircle2 size={size} strokeWidth={1.9} style={{ color: COLOR.approved }} />
-                              : s === "pending" ? <ClockIcon size={size} strokeWidth={1.9} style={{ color: COLOR.pending }} />
-                              : s === "rejected" ? <XCircle size={size} strokeWidth={1.9} style={{ color: COLOR.rejected }} />
-                              : <MinusIcon size={size} strokeWidth={1.9} style={{ color: COLOR.missing }} />
-                            );
+                            // status = the kit dot (LAW #4: green done · orange waiting · red redo · grey missing)
+                            const Icn = ({ s }: { s: ItemStatus }) => <Dot st={s} size={8} />;
                             return (
                               <StatusSection title={dl.title} first>
-                                <div style={{ marginBottom: 14 }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--w3)", marginBottom: 5 }}>
-                                    <span>{cl.requiredComplete}/{cl.requiredTotal}</span>
-                                    <span><strong style={{ color: "var(--w)" }}>{cl.pct}%</strong> {dl.complete}</span>
+                                <div style={{ marginBottom: 16 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12.5, color: "var(--w3)", marginBottom: 6 }}>
+                                    <span><b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, color: "var(--w)" }}>{cl.requiredComplete}</b> / {cl.requiredTotal}</span>
+                                    <span><strong style={{ color: "var(--w)", fontWeight: 600 }}>{cl.pct}%</strong> {dl.complete}</span>
                                   </div>
-                                  <div style={{ height: 7, borderRadius: 4, background: "var(--bg2)", overflow: "hidden" }}>
-                                    <div style={{ width: `${cl.pct}%`, height: "100%", background: cl.pct === 100 ? "#16a34a" : cl.pct >= 50 ? "#f59e0b" : "#ef4444", transition: "width .3s" }} />
+                                  <div style={{ height: 4, borderRadius: 999, background: "var(--bg2)", overflow: "hidden" }}>
+                                    <div style={{ width: `${cl.pct}%`, height: "100%", borderRadius: 999, background: "var(--w)", transition: "width .3s" }} />
                                   </div>
                                 </div>
                                 {(["essentials", "qualifications"] as const).map(group => (
                                   <div key={group} style={{ marginBottom: 14 }}>
-                                    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "var(--w3)", marginBottom: 6 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)", marginBottom: 8 }}>
                                       {group === "essentials" ? dl.essentials : dl.qualifications}
                                     </div>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    <div className="bvx-cl">
                                       {cl.items.filter(i => i.group === group).map(i => (
-                                        <div key={i.key} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5 }}>
+                                        <div key={i.key} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, minWidth: 0 }}>
                                           <Icn s={i.original} />
-                                          <span style={{ flex: "1 1 auto", color: "var(--w2)" }}>
+                                          <span style={{ flex: "1 1 auto", minWidth: 0, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                             {dl.labels[i.key] ?? i.key}
-                                            {i.optional && <span style={{ color: "var(--w3)", fontSize: 10.5 }}> ({dl.optional})</span>}
+                                            {i.optional && <span style={{ color: "var(--w3)", fontSize: 12 }}> ({dl.optional})</span>}
                                           </span>
                                           {i.hasTranslation && i.translation && (
-                                            <span title={dl.trans} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--w3)", fontSize: 10 }}>
-                                              {dl.trans.slice(0, 2).toUpperCase()} <Icn s={i.translation} size={13} />
+                                            <span title={dl.trans} style={{ display: "inline-flex", alignItems: "center", gap: 5, flex: "none", color: "var(--w3)", fontSize: 11, letterSpacing: ".04em" }}>
+                                              {dl.trans.slice(0, 2).toUpperCase()} <Icn s={i.translation} />
                                             </span>
                                           )}
                                         </div>
@@ -5163,26 +5193,23 @@ export default function AdminPage() {
                               : "Edit in CV builder";
 
                             return (
-                              <div className="rounded-xl px-3 py-3"
-                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                <div className="flex items-center justify-between mb-2">
-                                  <p className="text-[11px] font-semibold tracking-tight" style={{ color: "var(--w2)" }}>
+                              <div style={{ padding: "14px 16px", borderRadius: 14, background: "var(--card)", border: "1px solid var(--border)" }}>
+                                <div className="flex items-center justify-between" style={{ gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--w)" }}>
                                     {lang === "de" ? "CV-Builder · Deutsch" : lang === "fr" ? "CV-Builder · Allemand" : "CV builder · German"}
                                   </p>
                                   {selectedUser && (
-                                    <button
-                                      onClick={() => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank")}
-                                      className="bv-row-hover inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-1 rounded-md"
-                                      style={{ color: "var(--gold)", background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-                                      <FilePen size={10} strokeWidth={1.8} /> {editBtn}
-                                    </button>
+                                    <Btn kind="ghost" size="sm"
+                                      onClick={() => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank")}>
+                                      <FilePen size={13} strokeWidth={1.8} /> {editBtn}
+                                    </Btn>
                                   )}
                                 </div>
-                                <div className="space-y-1">
+                                <div className="flex flex-col" style={{ gap: 6 }}>
                                   {rows.map((r, i) => (
-                                    <div key={i} className="flex items-baseline gap-2 text-[11.5px]">
-                                      <span style={{ color: "var(--w3)", minWidth: 110 }}>{r.k}</span>
-                                      <span style={{ color: "var(--w)", fontWeight: 500 }}>{r.v}</span>
+                                    <div key={i} className="flex items-baseline" style={{ gap: 10, fontSize: 13 }}>
+                                      <span style={{ color: "var(--w3)", minWidth: 120, flex: "none" }}>{r.k}</span>
+                                      <span style={{ color: "var(--w)", fontWeight: 500, minWidth: 0 }}>{r.v}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -5231,13 +5258,11 @@ export default function AdminPage() {
                             return (
                           <StatusSection title={assignT.sec} first>
                             <div>
-                              <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.to}</label>
-                              <div className="flex gap-2">
-                                <button onClick={() => setAssignTypeUI("agency")}
-                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                              <label style={fieldLbl}>{assignT.to}</label>
+                              <div className="flex flex-wrap" style={{ gap: 6 }}>
+                                <button type="button" onClick={() => setAssignTypeUI("agency")} aria-pressed={shownType === "agency"}
                                   style={pill(shownType === "agency")}>{assignT.agency}</button>
-                                <button onClick={() => setAssignTypeUI("employer")}
-                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                <button type="button" onClick={() => setAssignTypeUI("employer")} aria-pressed={shownType === "employer"}
                                   style={pill(shownType === "employer")}>{assignT.employer}</button>
                               </div>
                             </div>
@@ -5250,8 +5275,8 @@ export default function AdminPage() {
                             {shownType === "agency" && (
                               <>
                                 <div>
-                                  <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickAg}</label>
-                                  <div className="flex flex-wrap gap-2">
+                                  <label style={fieldLbl}>{assignT.pickAg}</label>
+                                  <div className="flex flex-wrap" style={{ gap: 6 }}>
                                     {allOrgs.map(a => (
                                       <button key={a.id}
                                         onClick={() => {
@@ -5286,11 +5311,11 @@ export default function AdminPage() {
                                               });
                                           }
                                         }}
-                                        className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                        type="button" aria-pressed={shownAgencyId === a.id}
                                         style={pill(shownAgencyId === a.id)}>{a.name}</button>
                                     ))}
                                     {allOrgs.length === 0 && (
-                                      <p className="text-[11px]" style={{ color: orgsLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                                      <p style={{ margin: 0, fontSize: 12.5, color: orgsLoadFailed ? "#dc2626" : "var(--w3)" }}>
                                         {orgsLoadFailed
                                           ? t.aListLoadFailed
                                           : (lang === "de" ? "Noch keine Agenturen — unter Arbeitgeber → Agenturen anlegen."
@@ -5302,8 +5327,8 @@ export default function AdminPage() {
                                 </div>
                                 {shownAgencyId && (
                                   <div>
-                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickSite}</label>
-                                    <div className="flex flex-wrap gap-2">
+                                    <label style={fieldLbl}>{assignT.pickSite}</label>
+                                    <div className="flex flex-wrap" style={{ gap: 6 }}>
                                       {allEmployers
                                         .filter(e => e.agencyId === shownAgencyId)
                                         .map(e => (
@@ -5313,11 +5338,11 @@ export default function AdminPage() {
                                               // assignEmployer() handles optimistic UI + revert.
                                               if (selectedUser) void assignEmployer(selectedUser, e.id);
                                             }}
-                                            className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                            type="button" aria-pressed={shownSiteId === e.id}
                                             style={pill(shownSiteId === e.id)}>{e.name}</button>
                                         ))}
                                       {allEmployers.filter(e => e.agencyId === shownAgencyId).length === 0 && (
-                                        <p className="text-[11px]" style={{ color: employersLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                                        <p style={{ margin: 0, fontSize: 12.5, color: employersLoadFailed ? "#dc2626" : "var(--w3)" }}>
                                           {employersLoadFailed
                                             ? t.aListLoadFailed
                                             : (lang === "de" ? "Diese Agentur hat noch keine Arbeitgeber."
@@ -5339,18 +5364,18 @@ export default function AdminPage() {
                                 → CV stays Borivon for the admin too). */}
                             {shownType === "employer" && (
                               <div>
-                                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickEmp}</label>
-                                <div className="flex flex-wrap gap-2">
+                                <label style={fieldLbl}>{assignT.pickEmp}</label>
+                                <div className="flex flex-wrap" style={{ gap: 6 }}>
                                   {allEmployers.filter(e => !e.agencyId).map(emp => (
                                     <button key={emp.id}
                                       onClick={() => {
                                         if (selectedUser) void assignEmployer(selectedUser, emp.id);
                                       }}
-                                      className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                      type="button" aria-pressed={shownDirectEmpId === emp.id}
                                       style={pill(shownDirectEmpId === emp.id)}>{emp.name}</button>
                                   ))}
                                   {allEmployers.filter(e => !e.agencyId).length === 0 && !addingEmployer && (
-                                    <p className="text-[11px]" style={{ color: employersLoadFailed ? "var(--danger)" : "var(--w3)" }}>
+                                    <p style={{ margin: 0, fontSize: 12.5, color: employersLoadFailed ? "#dc2626" : "var(--w3)" }}>
                                       {employersLoadFailed
                                         ? t.aListLoadFailed
                                         : (lang === "de" ? "Noch keine direkten Arbeitgeber."
@@ -5370,43 +5395,37 @@ export default function AdminPage() {
                                     supreme-only, which dead-ended a sub-admin the
                                     moment the hospital wasn't already on file. */}
                                 {!addingEmployer && (
-                                  <button type="button" onClick={() => setAddingEmployer(true)}
-                                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
-                                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                    <Plus size={12} strokeWidth={2} /> {assignT.addEmp}
-                                  </button>
+                                  <Btn kind="ghost" size="sm" onClick={() => setAddingEmployer(true)} style={{ marginTop: 10 }}>
+                                    <Plus size={13} strokeWidth={2} /> {assignT.addEmp}
+                                  </Btn>
                                 )}
                                 {addingEmployer && (
-                                  <div className="mt-2 rounded-xl p-3 space-y-2"
-                                    style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)" }}>
+                                  <div className="space-y-3" style={{ marginTop: 10, padding: 14, borderRadius: 14, background: "var(--card)", border: "1px solid var(--border)" }}>
                                     <div>
-                                      <label className="text-[10.5px] font-medium mb-1 block" style={{ color: "var(--w2)" }}>{assignT.empName}</label>
+                                      <label style={fieldLbl}>{assignT.empName}</label>
                                       <input value={newEmpName} autoFocus
                                         onChange={e => setNewEmpName(e.target.value)}
                                         placeholder={assignT.empNamePh}
-                                        className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
-                                        style={{ background: "var(--card)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+                                        className="bvk-input" />
                                     </div>
                                     <div>
-                                      <label className="text-[10.5px] font-medium mb-1 block" style={{ color: "var(--w2)" }}>{assignT.empAddr}</label>
+                                      <label style={fieldLbl}>{assignT.empAddr}</label>
                                       <textarea rows={4} value={newEmpAddr}
                                         onChange={e => setNewEmpAddr(e.target.value)}
                                         placeholder={assignT.empAddrPh}
-                                        className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
-                                        style={{ background: "var(--card)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 88 }} />
+                                        className="bvk-input" style={{ minHeight: 96 }} />
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <button type="button" onClick={() => void createDirectEmployer()}
+                                    <div className="flex items-center" style={{ gap: 8 }}>
+                                      <Btn kind="ghost" size="sm" onClick={() => void createDirectEmployer()}
                                         disabled={savingNewEmp || !newEmpName.trim() || newEmpAddr.split(/\r?\n/).every(l => !l.trim())}
-                                        className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
-                                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                        style={{ flex: 1 }}>
                                         {savingNewEmp ? "…" : assignT.save}
-                                      </button>
-                                      <button type="button"
+                                      </Btn>
+                                      <Btn kind="quiet"
                                         onClick={() => { if (savingNewEmp) return; setAddingEmployer(false); setNewEmpName(""); setNewEmpAddr(""); }}
-                                        className="py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>
+                                        style={{ fontSize: 13 }}>
                                         {assignT.cancel}
-                                      </button>
+                                      </Btn>
                                     </div>
                                   </div>
                                 )}
@@ -5458,26 +5477,25 @@ export default function AdminPage() {
                               };
                               const Lcv = lang === "de" ? {
                                 title: "CV-Branding (Admin-Download)",
-                                hint:  "Aussehen des vom Admin heruntergeladenen CVs. Der Kandidat erhält beim eigenen Download immer Borivon.",
+                                hint:  "Der Kandidat selbst erhält immer Borivon.",
                                 agency: "Agentur", borivon: "Borivon", none: "Kein Branding",
                                 disabledHint: "Erst eine Agentur zuweisen, um diesen Modus zu nutzen.",
                               } : lang === "fr" ? {
                                 title: "Branding du CV (téléchargement admin)",
-                                hint:  "Apparence du CV téléchargé par l'admin. Le candidat reçoit toujours Borivon de son côté.",
+                                hint:  "Le candidat reçoit toujours Borivon de son côté.",
                                 agency: "Agence", borivon: "Borivon", none: "Sans branding",
                                 disabledHint: "Assignez d'abord une agence pour utiliser ce mode.",
                               } : {
                                 title: "CV branding (admin download)",
-                                hint:  "Look of the CV the admin downloads. The candidate always gets Borivon when they download their own.",
+                                hint:  "The candidate always gets Borivon on their own download.",
                                 agency: "Agency", borivon: "Borivon", none: "No branding",
                                 disabledHint: "Assign an agency first to use this mode.",
                               };
                               return (
-                                <div className="mt-2 p-3 rounded-xl"
-                                  style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                  <p className="text-[12px] font-semibold" style={{ color: "var(--w)" }}>{Lcv.title}</p>
-                                  <p className="text-[10.5px] mt-0.5 mb-2" style={{ color: "var(--w3)" }}>{Lcv.hint}</p>
-                                  <div className="flex gap-2">
+                                <div style={{ marginTop: 4, padding: "14px 16px", borderRadius: 14, background: "var(--card)", border: "1px solid var(--border)" }}>
+                                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--w)" }}>{Lcv.title}</p>
+                                  <p style={{ margin: "2px 0 10px", fontSize: 12.5, lineHeight: 1.45, color: "var(--w3)" }}>{Lcv.hint}</p>
+                                  <div className="flex flex-wrap" style={{ gap: 6 }}>
                                     {(["agency", "borivon", "none"] as const).map(opt => {
                                       const disabled = opt === "agency" && !hasAgency;
                                       const active = mode === opt;
@@ -5486,7 +5504,8 @@ export default function AdminPage() {
                                           disabled={disabled}
                                           onClick={() => !disabled && setMode(opt)}
                                           title={disabled ? Lcv.disabledHint : undefined}
-                                          className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+                                          aria-pressed={active}
+                                          className="disabled:opacity-40 disabled:cursor-not-allowed"
                                           style={pill(active)}>
                                           {opt === "agency" ? Lcv.agency : opt === "borivon" ? Lcv.borivon : Lcv.none}
                                         </button>
@@ -5504,15 +5523,15 @@ export default function AdminPage() {
                                     const Lgen = lang === "de" ? {
                                       btn: `CV mit ${linkedOrg?.name ?? "Agentur"}-Branding neu erzeugen`,
                                       busy: "Wird erzeugt…", ok: "✓ Neuer CV veröffentlicht", err: "Fehlgeschlagen — erneut versuchen",
-                                      note: "Ersetzt den aktuellen CV (Logo + Adresse der Agentur). Ältere CVs werden zurückgezogen.",
+                                      note: "Ersetzt den aktuellen CV; ältere werden zurückgezogen.",
                                     } : lang === "fr" ? {
                                       btn: `Régénérer le CV avec le branding ${linkedOrg?.name ?? "agence"}`,
                                       busy: "Génération…", ok: "✓ Nouveau CV publié", err: "Échec — réessayer",
-                                      note: "Remplace le CV actuel (logo + adresse de l'agence). Les anciens CV sont retirés.",
+                                      note: "Remplace le CV actuel ; les anciens sont retirés.",
                                     } : {
                                       btn: `Regenerate CV with ${linkedOrg?.name ?? "agency"} branding`,
                                       busy: "Generating…", ok: "✓ New CV published", err: "Failed — try again",
-                                      note: "Replaces the current CV (agency logo + address). Older CVs are retracted.",
+                                      note: "Replaces the current CV; older ones are retracted.",
                                     };
                                     const publish = async () => {
                                       if (!selectedUser || !accessToken || busy) return;
@@ -5537,17 +5556,15 @@ export default function AdminPage() {
                                       } catch { setCvPublishState("err"); }
                                     };
                                     return (
-                                      <div className="mt-3">
-                                        <button type="button" onClick={publish} disabled={busy}
-                                          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-opacity hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
-                                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                      <div style={{ marginTop: 12 }}>
+                                        <Btn kind="ghost" size="sm" onClick={publish} disabled={busy} style={{ width: "100%", whiteSpace: "normal", height: "auto", minHeight: 34, padding: "7px 14px", lineHeight: 1.3 }}>
                                           {busy
-                                            ? <RotateCcw size={13} className="animate-spin" />
-                                            : <Sparkles size={13} />}
+                                            ? <RotateCcw size={13} className="animate-spin" style={{ flex: "none" }} />
+                                            : <Sparkles size={13} style={{ flex: "none", color: "var(--gold)" }} />}
                                           {busy ? Lgen.busy : Lgen.btn}
-                                        </button>
-                                        <p className="text-[10px] mt-1"
-                                           style={{ color: cvPublishState === "ok" ? "var(--gold)" : cvPublishState === "err" ? "#ef4444" : "var(--w3)" }}>
+                                        </Btn>
+                                        <p style={{ margin: "6px 0 0", fontSize: 12, lineHeight: 1.4,
+                                           color: cvPublishState === "ok" ? "#15803d" : cvPublishState === "err" ? "#dc2626" : "var(--w3)" }}>
                                           {cvPublishState === "ok" ? Lgen.ok : cvPublishState === "err" ? Lgen.err : Lgen.note}
                                         </p>
                                       </div>
@@ -5565,7 +5582,7 @@ export default function AdminPage() {
                           {/* One-click prefill of the standard UKSH/Calmaroi requirement
                               (2× Masern + 2× Varizell). Pads each vaccine up to 2 dose
                               rows WITHOUT touching any dose already entered. */}
-                          <button
+                          <Btn kind="ghost" size="sm"
                             onClick={() => setStatusForm(f => {
                               const pad = (arr: VaxDose[]) => { const a = [...arr]; while (a.length < 2) a.push({ ...EMPTY_DOSE }); return a.slice(0, 2); };
                               return { ...f, vaccines: {
@@ -5573,54 +5590,54 @@ export default function AdminPage() {
                                 varizell: { ...f.vaccines.varizell, doses: pad(f.vaccines.varizell.doses) },
                               } };
                             })}
-                            className="w-full mb-3 py-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-80"
-                            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}
+                            style={{ width: "100%", whiteSpace: "normal", height: "auto", minHeight: 34, padding: "7px 14px", lineHeight: 1.3, textAlign: "center" }}
                             title={L.vaxPresetHint}>
-                            <Plus size={11} strokeWidth={2.4} /> {L.vaxPreset}
-                          </button>
+                            <Plus size={13} strokeWidth={2} style={{ flex: "none" }} /> {L.vaxPreset}
+                          </Btn>
+                          {/* phone: one vaccine at a time (nobody scrolls); laptop: both side by side */}
+                          <div className="bvx-vxseg">
+                            <Seg value={vaxView} options={[["masern", "Masern"], ["varizell", "Varizell"]]} onChange={setVaxView} />
+                          </div>
+                          <div className="bvx-vx">
                           {([
                             { key: "masern"   as VaxKey, name: "Masern" },
                             { key: "varizell" as VaxKey, name: "Varizell" },
                           ]).map(({ key, name }) => {
                             const vx = statusForm.vaccines[key];
                             return (
-                              <div key={key} className="rounded-xl p-3 space-y-3"
-                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                <p className="text-xs font-semibold" style={{ color: "var(--w)" }}>{name}</p>
+                              <div key={key} className="space-y-3" data-off={vaxView !== key ? "" : undefined} style={{ minWidth: 0 }}>
+                                <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--w)" }}>{name}</p>
                                 {vx.doses.map((d, i) => {
                                   const mandatory = key === "masern" && i === 0;
                                   return (
-                                    <div key={i} className="rounded-lg p-2.5 space-y-2"
-                                      style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-medium" style={{ color: "var(--w2)" }}>
-                                          {L.dose} {i + 1}
-                                          {mandatory && <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{L.mand}</span>}
+                                    <div key={i} className="space-y-2" style={{ paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                                      <div className="flex items-center" style={{ gap: 8, minHeight: 32 }}>
+                                        <span style={{ display: "flex", flexDirection: "column", flex: "none", minWidth: 48, lineHeight: 1.15 }}>
+                                          <span style={{ fontSize: 13, color: "var(--w)" }}>{L.dose} {i + 1}</span>
+                                          {mandatory && <span style={{ fontSize: 12, fontWeight: 600, color: "var(--w3)" }}>{L.mand}</span>}
+                                        </span>
+                                        <span className="flex" style={{ gap: 6, marginLeft: "auto" }}>
+                                          <button type="button" onClick={() => setDose(key, i, { got: true })} aria-pressed={d.got === true}
+                                            style={{ ...pill(d.got === true), height: 32, padding: "0 11px", fontSize: 12.5 }}>{L.got}</button>
+                                          <button type="button" onClick={() => setDose(key, i, { got: false })} aria-pressed={d.got === false}
+                                            style={{ ...pill(d.got === false), height: 32, padding: "0 11px", fontSize: 12.5 }}>{L.notgot}</button>
                                         </span>
                                         {!mandatory && (
-                                          <button onClick={() => removeDose(key, i)} aria-label="remove"
-                                            className="bv-icon-btn w-6 h-6 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
-                                            <Trash2 size={11} strokeWidth={1.8} />
+                                          <button type="button" onClick={() => removeDose(key, i)} aria-label="remove" className="bvx-row"
+                                            style={{ width: 26, height: 26, borderRadius: "50%", border: 0, background: "none", color: "var(--w3)", cursor: "pointer", display: "grid", placeItems: "center", flex: "none" }}>
+                                            <Trash2 size={13} strokeWidth={1.8} />
                                           </button>
                                         )}
                                       </div>
-                                      <div className="flex gap-2">
-                                        <button onClick={() => setDose(key, i, { got: true })}
-                                          className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
-                                          style={pill(d.got === true)}>{L.got}</button>
-                                        <button onClick={() => setDose(key, i, { got: false })}
-                                          className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
-                                          style={pill(d.got === false)}>{L.notgot}</button>
-                                      </div>
                                       {d.got === true && (
                                         <div>
-                                          <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{L.doseDate}</label>
+                                          <label style={fieldLbl}>{L.doseDate}</label>
                                           <DeDateInput value={d.done_date} onChange={v => setDose(key, i, { done_date: v })} />
                                         </div>
                                       )}
                                       {d.got === false && (
                                         <div>
-                                          <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{L.doseExpected}</label>
+                                          <label style={fieldLbl}>{L.doseExpected}</label>
                                           <DeDateInput value={d.expected_date} onChange={v => setDose(key, i, { expected_date: v })} />
                                         </div>
                                       )}
@@ -5628,19 +5645,18 @@ export default function AdminPage() {
                                   );
                                 })}
                                 {vx.doses.length < 2 && (
-                                  <button onClick={() => addDose(key)}
-                                    className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80 inline-flex items-center justify-center gap-1.5"
-                                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                    <Plus size={11} strokeWidth={2} /> {L.addDose}
-                                  </button>
+                                  <Btn kind="quiet" onClick={() => addDose(key)} style={{ fontSize: 13, padding: 0 }}>
+                                    <Plus size={13} strokeWidth={2} /> {L.addDose}
+                                  </Btn>
                                 )}
-                                <div>
-                                  <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{L.certExpected}</label>
+                                <div style={{ paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                                  <label style={fieldLbl}>{L.certExpected}</label>
                                   <DeDateInput value={vx.cert_expected} onChange={v => setVax(key, p => ({ ...p, cert_expected: v }))} />
                                 </div>
                               </div>
                             );
                           })}
+                          </div>
                           </StatusSection>
                           )}
 
@@ -5656,28 +5672,24 @@ export default function AdminPage() {
                               value={statusForm.b2_notes ?? ""}
                               onChange={e => setStatusForm(f => ({ ...f, b2_notes: e.target.value }))}
                               placeholder={lang === "fr" ? "Quelques notes…" : lang === "de" ? "Ein paar Notizen…" : "A couple of notes…"}
-                              className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
-                              style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 64 }} />
+                              className="bvk-input" style={{ minHeight: 140, lineHeight: 1.5 }} />
                           </StatusSection>
                           )}
                         </>
                       )}
                       </div>
                     </div>
-                    <div className="px-5 py-4 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+                    <div className="flex-shrink-0 flex items-center justify-between gap-2" style={{ padding: "12px 18px 12px 22px", borderTop: "1px solid var(--border)" }}>
                       {/* No Save button — autosaves on every change
                           (last-write-wins). This just shows status + closes. */}
-                      <span className="inline-flex items-center gap-1.5 text-[11px]"
-                        style={{ color: statusAutoSaved ? "var(--success)" : "var(--w3)" }}>
+                      <span className="inline-flex items-center" style={{ gap: 6, fontSize: 12.5, color: statusAutoSaved ? "#15803d" : "var(--w3)" }}>
                         {statusAutoSaved
-                          ? <><CheckCircle2 size={12} strokeWidth={1.8} /> {lang === "fr" ? "Enregistré automatiquement" : lang === "de" ? "Automatisch gespeichert" : "Auto-saved"}</>
-                          : <><SaveIcon size={12} strokeWidth={1.8} /> {lang === "fr" ? "Enregistrement automatique" : lang === "de" ? "Wird automatisch gespeichert" : "Saves automatically"}</>}
+                          ? <><CheckCircle2 size={13} strokeWidth={1.8} /> {lang === "fr" ? "Enregistré automatiquement" : lang === "de" ? "Automatisch gespeichert" : "Auto-saved"}</>
+                          : <><SaveIcon size={13} strokeWidth={1.8} /> {lang === "fr" ? "Enregistrement automatique" : lang === "de" ? "Wird automatisch gespeichert" : "Saves automatically"}</>}
                       </span>
-                      <button onClick={closeStatusModal}
-                        className="bv-row-hover py-2 px-4 text-xs font-semibold rounded-xl"
-                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      <Btn kind="primary" size="sm" onClick={closeStatusModal}>
                         {lang === "fr" ? "Terminé" : lang === "de" ? "Fertig" : "Done"}
-                      </button>
+                      </Btn>
                     </div>
                   </div>
                 </div>
@@ -9426,140 +9438,143 @@ export default function AdminPage() {
               <ChevronDown size={16} strokeWidth={2} style={{ color: "var(--w3)", transform: toolsOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
             </button>
           )}
-          {/* Werkzeuge as one popup (no scrolling page; founder 2026-11-11) */}
+          {/* Werkzeuge as one popup (no scrolling page; founder 2026-11-11). The one design (2026-11-13): LAW #36
+              popup, hairline rows in one card (quiet icon, name, one quiet sub line, quiet chevron), the invite
+              links as small ghost buttons, the archive one quiet tap away — and it flips instead of scrolling. */}
           {roleResolved && toolsOpen && typeof window !== "undefined" && createPortal(
-            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
-              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }} onClick={() => setToolsOpen(false)}>
-              <div className="w-full max-w-[640px] rounded-[20px] p-4 sm:p-5" onClick={(e) => e.stopPropagation()}
-                style={{ background: "var(--bg)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 58px - 32px)", overflowY: "auto" }}>
-                <div className="flex items-center justify-between mb-2">
-                  <span style={{ fontFamily: "var(--font-serif)", fontSize: 24, color: "var(--w)" }}>{lang === "de" ? "Werkzeuge" : lang === "fr" ? "Outils" : "Tools"}</span>
-                  <button type="button" onClick={() => setToolsOpen(false)} aria-label={lang === "de" ? "Schließen" : "Close"}
-                    style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>✕</button>
+            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }} onClick={() => setToolsOpen(false)}>
+              <div className="w-full max-w-[640px] rounded-[20px] flex flex-col" onClick={(e) => e.stopPropagation()}
+                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
+                <KitStyle />
+                <style>{BVX_CSS}</style>
+                <div className="flex items-center justify-between flex-shrink-0" style={{ gap: 12, padding: "16px 18px 10px 22px" }}>
+                  <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1.15, color: "var(--w)" }}>
+                    {showArchive && archivedUserIds.length > 0
+                      ? (lang === "de" ? "Archiv" : lang === "fr" ? "Archive" : "Archive")
+                      : (lang === "de" ? "Werkzeuge" : lang === "fr" ? "Outils" : "Tools")}
+                  </h2>
+                  <button type="button" onClick={() => setToolsOpen(false)} aria-label={lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close"}
+                    style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer", display: "grid", placeItems: "center", flex: "none" }}>
+                    <XIcon size={14} strokeWidth={1.8} />
+                  </button>
                 </div>
+                <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "2px 22px 20px" }}>
                 {isOrgAdmin && <DiyFacilityPanel accessToken={accessToken} onDiy={setIsDiyAdmin} />}
-          {roleResolved && toolsOpen && (
-          <div className="bv-nav-group mt-4 overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
+          {!(showArchive && archivedUserIds.length > 0) && (<>
+          <Card style={{ overflow: "hidden" }}>
           {/* ── Bookings — calls from /book AND the "add by hand" button. Sat only
                  in the profile dropdown, where the founder could not find it:
                  he asked outright where to create one. A thing you use daily
                  belongs on the page you open daily. ── */}
           {roleResolved && (
-            <button onClick={() => router.push("/portal/admin/bookings")}
-              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors">
-              <CalendarCheck size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-              <span className="flex-1 text-left min-w-0">
-                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Termine" : lang === "fr" ? "Rendez-vous" : "Bookings"}</span>
-                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Anstehende Anrufe · manuell eintragen · Zeiten festlegen" : lang === "fr" ? "Appels à venir · ajouter manuellement · définir vos horaires" : "Upcoming calls · add one by hand · set your hours"}</span>
+            <button type="button" onClick={() => router.push("/portal/admin/bookings")}
+              className="bvx-row" style={BVX_TROW}>
+              <CalendarCheck size={16} strokeWidth={1.7} style={BVX_TICON} />
+              <span className="flex-1 min-w-0">
+                <span style={BVX_TNAME}>{lang === "de" ? "Termine" : lang === "fr" ? "Rendez-vous" : "Bookings"}</span>
+                <span className="bvx-tsub" style={BVX_TSUB}>{lang === "de" ? "Anstehende Anrufe · manuell eintragen · Zeiten festlegen" : lang === "fr" ? "Appels à venir · ajouter manuellement · définir vos horaires" : "Upcoming calls · add one by hand · set your hours"}</span>
               </span>
-              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+              <ChevronDown size={16} strokeWidth={1.8} className="-rotate-90 flex-shrink-0" style={{ color: "var(--w3)" }} />
             </button>
           )}
 
           {/* ── Batch Tracker — the ritual board. All admins (scoped). ── */}
           {roleResolved && (
-            <button onClick={() => router.push("/portal/admin/tracker")}
-              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
-              style={{ background: "var(--gdim)", borderTop: "1px solid var(--border)" }}>
-              <ListChecks size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-              <span className="flex-1 text-left min-w-0">
-                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Batch-Tracker" : lang === "fr" ? "Suivi du lot" : "Batch Tracker"}</span>
-                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Fortschritt jedes Kandidaten in einem Batch verfolgen" : lang === "fr" ? "Suivre la progression de chaque candidat d'un lot" : "Track every candidate's progress in a batch"}</span>
+            <button type="button" onClick={() => router.push("/portal/admin/tracker")}
+              className="bvx-row" style={{ ...BVX_TROW, borderTop: BVX_TLINE }}>
+              <ListChecks size={16} strokeWidth={1.7} style={BVX_TICON} />
+              <span className="flex-1 min-w-0">
+                <span style={BVX_TNAME}>{lang === "de" ? "Batch-Tracker" : lang === "fr" ? "Suivi du lot" : "Batch Tracker"}</span>
+                <span className="bvx-tsub" style={BVX_TSUB}>{lang === "de" ? "Fortschritt jedes Kandidaten in einem Batch verfolgen" : lang === "fr" ? "Suivre la progression de chaque candidat d'un lot" : "Track every candidate's progress in a batch"}</span>
               </span>
-              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+              <ChevronDown size={16} strokeWidth={1.8} className="-rotate-90 flex-shrink-0" style={{ color: "var(--w3)" }} />
             </button>
           )}
 
           {/* ── Analytics — the aggregate funnel view (read-only). All admins (scoped). ── */}
           {roleResolved && (
-            <button onClick={() => router.push("/portal/admin/analytics")}
-              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
-              style={{ borderTop: "1px solid var(--border)" }}>
-              <BarChart3 size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-              <span className="flex-1 text-left min-w-0">
-                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Analytik" : lang === "fr" ? "Analytique" : "Analytics"}</span>
-                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Die gesamte Pipeline auf einen Blick" : lang === "fr" ? "Tout le pipeline en un coup d'œil" : "The whole pipeline at a glance"}</span>
+            <button type="button" onClick={() => router.push("/portal/admin/analytics")}
+              className="bvx-row" style={{ ...BVX_TROW, borderTop: BVX_TLINE }}>
+              <BarChart3 size={16} strokeWidth={1.7} style={BVX_TICON} />
+              <span className="flex-1 min-w-0">
+                <span style={BVX_TNAME}>{lang === "de" ? "Analytik" : lang === "fr" ? "Analytique" : "Analytics"}</span>
+                <span className="bvx-tsub" style={BVX_TSUB}>{lang === "de" ? "Die gesamte Pipeline auf einen Blick" : lang === "fr" ? "Tout le pipeline en un coup d'œil" : "The whole pipeline at a glance"}</span>
               </span>
-              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+              <ChevronDown size={16} strokeWidth={1.8} className="-rotate-90 flex-shrink-0" style={{ color: "var(--w3)" }} />
             </button>
           )}
 
           {/* ── Besucher & Quellen — the founder's own traffic + funnel analytics. SUPREME ONLY. ── */}
           {roleResolved && isSuperAdmin && (
-            <button onClick={() => router.push("/portal/admin/traffic")}
-              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
-              style={{ borderTop: "1px solid var(--border)" }}>
-              <BarChart3 size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-              <span className="flex-1 text-left min-w-0">
-                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Besucher & Quellen" : lang === "fr" ? "Visiteurs & sources" : "Visitors & sources"}</span>
-                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Links, Klicks, Fahrplan, Workshop, Buchungen" : lang === "fr" ? "Liens, clics, plan, atelier, réservations" : "Links, clicks, roadmap, workshop, bookings"}</span>
+            <button type="button" onClick={() => router.push("/portal/admin/traffic")}
+              className="bvx-row" style={{ ...BVX_TROW, borderTop: BVX_TLINE }}>
+              <BarChart3 size={16} strokeWidth={1.7} style={BVX_TICON} />
+              <span className="flex-1 min-w-0">
+                <span style={BVX_TNAME}>{lang === "de" ? "Besucher & Quellen" : lang === "fr" ? "Visiteurs & sources" : "Visitors & sources"}</span>
+                <span className="bvx-tsub" style={BVX_TSUB}>{lang === "de" ? "Links, Klicks, Fahrplan, Workshop, Buchungen" : lang === "fr" ? "Liens, clics, plan, atelier, réservations" : "Links, clicks, roadmap, workshop, bookings"}</span>
               </span>
-              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+              <ChevronDown size={16} strokeWidth={1.8} className="-rotate-90 flex-shrink-0" style={{ color: "var(--w3)" }} />
             </button>
           )}
 
           {/* ── Employer shortlists — curate candidates + share a read-only link. ── */}
           {roleResolved && (
-            <button onClick={() => router.push("/portal/admin/shortlists")}
-              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
-              style={{ borderTop: "1px solid var(--border)" }}>
-              <ClipboardList size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-              <span className="flex-1 text-left min-w-0">
-                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Arbeitgeber-Listen" : lang === "fr" ? "Listes employeur" : "Employer shortlists"}</span>
-                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Kandidaten kuratieren + Link teilen" : lang === "fr" ? "Sélectionner des candidats + partager un lien" : "Curate candidates + share a link"}</span>
+            <button type="button" onClick={() => router.push("/portal/admin/shortlists")}
+              className="bvx-row" style={{ ...BVX_TROW, borderTop: BVX_TLINE }}>
+              <ClipboardList size={16} strokeWidth={1.7} style={BVX_TICON} />
+              <span className="flex-1 min-w-0">
+                <span style={BVX_TNAME}>{lang === "de" ? "Arbeitgeber-Listen" : lang === "fr" ? "Listes employeur" : "Employer shortlists"}</span>
+                <span className="bvx-tsub" style={BVX_TSUB}>{lang === "de" ? "Kandidaten kuratieren + Link teilen" : lang === "fr" ? "Sélectionner des candidats + partager un lien" : "Curate candidates + share a link"}</span>
               </span>
-              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+              <ChevronDown size={16} strokeWidth={1.8} className="-rotate-90 flex-shrink-0" style={{ color: "var(--w3)" }} />
             </button>
           )}
 
           {/* ── Affiliates — referral partners + per-placement payouts. Supreme
                  admin only (touches real money, like the LAW #31 lock). ── */}
           {roleResolved && isSuperAdmin && (
-            <button onClick={() => router.push("/portal/admin/affiliates")}
-              className="bv-row-hover w-full flex items-center gap-3 px-4 py-[15px] transition-colors"
-              style={{ borderTop: "1px solid var(--border)" }}>
-              <UserPlus size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-              <span className="flex-1 text-left min-w-0">
-                <span className="block text-[14px] font-medium" style={{ color: "var(--w)" }}>{lang === "de" ? "Affiliates" : lang === "fr" ? "Affiliés" : "Affiliates"}</span>
-                <span className="block text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Empfehlungspartner · Provision pro Vermittlung" : lang === "fr" ? "Partenaires de parrainage · commission par placement" : "Referral partners · commission per placement"}</span>
+            <button type="button" onClick={() => router.push("/portal/admin/affiliates")}
+              className="bvx-row" style={{ ...BVX_TROW, borderTop: BVX_TLINE }}>
+              <UserPlus size={16} strokeWidth={1.7} style={BVX_TICON} />
+              <span className="flex-1 min-w-0">
+                <span style={BVX_TNAME}>{lang === "de" ? "Affiliates" : lang === "fr" ? "Affiliés" : "Affiliates"}</span>
+                <span className="bvx-tsub" style={BVX_TSUB}>{lang === "de" ? "Empfehlungspartner · Provision pro Vermittlung" : lang === "fr" ? "Partenaires de parrainage · commission par placement" : "Referral partners · commission per placement"}</span>
               </span>
-              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+              <ChevronDown size={16} strokeWidth={1.8} className="-rotate-90 flex-shrink-0" style={{ color: "var(--w3)" }} />
             </button>
           )}
 
-          </div>
-          )}
+          </Card>
 
           {/* ── Tools strip — invite + agencies ──
               Candidate invite: ALL admins (supreme + sub-admins).
               Org-admin + sub-admin invites: supreme only. ── */}
-          {roleResolved && toolsOpen && (
-            <div className="mt-4 mb-5 space-y-px" style={{ borderRadius: "22px", border: "1px solid var(--border)" }}>
+          {roleResolved && toolsOpen && (<>
+            <div style={{ margin: "16px 0 8px", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)" }}>{t.adInviteLink}</div>
+            <Card>
 
               {/* Candidate invite row — generates a /join link that lands on
                   /portal/dashboard after signup. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: isSuperAdmin ? "22px 22px 0 0" : "22px" }}>
-                <span className="flex-1 flex items-center gap-2"><User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[13px]" style={{ color: "var(--w2)" }}>{lang === "de" ? "Einladungslink · Kandidat" : lang === "fr" ? "Lien d'invitation · candidat" : "Invite link · candidate"}</span></span>
+              <div className="flex items-center flex-wrap" style={BVX_IROW}>
+                <User size={16} strokeWidth={1.7} style={BVX_TICON} />
+                <span style={{ flex: "1 1 90px", minWidth: 0, fontSize: 14, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lang === "de" ? "Kandidat" : lang === "fr" ? "Candidat" : "Candidate"}</span>
                 {inviteUrl ? (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
+                  <div className="flex items-center flex-shrink-0" style={{ gap: 4, marginLeft: "auto" }}>
+                    <Btn kind="ghost" size="sm"
                       onClick={async () => {
                         await navigator.clipboard.writeText(inviteUrl).catch(() => {});
                         setInviteCopied(true);
                         setTimeout(() => setInviteCopied(false), 2500);
-                      }}
-                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
-                      style={{ background: inviteCopied ? "var(--success-bg)" : "var(--gdim)", color: inviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${inviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
-                      {inviteCopied ? "✓" : t.adCopy}
-                    </button>
-                    <button onClick={() => setInviteUrl(null)}
-                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
-                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      }}>
+                      {inviteCopied ? `✓ ${lang === "de" ? "Kopiert" : lang === "fr" ? "Copié" : "Copied"}` : t.adCopy}
+                    </Btn>
+                    <Btn kind="quiet" onClick={() => setInviteUrl(null)} style={{ fontSize: 13, padding: "0 6px" }}>
                       {t.adReset}
-                    </button>
+                    </Btn>
                   </div>
                 ) : (
-                  <button
+                  <Btn kind="ghost" size="sm" style={{ marginLeft: "auto" }}
                     onClick={async () => {
                       setInviteGenerating(true);
                       try {
@@ -9572,11 +9587,9 @@ export default function AdminPage() {
                       } catch { /* ignore */ }
                       setInviteGenerating(false);
                     }}
-                    disabled={inviteGenerating}
-                    className="flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
-                    {inviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
-                  </button>
+                    disabled={inviteGenerating}>
+                    {inviteGenerating ? "…" : lang === "de" ? "Link erstellen" : lang === "fr" ? "Créer le lien" : "Create link"}
+                  </Btn>
                 )}
               </div>
 
@@ -9584,46 +9597,43 @@ export default function AdminPage() {
               {/* Org-admin invite row — generates a /join link that lands on
                   /portal/org/dashboard after signup. Requires picking which
                   org the new admin will manage. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
-                <span className="flex-1 flex items-center gap-2"><Building2 size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[13px]" style={{ color: "var(--w2)" }}>{lang === "de" ? "Einladungslink · Organisation" : lang === "fr" ? "Lien d'invitation · organisation" : "Invite link · organisation"}</span></span>
+              <div className="flex items-center flex-wrap" style={{ ...BVX_IROW, borderTop: BVX_TLINE }}>
+                <Building2 size={16} strokeWidth={1.7} style={BVX_TICON} />
+                <span style={{ flex: "1 1 90px", minWidth: 0, fontSize: 14, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Organisation</span>
                 {orgInviteUrl ? (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
+                  <div className="flex items-center flex-shrink-0" style={{ gap: 4, marginLeft: "auto" }}>
+                    <Btn kind="ghost" size="sm"
                       onClick={async () => {
                         await navigator.clipboard.writeText(orgInviteUrl).catch(() => {});
                         setOrgInviteCopied(true);
                         setTimeout(() => setOrgInviteCopied(false), 2500);
-                      }}
-                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
-                      style={{ background: orgInviteCopied ? "var(--success-bg)" : "var(--gdim)", color: orgInviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${orgInviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
-                      {orgInviteCopied ? "✓" : t.adCopy}
-                    </button>
-                    <button onClick={() => { setOrgInviteUrl(null); setOrgInviteOrgId(""); }}
-                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
-                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      }}>
+                      {orgInviteCopied ? `✓ ${lang === "de" ? "Kopiert" : lang === "fr" ? "Copié" : "Copied"}` : t.adCopy}
+                    </Btn>
+                    <Btn kind="quiet" onClick={() => { setOrgInviteUrl(null); setOrgInviteOrgId(""); }} style={{ fontSize: 13, padding: "0 6px" }}>
                       {t.adReset}
-                    </button>
+                    </Btn>
                   </div>
                 ) : (
-                  <div className="relative flex-shrink-0">
+                  <div className="relative flex-shrink-0" style={{ marginLeft: "auto" }}>
                     {/* Backdrop to close dropdown on click-away */}
                     {orgInviteDropdown && (
                       <div className="fixed inset-0 z-[599]" onClick={() => setOrgInviteDropdown(false)} />
                     )}
-                    <button
+                    <Btn kind="ghost" size="sm"
                       onClick={() => { if (allOrgs.length > 0) setOrgInviteDropdown(p => !p); }}
                       disabled={orgInviteGenerating || allOrgs.length === 0}
-                      className="flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                      aria-expanded={orgInviteDropdown}>
                       {orgInviteGenerating
                         ? "…"
-                        : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
-                    </button>
+                        : lang === "de" ? "Link erstellen" : lang === "fr" ? "Créer le lien" : "Create link"}
+                    </Btn>
+                    {/* the org picker opens UPWARD, so it stays inside the popup (nobody scrolls) */}
                     {orgInviteDropdown && (
-                      <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
-                        style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 180 }}>
+                      <div className="absolute right-0 flex flex-col"
+                        style={{ ...BVX_POP, bottom: "calc(100% + 6px)", zIndex: 600, minWidth: 220, gap: 2 }}>
                         {allOrgs.map(o => (
-                          <button key={o.id}
+                          <button key={o.id} type="button" className="bvx-row" style={{ ...BVX_MROW, gap: 6 }}
                             onClick={async () => {
                               setOrgInviteDropdown(false);
                               setOrgInviteGenerating(true);
@@ -9637,17 +9647,14 @@ export default function AdminPage() {
                                 if (j.url) setOrgInviteUrl(j.url);
                               } catch { /* ignore */ }
                               setOrgInviteGenerating(false);
-                            }}
-                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11.5px] font-medium"
-                            style={{ color: "var(--w)" }}>
+                            }}>
                             {o.name} <span style={{ color: "var(--w3)" }}>admin</span>
                           </button>
                         ))}
-                        <button
-                          onClick={() => { setOrgInviteDropdown(false); setNewOrgName(""); setNewOrgModal(true); }}
-                          className="bv-row-hover w-full text-left px-3 py-2.5 text-[11.5px] font-medium inline-flex items-center gap-1.5"
-                          style={{ color: "var(--w3)", borderTop: allOrgs.length > 0 ? "1px solid var(--border)" : undefined }}>
-                          <Plus size={11} strokeWidth={2} /> New agency admin
+                        {allOrgs.length > 0 && <div aria-hidden="true" style={{ height: 1, background: "var(--border)", margin: "2px 8px" }} />}
+                        <button type="button" className="bvx-row" style={{ ...BVX_MROW, color: "var(--w3)" }}
+                          onClick={() => { setOrgInviteDropdown(false); setNewOrgName(""); setNewOrgModal(true); }}>
+                          <Plus size={14} strokeWidth={2} style={{ flex: "none" }} /> {lang === "de" ? "Neue Agentur" : lang === "fr" ? "Nouvelle agence" : "New agency admin"}
                         </button>
                       </div>
                     )}
@@ -9656,31 +9663,25 @@ export default function AdminPage() {
               </div>
 
               {/* Sub-admin invite row */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", borderRadius: "0 0 22px 22px" }}>
-                <span className="flex-1 flex items-center gap-2">
-                  <User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
-                  <span className="text-[13px]" style={{ color: "var(--w2)" }}>{lang === "de" ? "Einladungslink · Sub-Admin" : lang === "fr" ? "Lien d'invitation · sous-admin" : "Invite link · sub-admin"}</span>
-                </span>
+              <div className="flex items-center flex-wrap" style={{ ...BVX_IROW, borderTop: BVX_TLINE }}>
+                <User size={16} strokeWidth={1.7} style={BVX_TICON} />
+                <span style={{ flex: "1 1 90px", minWidth: 0, fontSize: 14, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lang === "de" ? "Sub-Admin" : lang === "fr" ? "Sous-admin" : "Sub-admin"}</span>
                 {subAdminInviteUrl ? (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
+                  <div className="flex items-center flex-shrink-0" style={{ gap: 4, marginLeft: "auto" }}>
+                    <Btn kind="ghost" size="sm"
                       onClick={async () => {
                         await navigator.clipboard.writeText(subAdminInviteUrl).catch(() => {});
                         setSubAdminInviteCopied(true);
                         setTimeout(() => setSubAdminInviteCopied(false), 2500);
-                      }}
-                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
-                      style={{ background: subAdminInviteCopied ? "var(--success-bg)" : "var(--gdim)", color: subAdminInviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${subAdminInviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
-                      {subAdminInviteCopied ? "✓" : t.adCopy}
-                    </button>
-                    <button onClick={() => setSubAdminInviteUrl(null)}
-                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
-                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      }}>
+                      {subAdminInviteCopied ? `✓ ${lang === "de" ? "Kopiert" : lang === "fr" ? "Copié" : "Copied"}` : t.adCopy}
+                    </Btn>
+                    <Btn kind="quiet" onClick={() => setSubAdminInviteUrl(null)} style={{ fontSize: 13, padding: "0 6px" }}>
                       {t.adReset}
-                    </button>
+                    </Btn>
                   </div>
                 ) : (
-                  <button
+                  <Btn kind="ghost" size="sm" style={{ marginLeft: "auto" }}
                     onClick={async () => {
                       setSubAdminInviteGenerating(true);
                       try {
@@ -9693,48 +9694,56 @@ export default function AdminPage() {
                       } catch { /* ignore */ }
                       setSubAdminInviteGenerating(false);
                     }}
-                    disabled={subAdminInviteGenerating}
-                    className="flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
-                    {subAdminInviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
-                  </button>
+                    disabled={subAdminInviteGenerating}>
+                    {subAdminInviteGenerating ? "…" : lang === "de" ? "Link erstellen" : lang === "fr" ? "Créer le lien" : "Create link"}
+                  </Btn>
                 )}
               </div>
               </>)}
 
-          </div>
+            </Card>
+          </>)}
+
+          {/* Archive toggle — one quiet line; the archive itself opens in this popup and flips */}
+          {toolsOpen && archivedUserIds.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <Btn kind="quiet" onClick={() => setShowArchive(v => !v)} style={{ fontSize: 13, padding: 0 }}>
+                {showArchive ? t.aHideArchive : t.aShowArchive} ({archivedUserIds.length} {archivedUserIds.length !== 1 ? t.aCandidates : t.aCandidate})
+              </Btn>
+            </div>
           )}
+          </>)}
 
           {/* ── New-org modal (LAW #36) ── */}
           {newOrgModal && typeof window !== "undefined" && createPortal(
             <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
-              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
               onClick={() => !newOrgCreating && setNewOrgModal(false)}>
-              <div className="w-full max-w-sm rounded-[20px] overflow-hidden"
+              <KitStyle />
+              <div role="dialog" aria-modal="true" className="w-full max-w-sm rounded-[20px]"
                 onClick={e => e.stopPropagation()}
-                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}>
-                  <div className="px-5 pt-5 pb-4">
-                    <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--w)" }}>New agency</p>
-                    <p className="text-[11.5px] mb-4" style={{ color: "var(--w3)" }}>Creates the agency and generates an admin invite link.</p>
+                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto", padding: 22 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.2, color: "var(--w)" }}>{lang === "de" ? "Neue Agentur" : lang === "fr" ? "Nouvelle agence" : "New agency"}</h3>
+                    <p style={{ margin: "4px 0 16px", fontSize: 12.5, lineHeight: 1.45, color: "var(--w3)" }}>{lang === "de" ? "Legt die Agentur an und erstellt einen Admin-Einladungslink." : lang === "fr" ? "Crée l'agence et un lien d'invitation admin." : "Creates the agency and generates an admin invite link."}</p>
                     <input
                       autoFocus
                       value={newOrgName}
                       onChange={e => setNewOrgName(e.target.value)}
                       onKeyDown={async e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                      placeholder="Agency name"
-                      className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none"
-                      style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
+                      placeholder={lang === "de" ? "Name der Agentur" : lang === "fr" ? "Nom de l'agence" : "Agency name"}
+                      aria-label={lang === "de" ? "Name der Agentur" : lang === "fr" ? "Nom de l'agence" : "Agency name"}
+                      className="bvk-input"
                     />
                   </div>
-                  <div className="px-5 pb-5 flex gap-2">
-                    <button
+                  <div className="flex" style={{ gap: 8, marginTop: 16 }}>
+                    <Btn kind="ghost"
                       onClick={() => setNewOrgModal(false)}
                       disabled={newOrgCreating}
-                      className="flex-1 py-2.5 rounded-xl text-[13px] font-medium transition-opacity hover:opacity-70 disabled:opacity-40"
-                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                      Cancel
-                    </button>
-                    <button
+                      style={{ flex: 1 }}>
+                      {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
+                    </Btn>
+                    <Btn kind="primary"
                       disabled={!newOrgName.trim() || newOrgCreating}
                       onClick={async () => {
                         const name = newOrgName.trim();
@@ -9761,79 +9770,73 @@ export default function AdminPage() {
                         setNewOrgCreating(false);
                         setNewOrgModal(false);
                       }}
-                      className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                      {newOrgCreating ? "Creating…" : "Create & generate link"}
-                    </button>
+                      style={{ flex: 1 }}>
+                      {newOrgCreating ? "…" : lang === "de" ? "Anlegen + Link" : lang === "fr" ? "Créer + lien" : "Create + link"}
+                    </Btn>
                   </div>
                 </div>
             </div>,
             document.body,
           )}
 
-          {/* Archive toggle */}
-          {toolsOpen && archivedUserIds.length > 0 && (
-            <div className="mt-10">
-              <button
-                onClick={() => setShowArchive(v => !v)}
-                className="bv-row-hover text-xs flex items-center gap-1.5 mb-4 px-2 py-1"
-                style={{ color: "var(--w3)" }}
-              >
-                <span>{showArchive ? "▾" : "▸"}</span>
-                {showArchive ? t.aHideArchive : t.aShowArchive} ({archivedUserIds.length} {archivedUserIds.length !== 1 ? t.aCandidates : t.aCandidate})
-              </button>
-
-              {showArchive && (
-                <div style={{ borderTop: "1px solid var(--border)" }}>
-                  {archivedUserIds.map(uid => {
+          {/* The archive (no papers waiting): its own view in this popup — back = quiet text, the list flips */}
+          {toolsOpen && showArchive && archivedUserIds.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between" style={{ gap: 12, marginBottom: 12 }}>
+                <BackLink label={lang === "de" ? "Werkzeuge" : lang === "fr" ? "Outils" : "Tools"} onClick={() => setShowArchive(v => !v)} />
+                <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{archivedUserIds.length} {archivedUserIds.length !== 1 ? t.aCandidates : t.aCandidate}</span>
+              </div>
+              <KitPagedList items={archivedUserIds} perLaptop={8} perPhone={7}>
+                {(slice) => (
+                  <Card style={{ overflow: "hidden" }}>
+                  {slice.map((uid, ix) => {
                     const allDocs    = grouped[uid] ?? [];
                     const approvedCnt = allDocs.filter(d => d.status === "approved").length;
                     const rejectedCnt = allDocs.filter(d => d.status === "rejected").length;
                     const user       = users[uid] ?? { name: uid, email: uid };
                     return (
-                      <button key={uid}
+                      <button key={uid} type="button"
                         onClick={() => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                        className="bv-row-hover w-full text-left px-3 py-3 flex items-center gap-3 transition-colors outline-none"
-                        style={{ borderBottom: "1px solid var(--border)", opacity: 0.75 }}>
+                        className="bvx-row w-full text-left flex items-center outline-none"
+                        style={{ gap: 12, padding: "8px 14px", background: "none", border: 0, borderTop: ix ? BVX_TLINE : 0, cursor: "pointer", fontFamily: "inherit", lineHeight: 1.3 }}>
                         {profiles[uid]?.profile_photo ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={profiles[uid].profile_photo!} alt={user.name}
-                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                            style={{ border: "1px solid var(--border)" }} />
+                            className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                         ) : (
-                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-[10.5px] font-medium tracking-[0.04em] flex-shrink-0"
-                            style={{ background: "var(--bg2)", color: "var(--w3)" }}>
+                          <span className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                            style={{ background: "var(--bg2)", color: "var(--w3)", fontSize: 11, fontWeight: 500, letterSpacing: ".04em" }}>
                             {initialsOf(user.name)}
                           </span>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
+                          <p className="truncate inline-flex items-center gap-0.5 flex-wrap" style={{ margin: 0, fontSize: 14, lineHeight: 1.3, color: "var(--w)" }}>
                             {user.name}
                             <VerifiedBadge verified={isVerified(profiles[uid])} size="xs" color="gold" />
                             </p>
-                          <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
+                          <p className="truncate" style={{ margin: "1px 0 0", fontSize: 12.5, lineHeight: 1.3, color: "var(--w3)" }}>{user.email}</p>
                         </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="flex items-center flex-shrink-0" style={{ gap: 12, fontSize: 12.5, color: "var(--w2)", fontVariantNumeric: "tabular-nums" }}>
                           {approvedCnt > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
-                              style={{ color: "var(--success)" }}>
-                              <CheckCircle2 size={11} strokeWidth={2} /> {approvedCnt}
+                            <span className="inline-flex items-center" style={{ gap: 6 }}>
+                              <Dot st="approved" size={8} /> {approvedCnt}
                             </span>
                           )}
                           {rejectedCnt > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
-                              style={{ color: "var(--danger)" }}>
-                              <XCircle size={11} strokeWidth={2} /> {rejectedCnt}
+                            <span className="inline-flex items-center" style={{ gap: 6 }}>
+                              <Dot st="rejected" size={8} /> {rejectedCnt}
                             </span>
                           )}
                         </div>
                       </button>
                     );
                   })}
-                </div>
-              )}
+                  </Card>
+                )}
+              </KitPagedList>
             </div>
           )}
+                </div>
               </div>
             </div>,
             document.body,

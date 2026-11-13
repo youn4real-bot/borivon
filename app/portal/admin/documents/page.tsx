@@ -13,11 +13,12 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { meToken } from "@/lib/meApi";
-import { ArrowLeft, Plus, Trash2, Check, X as XIcon, Users, Building2, Globe, FileUp } from "lucide-react";
-import { PageLoader, Spinner, EmptyState } from "@/components/ui/states";
+import { Plus, Trash2, Check, X as XIcon, FileUp } from "lucide-react";
+import { PageLoader, Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FileText } from "lucide-react";
+import { PageHead, Btn, Card, Seg, Field, Empty, Pager, usePaged, STATUS_TINT } from "@/components/fx/kit";
 
 type Org = { id: string; name: string };
 type Employer = { id: string; name: string; agencyId?: string | null };
@@ -226,211 +227,162 @@ export default function AdminDocumentsPage() {
 
   const sitesOf = (orgId: string) => employers.filter(e => e.agencyId === orgId);
   const directEmployers = employers.filter(e => !e.agencyId);
-  const isActive = (s: Scope) =>
-    s.kind === scope.kind && (s.kind === "global" || ("id" in s && "id" in scope && s.id === scope.id));
 
-  const chip = (label: string, s: Scope, icon?: React.ReactNode) => {
-    const on = isActive(s);
-    return (
-      <button key={`${s.kind}-${"id" in s ? s.id : "global"}`} onClick={() => setScope(s)}
-        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[12px] font-semibold transition-all"
-        style={{
-          background: on ? "var(--gold)" : "var(--bg2)",
-          color: on ? "#131312" : "var(--w2)",
-          border: `1px solid ${on ? "var(--gold)" : "var(--border)"}`,
-          cursor: "pointer",
-        }}>
-        {icon}{label}
-      </button>
-    );
+  // the scope picker is one select (same scopes as the old chips): "global" | "org:<id>" | "emp:<id>"
+  const scopeValue = scope.kind === "global" ? "global" : `${scope.kind}:${scope.id}`;
+  const pickScope = (v: string) => {
+    if (v === "global") { setScope({ kind: "global" }); return; }
+    const [kind, id] = [v.slice(0, v.indexOf(":")), v.slice(v.indexOf(":") + 1)];
+    if (kind === "org") { const o = orgs.find(x => x.id === id); if (o) setScope({ kind: "org", id: o.id, name: o.name }); }
+    else { const e = employers.find(x => x.id === id); if (e) setScope({ kind: "emp", id: e.id, name: e.name }); }
   };
+  const orgSites = orgs.flatMap(o => sitesOf(o.id));
 
   const scopeTitle =
     scope.kind === "global" ? L("everyone", "alle Kandidaten", "tous les candidats") : scope.name;
+  const phaseName = phase === "bearbeitung" ? "Bearbeitung" : "Visum";
 
+  // the one design (founder 2026-11-13): serif head, phase as a segmented switch, scope as one field,
+  // the documents as hairline rows that flip, one black "add" pill
   return (
     <>
       <PortalTopNav />
-      <main className="min-h-dvh px-5 sm:px-8 py-8" style={{ background: "var(--bg)" }}>
-        <div className="mx-auto w-full max-w-[860px]">
+      <main className="min-h-dvh px-5 sm:px-8 py-8" style={{ background: "var(--bg)", paddingTop: 88 }}>
+        <div className="mx-auto w-full max-w-[760px]">
 
-          <button onClick={() => router.push("/portal/admin")}
-            className="inline-flex items-center gap-1.5 text-[12px] font-medium mb-5"
-            style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-            <ArrowLeft size={13} /> {L("Back to candidates", "Zurück zu Kandidaten", "Retour aux candidats")}
-          </button>
-
-          <h1 className="text-[22px] font-bold tracking-tight" style={{ color: "var(--w)" }}>
-            {L("Documents", "Dokumente", "Documents")}
-          </h1>
-          <p className="text-[12.5px] mt-1.5 mb-6" style={{ color: "var(--w3)" }}>
-            {L("Build the document list once. Every candidate in the scope gets it automatically — a candidate at a site inherits their agency's list plus that site's extras.",
-               "Dokumentliste einmal anlegen. Jede/r Kandidat/in im Bereich bekommt sie automatisch — an einem Standort zusätzlich zur Agenturliste.",
-               "Composez la liste une fois. Chaque candidat du périmètre la reçoit automatiquement — sur un site, la liste de l'agence plus les ajouts du site.")}
-          </p>
+          <PageHead back={{ label: L("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+            title={L("Documents", "Dokumente", "Documents")}
+            sub={L("Build the list once — everyone in the scope gets it; a site adds its extras to the agency list.",
+                   "Liste einmal anlegen — alle im Bereich bekommen sie; ein Standort ergänzt die Agenturliste.",
+                   "Composez la liste une fois — tout le périmètre la reçoit ; un site complète la liste de l'agence.")}
+            actions={<Seg value={phase} onChange={setPhase} options={PHASES.map(p => [p, p === "bearbeitung" ? "Bearbeitung" : "Visum"] as [Phase, string])} />} />
 
           {/* ── Scope ─────────────────────────────────────────────────────── */}
-          <label className="block text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>
-            {L("Who gets these documents", "Wer bekommt diese Dokumente", "Qui reçoit ces documents")}
-          </label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {chip(L("Everyone", "Alle Kandidaten", "Tous"), { kind: "global" }, <Globe size={12} />)}
-            {orgs.map(o => chip(o.name, { kind: "org", id: o.id, name: o.name }, <Users size={12} />))}
-          </div>
-          {orgs.some(o => sitesOf(o.id).length > 0) && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {orgs.flatMap(o => sitesOf(o.id)).map(e =>
-                chip(e.name, { kind: "emp", id: e.id, name: e.name }, <Building2 size={12} />))}
-            </div>
-          )}
-          {directEmployers.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {directEmployers.map(e => chip(e.name, { kind: "emp", id: e.id, name: e.name }, <Building2 size={12} />))}
-            </div>
-          )}
-
-          {/* ── Phase ─────────────────────────────────────────────────────── */}
-          <div className="flex gap-2 mt-6 mb-4">
-            {PHASES.map(p => {
-              const on = phase === p;
-              return (
-                <button key={p} onClick={() => setPhase(p)}
-                  className="px-4 py-2 rounded-xl text-[12.5px] font-semibold transition-all"
-                  style={{
-                    background: on ? "var(--gdim)" : "transparent",
-                    color: on ? "var(--gold)" : "var(--w3)",
-                    border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
-                    cursor: "pointer",
-                  }}>
-                  {p === "bearbeitung" ? "Bearbeitung" : "Visum"}
-                </button>
-              );
-            })}
+          <div style={{ marginBottom: 16 }}>
+            <Field label={L("Who gets these documents", "Wer bekommt diese Dokumente", "Qui reçoit ces documents")}>
+              <select className="bvk-input" value={scopeValue} onChange={e => pickScope(e.target.value)}>
+                <option value="global">{L("Everyone", "Alle Kandidaten", "Tous")}</option>
+                {orgs.length > 0 && (
+                  <optgroup label={L("Agencies", "Agenturen", "Agences")}>
+                    {orgs.map(o => <option key={o.id} value={`org:${o.id}`}>{o.name}</option>)}
+                  </optgroup>
+                )}
+                {orgSites.length > 0 && (
+                  <optgroup label={L("Sites", "Standorte", "Sites")}>
+                    {orgSites.map(e => <option key={e.id} value={`emp:${e.id}`}>{e.name}</option>)}
+                  </optgroup>
+                )}
+                {directEmployers.length > 0 && (
+                  <optgroup label={L("Employers", "Arbeitgeber", "Employeurs")}>
+                    {directEmployers.map(e => <option key={e.id} value={`emp:${e.id}`}>{e.name}</option>)}
+                  </optgroup>
+                )}
+              </select>
+            </Field>
           </div>
 
           {/* ── Slots ─────────────────────────────────────────────────────── */}
-          <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-            <div className="px-4 py-2.5 text-[11px]" style={{ borderBottom: "1px solid var(--border)", color: "var(--w3)" }}>
-              {L(`${phase === "bearbeitung" ? "Bearbeitung" : "Visum"} documents for ${scopeTitle}`,
-                 `${phase === "bearbeitung" ? "Bearbeitung" : "Visum"}-Dokumente für ${scopeTitle}`,
-                 `Documents ${phase === "bearbeitung" ? "Bearbeitung" : "Visum"} pour ${scopeTitle}`)}
-            </div>
-
+          <div style={{ fontSize: 12.5, color: "var(--w3)", margin: "0 0 8px 2px" }}>
+            {L(`${phaseName} documents for ${scopeTitle}`,
+               `${phaseName}-Dokumente für ${scopeTitle}`,
+               `Documents ${phaseName} pour ${scopeTitle}`)}
+          </div>
+          <Card style={{ padding: "2px 16px" }}>
             {slotsLoading ? (
               <div className="py-10 flex justify-center"><Spinner size="sm" /></div>
             ) : loadFailed ? (
-              <p className="px-4 py-8 text-center text-[12.5px]" style={{ color: "var(--danger)" }}>
+              <div role="alert" style={{ margin: "12px 0", padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)", textAlign: "center" }}>
                 {L("Couldn't load the documents — reload the page.",
                    "Dokumente konnten nicht geladen werden — Seite neu laden.",
                    "Impossible de charger les documents — rechargez la page.")}
-              </p>
-            ) : slots.length === 0 ? (
-              <div className="py-8">
-                <EmptyState Icon={FileText}
-                  title={L("No documents yet", "Noch keine Dokumente", "Aucun document")}
-                  sub={L("Add the first one below — everyone in this scope will get it.",
-                         "Unten das erste hinzufügen — alle in diesem Bereich bekommen es.",
-                         "Ajoutez le premier ci-dessous — tout le périmètre le recevra.")} />
               </div>
+            ) : slots.length === 0 ? (
+              <Empty icon={<FileText size={20} strokeWidth={1.6} style={{ color: "var(--gold)" }} />}>
+                <span style={{ color: "var(--w)", fontWeight: 500 }}>{L("No documents yet", "Noch keine Dokumente", "Aucun document")}</span>
+                <span style={{ fontSize: 12.5, marginTop: -4 }}>{L("Add the first one below — everyone in this scope will get it.",
+                       "Unten das erste hinzufügen — alle in diesem Bereich bekommen es.",
+                       "Ajoutez le premier ci-dessous — tout le périmètre le recevra.")}</span>
+              </Empty>
             ) : (
-              slots.map((s, i) => {
-                const optional = s.is_required === false;
-                return (
-                  <div key={s.id} className="px-4 py-3 flex items-center gap-3"
-                    style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
-                    <div className="flex-1 min-w-0">
-                      {editingId === s.id ? (
-                        <div className="flex items-center gap-2">
-                          <input autoFocus value={editLabel} onChange={e => setEditLabel(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") void renameSlot(s.id); if (e.key === "Escape") setEditingId(null); }}
-                            className="flex-1 px-2.5 py-1.5 text-[13px] outline-none"
-                            style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)", borderRadius: 8, color: "var(--w)" }} />
-                          <button onClick={() => void renameSlot(s.id)} disabled={busyId === s.id}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center"
-                            style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: "pointer" }}>
-                            <Check size={13} strokeWidth={2.4} />
+              <Paged items={slots} per={7} perPhone={4}>
+                {(slice) => slice.map((s, i) => {
+                  const optional = s.is_required === false;
+                  return (
+                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 0", minHeight: 52, borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {editingId === s.id ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input autoFocus value={editLabel} onChange={e => setEditLabel(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") void renameSlot(s.id); if (e.key === "Escape") setEditingId(null); }}
+                              className="bvk-input" style={{ height: 36, flex: 1 }} />
+                            <Btn kind="ghost" size="sm" icon onClick={() => void renameSlot(s.id)} disabled={busyId === s.id} aria-label={L("Save", "Speichern", "Enregistrer")}>
+                              <Check size={14} strokeWidth={2.4} />
+                            </Btn>
+                            <Btn kind="quiet" size="sm" icon onClick={() => setEditingId(null)} aria-label={L("Cancel", "Abbrechen", "Annuler")}>
+                              <XIcon size={14} />
+                            </Btn>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => { setEditingId(s.id); setEditLabel(s.label); }}
+                            style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", cursor: "text", padding: 0, fontFamily: "inherit",
+                              fontSize: 14, color: "var(--w)", overflowWrap: "break-word", hyphens: "auto" }} lang="de">
+                            {s.label}
                           </button>
-                          <button onClick={() => setEditingId(null)}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center"
-                            style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)", cursor: "pointer" }}>
-                            <XIcon size={13} />
-                          </button>
-                        </div>
-                      ) : (
-                        <button onClick={() => { setEditingId(s.id); setEditLabel(s.label); }}
-                          className="text-left w-full"
-                          style={{ background: "transparent", border: "none", cursor: "text", padding: 0 }}>
-                          <span className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{s.label}</span>
-                        </button>
+                        )}
+                      </div>
+
+                      {editingId !== s.id && (
+                        <>
+                          <Btn kind="quiet" size="sm" icon onClick={() => pickTemplate(s)} disabled={busyId === s.id}
+                            title={s.template_pdf_path
+                              ? L("Blank form set — click to replace it", "Leeres Formular hinterlegt — klicken zum Ersetzen", "Formulaire vierge en place — cliquer pour le remplacer")
+                              : L("Upload the blank form candidates download", "Leeres Formular zum Herunterladen hochladen", "Téléverser le formulaire vierge à télécharger")}
+                            aria-label={L("Blank form", "Leeres Formular", "Formulaire vierge")}
+                            style={{ color: s.template_pdf_path ? "var(--gold)" : "var(--w3)" }}>
+                            {busyId === s.id ? <Spinner size="xs" /> : <FileUp size={15} strokeWidth={1.9} />}
+                          </Btn>
+                          <Btn kind="quiet" size="sm" onClick={() => void toggleRequired(s)} disabled={busyId === s.id}
+                            title={optional ? L("Optional — doesn't count toward the %", "Optional — zählt nicht für die %", "Optionnel — ne compte pas dans le %")
+                                            : L("Required — counts toward the %", "Erforderlich — zählt für die %", "Requis — compte dans le %")}
+                            style={{ fontSize: 12, fontWeight: 600, color: optional ? "var(--w3)" : "var(--w)", minWidth: 78, justifyContent: "flex-end" }}>
+                            {optional ? L("Optional", "Optional", "Optionnel") : L("Required", "Erforderlich", "Requis")}
+                          </Btn>
+                          <Btn kind="quiet" size="sm" icon onClick={() => void removeSlot(s)} aria-label={L("Delete", "Löschen", "Supprimer")}>
+                            <Trash2 size={14} strokeWidth={1.8} />
+                          </Btn>
+                        </>
                       )}
                     </div>
-
-                    {editingId !== s.id && (
-                      <>
-                        <button onClick={() => pickTemplate(s)} disabled={busyId === s.id}
-                          title={s.template_pdf_path
-                            ? L("Blank form set — click to replace it", "Leeres Formular hinterlegt — klicken zum Ersetzen", "Formulaire vierge en place — cliquer pour le remplacer")
-                            : L("Upload the blank form candidates download", "Leeres Formular zum Herunterladen hochladen", "Téléverser le formulaire vierge à télécharger")}
-                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                          style={{
-                            background: s.template_pdf_path ? "var(--gdim)" : "var(--bg2)",
-                            color: s.template_pdf_path ? "var(--gold)" : "var(--w3)",
-                            border: `1px solid ${s.template_pdf_path ? "var(--border-gold)" : "var(--border)"}`,
-                            cursor: "pointer",
-                          }}>
-                          {busyId === s.id ? <Spinner size="xs" /> : <FileUp size={13} strokeWidth={1.9} />}
-                        </button>
-                        <button onClick={() => void toggleRequired(s)} disabled={busyId === s.id}
-                          title={optional ? L("Optional — doesn't count toward the %", "Optional — zählt nicht für die %", "Optionnel — ne compte pas dans le %")
-                                          : L("Required — counts toward the %", "Erforderlich — zählt für die %", "Requis — compte dans le %")}
-                          className="px-2.5 py-1 rounded-full text-[10.5px] font-semibold flex-shrink-0"
-                          style={{
-                            background: optional ? "var(--bg2)" : "var(--gdim)",
-                            color: optional ? "var(--w3)" : "var(--gold)",
-                            border: `1px solid ${optional ? "var(--border)" : "var(--border-gold)"}`,
-                            cursor: "pointer",
-                          }}>
-                          {optional ? L("Optional", "Optional", "Optionnel") : L("Required", "Erforderlich", "Requis")}
-                        </button>
-                        <button onClick={() => void removeSlot(s)}
-                          className="bv-icon-btn bv-icon-btn--reject w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <Trash2 size={13} strokeWidth={1.8} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                );
-              })
+                  );
+                })}
+              </Paged>
             )}
 
             {/* Add */}
-            <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 0", borderTop: "1px solid var(--border)" }}>
               <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") void addSlot(); }}
                 placeholder={L("Document name", "Dokumentname", "Nom du document")}
-                className="flex-1 px-3 py-2 text-[13px] outline-none"
-                style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--w)" }} />
-              <button onClick={() => void addSlot()} disabled={adding || !newLabel.trim()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-[12.5px] font-semibold disabled:opacity-50"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, border: "none", cursor: "pointer" }}>
-                {adding ? <Spinner size="xs" color="#131312" /> : <Plus size={13} strokeWidth={2.4} />}
+                className="bvk-input" style={{ flex: 1, minWidth: 0 }} />
+              <Btn kind="primary" onClick={() => void addSlot()} disabled={adding || !newLabel.trim()}>
+                {adding ? <Spinner size="xs" color="var(--bg)" /> : <Plus size={14} strokeWidth={2.4} />}
                 {L("Add", "Hinzufügen", "Ajouter")}
-              </button>
+              </Btn>
             </div>
-          </div>
+          </Card>
 
           {saveFailed && (
-            <p className="text-[12px] mt-3" style={{ color: "var(--danger)" }}>
+            <div role="alert" style={{ marginTop: 10, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
               {L("Couldn't save that change — nothing was changed. Try again.",
                  "Änderung konnte nicht gespeichert werden — nichts wurde geändert. Erneut versuchen.",
                  "Modification non enregistrée — rien n'a changé. Réessayez.")}
-            </p>
+            </div>
           )}
 
           <input ref={fileRef} type="file" accept="application/pdf" hidden
             onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadTemplate(f); }} />
 
-          <p className="text-[11px] mt-3" style={{ color: "var(--w3)" }}>
+          <p style={{ marginTop: 10, fontSize: 12, color: "var(--w3)" }}>
             {L("Tip: click a name to rename it. Renaming also renames the matching file for every candidate.",
                "Tipp: Auf einen Namen klicken zum Umbenennen — benennt auch die Datei jedes Kandidaten um.",
                "Astuce : cliquez sur un nom pour le renommer — renomme aussi le fichier de chaque candidat.")}
@@ -439,4 +391,10 @@ export default function AdminDocumentsPage() {
       </main>
     </>
   );
+}
+
+/** lists flip instead of scrolling (components/fx/kit usePaged + Pager) */
+function Paged<I>({ items, per, perPhone, children }: { items: I[]; per: number; perPhone: number; children: (slice: I[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
 }

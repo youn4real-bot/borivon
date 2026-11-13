@@ -14,7 +14,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Users, CalendarRange } from "lucide-react";
+import { Users, CalendarRange } from "lucide-react";
+import { PageHead, Card, Dot, Empty, Seg as SegSwitch, STATUS_DOT, type Status } from "@/components/fx/kit";
 
 type Seg = { passed: number; failed: number; notYet: number };
 type Batch = { id: string; name: string; agency: string | null; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
@@ -28,9 +29,22 @@ type Data = {
   batches: Batch[];
 };
 
-const GREEN = "#16a34a";
-const RED = "#ef4444";
-const AMBER = "#f59e0b";
+// the one design: colours only from the kit status palette (components/fx/kit STATUS_DOT); on a phone the
+// panels show one at a time behind a segmented switch (nobody scrolls)
+type Sec = "funnel" | "interviews" | "milestones" | "b2" | "batches";
+const ANALYTICS_CSS = `
+.bva-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+.bva-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.bva-tabs{display:none}
+.bva-tabs .bvk-seg button{white-space:nowrap}
+@media (max-width:640px){
+.bva-grid{grid-template-columns:1fr;gap:0}
+.bva-col{gap:0}
+.bva-tabs{display:block}
+.bva-tabs .bvk-seg button{padding:6px 10px}
+.bva-sec{display:none}
+.bva-sec[data-on="1"]{display:block}
+}`;
 
 export default function AdminAnalyticsPage() {
   const router = useRouter();
@@ -38,6 +52,7 @@ export default function AdminAnalyticsPage() {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Data | null>(null);
+  const [sec, setSec] = useState<Sec>("funnel");
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch("/api/portal/admin/analytics", { headers: { Authorization: `Bearer ${tk}` } });
@@ -80,12 +95,12 @@ export default function AdminAnalyticsPage() {
 
   // A labelled row with a proportional bar — the core building block.
   const Bar = ({ label, count, of, color }: { label: string; count: number; of: number; color: string }) => (
-    <div className="flex items-center gap-3">
-      <span className="text-[12.5px] w-40 flex-shrink-0 truncate" style={{ color: "var(--w2)" }}>{label}</span>
-      <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: "var(--bg2)" }}>
-        <div className="h-full rounded-full" style={{ width: `${of > 0 ? Math.round((count / of) * 100) : 0}%`, background: color, minWidth: count > 0 ? 4 : 0 }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <span style={{ fontSize: 12.5, width: 150, flex: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "var(--w2)" }}>{label}</span>
+      <div style={{ flex: 1, height: 6, borderRadius: 999, overflow: "hidden", background: "var(--bg2)" }}>
+        <div style={{ height: "100%", borderRadius: 999, width: `${of > 0 ? Math.round((count / of) * 100) : 0}%`, background: color, minWidth: count > 0 ? 4 : 0 }} />
       </div>
-      <span className="text-[12.5px] font-semibold w-10 text-right flex-shrink-0" style={{ color: "var(--w)" }}>{count}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, width: 30, textAlign: "right", flex: "none", color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{count}</span>
     </div>
   );
 
@@ -94,27 +109,27 @@ export default function AdminAnalyticsPage() {
     const t = seg.passed + seg.failed + seg.notYet;
     const w = (n: number) => (t > 0 ? `${(n / t) * 100}%` : "0%");
     return (
-      <div className="flex h-2.5 rounded-full overflow-hidden" style={{ background: "var(--bg2)" }}>
-        <div style={{ width: w(seg.passed), background: GREEN }} />
-        <div style={{ width: w(seg.failed), background: RED }} />
+      <div style={{ display: "flex", height: 6, borderRadius: 999, overflow: "hidden", background: "var(--bg2)" }}>
+        <div style={{ width: w(seg.passed), background: STATUS_DOT.approved }} />
+        <div style={{ width: w(seg.failed), background: STATUS_DOT.rejected }} />
       </div>
     );
   };
 
-  // Section wrapper — a titled --card panel.
-  const Panel = ({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) => (
-    <section className="p-4 sm:p-5 mb-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-      <h2 className="text-[13.5px] font-semibold mb-0.5" style={{ color: "var(--w)" }}>{title}</h2>
-      {sub && <p className="text-[11.5px] mb-3" style={{ color: "var(--w3)" }}>{sub}</p>}
-      <div className={sub ? "" : "mt-3"}>{children}</div>
-    </section>
+  // Section wrapper — a titled paper card (on a phone only the chosen one shows).
+  const Panel = ({ id, title, sub, children }: { id: Sec; title: string; sub?: string; children: React.ReactNode }) => (
+    <Card className="bva-sec" data-on={sec === id ? "1" : "0"} style={{ padding: "18px 20px" }}>
+      <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 21, lineHeight: 1.2, color: "var(--w)" }}>{title}</h2>
+      {sub && <p style={{ fontSize: 12.5, color: "var(--w3)", margin: "3px 0 0" }}>{sub}</p>}
+      <div style={{ marginTop: 14 }}>{children}</div>
+    </Card>
   );
 
-  // A compact number tile.
-  const Stat = ({ n, label, color }: { n: number; label: string; color?: string }) => (
-    <div className="flex-1 min-w-[80px] p-3 rounded-xl text-center" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-      <div className="text-[22px] font-bold leading-none" style={{ color: color ?? "var(--w)" }}>{n}</div>
-      <div className="text-[11px] mt-1.5" style={{ color: "var(--w3)" }}>{label}</div>
+  // A compact number: big serif, its colour as a dot (the kit status palette).
+  const Stat = ({ n, label, st }: { n: number; label: string; st?: Status }) => (
+    <div style={{ flex: "1 1 0", minWidth: 0 }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, lineHeight: 1.1, color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{n}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--w3)", marginTop: 2 }}>{st && <Dot st={st} size={7} />}{label}</div>
     </div>
   );
 
@@ -134,112 +149,119 @@ export default function AdminAnalyticsPage() {
     return m ? T(m[0], m[1], m[2]) : fallback;
   };
 
-  return (
-    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 860 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-      </button>
+  const secs: [Sec, string][] = [["funnel", T("Funnel", "Trichter", "Entonnoir")], ["interviews", T("Interviews", "Interviews", "Entretiens")], ["milestones", T("Milestones", "Meilensteine", "Jalons")], ["b2", "B2"]];
+  if ((data?.batches.length ?? 0) > 0) secs.push(["batches", T("Batches", "Batches", "Lots")]);
 
-      <div className="mb-5">
-        <h1 className="bv-h1">{T("Analytics", "Analytik", "Analytique")}</h1>
-        <p className="bv-body mt-1">{T("The whole pipeline at a glance.", "Die gesamte Pipeline auf einen Blick.", "Tout le pipeline en un coup d'œil.")}</p>
-      </div>
+  // the one design (founder 2026-11-13): serif head with the total big, every part as a paper card in one
+  // grid (laptop) — on a phone one card at a time behind a segmented switch; bars in the kit colours
+  return (
+    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 960, paddingTop: 88 }}>
+      <style>{ANALYTICS_CSS}</style>
+      <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Analytics", "Analytik", "Analytique")}
+        sub={T("The whole pipeline at a glance.", "Die gesamte Pipeline auf einen Blick.", "Tout le pipeline en un coup d'œil.")}
+        actions={data && total > 0 ? (
+          <div className="bva-total" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <Users size={16} strokeWidth={1.8} style={{ color: "var(--gold)", alignSelf: "center" }} />
+            <span style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 34, lineHeight: 1, color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{total}</span>
+            <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{T("candidates tracked", "erfasste Kandidaten", "candidats suivis")}</span>
+          </div>
+        ) : undefined} />
 
       {!data || total === 0 ? (
-        <div className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>
-          {T("No candidates in scope yet.", "Noch keine Kandidaten im Bereich.", "Aucun candidat dans le périmètre.")}
-        </div>
+        <Card><Empty>{T("No candidates in scope yet.", "Noch keine Kandidaten im Bereich.", "Aucun candidat dans le périmètre.")}</Empty></Card>
       ) : (
         <>
-          {/* Headline total */}
-          <div className="flex items-center gap-3 p-4 mb-4" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-xl)" }}>
-            <Users size={20} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-            <div>
-              <div className="text-[22px] font-bold leading-none" style={{ color: "var(--w)" }}>{total}</div>
-              <div className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>{T("candidates tracked", "erfasste Kandidaten", "candidats suivis")}</div>
+          <div className="bva-tabs" style={{ marginBottom: 12 }}><SegSwitch value={sec} onChange={setSec} options={secs} /></div>
+
+          <div className="bva-grid">
+            <div className="bva-col">
+            {/* Funnel breakdown */}
+            <Panel id="funnel" title={T("Funnel", "Trichter", "Entonnoir")} sub={T("Where every candidate sits on the sales ladder.", "Wo jeder Kandidat auf der Leiter steht.", "Où se situe chaque candidat dans le parcours.")}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+                {data.funnel.map((f) => (
+                  <Bar key={f.key} label={funnelLabelOf(f.key, f.label)} count={f.count} of={funnelMax}
+                    color={f.key === "passed" || f.key === "departed" ? STATUS_DOT.approved : f.waiting ? STATUS_DOT.pending : f.key === "__none__" ? STATUS_DOT.missing : "var(--w2)"} />
+                ))}
+              </div>
+            </Panel>
+
+            {/* B2 readiness */}
+            <Panel id="b2" title={T("B2 German readiness", "B2 Deutsch-Bereitschaft", "Préparation B2 allemand")}
+              sub={T("How many can pass the German exam in time.", "Wie viele die Deutschprüfung rechtzeitig bestehen.", "Combien peuvent réussir l'examen à temps.")}>
+              <div style={{ display: "flex", gap: 12 }}>
+                <Stat n={data.b2.passed} label={T("Passed", "Bestanden", "Réussi")} st="approved" />
+                <Stat n={data.b2.inProgress} label={T("In progress", "In Arbeit", "En cours")} st="pending" />
+                <Stat n={data.b2.failed} label={T("Failed", "Nicht bestanden", "Échoué")} st="rejected" />
+                <Stat n={data.b2.notSet} label={T("Not set", "Offen", "Non défini")} st="missing" />
+              </div>
+            </Panel>
+            </div>
+
+            <div className="bva-col">
+              {/* Interview conversion */}
+              <Panel id="interviews" title={T("Interview outcomes", "Interview-Ergebnisse", "Résultats des entretiens")}
+                sub={T("Green = passed · red = failed · rest not yet.", "Grün = bestanden · rot = nicht bestanden · Rest noch offen.", "Vert = réussi · rouge = échoué · le reste pas encore.")}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {([["i1", T("Interview 1", "Interview 1", "Entretien 1")], ["i2", T("Interview 2", "Interview 2", "Entretien 2")]] as const).map(([k, label]) => {
+                    const seg = data.interviews[k];
+                    return (
+                      <div key={k}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--w)" }}>{label}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--w3)" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Dot st="approved" size={7} /><b style={{ color: "var(--w)", fontWeight: 600 }}>{seg.passed}</b> {T("passed", "bestanden", "réussi")}</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Dot st="rejected" size={7} /><b style={{ color: "var(--w)", fontWeight: 600 }}>{seg.failed}</b> {T("failed", "nicht bestanden", "échoué")}</span>
+                            <span>{seg.notYet} {T("not yet", "offen", "pas encore")}</span>
+                          </span>
+                        </div>
+                        <SegBar seg={seg} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </Panel>
+
+              {/* Milestones reached */}
+              <Panel id="milestones" title={T("Milestones reached", "Erreichte Meilensteine", "Jalons atteints")}>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <Stat n={data.milestones.agreement} label={T("Agreement", "Vereinbarung", "Accord")} st="approved" />
+                  <Stat n={data.milestones.contract} label={T("Contract", "Vertrag", "Contrat")} st="approved" />
+                  <Stat n={data.milestones.visa} label={T("Visa", "Visum", "Visa")} st="approved" />
+                  <Stat n={data.milestones.arrived} label={T("Arrived", "Angekommen", "Arrivés")} st="approved" />
+                </div>
+              </Panel>
+
+              {/* Open batches — fill */}
+              {data.batches.length > 0 && (
+                <Panel id="batches" title={T("Open batches", "Offene Batches", "Lots ouverts")} sub={T("Seats filled vs. target.", "Belegte vs. angestrebte Plätze.", "Places occupées vs. objectif.")}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {data.batches.map((b) => {
+                      const p = b.seats > 0 ? Math.min(100, Math.round((b.filled / b.seats) * 100)) : 0;
+                      const full = b.filled >= b.seats && b.seats > 0;
+                      return (
+                        <div key={b.id} style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--w)" }}>{b.name}</span>
+                            <span style={{ flex: "none", fontSize: 12, color: "var(--w3)", display: "inline-flex", alignItems: "baseline", gap: 8 }}>
+                              {[b.agency, b.employer].filter(Boolean).length > 0 && <span>{[b.agency, b.employer].filter(Boolean).join(" → ")}</span>}
+                              {b.targetStart && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><CalendarRange size={11} />{fmtDay(b.targetStart)}</span>}
+                              <span style={{ fontVariantNumeric: "tabular-nums" }}><b style={{ color: "var(--w)", fontWeight: 600 }}>{b.filled}</b>/{b.seats}</span>
+                            </span>
+                          </div>
+                          <div style={{ height: 6, borderRadius: 999, overflow: "hidden", background: "var(--bg2)" }}>
+                            <div style={{ height: "100%", borderRadius: 999, width: `${p}%`, background: full ? STATUS_DOT.approved : "var(--w2)", minWidth: b.filled > 0 ? 4 : 0 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Panel>
+              )}
             </div>
           </div>
 
-          {/* Funnel breakdown */}
-          <Panel title={T("Funnel", "Trichter", "Entonnoir")} sub={T("Where every candidate sits on the sales ladder.", "Wo jeder Kandidat auf der Leiter steht.", "Où se situe chaque candidat dans le parcours.")}>
-            <div className="space-y-2.5">
-              {data.funnel.map((f) => (
-                <Bar key={f.key} label={funnelLabelOf(f.key, f.label)} count={f.count} of={funnelMax}
-                  color={f.key === "passed" || f.key === "departed" ? GREEN : f.waiting ? AMBER : f.key === "__none__" ? "var(--w3)" : "var(--gold)"} />
-              ))}
-            </div>
-          </Panel>
-
-          {/* Interview conversion */}
-          <Panel title={T("Interview outcomes", "Interview-Ergebnisse", "Résultats des entretiens")}
-            sub={T("Green = passed · red = failed · rest not yet.", "Grün = bestanden · rot = nicht bestanden · Rest noch offen.", "Vert = réussi · rouge = échoué · le reste pas encore.")}>
-            <div className="space-y-3.5">
-              {([["i1", T("Interview 1", "Interview 1", "Entretien 1")], ["i2", T("Interview 2", "Interview 2", "Entretien 2")]] as const).map(([k, label]) => {
-                const seg = data.interviews[k];
-                return (
-                  <div key={k}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[12.5px] font-semibold" style={{ color: "var(--w2)" }}>{label}</span>
-                      <span className="text-[11.5px]" style={{ color: "var(--w3)" }}>
-                        <b style={{ color: GREEN }}>{seg.passed}</b> {T("passed", "bestanden", "réussi")} · <b style={{ color: RED }}>{seg.failed}</b> {T("failed", "nicht bestanden", "échoué")} · {seg.notYet} {T("not yet", "offen", "pas encore")}
-                      </span>
-                    </div>
-                    <SegBar seg={seg} />
-                  </div>
-                );
-              })}
-            </div>
-          </Panel>
-
-          {/* Milestones reached */}
-          <Panel title={T("Milestones reached", "Erreichte Meilensteine", "Jalons atteints")}>
-            <div className="flex gap-2.5 flex-wrap">
-              <Stat n={data.milestones.agreement} label={T("Agreement", "Vereinbarung", "Accord")} color={GREEN} />
-              <Stat n={data.milestones.contract} label={T("Contract", "Vertrag", "Contrat")} color={GREEN} />
-              <Stat n={data.milestones.visa} label={T("Visa", "Visum", "Visa")} color={GREEN} />
-              <Stat n={data.milestones.arrived} label={T("Arrived", "Angekommen", "Arrivés")} color={GREEN} />
-            </div>
-          </Panel>
-
-          {/* B2 readiness */}
-          <Panel title={T("B2 German readiness", "B2 Deutsch-Bereitschaft", "Préparation B2 allemand")}
-            sub={T("How many can pass the German exam in time.", "Wie viele die Deutschprüfung rechtzeitig bestehen.", "Combien peuvent réussir l'examen à temps.")}>
-            <div className="flex gap-2.5 flex-wrap">
-              <Stat n={data.b2.passed} label={T("Passed", "Bestanden", "Réussi")} color={GREEN} />
-              <Stat n={data.b2.inProgress} label={T("In progress", "In Arbeit", "En cours")} color={AMBER} />
-              <Stat n={data.b2.failed} label={T("Failed", "Nicht bestanden", "Échoué")} color={RED} />
-              <Stat n={data.b2.notSet} label={T("Not set", "Offen", "Non défini")} />
-            </div>
-          </Panel>
-
-          {/* Open batches — fill */}
-          {data.batches.length > 0 && (
-            <Panel title={T("Open batches", "Offene Batches", "Lots ouverts")} sub={T("Seats filled vs. target.", "Belegte vs. angestrebte Plätze.", "Places occupées vs. objectif.")}>
-              <div className="space-y-3">
-                {data.batches.map((b) => {
-                  const p = b.seats > 0 ? Math.min(100, Math.round((b.filled / b.seats) * 100)) : 0;
-                  const full = b.filled >= b.seats && b.seats > 0;
-                  return (
-                    <div key={b.id}>
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="text-[12.5px] font-semibold min-w-0 truncate" style={{ color: "var(--w)" }}>{b.name}</span>
-                        <span className="text-[11.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>
-                          {[b.agency, b.employer].filter(Boolean).length > 0 && <span className="mr-2">{[b.agency, b.employer].filter(Boolean).join(" → ")}</span>}
-                          {b.targetStart && <span className="inline-flex items-center gap-1 mr-2"><CalendarRange size={11} />{fmtDay(b.targetStart)}</span>}
-                          <b style={{ color: "var(--w)" }}>{b.filled}/{b.seats}</b>
-                        </span>
-                      </div>
-                      <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "var(--bg2)" }}>
-                        <div className="h-full rounded-full" style={{ width: `${p}%`, background: full ? GREEN : "var(--gold)", minWidth: b.filled > 0 ? 4 : 0 }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-          )}
-
-          <p className="text-[11px] text-center mt-2" style={{ color: "var(--w3)" }}>
+          <p style={{ fontSize: 11.5, textAlign: "center", marginTop: 12, color: "var(--w3)" }}>
             {T("Live — reflects the current pipeline every time you open this page.", "Live — spiegelt bei jedem Öffnen die aktuelle Pipeline wider.", "En direct — reflète le pipeline actuel à chaque ouverture.")}
           </p>
         </>
