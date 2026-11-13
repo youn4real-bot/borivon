@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { SHOW_CANDIDATE_TICK } from "@/lib/features";
 
 type UserEntry = {
   id: string;
@@ -339,7 +340,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                 {/* Verify toggle — candidates only. Supreme-admin grants /
                     revokes the gold tick right here. Server hard-blocks any
                     non-supreme caller. */}
-                {u.kind === "candidate" && (
+                {SHOW_CANDIDATE_TICK && u.kind === "candidate" && (
                   <button
                     onClick={() => toggleVerify(u)}
                     disabled={verifyingId === u.id}

@@ -13,6 +13,7 @@ import { specialtyLabel, NURSE_SPECIALTIES } from "@/lib/nurseSpecialties";
 import { funnelLabel, FUNNEL_STAGES } from "@/lib/batchBoard";
 import { norm, hasFullB2Cert, type SearchableCandidate, type SearchHit } from "@/lib/candidateSearch";
 import { nationalityKey, countryLabel } from "@/lib/nationality";
+import { SHOW_CANDIDATE_TICK } from "@/lib/features";
 
 const DAY = 86_400_000;
 const RESULT_LIMIT = 150;
@@ -119,7 +120,8 @@ const FIXED_GROUPS: GroupDef[] = [
     key: "flags", label: (l) => L(l, "Status", "Statut", "Status"),
     options: [
       { key: "placement_ready", label: (l) => L(l, "Placement ready", "Prêt au placement", "Vermittlungsbereit"), test: (c) => c.placementReady },
-      { key: "verified", label: (l) => L(l, "Verified", "Vérifié", "Verifiziert"), test: (c) => c.verified },
+      // hidden with the gold tick (old Premium plan) — lib/features.ts
+      ...(SHOW_CANDIDATE_TICK ? [{ key: "verified", label: (l: string) => L(l, "Verified", "Vérifié", "Verifiziert"), test: (c: SearchableCandidate) => c.verified }] : []),
       { key: "has_employer", label: (l) => L(l, "Has employer", "Avec employeur", "Mit Arbeitgeber"), test: (c) => c.hasEmployer },
     ],
   },

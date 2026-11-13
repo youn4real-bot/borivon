@@ -30,7 +30,7 @@ import {
   IdCard, User, Home, Eye, FilePen, Sparkles, Paperclip, CheckCircle2, XCircle,
   Stethoscope, Languages, FileText,
 } from "@/components/PortalIcons";
-import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
+import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal, MapPin } from "lucide-react";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { IosPreviewPending } from "@/components/IosPreviewPending";
@@ -5957,69 +5957,67 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Berufserlaubnis guide modal (LAW #36) */}
+      {/* Berufserlaubnis guide modal (LAW #36) — the one design: serif head, numbered hairline rows, one black button */}
       {showWorkGuide && (
         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+          style={{ background: "rgba(21,19,15,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setShowWorkGuide(false)}>
           <div className="relative w-full max-w-md rounded-[20px] overflow-hidden flex flex-col"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)",
+            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 30px 80px -30px rgba(21,19,15,.45)", animation: "bvFadeRise .28s var(--ease-out)",
               // LAW #36: never exceed the gap between header (58px + subnav)
               // and the bottom nav (96px incl. gap). Body scrolls if shorter.
               maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
             onClick={(e) => e.stopPropagation()}>
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
-              style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
-              <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pGuideWorkTitle}</p>
-              <button onClick={() => setShowWorkGuide(false)}
-                className="bv-row-hover text-xs px-3 py-1"
-                style={{ color: "var(--w3)" }}>
-                {t.pExampleClose}
+            <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-2 flex-shrink-0">
+              <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, letterSpacing: "-.01em", color: "var(--w)" }}>{t.pGuideWorkTitle}</p>
+              <button onClick={() => setShowWorkGuide(false)} aria-label={t.pExampleClose}
+                className="flex-shrink-0 flex items-center justify-center"
+                style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer" }}>
+                <XIcon size={14} strokeWidth={1.8} />
               </button>
             </div>
 
-            <div className="px-4 py-4 space-y-3 overflow-y-auto" style={{ minHeight: 0 }}>
+            <div className="px-6 pb-6 overflow-y-auto" style={{ minHeight: 0 }}>
               {/* Intro */}
-              <p className="text-xs" style={{ color: "var(--w2)" }}>{t.pGuideWorkIntro}</p>
+              <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--w3)" }}>{t.pGuideWorkIntro}</p>
 
               {/* Doc list */}
-              <div className="space-y-1.5">
+              <div>
                 {[t.pGuideWorkDoc1, t.pGuideWorkDoc2, t.pGuideWorkDoc3, t.pGuideWorkDoc4].map((doc, i) => (
-                  <div key={i} className="px-3 py-2 rounded-xl"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-bold mt-0.5 w-3 flex-shrink-0" style={{ color: "var(--gold)" }}>{i + 1}</span>
-                      <p className="text-xs" style={{ color: "var(--w)" }}><B text={doc} /></p>
+                  <div key={i} style={{ padding: "11px 0", borderTop: i ? "1px solid var(--border)" : "0" }}>
+                    <div className="flex items-start gap-3">
+                      <span className="flex-shrink-0" style={{ width: 16, fontFamily: "var(--font-serif)", fontSize: 17, lineHeight: 1.2, color: "var(--gold)" }}>{i + 1}</span>
+                      <p style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: "var(--w)" }}><B text={doc} /></p>
                     </div>
                     {i === 3 && DEMANDE_EXAMPLE_URL && (
                       <button
                         onClick={() => { setShowWorkGuide(false); setExampleUrl(DEMANDE_EXAMPLE_URL); }}
-                        className="bv-row-hover mt-2 ml-7 text-xs px-2.5 py-1 inline-flex items-center gap-1.5"
-                        style={{ color: "var(--info)" }}>
-                        <FileText size={11} strokeWidth={1.8} /> {t.pGuideWorkDemandeBtn}
+                        className="inline-flex items-center gap-1.5"
+                        style={{ margin: "8px 0 0 28px", height: 30, padding: "0 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w2)", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}>
+                        <FileText size={12} strokeWidth={1.8} /> {t.pGuideWorkDemandeBtn}
                       </button>
                     )}
                   </div>
                 ))}
               </div>
 
-              {/* Notes */}
-              <div className="rounded-xl px-4 py-3 text-xs"
-                style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)", color: "var(--danger)" }}>
-                <B text={t.pGuideWorkLegalNote} />
+              {/* Notes — status colours only (LAW #4): red = must do, green = fine */}
+              <div className="flex items-start gap-2.5" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 12, background: "rgba(220,38,38,.10)", fontSize: 13, lineHeight: 1.45, color: "var(--w)" }}>
+                <span aria-hidden="true" className="flex-shrink-0" style={{ width: 8, height: 8, marginTop: 6, borderRadius: "50%", background: "#dc2626" }} />
+                <span><B text={t.pGuideWorkLegalNote} /></span>
               </div>
-              <div className="rounded-xl px-4 py-3 text-xs"
-                style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", color: "var(--gold)" }}>
-                <B text={t.pGuideWorkDemandeNote} />
+              <div className="flex items-start gap-2.5" style={{ marginTop: 6, padding: "10px 12px", borderRadius: 12, background: "rgba(22,163,74,.10)", fontSize: 13, lineHeight: 1.45, color: "var(--w)" }}>
+                <span aria-hidden="true" className="flex-shrink-0" style={{ width: 8, height: 8, marginTop: 6, borderRadius: "50%", background: "#16a34a" }} />
+                <span><B text={t.pGuideWorkDemandeNote} /></span>
               </div>
 
-              {/* Action buttons */}
+              {/* Action */}
               <a href={MAPS_URL} target="_blank" rel="noreferrer"
-                className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-                style={{ background: "var(--gold)", color: "#131312" }}>
-                {t.pGuideWorkMapsBtn}
+                className="flex items-center justify-center gap-2 w-full transition-opacity hover:opacity-90"
+                style={{ marginTop: 16, height: 46, borderRadius: 999, background: "var(--w)", color: "var(--bg)", fontSize: 14.5, fontWeight: 600, textDecoration: "none" }}>
+                <MapPin size={15} strokeWidth={1.8} /> {t.pGuideWorkMapsBtn}
               </a>
 
             </div>

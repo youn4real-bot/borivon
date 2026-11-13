@@ -7,6 +7,21 @@ import { supabase } from "@/lib/supabase";
 import { Suspense } from "react";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
+import { Card, KitStyle } from "@/components/fx/kit";
+
+// the one design (founder 2026-11-13): one small paper card in the middle, the logo on top
+function CallbackCard({ children }: { children?: React.ReactNode }) {
+  return (
+    <main className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: "var(--bg)", paddingTop: 58, paddingBottom: 40 }}>
+      <KitStyle />
+      <Card style={{ width: "100%", maxWidth: 360, padding: "32px 26px 28px", textAlign: "center" }}>
+        <p style={{ margin: 0 }}><Wordmark size="1.9rem" /></p>
+        {children}
+      </Card>
+    </main>
+  );
+}
 
 // Minimal translations for the auth callback page
 const CB_T = {
@@ -158,43 +173,30 @@ function CallbackInner() {
 
   if (error) {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4"
-        style={{ background: "var(--bg, #161614)" }}>
-        <div className="w-full max-w-sm text-center">
-          <p className="mb-7"><Wordmark size="1.9rem" /></p>
-          <p className="text-[13.5px] mb-6" style={{ color: "rgba(238,236,234,0.55)" }}>{error}</p>
-          <a href="/portal" className="text-sm underline underline-offset-4"
-            style={{ color: "var(--gold, #c9a240)" }}>
-            {cbT.back}
-          </a>
-        </div>
-      </main>
+      <CallbackCard>
+        <p style={{ margin: "20px 0 20px", fontSize: 14, lineHeight: 1.55, color: "var(--w2)" }}>{error}</p>
+        <a href="/portal" className="bvk-btn bvk-primary" style={{ width: "100%" }}>
+          {cbT.back}
+        </a>
+      </CallbackCard>
     );
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center"
-      style={{ background: "var(--bg, #161614)" }}>
-      <div className="text-center">
-        <p className="mb-7"><Wordmark size="1.9rem" /></p>
-        <div className="flex justify-center"><Spinner size="lg" /></div>
-        <p className="mt-4 text-[12.5px]" style={{ color: "rgba(238,236,234,0.5)" }}>
-          {cbT.verifying}
-        </p>
-      </div>
-    </main>
+    <CallbackCard>
+      <div className="flex justify-center" style={{ marginTop: 22 }}><Spinner size="md" /></div>
+      <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--w3)" }}>
+        {cbT.verifying}
+      </p>
+    </CallbackCard>
   );
 }
 
 function CallbackFallback() {
   return (
-    <main className="min-h-screen flex items-center justify-center"
-      style={{ background: "var(--bg, #161614)" }}>
-      <div className="text-center">
-        <p className="mb-7"><Wordmark size="1.9rem" /></p>
-        <div className="flex justify-center"><Spinner size="lg" /></div>
-      </div>
-    </main>
+    <CallbackCard>
+      <div className="flex justify-center" style={{ marginTop: 22 }}><Spinner size="md" /></div>
+    </CallbackCard>
   );
 }
 

@@ -7,6 +7,8 @@ import { Dialog } from "./ui/dialog";
 import { Mail, Phone, Check } from "lucide-react";
 import { isValidEmail } from "@/lib/utils";
 
+const SHOW_REFUND_POLICY = false as boolean;
+
 export function Footer() {
   const { t, lang } = useLang();
   const router = useRouter();
@@ -140,13 +142,14 @@ export function Footer() {
               {t.ftTerms}
             </button>
 
-            {/* Refund Policy */}
-            <button
+            {/* Refund Policy — hidden: no consumer payments any more, the platform is free
+                (founder 2026-11-13). The page stays, only the link is gone. */}
+            {SHOW_REFUND_POLICY && <button
               onClick={() => router.push("/refund-policy")}
               className="foot-link text-[0.74rem] text-w3 px-[0.75rem] py-[0.4rem] rounded-[8px] hover:text-w hover:bg-bg/40 transition-all duration-200 cursor-pointer bg-transparent border-none"
             >
               {refundLabels[lang] ?? refundLabels.en}
-            </button>
+            </button>}
 
             {/* Cookie Settings */}
             <button

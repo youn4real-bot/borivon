@@ -64,7 +64,7 @@ function ExpiryView({ rows, busy, onRefresh, onBack, T, label, daysText, counts 
 }) {
   const { slice, page, pages, setPage } = usePaged(rows, 8, 6);
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-8">
+    <div className="mx-auto w-full max-w-2xl px-4" style={{ paddingTop: 90, paddingBottom: 32 }}>
       <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: onBack }}
         title={T("Passport expiry", "Reisepass-Ablauf", "Expiration des passeports")}
         sub={T("Expired or expiring within a year — an expired passport blocks the visa.", "Abgelaufen oder innerhalb eines Jahres — ein abgelaufener Pass blockiert das Visum.", "Expiré ou dans l’année — un passeport expiré bloque le visa.")}

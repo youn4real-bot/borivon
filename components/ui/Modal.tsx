@@ -85,7 +85,7 @@ export function Modal({
       className="fixed inset-x-0 bottom-0 z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
       style={{
         top: "calc(58px + var(--bv-subnav-h, 0px))",
-        background: "rgba(0,0,0,0.45)",
+        background: "rgba(21,19,15,0.45)",
         backdropFilter: "blur(8px)",
         animation: "bvFadeRise 0.22s var(--ease-out)",
       }}
@@ -109,7 +109,7 @@ export function Modal({
             background: "var(--card)",
             border: "1px solid var(--border)",
             borderRadius: "20px",
-            boxShadow: "var(--shadow-lg)",
+            boxShadow: "0 30px 80px -30px rgba(21,19,15,.45)",
             animation: "bvFadeRise 0.28s var(--ease-out)",
             paddingBottom: "env(safe-area-inset-bottom)",
             maxHeight: "calc(100% - 0.5rem)",
@@ -117,23 +117,22 @@ export function Modal({
           onClick={e => e.stopPropagation()}>
 
           {!chromeless && (title || subtitle) && (
-            <div className="flex items-start justify-between gap-3 px-5 py-4"
-              style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
               <div className="min-w-0">
                 {title && (
-                  <p id={titleId} className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                  <p id={titleId} style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.15, letterSpacing: "-.01em", color: "var(--w)" }}>
                     {title}
                   </p>
                 )}
                 {subtitle && (
-                  <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                  <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--w3)" }}>
                     {subtitle}
                   </p>
                 )}
               </div>
               <button onClick={onClose} aria-label={t.miClose} disabled={busy}
-                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ color: "var(--w3)" }}>
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ color: "var(--w3)", border: "1px solid var(--border)", background: "var(--card)", cursor: "pointer" }}>
                 <XIcon size={14} strokeWidth={1.8} />
               </button>
             </div>
@@ -158,8 +157,8 @@ export function Modal({
 }
 
 /**
- * Gold action button — same look as CV builder's primary CTA.
- * Use for the main save/confirm action in modals & forms.
+ * The primary action of a modal / form. Name kept for the call-sites; since the one design
+ * (founder 2026-11-13) it is the BLACK pill (kit `Btn kind="primary"`), never gold-filled.
  */
 export function GoldButton({
   onClick,
@@ -176,12 +175,15 @@ export function GoldButton({
 }) {
   return (
     <button type={type} onClick={onClick} disabled={disabled}
-      className={`bv-glow-gold bv-press inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-5 py-2 disabled:opacity-40 ${className}`}
+      className={`bv-press inline-flex items-center justify-center gap-1.5 text-[13.5px] font-semibold disabled:opacity-40 ${className}`}
       style={{
-        background: "var(--gold)",
-        color: "#131312",
-        borderRadius: "var(--r-md)",
-        boxShadow: "var(--shadow-gold-sm)",
+        height: 40,
+        padding: "0 18px",
+        background: "var(--w)",
+        color: "var(--bg)",
+        border: "1px solid var(--w)",
+        borderRadius: 999,
+        cursor: disabled ? "default" : "pointer",
       }}>
       {children}
     </button>

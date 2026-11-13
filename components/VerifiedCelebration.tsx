@@ -15,18 +15,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { SHOW_CANDIDATE_TICK } from "@/lib/features";
 
 // 40 confetti pieces with deterministic colours / sizes / positions so SSR
 // doesn't flicker. Each piece has its own animation-delay / duration / path.
-const PIECES = Array.from({ length: 40 }, (_, i) => {
-  const colours = ["#c9a240", "#dcb84e", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6", "#c9a240"];
+const PIECES = Array.from({ length: 28 }, (_, i) => {
+  const colours = ["#a8843a", "#d4b676", "#fbfaf6", "#a8843a", "#e8dcc0"];
   const shapes  = ["circle", "rect", "rect"];
   return {
     id: i,
     color:  colours[i % colours.length],
     shape:  shapes[i % shapes.length],
     left:   `${(i * 2.5 + 1) % 100}%`,
-    size:   6 + (i % 5) * 2,
+    size:   5 + (i % 4) * 2,
     delay:  `${(i * 0.07) % 1.4}s`,
     dur:    `${2.4 + (i % 7) * 0.3}s`,
     rotate: `${(i * 37) % 360}deg`,
@@ -42,19 +43,19 @@ type Props = {
 
 const T = {
   fr: {
-    title:  "Félicitations 🎉",
+    title:  "Félicitations",
     body:   "Vous êtes maintenant sur le plan Borivon Premium.",
     sub:    "Accès complet à toutes les fonctionnalités débloqué.",
     btn:    "Continuer",
   },
   en: {
-    title:  "Congratulations 🎉",
+    title:  "Congratulations",
     body:   "You're now on the Borivon Premium plan.",
     sub:    "Full access to every feature is unlocked.",
     btn:    "Continue",
   },
   de: {
-    title:  "Herzlichen Glückwunsch 🎉",
+    title:  "Herzlichen Glückwunsch",
     body:   "Sie sind jetzt im Borivon-Premium-Plan.",
     sub:    "Voller Zugang zu allen Funktionen ist freigeschaltet.",
     btn:    "Weiter",
@@ -86,8 +87,9 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
       className="fixed inset-0 flex items-center justify-center p-4"
       style={{
         zIndex: 2000,
-        background: "rgba(0,0,0,0.72)",
-        backdropFilter: "blur(6px)",
+        background: "rgba(21,19,15,0.45)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
         animation: visible
           ? "bvCelebFadeIn 0.35s var(--ease-out) forwards"
           : "bvCelebFadeOut 0.6s var(--ease-out) forwards",
@@ -153,11 +155,12 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
 
       {/* ── Card ── */}
       <div
-        className="w-full max-w-sm text-center px-8 py-10 rounded-3xl relative"
+        className="w-full max-w-sm text-center px-8 py-10 relative"
         style={{
           background: "var(--card)",
-          border: "1px solid var(--border-gold)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px var(--gdim)",
+          border: "1px solid var(--border)",
+          borderRadius: 20,
+          boxShadow: "0 30px 80px -30px rgba(21,19,15,.45)",
           animation: "bvCardRise 0.55s 0.1s var(--ease-out) both",
         }}
         // Stop backdrop click from closing when tapping the card itself
@@ -168,7 +171,7 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
           className="mx-auto mb-5 flex items-center justify-center"
           style={{ animation: "bvCheckPop 0.6s 0.3s var(--ease-out) both" }}
         >
-          <svg width="80" height="80" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+          <svg width="60" height="60" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
             <path
               d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
               fill="var(--gold)"
@@ -186,35 +189,22 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
 
         {/* Title with gold shimmer */}
         <h2
-          className="text-[22px] font-semibold mb-3 tracking-tight"
-          style={{
-            background: "linear-gradient(90deg, #c9a240 0%, #f0dfa0 40%, #c9a240 60%, #a07830 100%)",
-            backgroundSize: "200% auto",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            animation: "bvShimmer 2.5s 0.5s linear infinite",
-          }}
+          style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, lineHeight: 1.1, letterSpacing: "-.01em", color: "var(--w)" }}
         >
           {t.title}
         </h2>
 
-        <p className="text-[14.5px] leading-relaxed mb-2" style={{ color: "var(--w)" }}>
+        <p className="leading-relaxed mb-2" style={{ fontSize: 15, color: "var(--w2)" }}>
           {t.body}
         </p>
-        <p className="text-[12.5px] mb-8" style={{ color: "var(--w3)" }}>
+        <p className="mb-8" style={{ fontSize: 13, color: "var(--w3)" }}>
           {t.sub}
         </p>
 
         <button
           onClick={() => setVisible(false)}
-          className="w-full py-3.5 text-[14px] font-semibold rounded-xl transition-all hover:opacity-90 active:scale-[0.98]"
-          style={{
-            background: "var(--gold)",
-            color: "#131312",
-            border: "none",
-            boxShadow: "0 4px 14px var(--border-gold)",
-          }}
+          className="w-full transition-opacity hover:opacity-90"
+          style={{ height: 46, borderRadius: 999, background: "var(--w)", color: "var(--bg)", border: "1px solid var(--w)", fontSize: 14.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
         >
           {t.btn}
         </button>
@@ -228,6 +218,9 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
 export function VerifiedCelebration({ userId, lang, onDismiss }: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  // hidden with the gold tick (old Premium plan) — lib/features.ts; close at once so nothing waits on it
+  useEffect(() => { if (!SHOW_CANDIDATE_TICK) onDismiss(); }, [onDismiss]);
+  if (!SHOW_CANDIDATE_TICK) return null;
   if (!mounted) return null;
   return <CelebrationPortal userId={userId} lang={lang} onDismiss={onDismiss} />;
 }

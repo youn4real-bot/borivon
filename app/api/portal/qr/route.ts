@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 
   const qrUrl =
     `https://api.qrserver.com/v1/create-qr-code/?size=400x400` +
-    `&bgcolor=1a1a18&color=c9a240` +
+    `&bgcolor=ffffff&color=15130f` +
     `&data=${encodeURIComponent(data)}`;
 
   const imgRes = await fetch(qrUrl);

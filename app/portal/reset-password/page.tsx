@@ -23,7 +23,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { Spinner } from "@/components/ui/states";
-import { Lock, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { Wordmark } from "@/components/Wordmark";
+import { Card, Btn, Dot, KitStyle, STATUS_DOT, STATUS_TINT } from "@/components/fx/kit";
+import { Check, Eye, EyeOff } from "lucide-react";
 
 /** Supabase's own floor. Stated up front rather than after a failed attempt. */
 const MIN_LEN = 8;
@@ -102,46 +104,52 @@ export default function ResetPasswordPage() {
     }
   }
 
+  // the one design (founder 2026-11-13): one small paper card, the logo on top (like the sign-in card),
+  // serif title, kit fields, one black pill
   const shell = (children: React.ReactNode) => (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10" style={{ background: "var(--bg2)" }}>
-      <div className="w-full max-w-sm p-6" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 20 }}>
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg)", paddingTop: 58, paddingBottom: 40 }}>
+      <KitStyle />
+      <Card style={{ width: "100%", maxWidth: 380, padding: "30px 26px 26px" }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}><Wordmark size="1.7rem" /></div>
         {children}
-      </div>
+      </Card>
     </div>
   );
+  const titleStyle: React.CSSProperties = { margin: 0, textAlign: "center", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 28, lineHeight: 1.15, letterSpacing: "-.01em", color: "var(--w)" };
+  const subStyle: React.CSSProperties = { margin: "6px 0 20px", textAlign: "center", fontSize: 13.5, lineHeight: 1.55, color: "var(--w3)" };
 
-  if (hasSession === null) return shell(<div className="flex justify-center py-8"><Spinner size="md" /></div>);
+  if (hasSession === null) return shell(<div className="flex justify-center" style={{ padding: "18px 0 6px" }}><Spinner size="md" /></div>);
 
   // Recovery links expire. Say so, and give her the way back rather than a
   // dead end — the whole point of this page.
   if (!hasSession) {
     return shell(
       <>
-        <h1 className="text-[17px] font-bold mb-2" style={{ color: "var(--w)" }}>
+        <h1 style={titleStyle}>
           {T("Lien expiré", "Link expired", "Link abgelaufen")}
         </h1>
-        <p className="text-[13.5px] mb-5" style={{ color: "var(--w2)" }}>
+        <p style={subStyle}>
           {T("Ce lien de réinitialisation n'est plus valable. Demandez-en un nouveau depuis la page de connexion.",
             "This reset link is no longer valid. Ask for a new one from the sign-in page.",
             "Dieser Link ist nicht mehr gültig. Fordern Sie auf der Anmeldeseite einen neuen an.")}
         </p>
-        <button onClick={() => router.replace("/portal")}
-          className="w-full py-3 text-[14px] font-semibold bv-tap"
-          style={{ background: "var(--gold)", color: "#131312", borderRadius: 14, border: "none" }}>
+        <Btn kind="primary" onClick={() => router.replace("/portal")} style={{ width: "100%", height: 44 }}>
           {T("Retour à la connexion", "Back to sign in", "Zurück zur Anmeldung")}
-        </button>
+        </Btn>
       </>,
     );
   }
 
   if (done) {
     return shell(
-      <div className="text-center py-4">
-        <CheckCircle2 size={40} strokeWidth={1.8} style={{ color: "var(--success)" }} className="mx-auto mb-3" />
-        <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>
+      <div className="text-center" style={{ padding: "4px 0" }}>
+        <span aria-hidden="true" style={{ display: "inline-grid", placeItems: "center", width: 44, height: 44, borderRadius: "50%", background: STATUS_TINT.approved, color: STATUS_DOT.approved }}>
+          <Check size={20} strokeWidth={2} />
+        </span>
+        <p style={{ ...titleStyle, marginTop: 12 }}>
           {T("Mot de passe modifié", "Password changed", "Passwort geändert")}
         </p>
-        <p className="text-[13px] mt-1" style={{ color: "var(--w3)" }}>
+        <p style={{ ...subStyle, marginBottom: 0 }}>
           {T("Redirection…", "Taking you back…", "Weiterleitung…")}
         </p>
       </div>,
@@ -149,29 +157,24 @@ export default function ResetPasswordPage() {
   }
 
   const field = {
-    width: "100%", padding: "12px 14px",
-    background: "var(--bg2)", border: "1px solid var(--border)",
-    borderRadius: 12, color: "var(--w)",
     // 16px minimum: below it iOS Safari zooms the viewport on focus and never
-    // zooms back out, which strands her mid-form on a phone.
+    // zooms back out, which strands her mid-form on a phone. (The kit field is 14px.)
     fontSize: 16,
   } as const;
 
   return shell(
     <>
-      <div className="flex items-center gap-2 mb-1">
-        <Lock size={16} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-        <h1 className="text-[17px] font-bold" style={{ color: "var(--w)" }}>
-          {T("Nouveau mot de passe", "New password", "Neues Passwort")}
-        </h1>
-      </div>
-      <p className="text-[13px] mb-5" style={{ color: "var(--w3)" }}>
+      <h1 style={titleStyle}>
+        {T("Nouveau mot de passe", "New password", "Neues Passwort")}
+      </h1>
+      <p style={subStyle}>
         {T(`Au moins ${MIN_LEN} caractères.`, `At least ${MIN_LEN} characters.`, `Mindestens ${MIN_LEN} Zeichen.`)}
       </p>
 
-      <form onSubmit={submit} className="grid gap-3">
+      <form onSubmit={submit} style={{ display: "grid", gap: 10 }}>
         <div style={{ position: "relative" }}>
           <input
+            className="bvk-input"
             type={show ? "text" : "password"}
             value={pw} onChange={(e) => setPw(e.target.value)}
             autoComplete="new-password" autoFocus
@@ -181,12 +184,13 @@ export default function ResetPasswordPage() {
           />
           <button type="button" onClick={() => setShow((s) => !s)}
             aria-label={show ? T("Masquer", "Hide", "Verbergen") : T("Afficher", "Show", "Anzeigen")}
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--w3)", padding: 8, cursor: "pointer" }}>
+            style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", display: "grid", placeItems: "center", background: "none", border: "none", color: "var(--w3)", padding: 8, cursor: "pointer" }}>
             {show ? <EyeOff size={16} strokeWidth={1.8} /> : <Eye size={16} strokeWidth={1.8} />}
           </button>
         </div>
 
         <input
+          className="bvk-input"
           type={show ? "text" : "password"}
           value={pw2} onChange={(e) => setPw2(e.target.value)}
           autoComplete="new-password"
@@ -196,15 +200,15 @@ export default function ResetPasswordPage() {
         />
 
         {err && (
-          <p role="alert" className="text-[12.5px]" style={{ color: "var(--danger)" }}>{err}</p>
+          <p role="alert" style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 12.5, lineHeight: 1.45, color: "var(--w)" }}>
+            <Dot st="rejected" size={8} />{err}
+          </p>
         )}
 
-        <button type="submit" disabled={busy}
-          className="w-full py-3 text-[14px] font-semibold bv-tap inline-flex items-center justify-center gap-2 disabled:opacity-50"
-          style={{ background: "var(--gold)", color: "#131312", borderRadius: 14, border: "none" }}>
-          {busy && <Spinner size="sm" />}
+        <Btn kind="primary" type="submit" disabled={busy} style={{ width: "100%", height: 44, marginTop: 4 }}>
+          {busy && <Spinner size="sm" color="var(--bg)" />}
           {T("Enregistrer", "Save", "Speichern")}
-        </button>
+        </Btn>
       </form>
     </>,
   );

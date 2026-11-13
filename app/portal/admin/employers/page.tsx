@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { Plus, Save as SaveIcon, X as XIcon, Pencil, Power, PowerOff, Image as ImageIcon, Trash2 } from "lucide-react";
+import { PageHead, Btn, Card, Seg, Field, Empty, Pager, usePaged, STATUS_DOT } from "@/components/fx/kit";
 
 type Employer = {
   id: string;
@@ -93,7 +94,7 @@ export default function AdminEmployersPage() {
   const L = lang === "fr"
     ? {
         title: "Gérer les employeurs",
-        hint: "Alimente le sélecteur d'affectation et le bloc destinataire du Motivationsschreiben. Visible uniquement par le supreme admin.",
+        hint: "Alimente l'affectation et le bloc destinataire du Motivationsschreiben.",
         newBtn: "Nouvel employeur", loading: "Chargement…", empty: "Aucun employeur pour le moment.",
         inactive: "inactif", direct: "direct", via: "via",
         edit: "Modifier", deactivate: "Désactiver", reactivate: "Réactiver",
@@ -104,18 +105,18 @@ export default function AdminEmployersPage() {
         noOrgs: "Pas encore d'agences. Créez-en une sous Agences.",
         addressLbl: "Lignes d'adresse *", addressHint: "(une par ligne)",
         notesLbl: "Notes (optionnel)", activeLbl: "Actif (disponible pour l'affectation)",
-        save: "Enregistrer", cancel: "Annuler",
+        save: "Enregistrer", cancel: "Annuler", close: "Fermer",
         autoSaving: "Enregistrement automatique", autoSaved: "Enregistré automatiquement", done: "Terminé",
         errName: "Nom requis.", errAddress: "Au moins une ligne d'adresse requise.",
         errAgency: "Veuillez choisir une agence.",
         errSave: "Échec de l'enregistrement", errAutoSave: "Échec de l'enregistrement automatique",
         errToggle: "Échec du changement de statut", errNet: "(Erreur réseau)",
         tabEmployers: "Employeurs", tabAgencies: "Agences",
-        agencyHint: "Une agence achemine les candidats vers un employeur final. Son logo et son adresse apparaissent sur les CV et lettres des candidats affectés.",
+        agencyHint: "Logo et adresse figurent sur le CV et la lettre de motivation.",
         newAgency: "Nouvelle agence", emptyAgencies: "Aucune agence pour l'instant.",
         modalNewAgency: "Nouvelle agence", modalEditAgency: "Modifier l'agence",
         agencyName: "Nom *",
-        agencyAddress: "Adresse (pied de CV)", agencyAddressHint: "(une ligne par ligne — apparaît sous chaque page du CV)",
+        agencyAddress: "Adresse (pied de CV)", agencyAddressHint: "Une par ligne — apparaît sous chaque page du CV.",
         logoLbl: "Logo", logoUpload: "Téléverser un logo", logoReplace: "Remplacer le logo", logoRemove: "Retirer",
         logoTooBig: "Image trop grande — max 300 Ko.",
         usedBy: (n: number) => `Utilisée par ${n} employeur${n !== 1 ? "s" : ""}`,
@@ -123,7 +124,7 @@ export default function AdminEmployersPage() {
     : lang === "de"
     ? {
         title: "Arbeitgeber verwalten",
-        hint: "Treibt die Zuweisungs-Auswahl und den Motivationsschreiben-Empfängerblock. Nur sichtbar für den Supreme-Admin.",
+        hint: "Für die Zuweisung und den Empfängerblock im Motivationsschreiben.",
         newBtn: "Neuer Arbeitgeber", loading: "Laden…", empty: "Noch keine Arbeitgeber.",
         inactive: "inaktiv", direct: "direkt", via: "via",
         edit: "Bearbeiten", deactivate: "Deaktivieren", reactivate: "Reaktivieren",
@@ -134,25 +135,25 @@ export default function AdminEmployersPage() {
         noOrgs: "Noch keine Agenturen. Lege eine unter Agenturen an.",
         addressLbl: "Adresszeilen *", addressHint: "(eine pro Zeile)",
         notesLbl: "Notizen (optional)", activeLbl: "Aktiv (für Zuweisung verfügbar)",
-        save: "Speichern", cancel: "Abbrechen",
+        save: "Speichern", cancel: "Abbrechen", close: "Schließen",
         autoSaving: "Wird automatisch gespeichert", autoSaved: "Automatisch gespeichert", done: "Fertig",
         errName: "Name erforderlich.", errAddress: "Mindestens eine Adresszeile erforderlich.",
         errAgency: "Bitte eine Agentur auswählen.",
         errSave: "Speichern fehlgeschlagen", errAutoSave: "Auto-Speichern fehlgeschlagen",
         errToggle: "Statuswechsel fehlgeschlagen", errNet: "(Netzwerkfehler)",
         tabEmployers: "Arbeitgeber", tabAgencies: "Agenturen",
-        agencyHint: "Eine Agentur vermittelt Kandidaten an einen finalen Arbeitgeber. Ihr Logo und ihre Adresse erscheinen auf CV und Motivationsschreiben der zugewiesenen Kandidaten.",
+        agencyHint: "Logo und Adresse stehen auf Lebenslauf und Motivationsschreiben.",
         newAgency: "Neue Agentur", emptyAgencies: "Noch keine Agenturen.",
         modalNewAgency: "Neue Agentur", modalEditAgency: "Agentur bearbeiten",
         agencyName: "Name *",
-        agencyAddress: "Adresse (CV-Fußzeile)", agencyAddressHint: "(eine pro Zeile — erscheint unter jeder CV-Seite)",
+        agencyAddress: "Adresse (CV-Fußzeile)", agencyAddressHint: "Eine pro Zeile — erscheint unter jeder Lebenslauf-Seite.",
         logoLbl: "Logo", logoUpload: "Logo hochladen", logoReplace: "Logo ersetzen", logoRemove: "Entfernen",
         logoTooBig: "Bild zu groß — max 300 KB.",
         usedBy: (n: number) => `Genutzt von ${n} Arbeitgeber${n !== 1 ? "n" : ""}`,
       }
     : {
         title: "Manage employers",
-        hint: "Powers the assignment picker and the Motivationsschreiben recipient block. Visible only to the supreme admin.",
+        hint: "Feeds the assignment picker and the motivation-letter recipient block.",
         newBtn: "New employer", loading: "Loading…", empty: "No employers yet.",
         inactive: "inactive", direct: "direct", via: "via",
         edit: "Edit", deactivate: "Deactivate", reactivate: "Reactivate",
@@ -163,18 +164,18 @@ export default function AdminEmployersPage() {
         noOrgs: "No agencies yet. Create one under Agencies.",
         addressLbl: "Address lines *", addressHint: "(one per line)",
         notesLbl: "Notes (optional)", activeLbl: "Active (available for assignment)",
-        save: "Save", cancel: "Cancel",
+        save: "Save", cancel: "Cancel", close: "Close",
         autoSaving: "Saves automatically", autoSaved: "Auto-saved", done: "Done",
         errName: "Name required.", errAddress: "At least one address line required.",
         errAgency: "Please select an agency.",
         errSave: "Save failed", errAutoSave: "Auto-save failed",
         errToggle: "Status change failed", errNet: "(Network error)",
         tabEmployers: "Employers", tabAgencies: "Agencies",
-        agencyHint: "An agency routes candidates to a final employer. Its logo and address appear on the CV and motivation letter of every assigned candidate.",
+        agencyHint: "Logo and address appear on the CV and motivation letter.",
         newAgency: "New agency", emptyAgencies: "No agencies yet.",
         modalNewAgency: "New agency", modalEditAgency: "Edit agency",
         agencyName: "Name *",
-        agencyAddress: "Address (CV footer)", agencyAddressHint: "(one line per line — shown under every CV page)",
+        agencyAddress: "Address (CV footer)", agencyAddressHint: "One per line — shown under every CV page.",
         logoLbl: "Logo", logoUpload: "Upload logo", logoReplace: "Replace logo", logoRemove: "Remove",
         logoTooBig: "Image too large — max 300 KB.",
         usedBy: (n: number) => `Used by ${n} employer${n !== 1 ? "s" : ""}`,
@@ -502,164 +503,121 @@ export default function AdminEmployersPage() {
     }
   }
 
+  // the one design (founder 2026-11-13): serif head, ONE black button, Seg for the two lists, hairline rows
+  // that flip (nobody scrolls), the two editors in the universal popup (LAW #36) with the kit's fields.
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h1 className="text-[22px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{L.title}</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{tab === "employers" ? L.hint : L.agencyHint}</p>
-        </div>
-        {tab === "employers" ? (
-          <button onClick={() => { seedRef.current = ""; setDraft({ ...EMPTY_DRAFT }); }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-semibold transition-opacity hover:opacity-80"
-            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-            <Plus size={13} strokeWidth={2} /> {L.newBtn}
-          </button>
+    <div className="mx-auto w-full px-4" style={{ maxWidth: 760, paddingTop: 90, paddingBottom: 32 }}>
+      <style>{EMP_CSS}</style>
+      <PageHead
+        title={L.title}
+        sub={tab === "employers" ? L.hint : L.agencyHint}
+        actions={tab === "employers" ? (
+          <Btn kind="primary" onClick={() => { seedRef.current = ""; setDraft({ ...EMPTY_DRAFT }); }}>
+            <Plus size={15} strokeWidth={2} />{L.newBtn}
+          </Btn>
         ) : (
-          <button onClick={() => { agSeedRef.current = ""; setAgencyDraft({ ...EMPTY_AGENCY }); }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-semibold transition-opacity hover:opacity-80"
-            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-            <Plus size={13} strokeWidth={2} /> {L.newAgency}
-          </button>
-        )}
-      </div>
+          <Btn kind="primary" onClick={() => { agSeedRef.current = ""; setAgencyDraft({ ...EMPTY_AGENCY }); }}>
+            <Plus size={15} strokeWidth={2} />{L.newAgency}
+          </Btn>
+        )} />
 
       {/* Segmented tabs — Employers | Agencies */}
-      <div className="flex gap-2 mb-4">
-        {(["employers", "agencies"] as const).map(k => {
-          const active = tab === k;
-          return (
-            <button key={k} type="button" onClick={() => setTab(k)}
-              className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-              style={{
-                background: active ? "var(--gdim)" : "var(--bg2)",
-                color:      active ? "var(--gold)" : "var(--w3)",
-                border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
-              }}>
-              {k === "employers" ? L.tabEmployers : L.tabAgencies}
-            </button>
-          );
-        })}
+      <div style={{ marginBottom: 16 }}>
+        <Seg value={tab} options={[["employers", L.tabEmployers], ["agencies", L.tabAgencies]]} onChange={(k) => setTab(k)} />
       </div>
 
       {tab === "agencies" ? (
         loading ? (
-          <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.loading}</p>
+          <Card><Empty>{L.loading}</Empty></Card>
         ) : orgs.length === 0 ? (
-          <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.emptyAgencies}</p>
+          <Card><Empty>{L.emptyAgencies}</Empty></Card>
         ) : (
-          <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-            {orgs.map((o, idx) => {
-              const usedN = empCountByAgency.get(o.id) ?? 0;
-              return (
-                <div key={o.id} className="px-4 py-3 flex items-center gap-3"
-                  style={{ borderTop: idx === 0 ? "none" : "1px solid var(--border)" }}>
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    {o.logo_filename ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={o.logo_filename.startsWith("data:") ? o.logo_filename : `/logos/${o.logo_filename}`} alt={o.name}
-                        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-                    ) : (
-                      <ImageIcon size={14} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{o.name}</p>
-                    <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                      {o.footer_text ? o.footer_text.split("\n").join(" · ") : L.usedBy(usedN)}
-                    </p>
-                  </div>
-                  <button onClick={() => { const d = toAgencyDraft(o); agSeedRef.current = JSON.stringify(d); setAgencyDraft(d); }}
-                    title={L.edit} aria-label={L.edit}
-                    className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w2)" }}>
-                    <Pencil size={13} strokeWidth={1.8} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          <Paged items={orgs} per={7} perPhone={6}>
+            {slice => (
+              <Card style={{ overflow: "hidden" }}>
+                {slice.map((o, idx) => {
+                  const usedN = empCountByAgency.get(o.id) ?? 0;
+                  return (
+                    <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 10px 10px 14px", borderTop: idx === 0 ? "none" : "1px solid var(--border)" }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 10, display: "grid", placeItems: "center", overflow: "hidden", flex: "none", background: "var(--bg2)" }}>
+                        {o.logo_filename ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={o.logo_filename.startsWith("data:") ? o.logo_filename : `/logos/${o.logo_filename}`} alt={o.name}
+                            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                        ) : (
+                          <ImageIcon size={15} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={ROW_NAME}>{o.name}</div>
+                        <div style={ROW_META}>{o.footer_text ? o.footer_text.split("\n").join(" · ") : L.usedBy(usedN)}</div>
+                      </div>
+                      <Btn kind="quiet" size="sm" icon onClick={() => { const d = toAgencyDraft(o); agSeedRef.current = JSON.stringify(d); setAgencyDraft(d); }}
+                        title={L.edit} aria-label={L.edit}>
+                        <Pencil size={14} strokeWidth={1.8} />
+                      </Btn>
+                    </div>
+                  );
+                })}
+              </Card>
+            )}
+          </Paged>
         )
       ) : loading ? (
-        <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.loading}</p>
+        <Card><Empty>{L.loading}</Empty></Card>
       ) : employers.length === 0 ? (
-        <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.empty}</p>
+        <Card><Empty>{L.empty}</Empty></Card>
       ) : (
-        <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-          {employers.map((e, idx) => (
-            <div key={e.id} className="px-4 py-3 flex items-start gap-3"
-              style={{ borderTop: idx === 0 ? "none" : "1px solid var(--border)", opacity: e.active ? 1 : 0.55 }}>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{e.name}</p>
-                  {e.slug && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                      style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{e.slug}</span>
-                  )}
-                  {e.agency_id ? (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                      {L.via} {orgsById.get(e.agency_id) ?? "—"}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                      style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{L.direct}</span>
-                  )}
-                  {!e.active && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                      style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{L.inactive}</span>
-                  )}
+        <Paged items={employers} per={7} perPhone={6}>
+          {slice => (
+            <Card style={{ overflow: "hidden" }}>
+              {slice.map((e, idx) => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "11px 10px 11px 18px", borderTop: idx === 0 ? "none" : "1px solid var(--border)" }}>
+                  <div style={{ flex: 1, minWidth: 0, marginRight: 8, opacity: e.active ? 1 : 0.55 }}>
+                    <div style={ROW_NAME}>{e.name}</div>
+                    <div style={ROW_META}>
+                      {e.agency_id ? <>{L.via} <span style={{ color: "var(--w2)" }}>{orgsById.get(e.agency_id) ?? "—"}</span></> : L.direct}
+                      {e.slug ? ` · ${e.slug}` : ""}
+                      {(e.address_lines ?? []).length > 0 ? ` · ${(e.address_lines ?? []).join(" · ")}` : ""}
+                    </div>
+                  </div>
+                  {!e.active && <span style={{ ...STATE_WORD, marginRight: 4 }}>{L.inactive}</span>}
+                  <Btn kind="quiet" size="sm" icon onClick={() => { const d = toDraft(e); seedRef.current = JSON.stringify(d); setDraft(d); }} title={L.edit} aria-label={L.edit}>
+                    <Pencil size={14} strokeWidth={1.8} />
+                  </Btn>
+                  <Btn kind="quiet" size="sm" icon onClick={() => toggleActive(e)} title={e.active ? L.deactivate : L.reactivate} aria-label={e.active ? L.deactivate : L.reactivate}>
+                    {e.active ? <PowerOff size={14} strokeWidth={1.8} /> : <Power size={14} strokeWidth={1.8} />}
+                  </Btn>
                 </div>
-                <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                  {(e.address_lines ?? []).join(" · ")}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button onClick={() => { const d = toDraft(e); seedRef.current = JSON.stringify(d); setDraft(d); }} title={L.edit} aria-label={L.edit}
-                  className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w2)" }}>
-                  <Pencil size={13} strokeWidth={1.8} />
-                </button>
-                <button onClick={() => toggleActive(e)} title={e.active ? L.deactivate : L.reactivate} aria-label={e.active ? L.deactivate : L.reactivate}
-                  className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
-                  style={{ color: e.active ? "var(--w2)" : "var(--gold)" }}>
-                  {e.active ? <PowerOff size={13} strokeWidth={1.8} /> : <Power size={13} strokeWidth={1.8} />}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+              ))}
+            </Card>
+          )}
+        </Paged>
       )}
 
       {agencyDraft && typeof window !== "undefined" && createPortal(
         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+          style={MODAL_BACK}
           onClick={() => { if (saving) return; if (agencyDraft?.id) closeAgencyDraft(); else setAgencyDraft(null); }}>
-          <div className="w-full max-w-md rounded-[20px] overflow-hidden flex flex-col"
-            onClick={e => e.stopPropagation()}
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
-            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>
-                {agencyDraft.id ? L.modalEditAgency : L.modalNewAgency}
-              </p>
-              <button onClick={() => { if (saving) return; if (agencyDraft?.id) closeAgencyDraft(); else setAgencyDraft(null); }}
-                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
-                <XIcon size={14} strokeWidth={1.8} />
-              </button>
+          <div role="dialog" aria-modal="true" aria-label={agencyDraft.id ? L.modalEditAgency : L.modalNewAgency}
+            onClick={e => e.stopPropagation()} style={{ ...MODAL_CARD, maxWidth: 460 }}>
+            <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, padding: "20px 22px 4px" }}>
+              <h2 style={{ ...MODAL_TITLE, flex: 1 }}>{agencyDraft.id ? L.modalEditAgency : L.modalNewAgency}</h2>
+              <Btn kind="quiet" icon onClick={() => { if (saving) return; if (agencyDraft?.id) closeAgencyDraft(); else setAgencyDraft(null); }}
+                title={L.close} aria-label={L.close}>
+                <XIcon size={18} strokeWidth={1.6} />
+              </Btn>
             </div>
-            <div className="px-5 py-5 overflow-y-auto space-y-3" style={{ minHeight: 0 }}>
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.agencyName}</label>
-                <input value={agencyDraft.name} onChange={e => setAgencyDraft(d => d ? { ...d, name: e.target.value } : d)}
-                  placeholder="Calmaroi GmbH"
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
-              </div>
+            <div style={{ overflowY: "auto", minHeight: 0, padding: "12px 22px 6px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <Field label={L.agencyName}>
+                <input className="bvk-input" value={agencyDraft.name} onChange={e => setAgencyDraft(d => d ? { ...d, name: e.target.value } : d)}
+                  placeholder="Calmaroi GmbH" />
+              </Field>
 
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.logoLbl}</label>
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border2)" }}>
+              <div className="bvk-field">
+                <span>{L.logoLbl}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 52, height: 52, borderRadius: 12, display: "grid", placeItems: "center", overflow: "hidden", flex: "none", background: "var(--bg2)" }}>
                     {agencyDraft.logoDataUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={agencyDraft.logoDataUrl.startsWith("data:") ? agencyDraft.logoDataUrl : `/logos/${agencyDraft.logoDataUrl}`} alt=""
@@ -668,64 +626,51 @@ export default function AdminEmployersPage() {
                       <ImageIcon size={18} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
                     )}
                   </div>
-                  <label className="bv-row-hover py-1.5 px-3 text-[11px] font-semibold rounded-lg cursor-pointer inline-flex items-center gap-1.5"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                  <label className="bvk-btn bvk-ghost bvk-sm">
                     {agencyDraft.logoDataUrl ? L.logoReplace : L.logoUpload}
                     <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
                       onChange={e => { const f = e.target.files?.[0]; if (f) onLogoFile(f); e.currentTarget.value = ""; }} />
                   </label>
                   {agencyDraft.logoDataUrl && (
-                    <button type="button" onClick={() => setAgencyDraft(d => d ? { ...d, logoDataUrl: null } : d)}
-                      className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" title={L.logoRemove} aria-label={L.logoRemove}
-                      style={{ color: "var(--danger)" }}>
-                      <Trash2 size={13} strokeWidth={1.8} />
-                    </button>
+                    <Btn kind="quiet" size="sm" icon onClick={() => setAgencyDraft(d => d ? { ...d, logoDataUrl: null } : d)}
+                      title={L.logoRemove} aria-label={L.logoRemove}>
+                      <Trash2 size={14} strokeWidth={1.8} />
+                    </Btn>
                   )}
                 </div>
               </div>
 
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>
-                  {L.agencyAddress} <span style={{ color: "var(--w3)" }}>{L.agencyAddressHint}</span>
-                </label>
-                <textarea rows={4} value={agencyDraft.addressText}
-                  onChange={e => setAgencyDraft(d => d ? { ...d, addressText: e.target.value } : d)}
-                  placeholder={"Calmaroi GmbH\nRömerstraße 15 · 63450\nwww.calmaroi.de"}
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 90 }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <Field label={L.agencyAddress}>
+                  <textarea className="bvk-input" rows={3} value={agencyDraft.addressText}
+                    onChange={e => setAgencyDraft(d => d ? { ...d, addressText: e.target.value } : d)}
+                    placeholder={"Calmaroi GmbH\nRömerstraße 15 · 63450\nwww.calmaroi.de"}
+                    style={{ lineHeight: 1.5 }} />
+                </Field>
+                <span style={{ fontSize: 12, color: "var(--w3)" }}>{L.agencyAddressHint}</span>
               </div>
 
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.notesLbl}</label>
-                <textarea rows={2} value={agencyDraft.notes}
+              <Field label={L.notesLbl}>
+                <textarea className="bvk-input" rows={2} value={agencyDraft.notes}
                   onChange={e => setAgencyDraft(d => d ? { ...d, notes: e.target.value } : d)}
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 56 }} />
-              </div>
+                  style={{ minHeight: 60 }} />
+              </Field>
             </div>
-            <div className="px-5 py-4 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: agencyDraft.id ? "space-between" : "flex-end", gap: 8, padding: "14px 22px 20px" }}>
               {agencyDraft.id ? (
                 <>
-                  <span className="inline-flex items-center gap-1.5 text-[11px]"
-                    style={{ color: autoSaved ? "var(--success)" : "var(--w3)" }}>
-                    <SaveIcon size={12} strokeWidth={1.8} />
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: autoSaved ? STATUS_DOT.approved : "var(--w3)" }}>
+                    <SaveIcon size={13} strokeWidth={1.8} />
                     {autoSaved ? L.autoSaved : L.autoSaving}
                   </span>
-                  <button onClick={closeAgencyDraft}
-                    className="bv-row-hover py-2 px-4 text-xs font-semibold rounded-xl"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {L.done}
-                  </button>
+                  <Btn kind="primary" onClick={closeAgencyDraft}>{L.done}</Btn>
                 </>
               ) : (
                 <>
-                  <button onClick={saveAgency} disabled={saving}
-                    className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {saving ? "…" : <><SaveIcon size={12} strokeWidth={1.8} /> {L.save}</>}
-                  </button>
-                  <button onClick={() => !saving && setAgencyDraft(null)}
-                    className="bv-row-hover py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>{L.cancel}</button>
+                  <Btn kind="quiet" onClick={() => !saving && setAgencyDraft(null)}>{L.cancel}</Btn>
+                  <Btn kind="primary" onClick={saveAgency} disabled={saving}>
+                    {saving ? "…" : <><SaveIcon size={14} strokeWidth={1.8} />{L.save}</>}
+                  </Btn>
                 </>
               )}
             </div>
@@ -736,118 +681,89 @@ export default function AdminEmployersPage() {
 
       {draft && typeof window !== "undefined" && createPortal(
         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+          style={MODAL_BACK}
           onClick={() => { if (saving) return; if (draft?.id) closeDraft(); else setDraft(null); }}>
-          <div className="w-full max-w-md rounded-[20px] overflow-hidden flex flex-col"
-            onClick={e => e.stopPropagation()}
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
-            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>
-                {draft.id ? L.modalEdit : L.modalNew}
-              </p>
-              <button onClick={() => { if (saving) return; if (draft?.id) closeDraft(); else setDraft(null); }}
-                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
-                <XIcon size={14} strokeWidth={1.8} />
-              </button>
+          <div role="dialog" aria-modal="true" aria-label={draft.id ? L.modalEdit : L.modalNew}
+            onClick={e => e.stopPropagation()} style={{ ...MODAL_CARD, maxWidth: 560 }}>
+            <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, padding: "20px 22px 4px" }}>
+              <h2 style={{ ...MODAL_TITLE, flex: 1 }}>{draft.id ? L.modalEdit : L.modalNew}</h2>
+              <Btn kind="quiet" icon onClick={() => { if (saving) return; if (draft?.id) closeDraft(); else setDraft(null); }}
+                title={L.close} aria-label={L.close}>
+                <XIcon size={18} strokeWidth={1.6} />
+              </Btn>
             </div>
-            <div className="px-5 py-5 overflow-y-auto space-y-3" style={{ minHeight: 0 }}>
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.nameLbl}</label>
-                <input value={draft.name} onChange={e => setDraft(d => d ? { ...d, name: e.target.value } : d)}
-                  placeholder="UKSH Kiel"
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.slugLbl}</label>
-                <input value={draft.slug} onChange={e => setDraft(d => d ? { ...d, slug: e.target.value } : d)}
-                  placeholder="uksh_kiel"
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none font-mono"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+            <div style={{ overflowY: "auto", minHeight: 0, padding: "12px 22px 6px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div className="bve-g2">
+                <Field label={L.nameLbl}>
+                  <input className="bvk-input" value={draft.name} onChange={e => setDraft(d => d ? { ...d, name: e.target.value } : d)}
+                    placeholder="UKSH Kiel" />
+                </Field>
+                <Field label={L.slugLbl}>
+                  <input className="bvk-input" value={draft.slug} onChange={e => setDraft(d => d ? { ...d, slug: e.target.value } : d)}
+                    placeholder="uksh_kiel" style={{ fontFamily: "monospace" }} />
+                </Field>
               </div>
 
               {/* Source — Direct employer (no agency) vs Through an agency. */}
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.source}</label>
-                <div className="flex gap-2">
-                  {(["direct", "agency"] as const).map(src => {
-                    const active = draft.source === src;
-                    return (
-                      <button key={src} type="button"
-                        onClick={() => setDraft(d => d ? { ...d, source: src, agencyId: src === "direct" ? null : d.agencyId } : d)}
-                        className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                        style={{
-                          background: active ? "var(--gdim)" : "var(--bg2)",
-                          color:      active ? "var(--gold)" : "var(--w3)",
-                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
-                        }}>
-                        {src === "direct" ? L.directEmp : L.viaAgency}
-                      </button>
-                    );
-                  })}
+              <div className="bvk-field">
+                <span>{L.source}</span>
+                <div>
+                  <Seg value={draft.source} options={[["direct", L.directEmp], ["agency", L.viaAgency]]}
+                    onChange={(src) => setDraft(d => d ? { ...d, source: src, agencyId: src === "direct" ? null : d.agencyId } : d)} />
                 </div>
               </div>
 
               {draft.source === "agency" && (
-                <div>
-                  <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.agencyLbl}</label>
-                  <select value={draft.agencyId ?? ""}
-                    onChange={e => setDraft(d => d ? { ...d, agencyId: e.target.value || null } : d)}
-                    className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}>
-                    <option value="">{L.pick}</option>
-                    {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                  </select>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <Field label={L.agencyLbl}>
+                    <select className="bvk-input" value={draft.agencyId ?? ""}
+                      onChange={e => setDraft(d => d ? { ...d, agencyId: e.target.value || null } : d)}>
+                      <option value="">{L.pick}</option>
+                      {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                  </Field>
                   {orgs.length === 0 && (
-                    <p className="text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{L.noOrgs}</p>
+                    <span style={{ fontSize: 12, color: "var(--w3)" }}>{L.noOrgs}</span>
                   )}
                 </div>
               )}
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>
-                  {L.addressLbl} <span style={{ color: "var(--w3)" }}>{L.addressHint}</span>
-                </label>
-                <textarea rows={6} value={draft.addressText} onChange={e => setDraft(d => d ? { ...d, addressText: e.target.value } : d)}
-                  placeholder={"Universitätsklinikum Schleswig-Holstein\nCampus Kiel\nPersonalabteilung\nArnold-Heller-Straße 3\n24105 Kiel"}
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 120 }} />
+
+              <div className="bve-split">
+                <Field label={<>{L.addressLbl} <span style={{ textTransform: "none", letterSpacing: 0 }}>{L.addressHint}</span></>}>
+                  <textarea className="bvk-input" rows={5} value={draft.addressText} onChange={e => setDraft(d => d ? { ...d, addressText: e.target.value } : d)}
+                    placeholder={"Universitätsklinikum Schleswig-Holstein\nCampus Kiel\nPersonalabteilung\nArnold-Heller-Straße 3\n24105 Kiel"}
+                    style={{ lineHeight: 1.5 }} />
+                </Field>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+                  <Field label={L.notesLbl}>
+                    <textarea className="bvk-input" rows={2} value={draft.notes} onChange={e => setDraft(d => d ? { ...d, notes: e.target.value } : d)}
+                      style={{ minHeight: 60 }} />
+                  </Field>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "var(--w2)", cursor: "pointer", userSelect: "none" }}>
+                    <input type="checkbox" checked={draft.active}
+                      onChange={e => setDraft(d => d ? { ...d, active: e.target.checked } : d)}
+                      style={{ width: 16, height: 16, flex: "none", accentColor: "var(--w)" }} />
+                    {L.activeLbl}
+                  </label>
+                </div>
               </div>
-              <div>
-                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.notesLbl}</label>
-                <textarea rows={2} value={draft.notes} onChange={e => setDraft(d => d ? { ...d, notes: e.target.value } : d)}
-                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 56 }} />
-              </div>
-              <label className="inline-flex items-center gap-2 text-xs select-none" style={{ color: "var(--w2)" }}>
-                <input type="checkbox" checked={draft.active}
-                  onChange={e => setDraft(d => d ? { ...d, active: e.target.checked } : d)} />
-                {L.activeLbl}
-              </label>
             </div>
-            <div className="px-5 py-4 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: draft.id ? "space-between" : "flex-end", gap: 8, padding: "14px 22px 20px" }}>
               {draft.id ? (
                 <>
                   {/* Edit mode: no Save button — autosaves on every change. */}
-                  <span className="inline-flex items-center gap-1.5 text-[11px]"
-                    style={{ color: autoSaved ? "var(--success)" : "var(--w3)" }}>
-                    <SaveIcon size={12} strokeWidth={1.8} />
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: autoSaved ? STATUS_DOT.approved : "var(--w3)" }}>
+                    <SaveIcon size={13} strokeWidth={1.8} />
                     {autoSaved ? L.autoSaved : L.autoSaving}
                   </span>
-                  <button onClick={closeDraft}
-                    className="bv-row-hover py-2 px-4 text-xs font-semibold rounded-xl"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {L.done}
-                  </button>
+                  <Btn kind="primary" onClick={closeDraft}>{L.done}</Btn>
                 </>
               ) : (
                 <>
-                  <button onClick={save} disabled={saving}
-                    className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {saving ? "…" : <><SaveIcon size={12} strokeWidth={1.8} /> {L.save}</>}
-                  </button>
-                  <button onClick={() => !saving && setDraft(null)}
-                    className="bv-row-hover py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>{L.cancel}</button>
+                  <Btn kind="quiet" onClick={() => !saving && setDraft(null)}>{L.cancel}</Btn>
+                  <Btn kind="primary" onClick={save} disabled={saving}>
+                    {saving ? "…" : <><SaveIcon size={14} strokeWidth={1.8} />{L.save}</>}
+                  </Btn>
                 </>
               )}
             </div>
@@ -857,4 +773,26 @@ export default function AdminEmployersPage() {
       )}
     </div>
   );
+}
+
+// ── the one design: small shared pieces of this page ─────────────────────────
+const MODAL_BACK: React.CSSProperties = { background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" };
+const MODAL_CARD: React.CSSProperties = {
+  width: "100%", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: 20,
+  background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)",
+  animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
+};
+const MODAL_TITLE: React.CSSProperties = { margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1.15, color: "var(--w)" };
+const ROW_NAME: React.CSSProperties = { fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+const ROW_META: React.CSSProperties = { fontSize: 12.5, color: "var(--w3)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+const STATE_WORD: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "var(--w3)", whiteSpace: "nowrap", flex: "none" };
+const EMP_CSS = `
+.bve-g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end}
+.bve-split{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;align-items:start}
+@media (max-width:640px){.bve-split{grid-template-columns:1fr}}`;
+
+/** a list that flips instead of scrolling (components/fx/kit: usePaged + Pager) */
+function Paged<T>({ items, per, perPhone, children }: { items: T[]; per: number; perPhone: number; children: (slice: T[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
 }

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useLang } from "@/components/LangContext";
+import { PageHead } from "@/components/fx/kit";
 
 const LAST_UPDATED = "25 April 2026";
 
@@ -202,58 +203,43 @@ export default function TermsPage() {
   const { lang } = useLang();
   const c = content[lang];
 
+  // the one design (founder 2026-11-13): a legal text stays complete (this page may scroll) —
+  // serif head + serif section titles, calm body text, hairlines between sections, no boxes, no gold fill
   return (
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
-      <div className="max-w-[760px] mx-auto px-4 pt-8 pb-16">
+    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: 58 }}>
+      <div className="mx-auto px-4" style={{ maxWidth: 720, paddingTop: 28, paddingBottom: 64 }}>
 
         {/* Header */}
-        <div className="flex items-start gap-3 mb-10">
-          <button
-            onClick={() => router.back()}
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition-opacity hover:opacity-70 flex-shrink-0 mt-0.5"
-            style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}
-          >
-            ←
-          </button>
-          <div>
-            <h1 className="text-lg font-semibold leading-snug" style={{ color: "var(--w)" }}>{c.title}</h1>
-            <p className="text-xs mt-1" style={{ color: "var(--w3)" }}>{c.subtitle} · {c.updated}</p>
-          </div>
-        </div>
+        <PageHead
+          back={{ label: lang === "fr" ? "Retour" : lang === "de" ? "Zurück" : "Back", onClick: () => router.back() }}
+          title={c.title}
+          sub={<>{c.subtitle} · {c.updated}</>} />
 
-        {/* Intro banner */}
-        <div className="rounded-2xl px-5 py-4 mb-8"
-          style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-          <p className="text-xs leading-relaxed" style={{ color: "var(--gold)" }}>
-            {lang === "fr" && "Ce document régit votre utilisation du Portail Candidat Borivon.com et décrit comment vos données personnelles sont collectées, utilisées et protégées. Lisez-le attentivement avant d'utiliser nos services."}
-            {lang === "en" && "This document governs your use of the Borivon.com Candidate Portal and describes how your personal data is collected, used, and protected. Please read it carefully before using our services."}
-            {lang === "de" && "Dieses Dokument regelt Ihre Nutzung des Borivon.com Bewerberportals und beschreibt, wie Ihre persönlichen Daten erhoben, verwendet und geschützt werden. Bitte lesen Sie es sorgfältig, bevor Sie unsere Dienste nutzen."}
-          </p>
-        </div>
+        {/* Intro — one calm lead line, no banner */}
+        <p style={{ margin: "0 0 26px", fontSize: 15, lineHeight: 1.7, color: "var(--w2)" }}>
+          {lang === "fr" && "Ce document régit votre utilisation du Portail Candidat Borivon.com et décrit comment vos données personnelles sont collectées, utilisées et protégées. Lisez-le attentivement avant d'utiliser nos services."}
+          {lang === "en" && "This document governs your use of the Borivon.com Candidate Portal and describes how your personal data is collected, used, and protected. Please read it carefully before using our services."}
+          {lang === "de" && "Dieses Dokument regelt Ihre Nutzung des Borivon.com Bewerberportals und beschreibt, wie Ihre persönlichen Daten erhoben, verwendet und geschützt werden. Bitte lesen Sie es sorgfältig, bevor Sie unsere Dienste nutzen."}
+        </p>
 
-        {/* Sections */}
-        <div className="space-y-6">
+        {/* Sections — hairline between them */}
+        <div>
           {c.sections.map((s, i) => (
-            <div key={i} className="rounded-2xl p-5"
-              style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-              <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--w)" }}>{s.heading}</h2>
-              <div className="space-y-2">
-                {s.body.split("\n\n").map((para, pi) => (
-                  <p key={pi} className="text-xs leading-relaxed whitespace-pre-line" style={{ color: "var(--w2)" }}>
-                    {para}
-                  </p>
-                ))}
-              </div>
-            </div>
+            <section key={i} style={{ padding: "22px 0 24px", borderTop: "1px solid var(--border)" }}>
+              <h2 style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.2, letterSpacing: "-.01em", color: "var(--w)" }}>{s.heading}</h2>
+              {s.body.split("\n\n").map((para, pi) => (
+                <p key={pi} className="whitespace-pre-line" style={{ margin: pi ? "10px 0 0" : 0, fontSize: 14, lineHeight: 1.7, color: "var(--w2)" }}>
+                  {para}
+                </p>
+              ))}
+            </section>
           ))}
         </div>
 
         {/* Footer */}
-        <div className="mt-10 text-center">
-          <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-            © {new Date().getFullYear()} Borivon.com — {lang === "fr" ? "Tous droits réservés." : lang === "de" ? "Alle Rechte vorbehalten." : "All rights reserved."}
-          </p>
-        </div>
+        <p style={{ margin: 0, paddingTop: 22, borderTop: "1px solid var(--border)", textAlign: "center", fontSize: 12, color: "var(--w3)" }}>
+          © {new Date().getFullYear()} Borivon.com — {lang === "fr" ? "Tous droits réservés." : lang === "de" ? "Alle Rechte vorbehalten." : "All rights reserved."}
+        </p>
 
       </div>
     </main>

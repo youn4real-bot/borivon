@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useLang } from "@/components/LangContext";
+import { SHOW_CANDIDATE_TICK } from "@/lib/features";
 
 /**
  * Instagram-style verified badge.
@@ -78,6 +79,8 @@ export function VerifiedBadge({
   const [open, setOpen] = useState(false);
 
   if (!verified) return null;
+  // the gold candidate tick (old Premium plan) is hidden — see lib/features.ts
+  if (!SHOW_CANDIDATE_TICK && !(color === "black" || color === "org" || color === "red")) return null;
   const px = size === "xs" ? 14 : size === "md" ? 24 : 16;
   // Org admins render the SAME black tick as the Borivon team — only the popup
   // text differs ("official organization account"). "red" is a retired alias.

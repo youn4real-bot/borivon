@@ -2,14 +2,15 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { meToken } from "@/lib/meApi";
-import { ArrowLeft, Building2, Trash2, Copy, Check, Plus, UserPlus, X as XIcon, AlertCircle, RefreshCw, Crown, User as UserIcon, Settings, Users, FileText, Palette } from "lucide-react";
-import { CheckCircle2 } from "@/components/PortalIcons";
-import { PageLoader, EmptyState, Spinner } from "@/components/ui/states";
+import { Building2, Trash2, Copy, Check, Plus, UserPlus, X as XIcon, RefreshCw, Crown, User as UserIcon, FileText } from "lucide-react";
+import { PageLoader, Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { CHECKLIST_ITEMS } from "@/lib/candidateChecklist";
+import { PageHead, Btn, Card, Seg, Dot, Field, Empty, Pager, usePaged, STATUS_DOT, STATUS_TINT } from "@/components/fx/kit";
 
 const t = {
   en: {
@@ -40,7 +41,7 @@ const t = {
     addRequirement: "Add requirement",
     saving: "Saving…",
     noRequirementsYet: "No requirements yet",
-    addWhatOrgNeeds: "Add what this agency needs — the system will suggest matching candidates automatically.",
+    addWhatOrgNeeds: "Add what this agency needs — matching candidates are suggested automatically.",
     closed: "closed",
     specialty: "Specialty",
     slotsNeeded: "Slots needed",
@@ -48,7 +49,7 @@ const t = {
     startDate: "Start date",
     notes: "Notes",
     optionalDetails: "Optional details",
-    linkCandidatesBody: "Link candidates to this agency. Linked candidates can be seen by all agency members.",
+    linkCandidatesBody: "Linked candidates are visible to every member of this agency.",
     noCandidatesYet: "No candidates in the system yet.",
     statusPending: "Pending",
     statusLinked: "Linked",
@@ -56,8 +57,8 @@ const t = {
     emailStar: "Email *",
     nameOptional: "Name (optional)",
     addMember: "Add member",
-    noMembersYet: "No members yet. Add someone above.",
-    brandingDescription: "Candidates linked to this agency get this logo and footer on their generated CV.",
+    noMembersYet: "No members yet.",
+    brandingDescription: "Logo and footer appear on the generated CV of every linked candidate.",
     logo: "Logo",
     replaceLogo: "Replace logo",
     uploadLogo: "Upload logo",
@@ -65,7 +66,7 @@ const t = {
     imageTooLarge: "Image too large — max 500 KB.",
     saved: "Saved!",
     saveBranding: "Save branding",
-    singleUseWarning: "⚠ Single-use — valid for one person only",
+    singleUseWarning: "Single-use — valid for one person only",
     copied: "Copied!",
     copyLink: "Copy link",
     downloadQR: "Download QR",
@@ -76,11 +77,34 @@ const t = {
     emailRequired: "Email required",
     couldNotAdd: "Could not add",
     add: "Add",
-    membersDescription: "Members can see all candidates linked to this agency. Add by email — they must already have a Borivon account.",
+    membersDescription: "Members see every linked candidate. Add by email — they need a Borivon account.",
     memberEmailPlaceholder: "member@example.com",
     roleMember: "Member",
     roleOwner: "Owner",
     actionFailed: "Could not save the change — nothing was changed. Try again.",
+    back: "Back",
+    membersN: (n: number) => `${n} member${n !== 1 ? "s" : ""}`,
+    candidatesN: (n: number) => `${n} candidate${n !== 1 ? "s" : ""}`,
+    wantsToJoin: "wants to join",
+    approve: "Approve",
+    reject: "Reject",
+    slotsN: (n: number) => `${n} slot${n !== 1 ? "s" : ""}`,
+    fromDate: (d: string) => `from ${d}`,
+    closeReq: "Close requirement",
+    regenerate: "Regenerate invite code",
+    deleteOrg: "Delete agency",
+    copyCandidateTitle: "Copy single-use candidate invite link",
+    qrCandidateTitle: "Single-use QR for a candidate",
+    copyAdminTitle: "Copy single-use admin invite link",
+    qrAdminTitle: "Single-use QR for an admin",
+    legacySubAdmins: "Manage individual sub-admins (legacy)",
+    removeLogo: "Remove logo",
+    remove: "Remove",
+    unlink: "Unlink",
+    namePh: "e.g. Calmaroi GmbH",
+    notesPh: "e.g. Berlin hospital group, contact: lukas@calmaroi.com",
+    specialtyPh: "e.g. ICU nurse",
+    locationPh: "e.g. Berlin",
   },
   fr: {
     organizations: "Agences",
@@ -110,7 +134,7 @@ const t = {
     addRequirement: "Ajouter un besoin",
     saving: "Enregistrement…",
     noRequirementsYet: "Aucun besoin pour l'instant",
-    addWhatOrgNeeds: "Ajoutez ce dont cette agence a besoin — le système suggérera des candidats automatiquement.",
+    addWhatOrgNeeds: "Ajoutez ses besoins — des candidats correspondants sont suggérés automatiquement.",
     closed: "fermé",
     specialty: "Spécialité",
     slotsNeeded: "Places nécessaires",
@@ -118,7 +142,7 @@ const t = {
     startDate: "Date de début",
     notes: "Notes",
     optionalDetails: "Détails optionnels",
-    linkCandidatesBody: "Associez des candidats à cette agence. Les candidats associés sont visibles pour tous les membres.",
+    linkCandidatesBody: "Les candidats associés sont visibles par tous les membres de l'agence.",
     noCandidatesYet: "Aucun candidat dans le système pour l'instant.",
     statusPending: "En attente",
     statusLinked: "Associé",
@@ -126,8 +150,8 @@ const t = {
     emailStar: "E-mail *",
     nameOptional: "Nom (optionnel)",
     addMember: "Ajouter un membre",
-    noMembersYet: "Aucun membre pour l'instant. Ajoutez quelqu'un ci-dessus.",
-    brandingDescription: "Les candidats associés obtiennent ce logo et ce pied de page sur leur CV généré.",
+    noMembersYet: "Aucun membre pour l'instant.",
+    brandingDescription: "Logo et pied de page apparaissent sur le CV généré des candidats associés.",
     logo: "Logo",
     replaceLogo: "Remplacer le logo",
     uploadLogo: "Télécharger un logo",
@@ -135,7 +159,7 @@ const t = {
     imageTooLarge: "Image trop grande — max 500 Ko.",
     saved: "Enregistré !",
     saveBranding: "Enregistrer le branding",
-    singleUseWarning: "⚠ Usage unique — valable pour une seule personne",
+    singleUseWarning: "Usage unique — valable pour une seule personne",
     copied: "Copié !",
     copyLink: "Copier le lien",
     downloadQR: "Télécharger le QR",
@@ -146,11 +170,34 @@ const t = {
     emailRequired: "E-mail requis",
     couldNotAdd: "Impossible d'ajouter",
     add: "Ajouter",
-    membersDescription: "Les membres peuvent voir tous les candidats liés à cette agence. Ajoutez par e-mail — ils doivent déjà avoir un compte Borivon.",
+    membersDescription: "Les membres voient tous les candidats associés. Ajout par e-mail — compte Borivon requis.",
     memberEmailPlaceholder: "membre@exemple.com",
     roleMember: "Membre",
     roleOwner: "Propriétaire",
     actionFailed: "Modification non enregistrée — rien n'a changé. Réessayez.",
+    back: "Retour",
+    membersN: (n: number) => `${n} membre${n !== 1 ? "s" : ""}`,
+    candidatesN: (n: number) => `${n} candidat${n !== 1 ? "s" : ""}`,
+    wantsToJoin: "souhaite rejoindre",
+    approve: "Accepter",
+    reject: "Refuser",
+    slotsN: (n: number) => `${n} place${n !== 1 ? "s" : ""}`,
+    fromDate: (d: string) => `dès le ${d}`,
+    closeReq: "Clôturer le besoin",
+    regenerate: "Régénérer le code d'invitation",
+    deleteOrg: "Supprimer l'agence",
+    copyCandidateTitle: "Copier le lien d'invitation candidat (usage unique)",
+    qrCandidateTitle: "QR à usage unique pour un candidat",
+    copyAdminTitle: "Copier le lien d'invitation admin (usage unique)",
+    qrAdminTitle: "QR à usage unique pour un admin",
+    legacySubAdmins: "Gérer les sous-admins individuels (ancien)",
+    removeLogo: "Retirer le logo",
+    remove: "Retirer",
+    unlink: "Dissocier",
+    namePh: "ex. Calmaroi GmbH",
+    notesPh: "ex. groupe hospitalier à Berlin, contact : lukas@calmaroi.com",
+    specialtyPh: "ex. infirmier·ère en réanimation",
+    locationPh: "ex. Berlin",
   },
   de: {
     organizations: "Agenturen",
@@ -180,7 +227,7 @@ const t = {
     addRequirement: "Anforderung hinzufügen",
     saving: "Speichern…",
     noRequirementsYet: "Noch keine Anforderungen",
-    addWhatOrgNeeds: "Fügen Sie hinzu, was diese Agentur braucht — das System schlägt passende Kandidaten automatisch vor.",
+    addWhatOrgNeeds: "Eintragen, was diese Agentur braucht — passende Kandidaten werden vorgeschlagen.",
     closed: "geschlossen",
     specialty: "Spezialität",
     slotsNeeded: "Benötigte Stellen",
@@ -188,7 +235,7 @@ const t = {
     startDate: "Startdatum",
     notes: "Notizen",
     optionalDetails: "Optionale Details",
-    linkCandidatesBody: "Kandidaten mit dieser Agentur verknüpfen. Verknüpfte Kandidaten sind für alle Mitglieder sichtbar.",
+    linkCandidatesBody: "Verknüpfte Kandidaten sehen alle Mitglieder dieser Agentur.",
     noCandidatesYet: "Noch keine Kandidaten im System.",
     statusPending: "Ausstehend",
     statusLinked: "Verknüpft",
@@ -196,8 +243,8 @@ const t = {
     emailStar: "E-Mail *",
     nameOptional: "Name (optional)",
     addMember: "Mitglied hinzufügen",
-    noMembersYet: "Noch keine Mitglieder. Fügen Sie jemanden oben hinzu.",
-    brandingDescription: "Verknüpfte Kandidaten erhalten dieses Logo und diese Fußzeile auf ihrem generierten Lebenslauf.",
+    noMembersYet: "Noch keine Mitglieder.",
+    brandingDescription: "Logo und Fußzeile erscheinen auf dem Lebenslauf verknüpfter Kandidaten.",
     logo: "Logo",
     replaceLogo: "Logo ersetzen",
     uploadLogo: "Logo hochladen",
@@ -205,7 +252,7 @@ const t = {
     imageTooLarge: "Bild zu groß — max. 500 KB.",
     saved: "Gespeichert!",
     saveBranding: "Branding speichern",
-    singleUseWarning: "⚠ Einmalig — nur für eine Person gültig",
+    singleUseWarning: "Einmalig — nur für eine Person gültig",
     copied: "Kopiert!",
     copyLink: "Link kopieren",
     downloadQR: "QR herunterladen",
@@ -216,11 +263,34 @@ const t = {
     emailRequired: "E-Mail erforderlich",
     couldNotAdd: "Konnte nicht hinzugefügt werden",
     add: "Hinzufügen",
-    membersDescription: "Mitglieder können alle mit dieser Agentur verknüpften Kandidaten sehen. Per E-Mail hinzufügen — sie müssen bereits ein Borivon-Konto haben.",
+    membersDescription: "Mitglieder sehen alle verknüpften Kandidaten. Per E-Mail hinzufügen — ein Borivon-Konto ist nötig.",
     memberEmailPlaceholder: "mitglied@beispiel.com",
     roleMember: "Mitglied",
     roleOwner: "Inhaber",
     actionFailed: "Änderung konnte nicht gespeichert werden — nichts wurde geändert. Erneut versuchen.",
+    back: "Zurück",
+    membersN: (n: number) => `${n} Mitglied${n !== 1 ? "er" : ""}`,
+    candidatesN: (n: number) => `${n} Kandidat${n !== 1 ? "en" : ""}`,
+    wantsToJoin: "möchte zu",
+    approve: "Annehmen",
+    reject: "Ablehnen",
+    slotsN: (n: number) => `${n} Stelle${n !== 1 ? "n" : ""}`,
+    fromDate: (d: string) => `ab ${d}`,
+    closeReq: "Anforderung schließen",
+    regenerate: "Einladungscode neu erzeugen",
+    deleteOrg: "Agentur löschen",
+    copyCandidateTitle: "Einmal-Einladungslink für Kandidaten kopieren",
+    qrCandidateTitle: "Einmal-QR für Kandidaten",
+    copyAdminTitle: "Einmal-Einladungslink für Admins kopieren",
+    qrAdminTitle: "Einmal-QR für Admins",
+    legacySubAdmins: "Einzelne Sub-Admins verwalten (alt)",
+    removeLogo: "Logo entfernen",
+    remove: "Entfernen",
+    unlink: "Verknüpfung lösen",
+    namePh: "z. B. Calmaroi GmbH",
+    notesPh: "z. B. Klinikverbund Berlin, Kontakt: lukas@calmaroi.com",
+    specialtyPh: "z. B. Intensivpflege",
+    locationPh: "z. B. Berlin",
   },
 };
 
@@ -606,603 +676,584 @@ export default function OrganizationsPage() {
     return { name: c?.name ?? uid, email: c?.email ?? "" };
   }
 
-  const inp: React.CSSProperties = { background: "var(--bg)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "10px", width: "100%", padding: "10px 13px", fontSize: "13px", outline: "none" };
-
   if (loading) return <PageLoader />;
+
+  // ── the one design (founder 2026-11-13) ──────────────────────────────────────
+  // serif head, quiet back, ONE black button; join requests = orange rows; the agencies = hairline rows that
+  // flip (nobody scrolls). "Neue Agentur", "Verwalten" and the QR open in the universal popup (LAW #36).
+  const managed = orgs.find(o => o.id === expandedOrgId) ?? null;
+  const orgsLaptop = pendingRequests.length > 0 ? 5 : 7;
+  const orgsPhone = pendingRequests.length > 0 ? 2 : 4;
+  const qrIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+      <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="4" height="4"/>
+      <path d="M14 21h4"/><path d="M21 14v4"/><path d="M21 21v.01"/>
+    </svg>
+  );
+
+  // the "Verwalten" popup of one agency: four tabs, every list flips
+  const manageModal = (org: Org) => {
+    const tab = activeTab[org.id] ?? "requirements";
+    const members = orgMembers[org.id] ?? [];
+    const linked = orgCandidates[org.id] ?? [];
+    const reqs = orgReqs[org.id] ?? [];
+    const openReqs = reqs.filter(r => r.active).length;
+    const count = (n: number) => <span style={{ marginLeft: 6, fontVariantNumeric: "tabular-nums", opacity: 0.6 }}>{n}</span>;
+    const tabs: [OrgTab, React.ReactNode][] = [
+      ["requirements", <>{T.tabRequirements}{openReqs > 0 && count(openReqs)}</>],
+      ["candidates", <>{T.tabCandidates}{org.candidateCount > 0 && count(org.candidateCount)}</>],
+      ["members", <>{T.tabMembers}{org.memberCount > 0 && count(org.memberCount)}</>],
+      ["branding", <>{T.tabBranding}{(org.logo_filename || org.footer_text) && <i style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: STATUS_DOT.approved, marginLeft: 7, verticalAlign: "middle" }} />}</>],
+    ];
+    return (
+      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+        style={MODAL_BACK} onClick={() => setExpandedOrgId(null)}>
+        <div role="dialog" aria-modal="true" aria-label={org.name} onClick={e => e.stopPropagation()} style={{ ...MODAL_CARD, maxWidth: 760 }}>
+
+          {/* head: name, counts, close, the four tabs (pinned) */}
+          <div style={{ flexShrink: 0, padding: "20px 22px 0" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h2 style={MODAL_TITLE}>{org.name}</h2>
+                <div style={{ fontSize: 12.5, color: "var(--w3)", marginTop: 4 }}>{T.membersN(org.memberCount)} · {T.candidatesN(org.candidateCount)}</div>
+              </div>
+              <Btn kind="quiet" icon onClick={() => setExpandedOrgId(null)} title={T.close} aria-label={T.close}><XIcon size={18} strokeWidth={1.6} /></Btn>
+            </div>
+            <div className="bvo-tabs" style={{ margin: "12px -22px 0", padding: "0 22px 12px", overflowX: "auto", borderBottom: "1px solid var(--border)" }}>
+              <Seg value={tab} options={tabs} onChange={(k) => setActiveTab(p => ({ ...p, [org.id]: k }))} />
+            </div>
+          </div>
+
+          {/* body (scrolls only on a very short screen — LAW #36) */}
+          <div style={{ overflowY: "auto", minHeight: 0, padding: "14px 22px 18px" }}>
+            {actionErrorOrg === org.id && <p style={{ ...ERR_LINE, marginBottom: 12 }}>{T.actionFailed}</p>}
+
+            {/* ── REQUIREMENTS ── */}
+            {tab === "requirements" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <p style={SUB}>{T.whatOrgNeeds}</p>
+                  <Btn kind="ghost" size="sm" onClick={() => setShowReqForm(p => ({ ...p, [org.id]: !p[org.id] }))} style={{ flex: "none" }}>
+                    {showReqForm[org.id] ? <XIcon size={13} strokeWidth={2} /> : <Plus size={13} strokeWidth={2} />}
+                    {showReqForm[org.id] ? T.cancel : T.add}
+                  </Btn>
+                </div>
+
+                {showReqForm[org.id] && (() => {
+                  const f = newReqFields[org.id] ?? { specialty: "", slots: "1", location: "", start_date: "", notes: "" };
+                  const setF = (k: string, v: string) => setNewReqFields(p => ({ ...p, [org.id]: { ...(p[org.id] ?? { specialty: "", slots: "1", location: "", start_date: "", notes: "" }), [k]: v } }));
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 14, borderRadius: 14, border: "1px solid var(--border)" }}>
+                      <div className="bvo-g4">
+                        <Field label={T.specialty}><input className="bvk-input" type="text" placeholder={T.specialtyPh} value={f.specialty} onChange={e => setF("specialty", e.target.value)} /></Field>
+                        <Field label={T.slotsNeeded}><input className="bvk-input" type="number" placeholder="1" value={f.slots} onChange={e => setF("slots", e.target.value)} min={1} /></Field>
+                        <Field label={T.location}><input className="bvk-input" type="text" placeholder={T.locationPh} value={f.location} onChange={e => setF("location", e.target.value)} /></Field>
+                        <Field label={T.startDate}><input className="bvk-input" type="date" value={f.start_date} onChange={e => setF("start_date", e.target.value)} /></Field>
+                      </div>
+                      <div className="bvo-row-end">
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <Field label={T.notes}><input className="bvk-input" type="text" placeholder={T.optionalDetails} value={f.notes} onChange={e => setF("notes", e.target.value)} /></Field>
+                        </div>
+                        <Btn kind="primary" onClick={() => addRequirement(org.id)} disabled={reqSaving[org.id]} style={{ height: 42 }}>
+                          {reqSaving[org.id] ? <Spinner size="xs" color="var(--bg)" /> : <Plus size={15} strokeWidth={2} />}
+                          {reqSaving[org.id] ? T.saving : T.addRequirement}
+                        </Btn>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {reqs.length === 0 && !showReqForm[org.id] && (
+                  <Empty icon={<FileText size={22} strokeWidth={1.4} />}>
+                    <span style={{ color: "var(--w2)", fontWeight: 500 }}>{T.noRequirementsYet}</span>
+                    <span style={{ fontSize: 13, marginTop: -4, maxWidth: 380 }}>{T.addWhatOrgNeeds}</span>
+                  </Empty>
+                )}
+                {reqs.length > 0 && (
+                  <Paged key={`req-${org.id}`} items={reqs} per={showReqForm[org.id] ? 2 : 5} perPhone={showReqForm[org.id] ? 2 : 4}>
+                    {slice => (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {slice.map(r => (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 6px 10px 14px", borderRadius: 12, border: "1px solid var(--border)", opacity: r.active ? 1 : 0.45 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={ROW_NAME}>{r.specialty || T.slotsN(r.slots)}</div>
+                              <div style={ROW_META}>
+                                {[r.specialty ? T.slotsN(r.slots) : null, r.location, r.start_date ? T.fromDate(fmtDay(r.start_date, lang)) : null, r.notes].filter(Boolean).join(" · ")}
+                              </div>
+                            </div>
+                            {r.active
+                              ? <Btn kind="quiet" size="sm" icon onClick={() => closeRequirement(org.id, r.id)} title={T.closeReq} aria-label={T.closeReq}><XIcon size={15} strokeWidth={1.8} /></Btn>
+                              : <span style={{ ...STATE_WORD, color: "var(--w3)", padding: "0 10px" }}>{T.closed}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Paged>
+                )}
+              </div>
+            )}
+
+            {/* ── CANDIDATES ── linked = green, waiting = orange */}
+            {tab === "candidates" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <p style={SUB}>{T.linkCandidatesBody}</p>
+                {candidates.length === 0
+                  ? <p style={{ ...SUB, padding: "22px 0", textAlign: "center" }}>{T.noCandidatesYet}</p>
+                  : (
+                    <Paged key={`cand-${org.id}`} items={candidates} per={5} perPhone={4}>
+                      {slice => (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {slice.map(c => {
+                            const link = linked.find(l => l.userId === c.userId);
+                            const isLinked = !!link && link.status !== "rejected";
+                            const isPending = link?.status === "pending";
+                            const st = isLinked && !isPending ? "approved" : isPending ? "pending" : null;
+                            return (
+                              <div key={c.userId} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 6px 8px 14px", borderRadius: 12,
+                                background: st ? STATUS_TINT[st] : "transparent", border: `1px solid ${st ? "transparent" : "var(--border)"}` }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={ROW_NAME}>{c.name}</div>
+                                  <div style={ROW_META}>{c.email}</div>
+                                </div>
+                                <Btn kind={st ? "quiet" : "ghost"} size="sm" onClick={() => toggleCandidate(org.id, c.userId)} style={st ? { color: "var(--w)" } : undefined}>
+                                  {isLinked && !isPending ? <><Check size={14} strokeWidth={2} />{T.statusLinked}</> : isPending ? T.statusPending : T.actionLink}
+                                </Btn>
+                                {isLinked && !isPending && (
+                                  <Btn kind="quiet" size="sm" icon onClick={() => toggleCandidate(org.id, c.userId)} title={T.unlink} aria-label={T.unlink}><Trash2 size={14} strokeWidth={1.8} /></Btn>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </Paged>
+                  )}
+              </div>
+            )}
+
+            {/* ── MEMBERS ── */}
+            {tab === "members" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <p style={SUB}>{T.membersDescription}</p>
+                <div className="bvo-mem">
+                  <Field label={T.emailStar}><input className="bvk-input" type="email" placeholder={T.memberEmailPlaceholder} value={memberEmail[org.id] ?? ""} onChange={e => setMemberEmail(prev => ({ ...prev, [org.id]: e.target.value }))} /></Field>
+                  <Field label={T.nameOptional}><input className="bvk-input" type="text" placeholder="Omar" value={memberName[org.id] ?? ""} onChange={e => setMemberName(prev => ({ ...prev, [org.id]: e.target.value }))} /></Field>
+                  <Btn kind="primary" onClick={() => addMember(org.id)} style={{ height: 42 }}><UserPlus size={15} strokeWidth={1.8} />{T.addMember}</Btn>
+                </div>
+                {memberError[org.id] && <p style={ERR_LINE}>{memberError[org.id]}</p>}
+                {members.length > 0 ? (
+                  <Paged key={`mem-${org.id}`} items={members} per={4} perPhone={3}>
+                    {slice => (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {slice.map(m => (
+                          <div key={m.email} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 6px 8px 14px", borderRadius: 12, border: "1px solid var(--border)" }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={ROW_NAME}>{m.name || m.email}</div>
+                              {m.name && <div style={ROW_META}>{m.email}</div>}
+                            </div>
+                            <Btn kind="ghost" size="sm" onClick={() => setMemberRole(org.id, m.email, m.role === "owner" ? "member" : "owner")}>
+                              {m.role === "owner" ? <Crown size={13} strokeWidth={1.8} style={{ color: "var(--gold)" }} /> : <UserIcon size={13} strokeWidth={1.8} />}
+                              {m.role === "owner" ? T.roleOwner : T.roleMember}
+                            </Btn>
+                            <Btn kind="quiet" size="sm" icon onClick={() => removeMember(org.id, m.email)} title={T.remove} aria-label={T.remove}><Trash2 size={14} strokeWidth={1.8} /></Btn>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Paged>
+                ) : (
+                  <p style={{ ...SUB, padding: "18px 0", textAlign: "center" }}>{T.noMembersYet}</p>
+                )}
+              </div>
+            )}
+
+            {/* ── BRANDING ── logo + footer | vaccines, required papers below. Laptop: all three at once;
+                 phone: the three parts flip (‹ 1/3 ›) — all stay mounted, so nothing typed is lost. */}
+            {tab === "branding" && (
+              <Paged key={`brand-${org.id}`} items={BRAND_PARTS} per={3} perPhone={1}>
+                {slice => {
+                const on = (k: BrandPart) => slice.includes(k);
+                return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {on("brand") && <p style={SUB}>{T.brandingDescription}</p>}
+                <div className="bvo-brand">
+                  <div style={{ display: on("brand") ? "flex" : "none", flexDirection: "column", gap: 12, minWidth: 0 }}>
+                    <div className="bvk-field">
+                      <span>{T.logo}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {editLogo[org.id] && (
+                          <div style={{ width: 44, height: 44, borderRadius: 10, display: "grid", placeItems: "center", overflow: "hidden", flex: "none", background: "var(--bg2)" }}>
+                            {editLogo[org.id].startsWith("data:")
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={editLogo[org.id]} alt="logo" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                              : <span style={{ fontSize: 8, fontFamily: "monospace", textAlign: "center", padding: "0 4px", color: "var(--w3)" }}>{editLogo[org.id].slice(0, 14)}</span>
+                            }
+                          </div>
+                        )}
+                        <label className="bvk-btn bvk-ghost bvk-sm" style={{ flex: 1 }}>
+                          <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoUpload(org.id, f); e.target.value = ""; }} />
+                          {editLogo[org.id] ? T.replaceLogo : T.uploadLogo}
+                        </label>
+                        {editLogo[org.id] && (
+                          <Btn kind="quiet" size="sm" icon onClick={() => setEditLogo(p => ({ ...p, [org.id]: "" }))} title={T.removeLogo} aria-label={T.removeLogo}><XIcon size={15} strokeWidth={1.8} /></Btn>
+                        )}
+                      </div>
+                    </div>
+                    <Field label={T.footerText}>
+                      <textarea className="bvk-input" value={editFooter[org.id] ?? ""} onChange={e => setEditFooter(p => ({ ...p, [org.id]: e.target.value }))}
+                        placeholder={"Calmaroí GmbH · Römerstraße 15\n63450 Hanau · www.calmaroi.de"}
+                        rows={2} style={{ resize: "none", lineHeight: 1.6, minHeight: 66 }} />
+                    </Field>
+                    {brandError[org.id] && <p style={ERR_LINE}>{brandError[org.id]}</p>}
+                    <div>
+                      <Btn kind="primary" onClick={() => saveBranding(org.id)} disabled={brandSaving[org.id]}>
+                        {brandSaving[org.id] ? <Spinner size="xs" color="var(--bg)" /> : brandSaved[org.id] ? <Check size={15} strokeWidth={2} /> : null}
+                        {brandSaving[org.id] ? T.saving : brandSaved[org.id] ? T.saved : T.saveBranding}
+                      </Btn>
+                    </div>
+                  </div>
+                  <div style={{ display: on("vax") ? undefined : "none", minWidth: 0 }}>
+                    {/* Vaccine requirement — drives the Impfung pipeline track. */}
+                    <VaccineReqEditor
+                      orgId={org.id}
+                      initial={org.vaccine_req}
+                      accessToken={accessToken}
+                      lang={lang}
+                      onSaved={() => loadData(accessToken)}
+                    />
+                  </div>
+                </div>
+                {/* Which documents count toward this agency's completion % (full width: the papers flow in a few lines). */}
+                <div style={{ display: on("docs") ? undefined : "none", ...(on("brand") ? { borderTop: "1px solid var(--border)", paddingTop: 12 } : {}) }}>
+                  <RequiredDocsEditor
+                    orgId={org.id}
+                    orgName={org.name}
+                    initial={org.requiredDocKeys}
+                    accessToken={accessToken}
+                    lang={lang}
+                    onSaved={() => loadData(accessToken)}
+                  />
+                </div>
+              </div>
+                );
+                }}
+              </Paged>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
     <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
-      <div className="max-w-[780px] mx-auto px-4 pt-8 pb-20">
+      <style>{ORG_CSS}</style>
+      <div className="mx-auto w-full px-4" style={{ maxWidth: 880, paddingTop: 32, paddingBottom: 32 }}>
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
-              <ArrowLeft size={15} strokeWidth={1.8} />
-            </button>
-            <div>
-              <h1 className="text-[20px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>{T.organizations}</h1>
-              <p className="text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{T.managePartners}</p>
-            </div>
-          </div>
-          <button onClick={() => setShowCreateForm(v => !v)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-[13px] font-semibold transition-all"
-            style={{ background: showCreateForm ? "var(--bg2)" : "var(--gold)", color: showCreateForm ? "var(--w2)" : "#131312", borderRadius: "12px", border: showCreateForm ? "1px solid var(--border)" : "none" }}>
-            {showCreateForm ? <XIcon size={13} strokeWidth={2} /> : <Plus size={13} strokeWidth={2.2} />}
-            {showCreateForm ? T.cancel : T.newOrg}
-          </button>
-        </div>
+        <PageHead back={{ label: T.back, onClick: () => router.back() }}
+          title={T.organizations}
+          sub={T.managePartners}
+          actions={
+            <Btn kind="primary" onClick={() => setShowCreateForm(v => !v)}>
+              <Plus size={15} strokeWidth={2} />{T.newOrg}
+            </Btn>
+          } />
 
-        {/* Create form */}
-        {showCreateForm && (
-          <div className="mb-6 p-5" style={{ background: "var(--card)", borderRadius: "16px", border: "1px solid var(--border-gold)" }}>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-4" style={{ color: "var(--gold)" }}>{T.newOrganization}</p>
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.nameStar}</label>
-                  <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Calmaroi GmbH" style={inp} />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.inviteCode} <span style={{ color: "var(--w3)", fontWeight: 400 }}>{T.inviteCodeAuto}</span></label>
-                  <input type="text" value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} placeholder="AUTO" style={{ ...inp, fontFamily: "monospace", letterSpacing: "0.1em" }} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.internalNotes}</label>
-                <input type="text" value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="e.g. Berlin hospital group, contact: lukas@calmaroi.com" style={inp} />
-              </div>
-              {createError && <p className="text-[12px] px-3 py-2 rounded-lg" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>{createError}</p>}
-              <button onClick={createOrg} disabled={creating}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold transition-opacity disabled:opacity-50"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "10px" }}>
-                {creating ? <Spinner size="xs" color="#131312" /> : <Plus size={13} strokeWidth={2.2} />}
-                {creating ? T.creating : T.create}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Pending join requests */}
+        {/* join requests — waiting = orange */}
         {pendingRequests.length > 0 && (
-          <div className="mb-6 p-4" style={{ background: "var(--card)", borderRadius: "16px", border: "1px solid var(--border-gold)" }}>
-            <div className="flex items-center gap-2 mb-3">
-              <AlertCircle size={13} style={{ color: "var(--gold)" }} />
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--gold)" }}>{T.joinRequests} · {pendingRequests.length}</p>
+          <section style={{ marginBottom: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: "var(--w3)" }}>
+              <Dot st="pending" />
+              <b style={SERIF_NUM}>{pendingRequests.length}</b>{T.joinRequests}
             </div>
-            <div className="space-y-2">
-              {pendingRequests.map(req => {
-                const { name, email } = nameForCandidate(req.candidateUserId);
-                return (
-                  <div key={`${req.candidateUserId}_${req.orgId}`} className="flex items-center gap-3 px-3 py-2.5 rounded-xl" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{name}</p>
-                      <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{email} · wants to join <span style={{ color: "var(--w2)" }}>{req.orgName}</span></p>
-                    </div>
-                    <button onClick={() => approveRequest(req)} className="bv-icon-btn bv-icon-btn--approve w-8 h-8 rounded-full flex items-center justify-center" title="Approve">
-                      <CheckCircle2 size={13} strokeWidth={1.8} />
-                    </button>
-                    <button onClick={() => rejectRequest(req)} className="bv-icon-btn bv-icon-btn--reject w-8 h-8 rounded-full flex items-center justify-center" title="Reject">
-                      <XIcon size={13} strokeWidth={1.8} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Org list */}
-        {orgs.length === 0 ? (
-          <EmptyState Icon={Building2} title={T.noOrgsYet} sub={T.createFirstOne} />
-        ) : (
-          <div className="space-y-3">
-            {orgs.map(org => {
-              const isExpanded = expandedOrgId === org.id;
-              const tab = activeTab[org.id] ?? "requirements";
-              const members = orgMembers[org.id] ?? [];
-              const linked = orgCandidates[org.id] ?? [];
-              const reqs = orgReqs[org.id] ?? [];
-              const openReqs = reqs.filter(r => r.active).length;
-
-              return (
-                <div key={org.id} style={{ background: "var(--card)", borderRadius: "16px", overflow: "hidden", border: "1px solid var(--border)" }}>
-
-                  {/* Org header row */}
-                  <div className="px-4 py-3.5 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                      <Building2 size={15} strokeWidth={1.8} />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{org.name}</p>
-                        {openReqs > 0 && (
-                          <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
-                            {T.openReqs(openReqs)}
-                          </span>
-                        )}
-                        {org.pendingCount > 0 && (
-                          <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                            {T.pending(org.pendingCount)}
-                          </span>
-                        )}
+            <Paged items={pendingRequests} per={3} perPhone={2}>
+              {slice => (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {slice.map(req => {
+                    const { name, email } = nameForCandidate(req.candidateUserId);
+                    return (
+                      <div key={`${req.candidateUserId}_${req.orgId}`} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 8px 10px 14px", borderRadius: 12, background: STATUS_TINT.pending }}>
+                        <div style={{ flex: 1, minWidth: 0, marginRight: 4 }}>
+                          <div style={ROW_NAME}>{name}</div>
+                          <div style={ROW_META}>{T.wantsToJoin} <span style={{ color: "var(--w2)" }}>{req.orgName}</span> · {email}</div>
+                        </div>
+                        <Btn kind="ghost" size="sm" onClick={() => approveRequest(req)} title={T.approve}><Check size={14} strokeWidth={2} />{T.approve}</Btn>
+                        <Btn kind="quiet" size="sm" icon onClick={() => rejectRequest(req)} title={T.reject} aria-label={T.reject}><XIcon size={15} strokeWidth={1.8} /></Btn>
                       </div>
-                      <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                        {org.memberCount} member{org.memberCount !== 1 ? "s" : ""} · {org.candidateCount} candidate{org.candidateCount !== 1 ? "s" : ""}
-                        {org.notes ? ` · ${org.notes}` : ""}
-                      </p>
-                    </div>
-
-                    {/* Candidate invite link — generates single-use token */}
-                    <button
-                      onClick={async () => {
-                        const key = `${org.id}_candidate`;
-                        setQrGenerating(key);
-                        try {
-                          const res = await fetch(`/api/portal/admin/organizations/${org.id}/generate-invite`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                            body: JSON.stringify({ type: "candidate" }),
-                          });
-                          if (res.ok) {
-                            const { url } = await res.json();
-                            const text = `You've been invited to join Borivon: ${url}`;
-                            navigator.clipboard.writeText(text);
-                            flashCopied(`${org.id}_cand`);
-                          }
-                        } finally { setQrGenerating(null); }
-                      }}
-                      disabled={qrGenerating === `${org.id}_candidate`}
-                      className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 transition-colors disabled:opacity-50"
-                      style={{ background: copiedKey === `${org.id}_cand` ? "var(--info-bg)" : "var(--bg2)", color: copiedKey === `${org.id}_cand` ? "var(--info)" : "var(--w2)", border: `1px solid ${copiedKey === `${org.id}_cand` ? "var(--info-border)" : "var(--border)"}`, borderRadius: "8px" }}
-                      title="Copy single-use candidate invite link">
-                      {copiedKey === `${org.id}_cand` ? <Check size={10} strokeWidth={2} /> : qrGenerating === `${org.id}_candidate` ? <Spinner size="xs" color="var(--w2)" /> : <Copy size={10} strokeWidth={1.8} />}
-                      {T.candidateLink}
-                    </button>
-                    <button
-                      onClick={() => generateInviteToken(org.id, org.name, "candidate")}
-                      disabled={qrGenerating === `${org.id}_candidate`}
-                      className="hidden sm:flex items-center justify-center w-7 h-7 transition-colors bv-icon-btn disabled:opacity-50"
-                      style={{ color: "var(--w3)", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--bg2)" }}
-                      title="Generate single-use QR for candidate">
-                      {qrGenerating === `${org.id}_candidate` ? <Spinner size="xs" color="var(--w3)" /> : (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                          <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="4" height="4"/>
-                          <path d="M14 21h4"/><path d="M21 14v4"/><path d="M21 21v.01"/>
-                        </svg>
-                      )}
-                    </button>
-
-                    {/* Org member invite link — generates single-use token */}
-                    {org.member_invite_code && (
-                      <>
-                        <button
-                          onClick={async () => {
-                            const key = `${org.id}_member`;
-                            setQrGenerating(key);
-                            try {
-                              const res = await fetch(`/api/portal/admin/organizations/${org.id}/generate-invite`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                                body: JSON.stringify({ type: "member" }),
-                              });
-                              if (res.ok) {
-                                const { url } = await res.json();
-                                const text = `You've been invited to join Borivon: ${url}`;
-                                navigator.clipboard.writeText(text);
-                                flashCopied(`${org.id}_mem`);
-                              }
-                            } finally { setQrGenerating(null); }
-                          }}
-                          disabled={qrGenerating === `${org.id}_member`}
-                          className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 transition-colors disabled:opacity-50"
-                          style={{ background: copiedKey === `${org.id}_mem` ? "var(--gdim)" : "var(--bg2)", color: copiedKey === `${org.id}_mem` ? "var(--gold)" : "var(--w2)", border: `1px solid ${copiedKey === `${org.id}_mem` ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "8px" }}
-                          title="Copy single-use admin invite link">
-                          {copiedKey === `${org.id}_mem` ? <Check size={10} strokeWidth={2} /> : qrGenerating === `${org.id}_member` ? <Spinner size="xs" color="var(--w2)" /> : <Copy size={10} strokeWidth={1.8} />}
-                          {T.adminLink}
-                        </button>
-                        <button
-                          onClick={() => generateInviteToken(org.id, org.name, "member")}
-                          disabled={qrGenerating === `${org.id}_member`}
-                          className="hidden sm:flex items-center justify-center w-7 h-7 transition-colors bv-icon-btn disabled:opacity-50"
-                          style={{ color: "var(--w3)", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--bg2)" }}
-                          title="Generate single-use QR for admin">
-                          {qrGenerating === `${org.id}_member` ? <Spinner size="xs" color="var(--w3)" /> : (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                              <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="4" height="4"/>
-                              <path d="M14 21h4"/><path d="M21 14v4"/><path d="M21 21v.01"/>
-                            </svg>
-                          )}
-                        </button>
-                      </>
-                    )}
-
-                    <button onClick={() => regenerateCode(org)} disabled={regenId === org.id} title="Regenerate invite code"
-                      className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-40" style={{ color: "var(--w3)" }}>
-                      <RefreshCw size={11} strokeWidth={1.8} style={{ animation: regenId === org.id ? "spin 1s linear infinite" : undefined }} />
-                    </button>
-
-                    <button
-                      onClick={async () => {
-                        if (isExpanded) { setExpandedOrgId(null); return; }
-                        setExpandedOrgId(org.id);
-                        if (!activeTab[org.id]) setActiveTab(p => ({ ...p, [org.id]: "requirements" }));
-                        setEditLogo(p => ({ ...p, [org.id]: org.logo_filename ?? "" }));
-                        setEditFooter(p => ({ ...p, [org.id]: org.footer_text ?? "" }));
-                        await loadOrgDetails(org.id);
-                      }}
-                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 transition-colors"
-                      style={{ background: isExpanded ? "var(--gdim)" : "var(--bg2)", color: isExpanded ? "var(--gold)" : "var(--w2)", border: `1px solid ${isExpanded ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "8px" }}>
-                      <Settings size={11} strokeWidth={1.8} />
-                      {T.manage}
-                    </button>
-
-                    <button onClick={() => deleteOrg(org.id, org.name)} className="bv-icon-btn bv-icon-btn--reject w-7 h-7 rounded-full flex items-center justify-center">
-                      <Trash2 size={12} strokeWidth={1.8} />
-                    </button>
-                  </div>
-
-                  {actionErrorOrg === org.id && (
-                    <p className="mx-4 mb-3 text-[11.5px] px-3 py-2 rounded-lg"
-                      style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                      {T.actionFailed}
-                    </p>
-                  )}
-
-                  {/* Expanded panel */}
-                  {isExpanded && (
-                    <div style={{ borderTop: "1px solid var(--border)" }}>
-
-                      {/* Tabs */}
-                      <div className="flex px-4 pt-3 gap-1 overflow-x-auto" style={{ borderBottom: "1px solid var(--border)" }}>
-                        {([
-                          { id: "requirements", label: T.tabRequirements, icon: <FileText size={12} strokeWidth={1.8} />, badge: openReqs > 0 ? String(openReqs) : null },
-                          { id: "candidates",   label: T.tabCandidates,   icon: <Users size={12} strokeWidth={1.8} />, badge: org.candidateCount > 0 ? String(org.candidateCount) : null },
-                          { id: "members",      label: T.tabMembers,      icon: <UserPlus size={12} strokeWidth={1.8} />, badge: org.memberCount > 0 ? String(org.memberCount) : null },
-                          { id: "branding",     label: T.tabBranding,     icon: <Palette size={12} strokeWidth={1.8} />, badge: (org.logo_filename || org.footer_text) ? "✓" : null },
-                        ] as { id: OrgTab; label: string; icon: React.ReactNode; badge: string | null }[]).map(tabItem => (
-                          <button key={tabItem.id}
-                            onClick={() => setActiveTab(p => ({ ...p, [org.id]: tabItem.id }))}
-                            className="flex items-center gap-1.5 px-3 pb-2.5 text-[12px] font-medium whitespace-nowrap transition-colors flex-shrink-0"
-                            style={{
-                              color: tab === tabItem.id ? "var(--gold)" : "var(--w3)",
-                              borderBottom: `2px solid ${tab === tabItem.id ? "var(--gold)" : "transparent"}`,
-                              background: "transparent",
-                            }}>
-                            {tabItem.icon}
-                            {tabItem.label}
-                            {tabItem.badge && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                                style={{ background: tab === tabItem.id ? "var(--gdim)" : "var(--bg2)", color: tab === tabItem.id ? "var(--gold)" : "var(--w3)", border: `1px solid ${tab === tabItem.id ? "var(--border-gold)" : "var(--border)"}` }}>
-                                {tabItem.badge}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Tab content */}
-                      <div className="p-5">
-
-                        {/* ── REQUIREMENTS ── */}
-                        {tab === "requirements" && (
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>
-                                {T.whatOrgNeeds}
-                              </p>
-                              <button onClick={() => setShowReqForm(p => ({ ...p, [org.id]: !p[org.id] }))}
-                                className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 transition-colors"
-                                style={{ background: showReqForm[org.id] ? "var(--bg2)" : "var(--gold)", color: showReqForm[org.id] ? "var(--w2)" : "#131312", borderRadius: "8px", border: showReqForm[org.id] ? "1px solid var(--border)" : "none" }}>
-                                {showReqForm[org.id] ? <XIcon size={11} strokeWidth={2} /> : <Plus size={11} strokeWidth={2.2} />}
-                                {showReqForm[org.id] ? T.cancel : T.add}
-                              </button>
-                            </div>
-
-                            {/* Add form */}
-                            {showReqForm[org.id] && (() => {
-                              const f = newReqFields[org.id] ?? { specialty: "", slots: "1", location: "", start_date: "", notes: "" };
-                              const setF = (k: string, v: string) => setNewReqFields(p => ({ ...p, [org.id]: { ...(p[org.id] ?? { specialty: "", slots: "1", location: "", start_date: "", notes: "" }), [k]: v } }));
-                              return (
-                                <div className="p-4 rounded-xl space-y-3" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.specialty}</label>
-                                      <input type="text" placeholder="e.g. ICU Nurse" value={f.specialty} onChange={e => setF("specialty", e.target.value)} style={inp} />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.slotsNeeded}</label>
-                                      <input type="number" placeholder="1" value={f.slots} onChange={e => setF("slots", e.target.value)} min={1} style={inp} />
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.location}</label>
-                                      <input type="text" placeholder="e.g. Berlin" value={f.location} onChange={e => setF("location", e.target.value)} style={inp} />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.startDate}</label>
-                                      <input type="date" value={f.start_date} onChange={e => setF("start_date", e.target.value)} style={{ ...inp, colorScheme: "dark" }} />
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.notes}</label>
-                                    <input type="text" placeholder={T.optionalDetails} value={f.notes} onChange={e => setF("notes", e.target.value)} style={inp} />
-                                  </div>
-                                  <button onClick={() => addRequirement(org.id)} disabled={reqSaving[org.id]}
-                                    className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-4 py-2 transition-opacity disabled:opacity-50"
-                                    style={{ background: "var(--gold)", color: "#131312", borderRadius: "8px" }}>
-                                    {reqSaving[org.id] ? <Spinner size="xs" color="#131312" /> : <Plus size={12} strokeWidth={2.2} />}
-                                    {reqSaving[org.id] ? T.saving : T.addRequirement}
-                                  </button>
-                                </div>
-                              );
-                            })()}
-
-                            {/* Existing requirements */}
-                            {reqs.length === 0 && !showReqForm[org.id] && (
-                              <div className="py-8 text-center">
-                                <FileText size={28} strokeWidth={1.3} style={{ color: "var(--w3)", margin: "0 auto 12px" }} />
-                                <p className="text-[13px] font-medium" style={{ color: "var(--w2)" }}>{T.noRequirementsYet}</p>
-                                <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{T.addWhatOrgNeeds}</p>
-                              </div>
-                            )}
-                            {reqs.length > 0 && (
-                              <div className="space-y-2">
-                                {reqs.map(r => (
-                                  <div key={r.id} className="flex items-center gap-3 px-3.5 py-3 rounded-xl"
-                                    style={{ background: "var(--bg2)", border: `1px solid ${r.active ? "var(--border)" : "var(--border)"}`, opacity: r.active ? 1 : 0.45 }}>
-                                    <div className="flex-1 min-w-0 flex flex-wrap gap-x-3 gap-y-0.5 items-center">
-                                      {r.specialty && <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{r.specialty}</span>}
-                                      <span className="text-[11.5px] px-2 py-0.5 rounded-full" style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>{r.slots} slot{r.slots !== 1 ? "s" : ""}</span>
-                                      {r.location && <span className="text-[11.5px]" style={{ color: "var(--w3)" }}>📍 {r.location}</span>}
-                                      {r.start_date && <span className="text-[11.5px]" style={{ color: "var(--w3)" }}>🗓 {r.start_date}</span>}
-                                      {r.notes && <span className="text-[11px] truncate max-w-full" style={{ color: "var(--w3)" }}>{r.notes}</span>}
-                                    </div>
-                                    {r.active
-                                      ? <button onClick={() => closeRequirement(org.id, r.id)} title="Close requirement" className="bv-icon-btn bv-icon-btn--reject w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"><XIcon size={11} strokeWidth={1.8} /></button>
-                                      : <span className="text-[9.5px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: "var(--bg)", color: "var(--w3)", border: "1px solid var(--border)" }}>{T.closed}</span>
-                                    }
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* ── CANDIDATES ── */}
-                        {tab === "candidates" && (
-                          <div className="space-y-2">
-                            <p className="text-[11.5px] mb-3" style={{ color: "var(--w3)" }}>{T.linkCandidatesBody}</p>
-                            {candidates.length === 0
-                              ? <p className="text-[12px]" style={{ color: "var(--w3)" }}>{T.noCandidatesYet}</p>
-                              : candidates.map(c => {
-                                  const link = linked.find(l => l.userId === c.userId);
-                                  const isLinked = !!link && link.status !== "rejected";
-                                  const isPending = link?.status === "pending";
-                                  return (
-                                    <div key={c.userId} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl"
-                                      style={{ background: "var(--bg2)", border: `1px solid ${isLinked && !isPending ? "var(--success-border)" : "var(--border)"}` }}>
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{c.name}</p>
-                                        <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{c.email}</p>
-                                      </div>
-                                      {isPending && <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{T.statusPending}</span>}
-                                      <button onClick={() => toggleCandidate(org.id, c.userId)}
-                                        className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 transition-all flex-shrink-0"
-                                        style={isLinked && !isPending
-                                          ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "8px" }
-                                          : { background: "var(--bg)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "8px" }}>
-                                        {isLinked && !isPending ? <><CheckCircle2 size={11} strokeWidth={1.8} /> {T.statusLinked}</> : isPending ? T.statusPending : T.actionLink}
-                                      </button>
-                                      {isLinked && !isPending && (
-                                        <button onClick={() => toggleCandidate(org.id, c.userId)} className="bv-icon-btn bv-icon-btn--reject w-7 h-7 rounded-full flex items-center justify-center">
-                                          <Trash2 size={11} strokeWidth={1.8} />
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })
-                            }
-                          </div>
-                        )}
-
-                        {/* ── MEMBERS ── */}
-                        {tab === "members" && (
-                          <div className="space-y-3">
-                            <p className="text-[11.5px] mb-3" style={{ color: "var(--w3)" }}>{T.membersDescription}</p>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.emailStar}</label>
-                                <input type="email" placeholder={T.memberEmailPlaceholder} value={memberEmail[org.id] ?? ""} onChange={e => setMemberEmail(prev => ({ ...prev, [org.id]: e.target.value }))} style={inp} />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>{T.nameOptional}</label>
-                                <input type="text" placeholder="Omar" value={memberName[org.id] ?? ""} onChange={e => setMemberName(prev => ({ ...prev, [org.id]: e.target.value }))} style={inp} />
-                              </div>
-                            </div>
-                            {memberError[org.id] && <p className="text-[11px]" style={{ color: "var(--danger)" }}>{memberError[org.id]}</p>}
-                            <button onClick={() => addMember(org.id)}
-                              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-4 py-2"
-                              style={{ background: "var(--gold)", color: "#131312", borderRadius: "8px" }}>
-                              <UserPlus size={12} strokeWidth={1.8} />
-                              {T.addMember}
-                            </button>
-
-                            {members.length > 0 && (
-                              <div className="space-y-1.5 pt-1">
-                                {members.map(m => (
-                                  <div key={m.email} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{m.name || m.email}</p>
-                                      <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{m.name ? m.email : ""}</p>
-                                    </div>
-                                    <button onClick={() => setMemberRole(org.id, m.email, m.role === "owner" ? "member" : "owner")}
-                                      className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 transition-colors"
-                                      style={{ background: m.role === "owner" ? "var(--gdim)" : "var(--bg)", color: m.role === "owner" ? "var(--gold)" : "var(--w3)", border: `1px solid ${m.role === "owner" ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "6px" }}>
-                                      {m.role === "owner" ? <Crown size={9} strokeWidth={2} /> : <UserIcon size={9} strokeWidth={2} />}
-                                      {m.role === "owner" ? T.roleOwner : T.roleMember}
-                                    </button>
-                                    <button onClick={() => removeMember(org.id, m.email)} className="bv-icon-btn bv-icon-btn--reject w-7 h-7 rounded-full flex items-center justify-center">
-                                      <Trash2 size={11} strokeWidth={1.8} />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {members.length === 0 && (
-                              <div className="py-6 text-center">
-                                <p className="text-[12px]" style={{ color: "var(--w3)" }}>{T.noMembersYet}</p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* ── BRANDING ── */}
-                        {tab === "branding" && (
-                          <div className="space-y-4">
-                            <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T.brandingDescription}</p>
-
-                            <div>
-                              <label className="block text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{T.logo}</label>
-                              <div className="flex items-center gap-2">
-                                {editLogo[org.id] && (
-                                  <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                    {editLogo[org.id].startsWith("data:")
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={editLogo[org.id]} alt="logo" className="w-10 h-10 object-contain" />
-                                      : <span className="text-[8px] font-mono text-center px-1" style={{ color: "var(--w3)" }}>{editLogo[org.id].slice(0, 14)}</span>
-                                    }
-                                  </div>
-                                )}
-                                <label className="flex-1 inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold px-4 py-2.5 cursor-pointer"
-                                  style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "10px" }}>
-                                  <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
-                                    onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoUpload(org.id, f); e.target.value = ""; }} />
-                                  {editLogo[org.id] ? T.replaceLogo : T.uploadLogo}
-                                </label>
-                                {editLogo[org.id] && (
-                                  <button onClick={() => setEditLogo(p => ({ ...p, [org.id]: "" }))} className="bv-icon-btn bv-icon-btn--reject w-9 h-9 rounded-xl flex items-center justify-center">
-                                    <XIcon size={12} strokeWidth={1.8} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{T.footerText}</label>
-                              <textarea value={editFooter[org.id] ?? ""} onChange={e => setEditFooter(p => ({ ...p, [org.id]: e.target.value }))}
-                                placeholder={"Calmaroí GmbH · Römerstraße 15\n63450 Hanau · www.calmaroi.de"}
-                                rows={3} style={{ ...inp, resize: "none", lineHeight: "1.6" }} />
-                            </div>
-
-                            {brandError[org.id] && <p className="text-[11.5px] px-3 py-2 rounded-lg" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>{brandError[org.id]}</p>}
-
-                            <button onClick={() => saveBranding(org.id)} disabled={brandSaving[org.id]}
-                              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-5 py-2.5 transition-all disabled:opacity-50"
-                              style={brandSaved[org.id]
-                                ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "10px" }
-                                : { background: "var(--gold)", color: "#131312", borderRadius: "10px" }}>
-                              {brandSaving[org.id] ? <Spinner size="xs" color="#131312" /> : brandSaved[org.id] ? <Check size={12} strokeWidth={2} /> : null}
-                              {brandSaving[org.id] ? T.saving : brandSaved[org.id] ? T.saved : T.saveBranding}
-                            </button>
-
-                            {/* Vaccine requirement — drives the Impfung pipeline track. */}
-                            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-                              <VaccineReqEditor
-                                orgId={org.id}
-                                initial={org.vaccine_req}
-                                accessToken={accessToken}
-                                lang={lang}
-                                onSaved={() => loadData(accessToken)}
-                              />
-                            </div>
-                            {/* Which documents count toward this agency's completion %. */}
-                            <RequiredDocsEditor
-                              orgId={org.id}
-                              orgName={org.name}
-                              initial={org.requiredDocKeys}
-                              accessToken={accessToken}
-                              lang={lang}
-                              onSaved={() => loadData(accessToken)}
-                            />
-                          </div>
-                        )}
-
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </Paged>
+          </section>
         )}
 
-        <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--border)" }}>
-          <button onClick={() => router.push("/portal/admin/manage")} className="text-[12px] font-medium transition-colors" style={{ color: "var(--w3)" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "var(--w)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "var(--w3)")}>
-            ← Manage individual sub-admins (legacy)
-          </button>
+        {/* the agencies — hairline rows, the list flips */}
+        {orgs.length === 0 ? (
+          <Card>
+            <Empty icon={<Building2 size={22} strokeWidth={1.5} />}>
+              <span style={{ color: "var(--w2)", fontWeight: 500 }}>{T.noOrgsYet}</span>
+              <span style={{ fontSize: 13, marginTop: -4 }}>{T.createFirstOne}</span>
+            </Empty>
+          </Card>
+        ) : (
+          <Paged items={orgs} per={orgsLaptop} perPhone={orgsPhone}>
+            {slice => (
+              <Card style={{ overflow: "hidden" }}>
+                {slice.map((org, i) => {
+                  const isExpanded = expandedOrgId === org.id;
+                  const openReqs = (orgReqs[org.id] ?? []).filter(r => r.active).length;
+                  return (
+                    <div key={org.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "12px 10px 12px 18px" }}>
+                        <div style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 2, minWidth: 0 }}>
+                            <span style={{ ...ROW_NAME, fontSize: 14.5, minWidth: 0 }}>{org.name}</span>
+                            {org.pendingCount > 0 && <span style={STATE_WORD}><Dot st="pending" size={7} />{T.pending(org.pendingCount)}</span>}
+                            {openReqs > 0 && <span style={STATE_WORD}>{T.openReqs(openReqs)}</span>}
+                          </div>
+                          <div style={ROW_META}>
+                            {T.membersN(org.memberCount)} · {T.candidatesN(org.candidateCount)}{org.notes ? ` · ${org.notes}` : ""}
+                          </div>
+                        </div>
+
+                        {/* single-use invite links + their QR (laptop, as before) */}
+                        <span className="hidden sm:inline-flex" style={{ alignItems: "center", flex: "none" }}>
+                          <Btn kind="quiet" size="sm"
+                            onClick={async () => {
+                              const key = `${org.id}_candidate`;
+                              setQrGenerating(key);
+                              try {
+                                const res = await fetch(`/api/portal/admin/organizations/${org.id}/generate-invite`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                  body: JSON.stringify({ type: "candidate" }),
+                                });
+                                if (res.ok) {
+                                  const { url } = await res.json();
+                                  const text = `You've been invited to join Borivon: ${url}`;
+                                  navigator.clipboard.writeText(text);
+                                  flashCopied(`${org.id}_cand`);
+                                }
+                              } finally { setQrGenerating(null); }
+                            }}
+                            disabled={qrGenerating === `${org.id}_candidate`}
+                            title={T.copyCandidateTitle}
+                            style={copiedKey === `${org.id}_cand` ? { color: "var(--w)" } : undefined}>
+                            {copiedKey === `${org.id}_cand` ? <Check size={14} strokeWidth={2} style={{ color: STATUS_DOT.approved }} /> : qrGenerating === `${org.id}_candidate` ? <Spinner size="xs" color="var(--w3)" /> : <Copy size={13} strokeWidth={1.8} />}
+                            {copiedKey === `${org.id}_cand` ? T.copied : T.candidateLink}
+                          </Btn>
+                          <Btn kind="quiet" size="sm" icon
+                            onClick={() => generateInviteToken(org.id, org.name, "candidate")}
+                            disabled={qrGenerating === `${org.id}_candidate`}
+                            title={T.qrCandidateTitle} aria-label={T.qrCandidateTitle}>
+                            {qrGenerating === `${org.id}_candidate` ? <Spinner size="xs" color="var(--w3)" /> : qrIcon}
+                          </Btn>
+
+                          {/* Org member invite link — generates single-use token */}
+                          {org.member_invite_code && (
+                            <>
+                              <Btn kind="quiet" size="sm"
+                                onClick={async () => {
+                                  const key = `${org.id}_member`;
+                                  setQrGenerating(key);
+                                  try {
+                                    const res = await fetch(`/api/portal/admin/organizations/${org.id}/generate-invite`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                      body: JSON.stringify({ type: "member" }),
+                                    });
+                                    if (res.ok) {
+                                      const { url } = await res.json();
+                                      const text = `You've been invited to join Borivon: ${url}`;
+                                      navigator.clipboard.writeText(text);
+                                      flashCopied(`${org.id}_mem`);
+                                    }
+                                  } finally { setQrGenerating(null); }
+                                }}
+                                disabled={qrGenerating === `${org.id}_member`}
+                                title={T.copyAdminTitle}
+                                style={copiedKey === `${org.id}_mem` ? { color: "var(--w)" } : undefined}>
+                                {copiedKey === `${org.id}_mem` ? <Check size={14} strokeWidth={2} style={{ color: STATUS_DOT.approved }} /> : qrGenerating === `${org.id}_member` ? <Spinner size="xs" color="var(--w3)" /> : <Copy size={13} strokeWidth={1.8} />}
+                                {copiedKey === `${org.id}_mem` ? T.copied : T.adminLink}
+                              </Btn>
+                              <Btn kind="quiet" size="sm" icon
+                                onClick={() => generateInviteToken(org.id, org.name, "member")}
+                                disabled={qrGenerating === `${org.id}_member`}
+                                title={T.qrAdminTitle} aria-label={T.qrAdminTitle}>
+                                {qrGenerating === `${org.id}_member` ? <Spinner size="xs" color="var(--w3)" /> : qrIcon}
+                              </Btn>
+                            </>
+                          )}
+                        </span>
+
+                        <Btn kind="quiet" size="sm" icon onClick={() => regenerateCode(org)} disabled={regenId === org.id} title={T.regenerate} aria-label={T.regenerate}>
+                          <RefreshCw size={14} strokeWidth={1.8} style={{ animation: regenId === org.id ? "spin 1s linear infinite" : undefined }} />
+                        </Btn>
+
+                        <Btn kind="ghost" size="sm"
+                          onClick={async () => {
+                            if (isExpanded) { setExpandedOrgId(null); return; }
+                            setExpandedOrgId(org.id);
+                            if (!activeTab[org.id]) setActiveTab(p => ({ ...p, [org.id]: "requirements" }));
+                            setEditLogo(p => ({ ...p, [org.id]: org.logo_filename ?? "" }));
+                            setEditFooter(p => ({ ...p, [org.id]: org.footer_text ?? "" }));
+                            await loadOrgDetails(org.id);
+                          }}>
+                          {T.manage}
+                        </Btn>
+
+                        <Btn kind="quiet" size="sm" icon onClick={() => deleteOrg(org.id, org.name)} title={T.deleteOrg} aria-label={T.deleteOrg}>
+                          <Trash2 size={14} strokeWidth={1.8} />
+                        </Btn>
+                      </div>
+
+                      {actionErrorOrg === org.id && !isExpanded && (
+                        <p style={{ ...ERR_LINE, padding: "0 18px 12px" }}>{T.actionFailed}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </Card>
+            )}
+          </Paged>
+        )}
+
+        <div style={{ textAlign: "right", marginTop: 12 }}>
+          <Btn kind="quiet" onClick={() => router.push("/portal/admin/manage")} style={{ padding: 0, fontSize: 12.5 }}>
+            {T.legacySubAdmins}
+          </Btn>
         </div>
 
       </div>
     </main>
-    {/* ── QR code modal ───────────────────────────────────────────────────── */}
-    {qrModal && (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
-        onClick={() => setQrModal(null)}>
-        <div className="rounded-2xl p-6 flex flex-col items-center gap-4 w-full max-w-[300px] overflow-y-auto"
-          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-                   maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
-          onClick={e => e.stopPropagation()}>
-          <p className="text-[13px] font-semibold text-center" style={{ color: "var(--w)" }}>{qrModal.label}</p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=1a1a18&color=c9a240&data=${encodeURIComponent(qrModal.url)}`}
-            alt="QR code"
-            width={200}
-            height={200}
-            className="rounded-xl"
-            style={{ border: "2px solid var(--border-gold)" }}
-          />
-          <p className="text-[10.5px] text-center break-all px-1" style={{ color: "var(--w3)" }}>{qrModal.url}</p>
-          <p className="text-[10px] text-center px-2" style={{ color: "rgba(160,160,154,0.6)" }}>
-            {T.singleUseWarning}
-          </p>
-          <div className="flex gap-2 w-full">
-            <button
-              onClick={() => { navigator.clipboard.writeText(qrModal.url); flashCopied("qr"); }}
-              className="flex-1 py-2 text-[12px] font-semibold rounded-xl transition-opacity hover:opacity-80"
-              style={{ background: "var(--bg2)", color: copiedKey === "qr" ? "var(--gold)" : "var(--w2)", border: "1px solid var(--border)" }}>
-              {copiedKey === "qr" ? T.copied : T.copyLink}
-            </button>
-            <button
-              onClick={() => downloadQr(qrModal.url, qrModal.label)}
-              className="flex-1 py-2 text-[12px] font-semibold rounded-xl transition-opacity hover:opacity-80"
-              style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-              {T.downloadQR}
-            </button>
+
+    {/* ── Neue Agentur (LAW #36 popup) ─────────────────────────────────────── */}
+    {showCreateForm && typeof window !== "undefined" && createPortal(
+      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+        style={MODAL_BACK} onClick={() => { if (!creating) setShowCreateForm(false); }}>
+        <div role="dialog" aria-modal="true" aria-label={T.newOrganization} onClick={e => e.stopPropagation()} style={{ ...MODAL_CARD, maxWidth: 460 }}>
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, padding: "20px 22px 4px" }}>
+            <h2 style={{ ...MODAL_TITLE, flex: 1 }}>{T.newOrganization}</h2>
+            <Btn kind="quiet" icon onClick={() => { if (!creating) setShowCreateForm(false); }} title={T.cancel} aria-label={T.cancel}><XIcon size={18} strokeWidth={1.6} /></Btn>
           </div>
-          <button
-            onClick={() => setQrModal(null)}
-            className="w-full py-2 text-[12px] font-semibold rounded-xl transition-opacity hover:opacity-80"
-            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-            {T.close}
-          </button>
+          <div style={{ overflowY: "auto", minHeight: 0, padding: "12px 22px 4px", display: "flex", flexDirection: "column", gap: 14 }}>
+            <Field label={T.nameStar}>
+              <input className="bvk-input" type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder={T.namePh} />
+            </Field>
+            <Field label={<>{T.inviteCode} <span style={{ textTransform: "none", letterSpacing: 0 }}>{T.inviteCodeAuto}</span></>}>
+              <input className="bvk-input" type="text" value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} placeholder="AUTO" style={{ fontFamily: "monospace", letterSpacing: "0.1em" }} />
+            </Field>
+            <Field label={T.internalNotes}>
+              <input className="bvk-input" type="text" value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder={T.notesPh} />
+            </Field>
+            {createError && <p style={ERR_LINE}>{createError}</p>}
+          </div>
+          <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "16px 22px 20px" }}>
+            <Btn kind="quiet" onClick={() => setShowCreateForm(false)} disabled={creating}>{T.cancel}</Btn>
+            <Btn kind="primary" onClick={createOrg} disabled={creating}>
+              {creating ? <Spinner size="xs" color="var(--bg)" /> : <Plus size={15} strokeWidth={2} />}
+              {creating ? T.creating : T.create}
+            </Btn>
+          </div>
         </div>
-      </div>
+      </div>,
+      document.body,
+    )}
+
+    {/* ── Verwalten (LAW #36 popup) ────────────────────────────────────────── */}
+    {managed && typeof window !== "undefined" && createPortal(manageModal(managed), document.body)}
+
+    {/* ── QR code (LAW #36 popup) ──────────────────────────────────────────── */}
+    {qrModal && typeof window !== "undefined" && createPortal(
+      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+        style={MODAL_BACK} onClick={() => setQrModal(null)}>
+        <div role="dialog" aria-modal="true" aria-label={qrModal.label} onClick={e => e.stopPropagation()} style={{ ...MODAL_CARD, maxWidth: 340 }}>
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 10, padding: "18px 18px 0 22px" }}>
+            <h2 style={{ ...MODAL_TITLE, fontSize: 20, flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{qrModal.label}</h2>
+            <Btn kind="quiet" icon onClick={() => setQrModal(null)} title={T.close} aria-label={T.close}><XIcon size={18} strokeWidth={1.6} /></Btn>
+          </div>
+          <div style={{ overflowY: "auto", minHeight: 0, padding: "14px 22px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=ffffff&color=15130f&data=${encodeURIComponent(qrModal.url)}`}
+              alt="QR code"
+              width={200}
+              height={200}
+              style={{ borderRadius: 12, border: "1px solid var(--border)", width: "clamp(140px, 30dvh, 200px)", height: "auto", objectFit: "contain" }}
+            />
+            <p style={{ margin: 0, fontSize: 11.5, color: "var(--w3)", textAlign: "center", wordBreak: "break-all" }}>{qrModal.url}</p>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--w3)", textAlign: "center" }}>{T.singleUseWarning}</p>
+            <div style={{ display: "flex", gap: 8, width: "100%", marginTop: 4 }}>
+              <Btn kind="ghost" size="sm" style={{ flex: 1 }} onClick={() => { navigator.clipboard.writeText(qrModal.url); flashCopied("qr"); }}>
+                {copiedKey === "qr" ? <Check size={14} strokeWidth={2} style={{ color: STATUS_DOT.approved }} /> : <Copy size={13} strokeWidth={1.8} />}
+                {copiedKey === "qr" ? T.copied : T.copyLink}
+              </Btn>
+              <Btn kind="primary" size="sm" style={{ flex: 1 }} onClick={() => downloadQr(qrModal.url, qrModal.label)}>
+                {T.downloadQR}
+              </Btn>
+            </div>
+            <Btn kind="quiet" size="sm" onClick={() => setQrModal(null)}>{T.close}</Btn>
+          </div>
+        </div>
+      </div>,
+      document.body,
     )}
     </>
   );
+}
+
+// ── the one design: small shared pieces of this page ─────────────────────────
+const MODAL_BACK: React.CSSProperties = { background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" };
+const MODAL_CARD: React.CSSProperties = {
+  width: "100%", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: 20,
+  background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)",
+  animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
+};
+const MODAL_TITLE: React.CSSProperties = { margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1.15, color: "var(--w)" };
+const ROW_NAME: React.CSSProperties = { fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+const ROW_META: React.CSSProperties = { fontSize: 12.5, color: "var(--w3)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+const STATE_WORD: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--w2)", whiteSpace: "nowrap", flex: "none" };
+const SERIF_NUM: React.CSSProperties = { fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1, color: "var(--w)" };
+const SUB: React.CSSProperties = { margin: 0, fontSize: 13, lineHeight: 1.45, color: "var(--w3)" };
+const LABEL: React.CSSProperties = { fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)" };
+const ERR_LINE: React.CSSProperties = { margin: 0, fontSize: 12.5, color: STATUS_DOT.rejected };
+const STEP_BTN: React.CSSProperties = { width: 32, height: 32, border: 0, background: "none", color: "var(--w2)", fontSize: 16, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" };
+const ORG_CSS = `
+.bvo-tabs{scrollbar-width:none}
+.bvo-tabs::-webkit-scrollbar{display:none}
+.bvo-tabs .bvk-seg{width:max-content}
+.bvo-tabs .bvk-seg button{white-space:nowrap}
+.bvo-g4{display:grid;grid-template-columns:1.6fr 1fr 1.6fr 1.3fr;gap:10px;align-items:end}
+.bvo-row-end{display:flex;gap:10px;align-items:flex-end}
+.bvo-mem{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+.bvo-brand{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start}
+@media (max-width:640px){
+.bvo-tabs{overflow:visible!important}
+.bvo-tabs .bvk-seg{display:grid;grid-template-columns:1fr 1fr;width:100%;border-radius:18px}
+.bvo-g4{grid-template-columns:1fr 1fr}
+.bvo-row-end{flex-direction:column;align-items:stretch}
+.bvo-mem{grid-template-columns:1fr}
+.bvo-brand{grid-template-columns:1fr;gap:16px}
+}`;
+/** the Branding tab's three parts: laptop shows them together, a phone flips through them */
+type BrandPart = "brand" | "vax" | "docs";
+const BRAND_PARTS: BrandPart[] = ["brand", "vax", "docs"];
+
+/** a list that flips instead of scrolling (components/fx/kit: usePaged + Pager) */
+function Paged<T>({ items, per, perPhone, children }: { items: T[]; per: number; perPhone: number; children: (slice: T[]) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, per, perPhone);
+  return <>{children(slice)}<Pager page={page} pages={pages} onPage={setPage} /></>;
+}
+
+/** a stored YYYY-MM-DD shown the local way (01.03.2027); anything else as it is */
+function fmtDay(d: string, lang: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  return new Date(d + "T00:00:00Z").toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 }
 
 // ── Per-agency vaccine requirement editor (drives the Impfung pipeline track) ──
@@ -1234,38 +1285,34 @@ function VaccineReqEditor({ orgId, initial, accessToken, lang, onSaved }: {
   }
 
   const Stepper = ({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontSize: 12.5, color: "var(--w2)", minWidth: 70 }}>{label}</span>
-      <div className="inline-flex items-center" style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 8 }}>
-        <button onClick={() => onChange(Math.max(0, value - 1))} className="px-2.5 py-1.5" style={{ color: "var(--w2)", background: "transparent", border: "none", cursor: "pointer" }}>−</button>
-        <span style={{ minWidth: 24, textAlign: "center", fontSize: 13, fontWeight: 700, color: "var(--w)" }}>{value}</span>
-        <button onClick={() => onChange(Math.min(5, value + 1))} className="px-2.5 py-1.5" style={{ color: "var(--w2)", background: "transparent", border: "none", cursor: "pointer" }}>+</button>
-      </div>
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 13, color: "var(--w2)" }}>{label}</span>
+      <span style={{ display: "inline-flex", alignItems: "center", height: 34, borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)" }}>
+        <button type="button" onClick={() => onChange(Math.max(0, value - 1))} aria-label="−" style={STEP_BTN}>−</button>
+        <span style={{ minWidth: 18, textAlign: "center", fontSize: 14, fontWeight: 600, color: "var(--w)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+        <button type="button" onClick={() => onChange(Math.min(5, value + 1))} aria-label="+" style={STEP_BTN}>+</button>
+      </span>
     </div>
   );
 
   return (
     <div>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>
-        💉 {L("Vaccine requirement", "Impfanforderung", "Vaccins requis")}
-      </label>
-      <p className="text-[11px] mb-3" style={{ color: "var(--w3)" }}>
-        {L("Doses this agency's candidates must complete. 0 = none required (they won't appear on the Impfung track).",
-           "Dosen, die Kandidaten dieser Agentur benötigen. 0 = keine (erscheinen nicht im Impfweg).",
-           "Doses requises pour les candidats de cette agence. 0 = aucune (n'apparaissent pas dans le parcours vaccins).")}
+      <div style={LABEL}>{L("Vaccine requirement", "Impfanforderung", "Vaccins requis")}</div>
+      <p style={{ ...SUB, fontSize: 12.5, margin: "4px 0 12px" }}>
+        {L("Doses this agency's candidates need. 0 = none (not on the Impfung track).",
+           "Dosen, die Kandidaten dieser Agentur brauchen. 0 = keine (nicht im Impfweg).",
+           "Doses requises pour les candidats de cette agence. 0 = aucune (hors parcours vaccins).")}
       </p>
-      <div className="flex flex-col gap-2.5 mb-3">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 18px", marginBottom: 12 }}>
         <Stepper label="Masern" value={masern} onChange={setMasern} />
         <Stepper label="Varizell" value={varizell} onChange={setVarizell} />
       </div>
-      <div className="flex items-center gap-3">
-        <button onClick={save} disabled={saving}
-          className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-2 disabled:opacity-50"
-          style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, border: "none", cursor: "pointer" }}>
-          {saving ? <Spinner size="xs" color="#131312" /> : saved ? <Check size={12} strokeWidth={2} /> : null}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Btn kind="ghost" size="sm" onClick={save} disabled={saving}>
+          {saving ? <Spinner size="xs" color="var(--w2)" /> : saved ? <Check size={14} strokeWidth={2} style={{ color: STATUS_DOT.approved }} /> : null}
           {saving ? L("Saving…", "Speichern…", "…") : saved ? L("Saved", "Gespeichert", "Enregistré") : L("Save", "Speichern", "Enregistrer")}
-        </button>
-        <span className="text-[11px]" style={{ color: required ? "var(--gold)" : "var(--w3)" }}>
+        </Btn>
+        <span style={{ fontSize: 12.5, color: required ? "var(--w2)" : "var(--w3)", fontWeight: required ? 600 : 400 }}>
           {required ? L(`Requires ${masern + varizell} dose(s)`, `Benötigt ${masern + varizell} Dosis(en)`, `${masern + varizell} dose(s)`) : L("No Impfung required", "Keine Impfung nötig", "Aucun vaccin requis")}
         </span>
       </div>
@@ -1333,48 +1380,43 @@ function RequiredDocsEditor({ orgId, orgName, initial, accessToken, lang, onSave
   }
 
   return (
-    <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>
-        ✅ {L("Required documents", "Erforderliche Dokumente", "Documents requis")}
-      </label>
-      <p className="text-[11px] mb-3" style={{ color: "var(--w3)" }}>
-        {L(`Tick only the papers ${orgName} actually needs. The completion % is measured against these — untick what doesn't apply.`,
-           `Nur die Papiere ankreuzen, die ${orgName} wirklich braucht. Der Fertig-Prozentsatz zählt nur diese.`,
-           `Cochez uniquement les documents dont ${orgName} a besoin. Le % d'avancement ne compte que ceux-ci.`)}
+    <div>
+      <div style={LABEL}>{L("Required documents", "Erforderliche Dokumente", "Documents requis")}</div>
+      <p style={{ ...SUB, fontSize: 12.5, margin: "4px 0 12px" }}>
+        {L(`Tick only what ${orgName} needs — the completion % counts only these.`,
+           `Nur ankreuzen, was ${orgName} wirklich braucht — der Fertig-Prozentsatz zählt nur diese.`,
+           `Cochez seulement ce dont ${orgName} a besoin — le % d'avancement ne compte que ceux-ci.`)}
       </p>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-3">
+      {/* one quiet pill per paper: green ring filled = counts */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
         {CHECKLIST_ITEMS.map(item => {
           const on = sel.has(item.key);
           return (
-            <button key={item.key} onClick={() => toggle(item.key)} type="button"
-              className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg transition-colors"
-              style={{ background: on ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`, cursor: "pointer" }}>
-              <span className="flex items-center justify-center flex-shrink-0" style={{ width: 16, height: 16, borderRadius: 5, background: on ? "var(--gold)" : "transparent", border: `1.5px solid ${on ? "var(--gold)" : "var(--w3)"}` }}>
-                {on && <Check size={11} strokeWidth={3} color="#131312" />}
-              </span>
-              <span className="text-[12px]" style={{ color: on ? "var(--w)" : "var(--w2)" }}>{label(item.key)}</span>
+            <button key={item.key} onClick={() => toggle(item.key)} type="button" aria-pressed={on}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 11px 5px 8px", borderRadius: 999, border: "1px solid var(--border)",
+                background: "var(--card)", fontSize: 12.5, color: on ? "var(--w)" : "var(--w3)", cursor: "pointer", fontFamily: "inherit" }}>
+              <i style={{ width: 14, height: 14, borderRadius: "50%", display: "inline-block", flex: "none",
+                border: `1.5px solid ${on ? STATUS_DOT.approved : "var(--w3)"}`, background: on ? STATUS_DOT.approved : "transparent" }} />
+              {label(item.key)}
             </button>
           );
         })}
       </div>
-      <div className="flex items-center gap-3">
-        <button onClick={() => save(false)} disabled={saving}
-          className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-2 disabled:opacity-50"
-          style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, border: "none", cursor: "pointer" }}>
-          {saving ? <Spinner size="xs" color="#131312" /> : saved ? <Check size={12} strokeWidth={2} /> : null}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Btn kind="ghost" size="sm" onClick={() => save(false)} disabled={saving}>
+          {saving ? <Spinner size="xs" color="var(--w2)" /> : saved ? <Check size={14} strokeWidth={2} style={{ color: STATUS_DOT.approved }} /> : null}
           {saving ? L("Saving…", "Speichern…", "…") : saved ? L("Saved", "Gespeichert", "Enregistré") : L("Save", "Speichern", "Enregistrer")}
-        </button>
-        <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+        </Btn>
+        <span style={{ fontSize: 12.5, color: "var(--w3)" }}>
           {custom
             ? L(`${sel.size} required`, `${sel.size} erforderlich`, `${sel.size} requis`)
             : L("Using the default set", "Standard-Set aktiv", "Ensemble par défaut")}
         </span>
         {custom && (
-          <button onClick={() => save(true)} disabled={saving}
-            className="text-[11px] font-medium ml-auto"
-            style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+          <Btn kind="quiet" size="sm" onClick={() => save(true)} disabled={saving}
+            style={{ marginLeft: "auto", padding: 0, fontSize: 12.5, textDecoration: "underline", textUnderlineOffset: 3 }}>
             {L("Reset to default", "Auf Standard zurücksetzen", "Réinitialiser")}
-          </button>
+          </Btn>
         )}
       </div>
     </div>

@@ -23,10 +23,11 @@ import { withTimeout } from "@/lib/authNet";
 import { useLang } from "@/components/LangContext";
 import { AddBookingModal } from "@/components/AddBookingModal";
 import { PageLoader } from "@/components/ui/states";
-import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui/Modal";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
+import { PageHead, Btn, Card, Seg, Dot, Empty, Pager, usePaged, STATUS_DOT, STATUS_TINT } from "@/components/fx/kit";
 import {
-  ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
+  ChevronLeft, ChevronRight, CalendarDays, Lock, Plus,
   Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown, CalendarCheck, ExternalLink, Loader2,
   AlertTriangle,
 } from "lucide-react";
@@ -85,9 +86,24 @@ type Ev = {
  */
 const SOURCE_DOT: Record<NonNullable<Ev["source"]>, string> = {
   portal: "var(--gold)",
-  booking: "#16a34a",
+  booking: STATUS_DOT.approved,
   google: "var(--w3)",
 };
+/** The same three as soft tints (the one design: colour is a quiet tint, never a loud fill). */
+const SOURCE_TINT: Record<NonNullable<Ev["source"]>, string> = {
+  portal: "color-mix(in srgb, var(--gold) 13%, transparent)",
+  booking: STATUS_TINT.approved,
+  google: "var(--bg2)",
+};
+
+/** Nobody scrolls: the month is one screen. A day cell gets a sixth of what the
+ *  viewport leaves — 279px of navbar + head + month bar on a laptop, 138px more on a
+ *  phone (< 640px: stacked head, two-row month bar, bottom nav; the inner clamp is
+ *  that step) → 86px on 1280×800, ~71px on 390×844. `extra` = what else sits above
+ *  the grid (the "could not load" strip). Shows CHIPS events, the rest as "+N more"
+ *  (the day panel lists them all). */
+const cellH = (extra = 0) => `clamp(46px, calc((100dvh - ${279 + extra}px - clamp(0px, calc((640px - 100vw) * 999), 138px)) / 6), 86px)`;
+const CHIPS = 2;
 
 type TaggedPerson = { id: string; name: string };
 type Draft = {
@@ -689,76 +705,61 @@ export default function CalendarPage() {
 
   if (loading) return <PageLoader />;
 
-  // ── Small pieces ──────────────────────────────────────────────────────────────
-  const Toggle = (
-    <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-      {([["month", CalendarDays, T("Grid", "Raster", "Grille")], ["list", List, T("List", "Liste", "Liste")]] as const).map(([v, Icon, label]) => (
-        <button key={v} onClick={() => setView(v)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-          style={view === v
-            ? { background: "var(--gold)", color: "#131312" }
-            : { background: "transparent", color: "var(--w3)" }}>
-          <Icon size={14} strokeWidth={2} /> <span className="hidden sm:inline">{label}</span>
-        </button>
-      ))}
-    </div>
-  );
+  // ── The one design (founder 2026-11-13: "one system, one design, one everything") ──
+  // Serif head with the Casablanca clock as its quiet sub line, one black pill,
+  // the month fits one screen, the list flips (usePaged) instead of scrolling.
+  const viewOpts: ["month" | "list", string][] = [["month", T("Grid", "Raster", "Grille")], ["list", T("List", "Liste", "Liste")]];
+  const roundBtn: React.CSSProperties = {
+    width: 32, height: 32, padding: 0, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)",
+    color: "var(--w2)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none",
+  };
+  const linkStyle: React.CSSProperties = { color: "var(--w)", textDecoration: "underline", textDecorationColor: "var(--border2)", textUnderlineOffset: 3 };
+  const infoIcon: React.CSSProperties = { color: "var(--gold)", flexShrink: 0 };
+  const gridCellH = cellH(loadFailed ? 60 : 0);   // the "could not load" strip takes ~60px above the grid
 
   return (
     <main id="bv-main" className="mx-auto px-4 sm:px-5 py-6 sm:py-10 bv-page-bottom" style={{ maxWidth: 1120 }}>
-      {/* Header */}
-      <div className="mb-5">
-        <p className="bv-eyebrow">{T("Community", "Community", "Communauté")}</p>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <button onClick={goToday} className="bv-btn bv-btn-ghost text-[12.5px] px-3 py-1.5">
-            {T("Today", "Heute", "Aujourd'hui")}
-          </button>
-          <div className="flex items-center gap-1">
-            <button onClick={goPrev} aria-label={T("Previous month", "Vorheriger Monat", "Mois précédent")}
-              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w2)" }}>
-              <ChevronLeft size={17} strokeWidth={2} />
-            </button>
-            <button onClick={goNext} aria-label={T("Next month", "Nächster Monat", "Mois suivant")}
-              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w2)" }}>
-              <ChevronRight size={17} strokeWidth={2} />
-            </button>
-          </div>
-          <span className="text-[16px] sm:text-[18px] font-semibold capitalize" style={{ color: "var(--w)" }}>{monthTitle}</span>
-        </div>
-
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px]" style={{ color: "var(--w3)" }}>
-            <Clock size={13} /> {clock} · {T("Casablanca time", "Casablanca-Zeit", "Heure de Casablanca")}
-          </span>
-          <button onClick={() => setSyncOpen(true)}
-            className="bv-btn bv-btn-ghost text-[12.5px] px-3 py-1.5 inline-flex items-center gap-1.5"
+      <PageHead
+        title={T("Calendar", "Kalender", "Calendrier")}
+        sub={`${clock} · ${T("Casablanca time", "Casablanca-Zeit", "Heure de Casablanca")}`}
+        actions={<>
+          <Btn kind="ghost" size="sm" onClick={() => setSyncOpen(true)}
             title={T("Sync with your calendar", "Mit deinem Kalender synchronisieren", "Synchroniser avec votre calendrier")}>
-            <CalendarCheck size={14} /> <span className="hidden sm:inline">{T("Sync", "Sync", "Sync")}</span>
-          </button>
-          {Toggle}
+            <CalendarCheck size={14} />{T("Sync", "Sync", "Sync")}
+          </Btn>
           {/* Two different things, deliberately two buttons: an EVENT is a
               Borivon happening on the community calendar; an APPOINTMENT is a
               call with one person, which creates the Google invite, the Meet
               link and the follow-up chase. Merging them into one control would
-              hide that difference. */}
+              hide that difference. One black pill per screen: the event for the
+              supreme admin, the appointment for the other staff. */}
           {isStaff && (
-            <button onClick={() => setApptWhen(defaultApptWhen())}
-              className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5"
-              style={{ background: "rgba(22,163,74,.14)", color: "#16a34a", border: "1px solid rgba(22,163,74,.38)", borderRadius: "var(--r-md)" }}>
-              <CalendarPlus size={15} strokeWidth={2.2} /> {T("Appointment", "Termin buchen", "Rendez-vous")}
-            </button>
+            <Btn kind={canManage ? "ghost" : "primary"} size="sm" onClick={() => setApptWhen(defaultApptWhen())}>
+              <CalendarPlus size={14} />{T("Appointment", "Termin buchen", "Rendez-vous")}
+            </Btn>
           )}
           {canManage && (
-            <button onClick={() => openAdd()} className="bv-glow-gold bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-gold-sm)" }}>
-              <Plus size={15} strokeWidth={2.4} /> {T("Add event", "Termin", "Événement")}
-            </button>
+            <Btn kind="primary" size="sm" onClick={() => openAdd()}>
+              <Plus size={14} strokeWidth={2.2} />{T("Add event", "Termin", "Événement")}
+            </Btn>
           )}
+        </>} />
+
+      {/* Month bar — ‹ month › and Today on the left, Grid · List on the right */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px 12px", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button type="button" onClick={goPrev} aria-label={T("Previous month", "Vorheriger Monat", "Mois précédent")} style={roundBtn}>
+            <ChevronLeft size={16} strokeWidth={1.8} />
+          </button>
+          <span style={{ minWidth: 164, textAlign: "center", fontFamily: "var(--font-serif)", fontSize: 22, lineHeight: 1.15, color: "var(--w)", textTransform: "capitalize", whiteSpace: "nowrap" }}>
+            {monthTitle}
+          </span>
+          <button type="button" onClick={goNext} aria-label={T("Next month", "Nächster Monat", "Mois suivant")} style={roundBtn}>
+            <ChevronRight size={16} strokeWidth={1.8} />
+          </button>
+          <Btn kind="ghost" size="sm" onClick={goToday} style={{ marginLeft: 6 }}>{T("Today", "Heute", "Aujourd'hui")}</Btn>
         </div>
+        <Seg value={view} options={viewOpts} onChange={setView} />
       </div>
 
       {/* ── "This month may be wrong" strip ──
@@ -767,34 +768,28 @@ export default function CalendarPage() {
           says the difference out loud, in both views, and offers the retry the
           spinner never gave her. */}
       {loadFailed && (
-        <div className="mb-3 px-3.5 py-2.5 flex items-start gap-2.5"
-          style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)", borderRadius: "var(--r-sm)" }}>
-          <AlertTriangle size={14} strokeWidth={2} style={{ color: "var(--warning)", flexShrink: 0, marginTop: 1 }} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[12px] leading-[1.45]" style={{ color: "var(--w2)" }}>
-              {T("We couldn’t load your calendar — this month may be incomplete.",
-                "Ihr Kalender konnte nicht geladen werden — dieser Monat ist möglicherweise unvollständig.",
-                "Impossible de charger votre calendrier — ce mois est peut-être incomplet.")}
-            </p>
-            <button onClick={() => void retryLoad()} disabled={retrying}
-              className="mt-1.5 text-[11.5px] font-semibold underline"
-              style={{ color: "var(--gold)", opacity: retrying ? 0.6 : 1 }}>
-              {retrying
-                ? T("Loading…", "Wird geladen…", "Chargement…")
-                : T("Try again", "Erneut versuchen", "Réessayer")}
-            </button>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 6px 6px 14px", borderRadius: 12, background: STATUS_TINT.pending, marginBottom: 12 }}>
+          <Dot st="pending" />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.4, color: "var(--w)" }}>
+            {T("Calendar not loaded — events may be missing.",
+              "Kalender nicht geladen — Termine können fehlen.",
+              "Calendrier non chargé — des événements peuvent manquer.")}
+          </span>
+          <Btn kind="quiet" size="sm" onClick={() => void retryLoad()} disabled={retrying} style={{ color: "var(--w)", fontWeight: 600 }}>
+            {retrying
+              ? T("Loading…", "Wird geladen…", "Chargement…")
+              : T("Try again", "Erneut versuchen", "Réessayer")}
+          </Btn>
         </div>
       )}
 
-      {/* ── Month grid ────────────────────────────────────────────────────────── */}
+      {/* ── Month grid — one screen, never scrolls ─────────────────────────────── */}
       {view === "month" ? (
-        <div className="bv-card overflow-hidden" style={{ padding: 0 }}>
+        <Card style={{ overflow: "hidden" }}>
           {/* Weekday header */}
           <div className="grid grid-cols-7" style={{ borderBottom: "1px solid var(--border)" }}>
             {weekdayLabels.map((w, i) => (
-              <div key={i} className="px-2 py-2.5 text-[10.5px] sm:text-[11px] font-semibold uppercase tracking-wide text-center"
-                style={{ color: "var(--w3)" }}>{w}</div>
+              <div key={i} style={{ padding: "8px 0", textAlign: "center", fontSize: 12, color: "var(--w3)" }}>{w}</div>
             ))}
           </div>
           {/* Day cells */}
@@ -804,7 +799,7 @@ export default function CalendarPage() {
               const isToday = cell.ymd === todayYMD;
               const clickable = dayEvents.length > 0 || canManage || isStaff;
               return (
-                <button key={cell.ymd + i} disabled={!clickable}
+                <button key={cell.ymd + i} type="button" disabled={!clickable}
                   // Empty day: the supreme admin gets the community-event form
                   // (his page); other staff get the appointment form, since
                   // booking a call is the thing THEY come here to do.
@@ -813,160 +808,111 @@ export default function CalendarPage() {
                     else if (canManage) openAdd(cell.ymd);
                     else if (isStaff) setApptWhen(apptWhenFor(cell.ymd));
                   }}
-                  className="relative text-left p-1.5 sm:p-2 flex flex-col gap-1 transition-colors disabled:cursor-default"
+                  className="relative text-left flex flex-col disabled:cursor-default"
                   style={{
-                    minHeight: "clamp(74px, 13vw, 116px)",
+                    height: gridCellH, minWidth: 0, gap: 3, padding: 5, overflow: "hidden", background: "transparent",
                     borderRight: (i % 7 !== 6) ? "1px solid var(--border)" : undefined,
                     borderBottom: i < 35 ? "1px solid var(--border)" : undefined,
-                    background: cell.inMonth ? "transparent" : "var(--bg2)",
-                    opacity: cell.inMonth ? 1 : 0.55,
+                    opacity: cell.inMonth ? 1 : 0.45,
                   }}>
-                  {/* Day number */}
-                  <span className="inline-flex items-center justify-center text-[11.5px] sm:text-[12.5px] font-semibold self-end"
-                    style={isToday
-                      ? { width: 22, height: 22, borderRadius: 999, background: "var(--gold)", color: "#131312" }
-                      : { color: cell.inMonth ? "var(--w2)" : "var(--w3)" }}>
-                    {cell.day}
-                  </span>
-                  {/* Events: chips on desktop, dots on phones */}
-                  <div className="flex flex-col gap-1 min-w-0">
-                    {dayEvents.slice(0, 3).map((e) => (
-                      <span key={e.id}
-                        onClick={(ev) => { ev.stopPropagation(); setDetail(e); }}
-                        className="hidden sm:flex items-center gap-1 px-1.5 py-1 rounded-[6px] text-[10.5px] font-medium truncate cursor-pointer"
-                        style={{
-                          // Colour carries the SOURCE — gold community event,
-                          // green booked call, grey the founder's own Google time.
-                          background: e.locked ? "var(--bg2)" : `color-mix(in srgb, ${SOURCE_DOT[e.source ?? "portal"]} 16%, transparent)`,
-                          color: e.locked ? "var(--w3)" : SOURCE_DOT[e.source ?? "portal"],
-                          border: `1px solid color-mix(in srgb, ${SOURCE_DOT[e.source ?? "portal"]} 26%, transparent)`,
-                        }}>
-                        {e.locked ? <Lock size={9} strokeWidth={2.4} className="flex-shrink-0" /> : <span className="flex-shrink-0" style={{ width: 5, height: 5, borderRadius: 999, background: SOURCE_DOT[e.source ?? "portal"] }} />}
-                        <span className="truncate">{fmtTime(e.starts_at)} {e.title}</span>
-                      </span>
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <span className="hidden sm:block text-[10px] font-medium pl-1" style={{ color: "var(--w3)" }}>
-                        +{dayEvents.length - 3} {T("more", "mehr", "plus")}
+                  {/* Day number (today = the ink circle) · how many more than the chips show */}
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, minWidth: 0 }}>
+                    <span style={{
+                      width: 22, height: 22, flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999,
+                      fontSize: 12.5, fontWeight: isToday ? 600 : 500, fontVariantNumeric: "tabular-nums",
+                      ...(isToday ? { background: "var(--w)", color: "var(--bg)" } : { color: cell.inMonth ? "var(--w2)" : "var(--w3)" }),
+                    }}>
+                      {cell.day}
+                    </span>
+                    {dayEvents.length > CHIPS && (
+                      <span className="hidden sm:block" style={{ fontSize: 11, color: "var(--w3)", whiteSpace: "nowrap", paddingRight: 2 }}>
+                        +{dayEvents.length - CHIPS} {T("more", "mehr", "plus")}
                       </span>
                     )}
+                  </span>
+                  {/* Events: soft chips on desktop, dots on phones */}
+                  <span className="flex flex-col min-w-0" style={{ gap: 3 }}>
+                    {dayEvents.slice(0, CHIPS).map((e) => {
+                      const src = e.source ?? "portal";
+                      return (
+                        <span key={e.id} title={e.title}
+                          onClick={(ev) => { ev.stopPropagation(); setDetail(e); }}
+                          className="hidden sm:flex items-center"
+                          style={{
+                            gap: 5, minWidth: 0, padding: "2px 6px", borderRadius: 6, fontSize: 11.5, lineHeight: "16px", fontWeight: 500, cursor: "pointer",
+                            // Colour carries the SOURCE, as a soft tint — gold community
+                            // event, green booked call, grey the founder's own Google time.
+                            background: e.locked ? "var(--bg2)" : SOURCE_TINT[src],
+                            color: e.locked ? "var(--w3)" : "var(--w)",
+                          }}>
+                          {e.locked
+                            ? <Lock size={9} strokeWidth={2.4} className="flex-shrink-0" />
+                            : <span className="flex-shrink-0" style={{ width: 5, height: 5, borderRadius: 999, background: SOURCE_DOT[src] }} />}
+                          <span className="truncate"><span style={{ color: "var(--w3)", fontWeight: 400 }}>{fmtTime(e.starts_at)}</span> {e.title}</span>
+                        </span>
+                      );
+                    })}
                     {/* Mobile dot row */}
                     {dayEvents.length > 0 && (
-                      <span className="flex sm:hidden items-center gap-0.5 flex-wrap">
+                      <span className="flex sm:hidden items-center gap-0.5 flex-wrap" style={{ paddingLeft: 3 }}>
                         {dayEvents.slice(0, 4).map((e) => (
                           <span key={e.id} style={{ width: 5, height: 5, borderRadius: 999, background: e.locked ? "var(--w3)" : SOURCE_DOT[e.source ?? "portal"] }} />
                         ))}
                       </span>
                     )}
-                  </div>
+                  </span>
                 </button>
               );
             })}
           </div>
-        </div>
-      ) : (
-        /* ── List view ──────────────────────────────────────────────────────── */
-        <div className="flex flex-col gap-3">
-          {monthEvents.length === 0 ? (
-            /* "Nothing on this month" and "we could not read your calendar"
-               are DIFFERENT sentences now. They used to be the same one, so a
-               500 on /api/portal/calendar calmly told a candidate with an
-               interview that week that she had nothing on. */
-            calendarEmptyKind({ loaded: !loading, failed: loadFailed, monthCount: 0 }) === "failed" ? (
-              <div className="bv-card text-center py-16">
-                <AlertTriangle size={26} strokeWidth={1.6} className="mx-auto mb-3" style={{ color: "var(--warning)" }} />
-                <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
-                  {T("We couldn’t load your calendar.",
-                    "Ihr Kalender konnte nicht geladen werden.",
-                    "Impossible de charger votre calendrier.")}
-                </p>
-                <button onClick={() => void retryLoad()} disabled={retrying}
-                  className="bv-btn bv-btn-ghost mt-3 inline-flex" style={{ opacity: retrying ? 0.6 : 1 }}>
-                  {retrying
-                    ? T("Loading…", "Wird geladen…", "Chargement…")
-                    : T("Try again", "Erneut versuchen", "Réessayer")}
-                </button>
-              </div>
-            ) : (
-            <div className="bv-card text-center py-16">
-              <CalendarDays size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
-              <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
-                {T("No events this month", "Keine Termine in diesem Monat", "Aucun événement ce mois-ci")}
-              </p>
+        </Card>
+      ) : monthEvents.length === 0 ? (
+        /* "Nothing on this month" and "we could not read your calendar"
+           are DIFFERENT sentences now. They used to be the same one, so a
+           500 on /api/portal/calendar calmly told a candidate with an
+           interview that week that she had nothing on. */
+        calendarEmptyKind({ loaded: !loading, failed: loadFailed, monthCount: 0 }) === "failed" ? (
+          <Card>
+            <Empty icon={<AlertTriangle size={24} strokeWidth={1.6} style={{ color: STATUS_DOT.pending }} />}>
+              <span style={{ color: "var(--w2)" }}>
+                {T("We couldn’t load your calendar.",
+                  "Ihr Kalender konnte nicht geladen werden.",
+                  "Impossible de charger votre calendrier.")}
+              </span>
+              <Btn kind="ghost" size="sm" onClick={() => void retryLoad()} disabled={retrying}>
+                {retrying
+                  ? T("Loading…", "Wird geladen…", "Chargement…")
+                  : T("Try again", "Erneut versuchen", "Réessayer")}
+              </Btn>
+            </Empty>
+          </Card>
+        ) : (
+          <Card>
+            <Empty icon={<CalendarDays size={26} strokeWidth={1.5} />}>
+              <span style={{ color: "var(--w2)" }}>{T("No events this month", "Keine Termine in diesem Monat", "Aucun événement ce mois-ci")}</span>
               {canManage && (
-                <button onClick={() => openAdd()} className="bv-btn bv-btn-ghost mt-3 inline-flex">
-                  <CalendarPlus size={15} /> {T("Add the first event", "Ersten Termin hinzufügen", "Ajouter le premier événement")}
-                </button>
+                <Btn kind="ghost" size="sm" onClick={() => openAdd()}>
+                  <CalendarPlus size={14} />{T("Add the first event", "Ersten Termin hinzufügen", "Ajouter le premier événement")}
+                </Btn>
               )}
-            </div>
-            )
-          ) : monthEvents.map((e) => (
-            <button key={e.id} onClick={() => setDetail(e)}
-              className="bv-card bv-press flex items-stretch gap-0 overflow-hidden text-left p-0" style={{ borderRadius: "var(--r-xl)" }}>
-              {/* Cover / date badge */}
-              {e.image_url ? (
-                <div className="relative flex-shrink-0" style={{ width: 132, minHeight: 104 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={e.image_url} alt="" className="w-full h-full object-cover" style={{ filter: e.locked ? "blur(3px) brightness(0.6)" : undefined }} />
-                  {e.locked && <span className="absolute inset-0 flex items-center justify-center"><Lock size={20} style={{ color: "#fff" }} /></span>}
-                </div>
-              ) : (
-                <div className="flex-shrink-0 flex flex-col items-center justify-center"
-                  style={{ width: 92, background: "color-mix(in srgb, var(--gold) 12%, transparent)", borderRight: "1px solid var(--border)" }}>
-                  <span className="text-[10px] font-semibold uppercase" style={{ color: "var(--gold)" }}>
-                    {new Intl.DateTimeFormat(locale, { month: "short", timeZone: TZ }).format(new Date(e.starts_at))}
-                  </span>
-                  <span className="text-[26px] font-bold leading-none" style={{ color: "var(--w)" }}>
-                    {casaParts(new Date(e.starts_at)).d}
-                  </span>
-                </div>
-              )}
-              {/* Body */}
-              <div className="flex-1 min-w-0 p-3.5 sm:p-4 flex flex-col justify-center gap-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: "var(--w3)" }}>
-                    <Clock size={12} /> {fmtRange(e)}
-                  </span>
-                  {e.vip_only && (
-                    <span className="bv-chip bv-chip-gold inline-flex items-center gap-1" style={{ fontSize: 10.5 }}>
-                      <Crown size={10} /> VIP
-                    </span>
-                  )}
-                </div>
-                <p className="text-[14.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{e.title}</p>
-                <div className="flex items-center gap-3 text-[12px]" style={{ color: "var(--w3)" }}>
-                  {e.location && <span className="inline-flex items-center gap-1 truncate"><MapPin size={12} /> {e.location}</span>}
-                  {e.link_url && <span className="inline-flex items-center gap-1"><Video size={12} /> {T("Online", "Online", "En ligne")}</span>}
-                  {e.locked && <span className="inline-flex items-center gap-1" style={{ color: "var(--gold)" }}><Lock size={12} /> {T("Unlock with VIP", "Mit VIP freischalten", "Débloquer avec VIP")}</span>}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
+            </Empty>
+          </Card>
+        )
+      ) : (
+        /* ── List view — the month's events, flipping ‹ › instead of scrolling ── */
+        <EventList key={`${cursor.y}-${cursor.m}`} items={monthEvents} onOpen={setDetail} T={T} locale={locale} fmtRange={fmtRange} />
       )}
 
       {/* ── Day panel modal (events on one day) ───────────────────────────────── */}
       <Modal open={!!dayPanel} onClose={() => setDayPanel(null)} size="sm"
         title={dayPanel ? fmtFullDate(`${dayPanel}T12:00:00Z`) : ""}>
-        <div className="p-4 flex flex-col gap-2">
-          {(dayPanel ? (eventsByDay[dayPanel] ?? []) : []).map((e) => (
-            <button key={e.id} onClick={() => { setDayPanel(null); setDetail(e); }}
-              className="bv-press text-left p-3 rounded-[12px] flex items-center gap-3"
-              style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-              <span className="flex-shrink-0 inline-flex items-center justify-center" style={{ width: 34, height: 34, borderRadius: 10, background: "color-mix(in srgb, var(--gold) 16%, transparent)" }}>
-                {e.locked ? <Lock size={15} style={{ color: "var(--w3)" }} /> : <CalendarDays size={15} style={{ color: "var(--gold)" }} />}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{e.title}</span>
-                <span className="block text-[12px]" style={{ color: "var(--w3)" }}>{fmtRange(e)}</span>
-              </span>
-            </button>
-          ))}
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <DayEvents key={dayPanel ?? ""} items={dayPanel ? (eventsByDay[dayPanel] ?? []) : []} fmtRange={fmtRange}
+            onOpen={(e) => { setDayPanel(null); setDetail(e); }} />
           {canManage && dayPanel && (
-            <button onClick={() => { const d = dayPanel; setDayPanel(null); openAdd(d); }}
-              className="bv-btn bv-btn-ghost mt-1 inline-flex justify-center">
-              <Plus size={15} /> {T("Add event", "Termin hinzufügen", "Ajouter un événement")}
-            </button>
+            <Btn kind="ghost" onClick={() => { const d = dayPanel; setDayPanel(null); openAdd(d); }} style={{ width: "100%" }}>
+              <Plus size={15} />{T("Add event", "Termin hinzufügen", "Ajouter un événement")}
+            </Btn>
           )}
         </div>
       </Modal>
@@ -989,41 +935,42 @@ export default function CalendarPage() {
         {detail && (
           <div className="flex flex-col">
             {detail.image_url && (
-              <div className="relative" style={{ maxHeight: 220, overflow: "hidden", borderRadius: "20px 20px 0 0" }}>
+              <div className="relative" style={{ maxHeight: 200, overflow: "hidden", borderRadius: "20px 20px 0 0" }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={detail.image_url} alt="" className="w-full object-cover" style={{ maxHeight: 220, filter: detail.locked ? "blur(6px) brightness(0.55)" : undefined }} />
+                <img src={detail.image_url} alt="" className="w-full object-cover" style={{ maxHeight: 200, filter: detail.locked ? "blur(6px) brightness(0.55)" : undefined }} />
                 {detail.locked && (
                   <span className="absolute inset-0 flex flex-col items-center justify-center gap-1" style={{ color: "#fff" }}>
-                    <Lock size={26} /> <span className="text-[12px] font-semibold">{T("VIP only", "Nur VIP", "VIP uniquement")}</span>
+                    <Lock size={24} /> <span style={{ fontSize: 12, fontWeight: 600 }}>{T("VIP only", "Nur VIP", "VIP uniquement")}</span>
                   </span>
                 )}
               </div>
             )}
-            <div className="p-5 flex flex-col gap-3">
+            <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   {detail.vip_only && (
-                    <span className="bv-chip bv-chip-gold inline-flex items-center gap-1 mb-2" style={{ fontSize: 10.5 }}>
-                      <Crown size={10} /> VIP
+                    <span style={{ display: "flex", alignItems: "center", gap: 5, width: "fit-content", marginBottom: 6, fontSize: 12, fontWeight: 600, color: "var(--w2)" }}>
+                      <Crown size={12} style={{ color: "var(--gold)" }} /> VIP
                     </span>
                   )}
-                  <h2 className="text-[19px] font-bold leading-tight" style={{ color: "var(--w)" }}>{detail.title}</h2>
+                  <h2 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1.15, color: "var(--w)", overflowWrap: "anywhere" }}>{detail.title}</h2>
                   {/* Host is ALWAYS shown as the organisation "Borivon" — never the
                       individual admin who created it (identity-masking rule). */}
-                  <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>
-                    {T("by", "von", "par")} <span style={{ color: "var(--gold)", fontWeight: 600 }}>Borivon</span>
+                  <p style={{ margin: "5px 0 0", fontSize: 12.5, color: "var(--w3)" }}>
+                    {T("by", "von", "par")} <span style={{ color: "var(--w2)", fontWeight: 600 }}>Borivon</span>
                   </p>
                 </div>
-                <button onClick={() => setDetail(null)} aria-label="Close" className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>✕</button>
+                <button type="button" onClick={() => setDetail(null)} aria-label="Close"
+                  style={{ width: 32, height: 32, flex: "none", borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w3)", cursor: "pointer", fontSize: 13 }}>✕</button>
               </div>
 
-              <div className="flex flex-col gap-2 text-[13px]" style={{ color: "var(--w2)" }}>
-                <span className="inline-flex items-center gap-2"><CalendarDays size={14} style={{ color: "var(--gold)" }} /> {fmtFullDate(detail.starts_at)}</span>
-                <span className="inline-flex items-center gap-2"><Clock size={14} style={{ color: "var(--gold)" }} /> {fmtRange(detail)} · {T("Casablanca time", "Casablanca-Zeit", "Heure de Casablanca")}</span>
-                {detail.location && <span className="inline-flex items-center gap-2"><MapPin size={14} style={{ color: "var(--gold)" }} /> {detail.location}</span>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 13.5, color: "var(--w2)" }}>
+                <span className="inline-flex items-center gap-2"><CalendarDays size={14} style={infoIcon} /> {fmtFullDate(detail.starts_at)}</span>
+                <span className="inline-flex items-center gap-2"><Clock size={14} style={infoIcon} /> {fmtRange(detail)} · {T("Casablanca time", "Casablanca-Zeit", "Heure de Casablanca")}</span>
+                {detail.location && <span className="inline-flex items-center gap-2"><MapPin size={14} style={infoIcon} /> {detail.location}</span>}
                 {canManage && detail.attendee_ids && detail.attendee_ids.length > 0 && (
                   <span className="inline-flex items-start gap-2">
-                    <Users size={14} style={{ color: "var(--gold)", marginTop: 1 }} />
+                    <Users size={14} style={{ ...infoIcon, marginTop: 2 }} />
                     <span>{T("Tagged", "Markiert", "Tagués")}: {detail.attendee_ids.map((id) => people.find((p) => p.id === id)?.name || "—").join(", ")}</span>
                   </span>
                 )}
@@ -1033,32 +980,29 @@ export default function CalendarPage() {
                   link, so the diary is something you can ACT on rather than just
                   read. Only staff ever receive these rows from the API. */}
               {detail.source === "booking" && detail.booking && (
-                <div className="rounded-[14px] p-4 flex flex-col gap-2"
-                  style={{ background: "rgba(22,163,74,.08)", border: "1px solid rgba(22,163,74,.32)" }}>
-                  <span className="text-[11px] uppercase font-semibold" style={{ color: "#16a34a", letterSpacing: ".06em" }}>
+                <div style={{ borderRadius: 12, padding: 14, background: STATUS_TINT.approved, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: "var(--w)" }}>
+                    <Dot st="approved" size={7} />
                     {T("Booked call", "Gebuchter Termin", "Rendez-vous réservé")}
                     {detail.booking.addedByHand ? ` · ${T("added by hand", "manuell", "ajouté à la main")}` : ""}
                   </span>
-                  <span className="text-[14px] font-medium" style={{ color: "var(--w)" }}>
+                  <span style={{ fontSize: 15, fontWeight: 500, color: "var(--w)" }}>
                     {detail.booking.company || detail.booking.name}
                   </span>
-                  <div className="flex flex-col gap-1 text-[13px]" style={{ color: "var(--w2)" }}>
+                  <div className="flex flex-col gap-1" style={{ fontSize: 13, color: "var(--w2)" }}>
                     {detail.booking.company && <span>{detail.booking.name}</span>}
-                    {detail.booking.email && <a className="bv-link" href={`mailto:${detail.booking.email}`}>{detail.booking.email}</a>}
-                    {detail.booking.phone && <a className="bv-link" href={`tel:${detail.booking.phone.replace(/\s/g, "")}`}>{detail.booking.phone}</a>}
+                    {detail.booking.email && <a style={linkStyle} href={`mailto:${detail.booking.email}`}>{detail.booking.email}</a>}
+                    {detail.booking.phone && <a style={linkStyle} href={`tel:${detail.booking.phone.replace(/\s/g, "")}`}>{detail.booking.phone}</a>}
                   </div>
                   <div className="flex items-center gap-2 flex-wrap mt-1">
                     {detail.booking.meetLink && (
-                      <a href={detail.booking.meetLink} target="_blank" rel="noopener noreferrer"
-                        className="bv-press inline-flex items-center gap-1.5 text-[13px] font-semibold px-4 py-2"
-                        style={{ background: "#16a34a", color: "#fff", borderRadius: "var(--r-md)" }}>
-                        <Video size={15} /> {T("Join the call", "Zum Termin", "Rejoindre l'appel")}
+                      <a href={detail.booking.meetLink} target="_blank" rel="noopener noreferrer" className="bvk-btn bvk-ghost bvk-sm">
+                        <Video size={14} /> {T("Join the call", "Zum Termin", "Rejoindre l'appel")}
                       </a>
                     )}
-                    <button onClick={() => { setDetail(null); router.push("/portal/admin/bookings"); }}
-                      className="bv-btn bv-btn-ghost bv-tap text-[12.5px]">
+                    <Btn kind="quiet" size="sm" onClick={() => { setDetail(null); router.push("/portal/admin/bookings"); }}>
                       {T("Manage", "Verwalten", "Gérer")}
-                    </button>
+                    </Btn>
                   </div>
                 </div>
               )}
@@ -1066,8 +1010,8 @@ export default function CalendarPage() {
               {/* The founder's own Workspace time. Shown so nobody double-books
                   him; it belongs to Google and the portal never edits it. */}
               {detail.source === "google" && (
-                <div className="rounded-[14px] p-3 flex flex-col gap-3" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                  <p className="text-[13px]" style={{ color: "var(--w3)" }}>
+                <div style={{ borderRadius: 12, padding: 14, background: "var(--bg2)", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--w2)" }}>
                     {T("From the Borivon Google Workspace calendar — this time is taken.",
                        "Aus dem Borivon-Google-Workspace-Kalender — diese Zeit ist belegt.",
                        "Depuis l'agenda Google Workspace de Borivon — ce créneau est pris.")}
@@ -1080,36 +1024,29 @@ export default function CalendarPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <input
                         type="datetime-local"
-                        className="bv-input"
-                        style={{ maxWidth: 220 }}
+                        className="bvk-input"
+                        style={{ maxWidth: 220, height: 36, background: "var(--card)" }}
                         defaultValue={toLocalInput(detail.starts_at)}
                         onChange={(e) => { gMoveRef.current = e.target.value; }}
                         aria-label={T("New time", "Neue Zeit", "Nouvel horaire")}
                       />
-                      <button
-                        disabled={gEditBusy}
-                        onClick={() => moveGoogle(detail)}
-                        className="bv-btn bv-btn-ghost bv-tap text-[12.5px] inline-flex items-center gap-1.5">
+                      <Btn kind="ghost" size="sm" disabled={gEditBusy} onClick={() => moveGoogle(detail)}>
                         {gEditBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null}
                         {T("Move", "Verschieben", "Déplacer")}
-                      </button>
-                      <button
-                        disabled={gEditBusy}
-                        onClick={() => cancelGoogle(detail)}
-                        className="bv-btn bv-btn-ghost bv-tap text-[12.5px]"
-                        style={{ color: "var(--w3)" }}>
+                      </Btn>
+                      <Btn kind="quiet" size="sm" disabled={gEditBusy} onClick={() => cancelGoogle(detail)}>
                         {T("Cancel event", "Termin absagen", "Annuler")}
-                      </button>
+                      </Btn>
                     </div>
                   )}
-                  {gEditErr && <p className="text-[12.5px]" style={{ color: "#ef4444" }} role="alert">{gEditErr}</p>}
+                  {gEditErr && <p style={{ margin: 0, fontSize: 12.5, color: STATUS_DOT.rejected }} role="alert">{gEditErr}</p>}
                 </div>
               )}
 
               {detail.locked ? (
-                <div className="rounded-[14px] p-4 text-center" style={{ background: "color-mix(in srgb, var(--gold) 10%, transparent)", border: "1px solid var(--border-gold)" }}>
-                  <Lock size={20} className="mx-auto mb-2" style={{ color: "var(--gold)" }} />
-                  <p className="text-[13px] font-medium" style={{ color: "var(--w2)" }}>
+                <div style={{ borderRadius: 12, padding: 16, background: "var(--bg2)", textAlign: "center" }}>
+                  <Lock size={18} className="mx-auto" style={{ color: "var(--gold)", marginBottom: 8 }} />
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--w2)" }}>
                     {T(
                       "The Borivon team opens this event. Contact us if it concerns you.",
                       "Diesen Termin schaltet das Borivon-Team frei. Melden Sie sich bei uns, wenn er Sie betrifft.",
@@ -1119,11 +1056,9 @@ export default function CalendarPage() {
                 </div>
               ) : (
                 <>
-                  {detail.description && <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)" }}>{detail.description}</p>}
+                  {detail.description && <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: "var(--w2)", whiteSpace: "pre-wrap" }}>{detail.description}</p>}
                   {detail.link_url && (
-                    <a href={detail.link_url} target="_blank" rel="noopener noreferrer"
-                      className="bv-glow-gold bv-press inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
-                      style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
+                    <a href={detail.link_url} target="_blank" rel="noopener noreferrer" className="bvk-btn bvk-primary" style={{ width: "100%" }}>
                       <Video size={15} /> {T("Join event", "Teilnehmen", "Rejoindre")}
                     </a>
                   )}
@@ -1132,28 +1067,24 @@ export default function CalendarPage() {
                       the default action; the pencil reopens the provider list. */}
                   <div ref={addCalRef} className="relative">
                     {calDefault ? (
-                      <div className="flex items-stretch overflow-hidden" style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", background: "var(--bg2)" }}>
+                      <div style={{ display: "flex", alignItems: "stretch", height: 40, borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", overflow: "hidden" }}>
                         <button type="button" onClick={() => addToCalendar(detail, calDefault)}
-                          className="bv-press flex-1 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
-                          style={{ color: "var(--w)" }}>
-                          <CalendarPlus size={15} style={{ color: "var(--gold)" }} />
+                          style={{ flex: 1, minWidth: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "none", border: 0, padding: "0 14px", fontSize: 14, fontWeight: 500, color: "var(--w)", cursor: "pointer", fontFamily: "inherit" }}>
+                          <CalendarPlus size={15} style={{ color: "var(--gold)", flexShrink: 0 }} />
                           {addToLabel(CAL_PROVIDER_LABEL(calDefault))}
                         </button>
                         <button type="button" onClick={() => setAddCalOpen((o) => !o)}
                           aria-label={T("Change calendar", "Kalender ändern", "Changer de calendrier")}
-                          className="bv-press inline-flex items-center justify-center px-3"
-                          style={{ color: "var(--w3)", borderLeft: "1px solid var(--border)" }}>
+                          style={{ width: 46, flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: 0, borderLeft: "1px solid var(--border)", color: "var(--w3)", cursor: "pointer" }}>
                           <Pencil size={13} />
                         </button>
                       </div>
                     ) : (
-                      <button type="button" onClick={() => setAddCalOpen((o) => !o)}
-                        className="bv-press w-full inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
-                        style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                      <Btn kind="ghost" onClick={() => setAddCalOpen((o) => !o)} style={{ width: "100%" }}>
                         <CalendarPlus size={15} style={{ color: "var(--gold)" }} />
                         {T("Add to calendar", "Zum Kalender hinzufügen", "Ajouter au calendrier")}
                         <ChevronDown size={14} style={{ opacity: 0.6 }} />
-                      </button>
+                      </Btn>
                     )}
                     <DropdownMenu open={addCalOpen} onClose={() => setAddCalOpen(false)} anchor={addCalRef.current}
                       above align="left" minWidth={addCalRef.current?.offsetWidth ?? 240}>
@@ -1164,8 +1095,7 @@ export default function CalendarPage() {
                           style={{ color: "var(--w)", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
                           <CalendarPlus size={14} style={{ color: "var(--gold)" }} /> {opt.label}
                           {calDefault === opt.key && (
-                            <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                            <span className="ml-auto" style={{ fontSize: 12, fontWeight: 600, color: "var(--w3)" }}>
                               {T("Default", "Standard", "Défaut")}
                             </span>
                           )}
@@ -1177,17 +1107,13 @@ export default function CalendarPage() {
               )}
 
               {canManage && (
-                <div className="flex items-center gap-4 mt-1 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                  <button onClick={() => openEdit(detail)} disabled={saving}
-                    className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold disabled:opacity-50"
-                    style={{ color: "var(--gold)" }}>
-                    <Pencil size={14} /> {T("Edit", "Bearbeiten", "Modifier")}
-                  </button>
-                  <button onClick={() => deleteEvent(detail.id)} disabled={saving}
-                    className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-medium disabled:opacity-50"
-                    style={{ color: "var(--red, #ef4444)" }}>
-                    <Trash2 size={14} /> {T("Delete event", "Termin löschen", "Supprimer l'événement")}
-                  </button>
+                <div className="flex items-center gap-2" style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                  <Btn kind="ghost" size="sm" onClick={() => openEdit(detail)} disabled={saving}>
+                    <Pencil size={13} />{T("Edit", "Bearbeiten", "Modifier")}
+                  </Btn>
+                  <Btn kind="danger" size="sm" onClick={() => deleteEvent(detail.id)} disabled={saving}>
+                    <Trash2 size={13} />{T("Delete event", "Termin löschen", "Supprimer l'événement")}
+                  </Btn>
                 </div>
               )}
             </div>
@@ -1195,43 +1121,43 @@ export default function CalendarPage() {
         )}
       </Modal>
 
-      {/* ── Add event modal (admin) — Skool-style ─────────────────────────────── */}
+      {/* ── Add event modal (admin) ─────────────────────────────────────────────── */}
       <Modal open={addOpen} onClose={closeAdd} size="lg" busy={saving}
         title={editingId
           ? T("Edit event", "Termin bearbeiten", "Modifier l'événement")
           : T("Add event", "Termin hinzufügen", "Ajouter un événement")}
         footer={<>
-          <GhostButton onClick={closeAdd} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-          <GoldButton onClick={saveEvent} disabled={saving || !draft.title.trim() || !draft.date || !draft.time}>
+          <Btn kind="quiet" onClick={closeAdd} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</Btn>
+          <Btn kind="primary" onClick={saveEvent} disabled={saving || !draft.title.trim() || !draft.date || !draft.time}>
             {saving
               ? T("Saving…", "Speichern…", "Enregistrement…")
               : editingId ? T("Save changes", "Speichern", "Enregistrer") : T("Add event", "Hinzufügen", "Ajouter")}
-          </GoldButton>
+          </Btn>
         </>}>
         <div className="p-5 flex flex-col gap-4">
 
           {/* Title + counter */}
           <Field label={T("Title", "Titel", "Titre")} req>
             <input value={draft.title} maxLength={80} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-              className="bv-input" placeholder={T("e.g. German conversation hour", "z. B. Deutsch-Konversationsstunde", "ex. Heure de conversation")} />
-            <span className="block text-right text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{draft.title.length}/80</span>
+              className="bvk-input" placeholder={T("e.g. German conversation hour", "z. B. Deutsch-Konversationsstunde", "ex. Heure de conversation")} />
+            <div style={{ textAlign: "right", fontSize: 11, color: "var(--w3)" }}>{draft.title.length}/80</div>
           </Field>
 
           {/* Date · Time · Duration · Timezone */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Field label={T("Date", "Datum", "Date")} req>
-              <GermanDateInput value={draft.date} onChange={(iso) => setDraft({ ...draft, date: iso })} className="bv-input" />
+              <GermanDateInput value={draft.date} onChange={(iso) => setDraft({ ...draft, date: iso })} className="bvk-input" />
             </Field>
             <Field label={T("Time", "Uhrzeit", "Heure")} req>
-              <input type="time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} className="bv-input" />
+              <input type="time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} className="bvk-input" />
             </Field>
             <Field label={T("Duration", "Dauer", "Durée")}>
-              <select value={draft.durationMin} onChange={(e) => setDraft({ ...draft, durationMin: Number(e.target.value) })} className="bv-input">
+              <select value={draft.durationMin} onChange={(e) => setDraft({ ...draft, durationMin: Number(e.target.value) })} className="bvk-input">
                 {DURATIONS.map((d) => <option key={d.v} value={d.v}>{d.label}</option>)}
               </select>
             </Field>
             <Field label={T("Time zone", "Zeitzone", "Fuseau")}>
-              <input value="Casablanca" readOnly disabled className="bv-input" style={{ opacity: 0.7, cursor: "not-allowed" }} />
+              <input value="Casablanca" readOnly disabled className="bvk-input" style={{ opacity: 0.7, cursor: "not-allowed" }} />
             </Field>
           </div>
 
@@ -1240,17 +1166,17 @@ export default function CalendarPage() {
           <div>
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft({ ...draft, recurring: e.target.checked })}
-                style={{ width: 16, height: 16, accentColor: "var(--gold)" }} />
-              <span className="text-[13px] inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
+                style={{ width: 16, height: 16, accentColor: "var(--w)" }} />
+              <span className="inline-flex items-center gap-1.5" style={{ fontSize: 13.5, color: "var(--w2)" }}>
                 <Repeat size={13} style={{ color: "var(--gold)" }} /> {T("Recurring event", "Wiederkehrender Termin", "Événement récurrent")}
               </span>
             </label>
             {draft.recurring && (
-              <div className="mt-2.5 flex items-center flex-wrap gap-2 text-[13px]" style={{ color: "var(--w2)" }}>
+              <div className="mt-2.5 flex items-center flex-wrap gap-2" style={{ fontSize: 13.5, color: "var(--w2)" }}>
                 {T("Repeat weekly for", "Wöchentlich wiederholen für", "Répéter chaque semaine pendant")}
                 <input type="number" min={2} max={52} value={draft.weeks}
                   onChange={(e) => setDraft({ ...draft, weeks: Math.max(1, Math.min(52, Number(e.target.value) || 1)) })}
-                  className="bv-input" style={{ width: 72, textAlign: "center" }} />
+                  className="bvk-input" style={{ width: 72, textAlign: "center" }} />
                 {T("weeks", "Wochen", "semaines")}
               </div>
             )}
@@ -1260,18 +1186,18 @@ export default function CalendarPage() {
           {/* Location + link/place */}
           <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-3">
             <Field label={T("Location", "Ort", "Lieu")}>
-              <select value={draft.locationType} onChange={(e) => setDraft({ ...draft, locationType: e.target.value as "online" | "inperson" })} className="bv-input">
+              <select value={draft.locationType} onChange={(e) => setDraft({ ...draft, locationType: e.target.value as "online" | "inperson" })} className="bvk-input">
                 <option value="online">{T("Online", "Online", "En ligne")}</option>
                 <option value="inperson">{T("In person", "Vor Ort", "En présentiel")}</option>
               </select>
             </Field>
             {draft.locationType === "online" ? (
               <Field label={T("Join link", "Teilnahme-Link", "Lien de participation")}>
-                <input value={draft.link} onChange={(e) => setDraft({ ...draft, link: e.target.value })} className="bv-input" placeholder="https://…  (Zoom, Meet…)" maxLength={500} />
+                <input value={draft.link} onChange={(e) => setDraft({ ...draft, link: e.target.value })} className="bvk-input" placeholder="https://…  (Zoom, Meet…)" maxLength={500} />
               </Field>
             ) : (
               <Field label={T("Address / place", "Adresse / Ort", "Adresse / lieu")}>
-                <input value={draft.place} onChange={(e) => setDraft({ ...draft, place: e.target.value })} className="bv-input" placeholder={T("e.g. Borivon, Meknès", "z. B. Borivon, Meknès", "ex. Borivon, Meknès")} maxLength={200} />
+                <input value={draft.place} onChange={(e) => setDraft({ ...draft, place: e.target.value })} className="bvk-input" placeholder={T("e.g. Borivon, Meknès", "z. B. Borivon, Meknès", "ex. Borivon, Meknès")} maxLength={200} />
               </Field>
             )}
           </div>
@@ -1279,27 +1205,27 @@ export default function CalendarPage() {
           {/* Description + counter */}
           <Field label={T("Description", "Beschreibung", "Description")}>
             <textarea value={draft.description} maxLength={600} rows={3} onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              className="bv-input" style={{ resize: "vertical" }}
+              className="bvk-input"
               placeholder={T("What's this event about?", "Worum geht es bei diesem Termin?", "De quoi parle cet événement ?")} />
-            <span className="block text-right text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{draft.description.length}/600</span>
+            <div style={{ textAlign: "right", fontSize: 11, color: "var(--w3)" }}>{draft.description.length}/600</div>
           </Field>
 
           {/* Who can attend — tag specific people (candidate / sub-admin / org admin). */}
           <Field label={T("Who can attend", "Wer darf teilnehmen", "Qui peut participer")}>
             {draft.attendees.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
+              <div className="flex flex-wrap gap-1.5">
                 {draft.attendees.map((a) => (
-                  <span key={a.id} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[11.5px] font-medium"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                  <span key={a.id} className="inline-flex items-center gap-1.5"
+                    style={{ padding: "4px 5px 4px 11px", borderRadius: 999, background: "var(--bg2)", color: "var(--w)", fontSize: 12.5, fontWeight: 500 }}>
                     {a.name}
                     <button type="button" aria-label="Remove"
                       onClick={() => setDraft((d) => ({ ...d, attendees: d.attendees.filter((x) => x.id !== a.id) }))}
-                      className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px]" style={{ background: "rgba(0,0,0,0.15)" }}>✕</button>
+                      style={{ width: 18, height: 18, borderRadius: "50%", border: 0, padding: 0, background: "var(--card)", color: "var(--w3)", fontSize: 9, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                   </span>
                 ))}
               </div>
             )}
-            <input ref={tagInputRef} value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} className="bv-input"
+            <input ref={tagInputRef} value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} className="bvk-input"
               placeholder={T("Type a name to tag…", "Name eingeben zum Markieren…", "Tapez un nom à taguer…")} />
             {/* Floating result menu (battle-tested DropdownMenu, portaled above
                 the modal) — pops ABOVE the input so it never covers the buttons. */}
@@ -1318,7 +1244,7 @@ export default function CalendarPage() {
                   .filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(q))
                   .slice(0, 6);
                 if (matches.length === 0) {
-                  return <div className="px-3 py-3 text-[12px]" style={{ color: "var(--w3)" }}>{peopleLoaded ? T("No match", "Kein Treffer", "Aucun résultat") : T("Loading people…", "Lädt…", "Chargement…")}</div>;
+                  return <div className="px-3 py-3" style={{ fontSize: 12.5, color: "var(--w3)" }}>{peopleLoaded ? T("No match", "Kein Treffer", "Aucun résultat") : T("Loading people…", "Lädt…", "Chargement…")}</div>;
                 }
                 return (
                   <div style={{ maxHeight: 300, overflowY: "auto" }}>
@@ -1331,11 +1257,11 @@ export default function CalendarPage() {
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={p.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 34, height: 34 }} />
                         ) : (
-                          <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-semibold" style={{ width: 34, height: 34, background: "var(--gdim)", color: "var(--gold)" }}>{personInitials(p.name)}</span>
+                          <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: 34, height: 34, background: "var(--bg2)", color: "var(--w2)", fontSize: 12, fontWeight: 600 }}>{personInitials(p.name)}</span>
                         )}
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] font-medium truncate" style={{ color: "var(--w)" }}>{p.name}</span>
-                          <span className="block text-[11.5px] truncate" style={{ color: "var(--w3)" }}>{p.email}</span>
+                          <span className="block truncate" style={{ fontSize: 13.5, fontWeight: 500, color: "var(--w)" }}>{p.name}</span>
+                          <span className="block truncate" style={{ fontSize: 12, color: "var(--w3)" }}>{p.email}</span>
                         </span>
                       </button>
                     ))}
@@ -1343,7 +1269,7 @@ export default function CalendarPage() {
                 );
               })()}
             </DropdownMenu>
-            <p className="text-[10.5px] mt-1.5" style={{ color: "var(--w3)" }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--w3)" }}>
               {draft.attendees.length === 0
                 ? T("Leave empty = everyone sees this event.", "Leer = alle sehen diesen Termin.", "Vide = tout le monde voit l'événement.")
                 : T("Only the tagged people (+ admins) will see this event.", "Nur markierte Personen (+ Admins) sehen diesen Termin.", "Seules les personnes taguées (+ admins) verront l'événement.")}
@@ -1368,77 +1294,73 @@ export default function CalendarPage() {
           ];
           const copy = async () => { try { await navigator.clipboard.writeText(https); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
           return (
-            <div className="p-5 flex flex-col gap-4">
+            <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
               {/* Instant Google sync (OAuth push) — the "best" option when configured. */}
               {googleSync.configured && (
-                <div className="rounded-[14px] p-4" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <CalendarCheck size={16} style={{ color: "var(--gold)" }} />
-                    <span className="text-[13.5px] font-bold" style={{ color: "var(--w)" }}>
+                <div style={{ borderRadius: 12, padding: 14, background: "var(--bg2)", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div className="flex items-center gap-2">
+                    <CalendarCheck size={15} style={{ color: "var(--gold)" }} />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--w)" }}>
                       {T("Instant Google sync", "Sofort-Sync mit Google", "Sync Google instantané")}
                     </span>
-                    <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
+                    <span className="ml-auto" style={{ fontSize: 12, fontWeight: 600, color: "var(--gold)" }}>
                       {T("Best", "Beste", "Mieux")}
                     </span>
                   </div>
                   {googleSync.connected ? (
                     <>
-                      <p className="text-[12px] leading-snug" style={{ color: "var(--w2)" }}>
-                        ✓ {T("Connected", "Verbunden", "Connecté")}{googleSync.email ? ` · ${googleSync.email}` : ""}. {T("New events appear in your Google Calendar instantly.", "Neue Termine erscheinen sofort in deinem Google Kalender.", "Les nouveaux événements apparaissent instantanément dans votre agenda Google.")}
+                      <p style={{ margin: 0, display: "flex", alignItems: "baseline", gap: 8, fontSize: 12.5, lineHeight: 1.5, color: "var(--w2)" }}>
+                        <Dot st="approved" size={7} />
+                        <span>{T("Connected", "Verbunden", "Connecté")}{googleSync.email ? ` · ${googleSync.email}` : ""}. {T("New events appear in your Google Calendar instantly.", "Neue Termine erscheinen sofort in deinem Google Kalender.", "Les nouveaux événements apparaissent instantanément dans votre agenda Google.")}</span>
                       </p>
-                      <button onClick={disconnectGoogle} disabled={gBusy}
-                        className="bv-press mt-2 text-[12px] font-medium disabled:opacity-50" style={{ color: "var(--red, #ef4444)" }}>
-                        {T("Disconnect", "Trennen", "Déconnecter")}
-                      </button>
+                      <div>
+                        <Btn kind="danger" size="sm" onClick={disconnectGoogle} disabled={gBusy}>{T("Disconnect", "Trennen", "Déconnecter")}</Btn>
+                      </div>
                     </>
                   ) : (
                     <>
-                      <p className="text-[12px] leading-snug mb-2.5" style={{ color: "var(--w2)" }}>
-                        {T("Link your Google account once — every event lands in your calendar the instant it's created. No waiting.", "Verknüpfe dein Google-Konto einmal — jeder Termin landet sofort in deinem Kalender. Kein Warten.", "Liez votre compte Google une fois — chaque événement arrive instantanément. Sans attente.")}
+                      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--w2)" }}>
+                        {T("Link your Google account once — every event lands in your calendar the instant it's created.", "Verknüpfe dein Google-Konto einmal — jeder Termin landet sofort in deinem Kalender.", "Liez votre compte Google une fois — chaque événement arrive instantanément.")}
                       </p>
-                      <button onClick={connectGoogle} disabled={gBusy}
-                        className="bv-glow-gold bv-press inline-flex items-center gap-1.5 text-[13px] font-semibold px-4 py-2.5 disabled:opacity-50"
-                        style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
-                        <CalendarCheck size={15} /> {gBusy ? T("Opening…", "Öffnet…", "Ouverture…") : T("Connect Google Calendar", "Google Kalender verbinden", "Connecter Google Agenda")}
-                      </button>
+                      <div>
+                        <Btn kind="primary" size="sm" onClick={connectGoogle} disabled={gBusy}>
+                          <CalendarCheck size={14} />{gBusy ? T("Opening…", "Öffnet…", "Ouverture…") : T("Connect Google Calendar", "Google Kalender verbinden", "Connecter Google Agenda")}
+                        </Btn>
+                      </div>
                     </>
                   )}
                 </div>
               )}
-              {googleSync.configured && (
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide -mb-1" style={{ color: "var(--w3)" }}>
-                  {T("Or subscribe (works on any calendar)", "Oder abonnieren (jeder Kalender)", "Ou s'abonner (tout agenda)")}
-                </p>
-              )}
-              <p className="text-[13px] leading-relaxed" style={{ color: "var(--w2)" }}>
-                {T("Subscribe once — every Borivon event you're invited to (and any change) then shows up in your own calendar automatically.",
-                   "Einmal abonnieren — jeder Borivon-Termin, zu dem du eingeladen bist (und jede Änderung), erscheint dann automatisch in deinem Kalender.",
-                   "Abonnez-vous une fois — chaque événement Borivon auquel vous êtes invité (et toute modification) apparaît ensuite automatiquement dans votre agenda.")}
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--w2)" }}>
+                {googleSync.configured && <span style={{ color: "var(--w3)" }}>{T("Or subscribe (works on any calendar). ", "Oder abonnieren (jeder Kalender). ", "Ou s'abonner (tout agenda). ")}</span>}
+                {T("Subscribe once — every Borivon event you're invited to (and any change) then shows up in your calendar automatically.",
+                   "Einmal abonnieren — jeder Borivon-Termin für dich (und jede Änderung) erscheint automatisch in deinem Kalender.",
+                   "Abonnez-vous une fois — chaque événement Borivon auquel vous êtes invité (et toute modification) apparaît automatiquement dans votre agenda.")}
               </p>
-              <div className="flex flex-col gap-2">
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {rows.map((r) => (
                   <a key={r.key} href={r.href || undefined} {...(r.blank ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                    className="bv-press flex items-center gap-3 px-3.5 py-3 rounded-[12px]"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}>
-                    <CalendarCheck size={16} style={{ color: "var(--gold)" }} />
-                    <span className="text-[13.5px] font-semibold">{r.label}</span>
+                    className="bv-press"
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", textDecoration: "none" }}>
+                    <CalendarCheck size={15} style={{ color: "var(--gold)" }} />
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>{r.label}</span>
                     <ExternalLink size={13} className="ml-auto" style={{ color: "var(--w3)" }} />
                   </a>
                 ))}
               </div>
-              <div>
-                <span className="bv-label">{T("Or paste this link into any calendar app", "Oder füge diesen Link in eine beliebige Kalender-App ein", "Ou collez ce lien dans n'importe quelle application d'agenda")}</span>
-                <div className="flex items-center gap-2 mt-1">
-                  <input readOnly value={https} onFocus={(e) => e.currentTarget.select()} className="bv-input" style={{ fontSize: 11 }} />
-                  <button onClick={copy} className="bv-btn bv-btn-ghost px-3 py-2 text-[12px] whitespace-nowrap">
+              <div className="bvk-field">
+                <span>{T("Or paste this link into any calendar app", "Oder diesen Link in eine Kalender-App einfügen", "Ou collez ce lien dans une app d'agenda")}</span>
+                <div className="flex items-center gap-2">
+                  <input readOnly value={https} onFocus={(e) => e.currentTarget.select()} className="bvk-input" style={{ fontSize: 12, height: 36 }} />
+                  <Btn kind="ghost" size="sm" onClick={copy}>
                     {copied ? T("Copied!", "Kopiert!", "Copié !") : T("Copy", "Kopieren", "Copier")}
-                  </button>
+                  </Btn>
                 </div>
               </div>
-              <p className="text-[11px] leading-snug" style={{ color: "var(--w3)" }}>
-                {T("New events may take a little while to appear — calendar apps refresh subscriptions on their own schedule (Apple usually within an hour, Google can take longer).",
-                   "Neue Termine können etwas dauern — Kalender-Apps aktualisieren Abos nach eigenem Zeitplan (Apple meist innerhalb einer Stunde, Google kann länger dauern).",
-                   "Les nouveaux événements peuvent prendre un peu de temps — les applications actualisent les abonnements à leur propre rythme (Apple en général sous une heure, Google peut être plus long).")}
+              <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5, color: "var(--w3)" }}>
+                {T("Calendar apps refresh subscriptions on their own schedule — Apple usually within an hour, Google can take longer.",
+                   "Kalender-Apps aktualisieren Abos nach eigenem Zeitplan — Apple meist binnen einer Stunde, Google kann länger dauern.",
+                   "Les agendas actualisent les abonnements à leur rythme — Apple en général sous une heure, Google parfois plus.")}
               </p>
             </div>
           );
@@ -1448,11 +1370,94 @@ export default function CalendarPage() {
   );
 }
 
-// Small labelled-field wrapper (matches the registration form styling).
+/** The month's events as rows: the date big in serif, the title, a source dot with the time — 8 per page on a laptop, 6 on a phone. */
+function EventList({ items, onOpen, T, locale, fmtRange }: {
+  items: Ev[]; onOpen: (e: Ev) => void;
+  T: (en: string, de: string, fr: string) => string; locale: string; fmtRange: (e: Ev) => string;
+}) {
+  const { slice, page, pages, setPage } = usePaged(items, 8, 6);
+  const monthShort = new Intl.DateTimeFormat(locale, { month: "short", timeZone: TZ });
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slice.map((e) => {
+          const src = e.source ?? "portal";
+          const at = new Date(e.starts_at);
+          return (
+            <button key={e.id} type="button" onClick={() => onOpen(e)}
+              style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minWidth: 0, textAlign: "left", padding: "7px 12px 7px 6px", borderRadius: 12,
+                border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", cursor: "pointer", fontFamily: "inherit" }}>
+              {/* Date */}
+              <span style={{ width: 46, flex: "none", textAlign: "center" }}>
+                <span style={{ display: "block", fontFamily: "var(--font-serif)", fontSize: 22, lineHeight: 1, color: "var(--w)" }}>{casaParts(at).d}</span>
+                <span style={{ display: "block", marginTop: 2, fontSize: 11, lineHeight: "14px", color: "var(--w3)" }}>{monthShort.format(at)}</span>
+              </span>
+              {/* Body */}
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 14, lineHeight: "20px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.title}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, minWidth: 0, fontSize: 12.5, lineHeight: "18px", color: "var(--w3)", whiteSpace: "nowrap", overflow: "hidden" }}>
+                  <span aria-hidden="true" style={{ width: 7, height: 7, flex: "none", borderRadius: 999, background: e.locked ? "var(--w3)" : SOURCE_DOT[src] }} />
+                  <span style={{ flex: "none", fontVariantNumeric: "tabular-nums" }}>{fmtRange(e)}</span>
+                  {e.vip_only && (
+                    <span className="inline-flex items-center gap-1" style={{ flex: "none", fontSize: 12, fontWeight: 600, color: "var(--w2)" }}>
+                      <Crown size={11} style={{ color: "var(--gold)" }} /> VIP
+                    </span>
+                  )}
+                  {e.location && <span className="inline-flex items-center gap-1 truncate"><MapPin size={12} style={{ flexShrink: 0 }} /> {e.location}</span>}
+                  {e.link_url && <span className="inline-flex items-center gap-1" style={{ flex: "none" }}><Video size={12} /> {T("Online", "Online", "En ligne")}</span>}
+                  {e.locked && <span className="inline-flex items-center gap-1 truncate"><Lock size={12} style={{ color: "var(--gold)", flexShrink: 0 }} /> {T("Unlock with VIP", "Mit VIP freischalten", "Débloquer avec VIP")}</span>}
+                </span>
+              </span>
+              {/* Cover, small */}
+              {e.image_url && (
+                <span className="relative" style={{ width: 44, height: 44, flex: "none", borderRadius: 10, overflow: "hidden" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={e.image_url} alt="" className="w-full h-full object-cover" style={{ filter: e.locked ? "blur(3px) brightness(0.6)" : undefined }} />
+                  {e.locked && <span className="absolute inset-0 flex items-center justify-center"><Lock size={14} style={{ color: "#fff" }} /></span>}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
+  );
+}
+
+/** One day's events (the day panel), tinted by source like the grid chips — 6 per page, 5 on a phone. */
+function DayEvents({ items, fmtRange, onOpen }: { items: Ev[]; fmtRange: (e: Ev) => string; onOpen: (e: Ev) => void }) {
+  const { slice, page, pages, setPage } = usePaged(items, 6, 5);
+  return (
+    <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slice.map((e) => {
+          const src = e.source ?? "portal";
+          return (
+            <button key={e.id} type="button" onClick={() => onOpen(e)}
+              style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minWidth: 0, textAlign: "left", padding: "10px 12px", borderRadius: 12, border: 0,
+                background: e.locked ? "var(--bg2)" : SOURCE_TINT[src], cursor: "pointer", fontFamily: "inherit" }}>
+              {e.locked
+                ? <Lock size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                : <span aria-hidden="true" style={{ width: 7, height: 7, flex: "none", borderRadius: 999, background: SOURCE_DOT[src] }} />}
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.title}</span>
+                <span style={{ display: "block", marginTop: 2, fontSize: 12.5, color: "var(--w3)", fontVariantNumeric: "tabular-nums" }}>{fmtRange(e)}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </div>
+  );
+}
+
+// Small labelled-field wrapper — the one design's field (components/fx/kit .bvk-field: 11px uppercase label above the input).
 function Field({ label, req, children }: { label: string; req?: boolean; children: React.ReactNode }) {
   return (
-    <label className="block">
-      <span className="bv-label">{label}{req && <span className="req">*</span>}</span>
+    <label className="bvk-field">
+      <span>{label}{req && <span aria-hidden="true"> *</span>}</span>
       {children}
     </label>
   );

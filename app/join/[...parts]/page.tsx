@@ -200,18 +200,15 @@ export default function JoinPage() {
   if (alreadyUsed) {
     return (
       <Shell>
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
-          style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
-          <span style={{ color: "var(--danger)", fontSize: 22 }}>✕</span>
-        </div>
-        <p className="text-[17px] font-semibold mb-2" style={{ color: "var(--w)" }}>
+        <span aria-hidden="true" style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#dc2626", marginBottom: 16 }} />
+        <p style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, lineHeight: 1.1, letterSpacing: "-.01em", color: "var(--w)" }}>
           {i18n.alreadyUsedTitle}
         </p>
         <p className="text-[13px] mb-6 leading-relaxed" style={{ color: "var(--w3)" }}>
           {i18n.alreadyUsedBody}
         </p>
         <a href="/portal" className="text-[13px] underline underline-offset-4 hover:opacity-80 transition-opacity"
-          style={{ color: "var(--gold)" }}>
+          style={{ color: "var(--w2)" }}>
           {i18n.backToSignIn}
         </a>
       </Shell>
@@ -222,14 +219,15 @@ export default function JoinPage() {
   if (invalid) {
     return (
       <Shell>
-        <p className="text-[17px] font-semibold mb-2" style={{ color: "var(--w)" }}>
+        <span aria-hidden="true" style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#d8d0c0", marginBottom: 16 }} />
+        <p style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, lineHeight: 1.1, letterSpacing: "-.01em", color: "var(--w)" }}>
           {i18n.invalidTitle}
         </p>
         <p className="text-[13px] mb-6" style={{ color: "var(--w3)" }}>
           {i18n.invalidBody}
         </p>
         <a href="/portal" className="text-[13px] underline underline-offset-4 hover:opacity-80 transition-opacity"
-          style={{ color: "var(--gold)" }}>
+          style={{ color: "var(--w2)" }}>
           {i18n.backToSignIn}
         </a>
       </Shell>
@@ -240,8 +238,8 @@ export default function JoinPage() {
   if (joined) {
     return (
       <Shell>
-        <div className="text-5xl mb-5">🎉</div>
-        <p className="text-[20px] font-semibold mb-2 tracking-tight" style={{ color: "var(--w)" }}>
+        <span aria-hidden="true" style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#16a34a", marginBottom: 16 }} />
+        <p style={{ margin: "0 0 10px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, lineHeight: 1.1, letterSpacing: "-.01em", color: "var(--w)" }}>
           {i18n.joinedTitle}
         </p>
         <p className="text-[13.5px]" style={{ color: "var(--w3)" }}>{i18n.joinedBody}</p>
@@ -265,31 +263,27 @@ export default function JoinPage() {
         </p>
 
         {/* Card */}
-        <div className="rounded-3xl px-8 py-9 text-center"
+        <div className="px-8 py-9 text-center"
           style={{
             background: "var(--card)",
-            border: "1px solid var(--border-gold)",
-            boxShadow: "0 0 0 1px var(--gdim), 0 20px 60px rgba(0,0,0,0.18)",
+            border: "1px solid var(--border)",
+            borderRadius: 20,
+            boxShadow: "0 30px 80px -40px rgba(21,19,15,.35)",
           }}>
 
-          {/* Celebration icon */}
-          <div className="text-5xl mb-5 select-none" style={{ lineHeight: 1 }}>
-            {isMember ? "🏆" : "🎯"}
-          </div>
-
           {/* Headline */}
-          <h1 className="text-[22px] font-semibold tracking-tight mb-3" style={{ color: "var(--w)" }}>
+          <h1 style={{ margin: "0 0 12px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 32, lineHeight: 1.1, letterSpacing: "-.01em", color: "var(--w)" }}>
             {info?.diy
               ? (isMember ? i18n.diyMemberHeadline : i18n.diyCandidateHeadline).replace("{org}", info.org.name)
               : (isMember ? i18n.memberHeadline : i18n.candidateHeadline)}
           </h1>
 
           {/* Body */}
-          <p className="text-[14px] leading-relaxed mb-2" style={{ color: "var(--w2)" }}>
+          <p className="leading-relaxed mb-2" style={{ fontSize: 15, color: "var(--w2)" }}>
             {info?.diy
               ? (isMember ? i18n.diyMemberBody : i18n.diyCandidateBody).replace("{org}", info.org.name)
               : isMember
-                ? <>{i18n.memberBodyIntro}{showOrg ? <> <strong style={{ color: "var(--gold)" }}>{info?.org.name}</strong></> : ` ${i18n.memberBodyOrg}`}.</>
+                ? <>{i18n.memberBodyIntro}{showOrg ? <> <strong style={{ color: "var(--w)", fontWeight: 600 }}>{info?.org.name}</strong></> : ` ${i18n.memberBodyOrg}`}.</>
                 : i18n.candidateBodyMain
             }
           </p>
@@ -309,20 +303,20 @@ export default function JoinPage() {
               <Spinner size="md" />
             </div>
           ) : error ? (
-            <p className="text-[13px] mb-4 px-4 py-3 rounded-xl"
-              style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+            <p className="text-[13px] mb-4 px-4 py-3"
+              style={{ background: "rgba(220,38,38,.12)", color: "var(--w)", borderRadius: 12 }}>
               {error}
             </p>
           ) : (
             <div className="space-y-3">
               <button onClick={() => goTo("register")}
-                className="bv-glow-gold bv-press w-full py-3.5 text-[14.5px] font-bold rounded-2xl"
-                style={{ background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-gold-sm)" }}>
+                className="w-full transition-opacity hover:opacity-90"
+                style={{ height: 46, borderRadius: 999, background: "var(--w)", color: "var(--bg)", border: "1px solid var(--w)", fontSize: 14.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
                 {isMember ? i18n.ctaMember : i18n.ctaCandidate}
               </button>
               <button onClick={() => goTo("login")}
-                className="w-full py-3 text-[13px] font-medium rounded-2xl transition-opacity hover:opacity-80"
-                style={{ background: "transparent", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                className="w-full transition-colors"
+                style={{ height: 44, borderRadius: 999, background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)", fontSize: 14, fontWeight: 500, fontFamily: "inherit", cursor: "pointer" }}>
                 {i18n.alreadyHaveAccount}
               </button>
             </div>

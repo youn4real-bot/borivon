@@ -4,6 +4,7 @@ import { Wordmark } from "@/components/Wordmark";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { SHOW_CANDIDATE_TICK } from "@/lib/features";
 import { useLang } from "@/components/LangContext";
 import { natToLang } from "@/lib/countries";
 import { supabase } from "@/lib/supabase";
@@ -160,7 +161,7 @@ export default function PublicProfileClient({ slug }: { slug: string }) {
 
           {/* Verification badge — always centered on its own row so it never
               collides with the name. */}
-          {profile.isAdmin ? null : profile.verified ? (
+          {(profile.isAdmin || !SHOW_CANDIDATE_TICK) ? null : profile.verified ? (
             <div className="mt-3 flex justify-center">
               <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full"
                 style={{ background: "var(--bg2)", color: "var(--w3)" }}>

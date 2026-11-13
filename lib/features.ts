@@ -10,6 +10,16 @@
  */
 export const SIGN_FILL_ENABLED = false;
 
+/**
+ * SHOW_CANDIDATE_TICK — the gold "verified" tick on candidates (it meant the old
+ * paid "Premium plan"). Founder 2026-11-13: no consumer plan, no Stripe, the
+ * platform is free for everyone, so the tick, its "Premium" popup, the
+ * verified celebration and the admin Verifizieren toggle are HIDDEN. Kept, not
+ * deleted: it may come back as a badge (e.g. "visa ready"). The black team /
+ * organisation ticks are not affected.
+ */
+export const SHOW_CANDIDATE_TICK = false as boolean;
+
 /** Zero out a slot's sign/fill action flags while SIGN_FILL_ENABLED is off, so
  *  every slot behaves as a plain upload box. Pass any object that may carry the
  *  four flags; returns a shallow copy with them forced false when disabled. */

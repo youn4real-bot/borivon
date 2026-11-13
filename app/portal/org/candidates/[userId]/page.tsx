@@ -8,11 +8,9 @@ import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PageLoader } from "@/components/ui/states";
-import {
-  ArrowLeft, CheckCircle2, Clock, FileText,
-  MessageCircle, ShieldCheck, AlertCircle, Route,
-} from "lucide-react";
+import { MessageCircle, AlertCircle } from "lucide-react";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
+import { BackLink, Btn, Card, Dot, Empty, KitStyle, STATUS_DOT } from "@/components/fx/kit";
 
 // ── Translations ──────────────────────────────────────────────────────────────
 const T_MAP = {
@@ -33,6 +31,7 @@ const T_MAP = {
     allDone:       "All documents approved",
     inReview:      "Documents under review",
     noDocsYet:     "No documents yet",
+    notFound:      "Not found",
   },
   fr: {
     back:          "Nos candidats",
@@ -51,6 +50,7 @@ const T_MAP = {
     allDone:       "Tous les documents approuvés",
     inReview:      "Documents en cours d'examen",
     noDocsYet:     "Aucun document encore",
+    notFound:      "Introuvable",
   },
   de: {
     back:          "Unsere Kandidaten",
@@ -69,6 +69,7 @@ const T_MAP = {
     allDone:       "Alle Dokumente genehmigt",
     inReview:      "Dokumente werden geprüft",
     noDocsYet:     "Noch keine Dokumente",
+    notFound:      "Nicht gefunden",
   },
 } as const;
 type Lang = keyof typeof T_MAP;
@@ -87,15 +88,15 @@ type Dossier = {
   linkStatus: string;
 };
 
-// ── Doc progress bar ──────────────────────────────────────────────────────────
+// ── Doc progress bar (the one status palette: green done · orange waiting) ──
 function DocBar({ ok, pending, total }: { ok: number; pending: number; total: number }) {
   if (total === 0) return null;
   const pctOk      = Math.round((ok / total) * 100);
   const pctPending = Math.round((pending / total) * 100);
   return (
-    <div className="w-full h-1.5 rounded-full overflow-hidden flex" style={{ background: "var(--bg2)" }}>
-      <div className="h-full transition-all duration-700" style={{ width: `${pctOk}%`, background: "var(--success)" }} />
-      <div className="h-full transition-all duration-700" style={{ width: `${pctPending}%`, background: "var(--gold)" }} />
+    <div style={{ width: "100%", height: 6, borderRadius: 999, overflow: "hidden", display: "flex", background: "var(--bg2)" }}>
+      <div className="transition-all duration-700" style={{ height: "100%", width: `${pctOk}%`, background: STATUS_DOT.approved }} />
+      <div className="transition-all duration-700" style={{ height: "100%", width: `${pctPending}%`, background: STATUS_DOT.pending }} />
     </div>
   );
 }
@@ -157,8 +158,9 @@ export default function OrgCandidateDossierPage({
     return (
       <>
         <PortalTopNav />
-        <main className="px-4 sm:px-[3.5vw] py-6 max-w-2xl mx-auto">
-          <p className="text-[13px]" style={{ color: "var(--w3)" }}>{error || "Not found"}</p>
+        <main className="mx-auto w-full px-4" style={{ maxWidth: 720, paddingTop: 90, paddingBottom: 32 }}>
+          <KitStyle />
+          <Card><Empty icon={<AlertCircle size={22} strokeWidth={1.5} />}>{error || T.notFound}</Empty></Card>
         </main>
       </>
     );
@@ -169,188 +171,126 @@ export default function OrgCandidateDossierPage({
   const someReview = dossier.docsPending > 0;
   const docStatus = allOk ? "ok" : someReview ? "review" : dossier.docCount > 0 ? "review" : "none";
 
+  // the one design (founder 2026-11-13): quiet back, photo + serif name + ONE black button,
+  // colour = status (dots), the numbers big in serif, paper cards
   return (
     <>
       <PortalTopNav />
 
-      <main className="px-4 sm:px-[3.5vw] py-6 max-w-2xl mx-auto space-y-4">
+      <main className="mx-auto w-full px-4" style={{ maxWidth: 1040, paddingTop: 90, paddingBottom: 40 }}>
+        <KitStyle />
+        <style>{CAND_CSS}</style>
 
-        {/* Back button */}
-        <button
-          onClick={() => router.push("/portal/org/dashboard")}
-          className="inline-flex items-center gap-1.5 text-[12.5px] font-medium transition-opacity hover:opacity-70"
-          style={{ color: "var(--w3)" }}
-        >
-          <ArrowLeft size={14} strokeWidth={2} />
-          {T.back}
-        </button>
+        <div style={{ marginBottom: 14 }}>
+          <BackLink label={T.back} onClick={() => router.push("/portal/org/dashboard")} />
+        </div>
 
-        {/* ── Hero card ── */}
-        <div
-          className="relative rounded-3xl overflow-hidden"
-          style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
-            boxShadow: "var(--shadow-lg)",
-          }}
-        >
-          {/* Gold gradient top strip */}
-          <div
-            className="h-[72px] w-full"
-            style={{
-              background: "linear-gradient(135deg, var(--gdim) 0%, var(--gdim) 100%)",
-              borderBottom: "1px solid var(--border-gold)",
-            }}
-          />
-
-          <div className="px-6 pb-6">
-            {/* Avatar — overlaps the strip */}
-            <div className="relative -mt-10 mb-3 inline-block">
-              <div
-                className="w-20 h-20 rounded-full flex items-center justify-center overflow-hidden"
-                style={{
-                  background: "var(--gdim)",
-                  border: "3px solid var(--border-gold)",
-                  boxShadow: "0 0 0 4px var(--bg)",
-                }}
-              >
-                {dossier.photo
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={dossier.photo} alt={dossier.name} className="w-full h-full object-cover" />
-                  : <span className="text-[28px] font-bold" style={{ color: "var(--gold)" }}>{initials}</span>
-                }
+        {/* ── Head: photo, name, verified line, one black button ── */}
+        <div className="bvk-head">
+          <div style={{ display: "flex", alignItems: "center", gap: 16, minWidth: 0 }}>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", overflow: "hidden", flex: "none", display: "grid", placeItems: "center", background: "var(--bg2)" }}>
+              {dossier.photo
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={dossier.photo} alt={dossier.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : <span style={{ fontFamily: "var(--font-serif)", fontSize: 28, lineHeight: 1, color: "var(--w3)" }}>{initials}</span>
+              }
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <span style={{ overflowWrap: "anywhere" }}>{dossier.name}</span>
+                {dossier.verified && <VerifiedBadge verified={true} size="sm" color="gold" />}
+              </h1>
+              <div className="bvk-sub" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Dot st={dossier.verified ? "approved" : "pending"} size={7} />
+                {dossier.verified ? T.verifiedLabel : T.pendingLabel}
               </div>
             </div>
-
-            {/* Name + badges */}
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h1 className="text-[18px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
-                {dossier.name}
-              </h1>
-              {dossier.verified && <VerifiedBadge verified={true} size="sm" color="gold" />}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span
-                className="inline-flex items-center gap-1 text-[11px] font-medium"
-                style={{ color: dossier.verified ? "var(--success)" : "var(--w3)" }}
-              >
-                {dossier.verified
-                  ? <><CheckCircle2 size={11} strokeWidth={2} />{T.verifiedLabel}</>
-                  : <><Clock size={11} strokeWidth={2} />{T.pendingLabel}</>
-                }
-              </span>
-            </div>
-
+          </div>
+          <div className="bvk-act">
             {/* Contact button */}
-            <button
+            <Btn kind="primary"
               onClick={() => window.dispatchEvent(
                 new CustomEvent("bv:open-chat", { detail: { email: dossier.email } })
-              )}
-              className="inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-85 active:scale-[0.97]"
-              style={{
-                background: "var(--gold)",
-                color: "#131312",
-              }}
-            >
-              <MessageCircle size={14} strokeWidth={2} />
+              )}>
+              <MessageCircle size={15} strokeWidth={1.8} />
               {T.contactBtn}
-            </button>
+            </Btn>
           </div>
         </div>
 
-        {/* ── Documents card ── */}
-        <div
-          className="rounded-2xl p-5"
-          style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <FileText size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-            <h2 className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>{T.docsTitle}</h2>
-            {docStatus === "ok" && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                {T.allDone}
-              </span>
-            )}
-            {docStatus === "review" && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                {T.inReview}
-              </span>
-            )}
-          </div>
-
-          {dossier.docCount === 0 ? (
-            <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>{T.noDocsYet}</p>
-          ) : (
-            <div className="space-y-3">
-              <DocBar ok={dossier.docsOk} pending={dossier.docsPending} total={dossier.docCount} />
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: T.docsApproved, value: dossier.docsOk,      color: "var(--success)" },
-                  { label: T.docsPending,  value: dossier.docsPending, color: "var(--gold)"    },
-                  { label: T.docsTotal,    value: dossier.docCount,    color: "var(--w2)"      },
-                ].map(({ label, value, color }) => (
-                  <div key={label}
-                    className="rounded-xl p-3 text-center"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    <p className="text-[20px] font-bold" style={{ color }}>{value}</p>
-                    <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>{label}</p>
-                  </div>
-                ))}
-              </div>
+        {/* ── Laptop: documents + profile status on the left, the journey on the right (fits one screen);
+             phone: one column ── */}
+        <div className="bvc-wrap">
+        <div className="bvc-side">
+          <Card style={{ padding: "18px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "6px 12px", marginBottom: 14 }}>
+              <h2 style={H2}>{T.docsTitle}</h2>
+              {docStatus === "ok" && <span style={STATE}><Dot st="approved" size={7} />{T.allDone}</span>}
+              {docStatus === "review" && <span style={STATE}><Dot st="pending" size={7} />{T.inReview}</span>}
             </div>
-          )}
-        </div>
 
-        {/* ── Profile status card ── */}
-        <div
-          className="rounded-2xl p-5"
-          style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <ShieldCheck size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-            <h2 className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>{T.statusTitle}</h2>
-          </div>
-          <div className="space-y-2.5">
-            {[
-              {
-                ok:    dossier.passportStatus === "approved",
-                label: dossier.passportStatus === "approved" ? T.passportOk : T.passportNone,
-              },
-              {
-                ok:    dossier.hasCvDraft,
-                label: dossier.hasCvDraft ? T.cvReady : T.cvMissing,
-              },
-            ].map(({ ok, label }) => (
-              <div key={label} className="flex items-center gap-2.5">
-                {ok
-                  ? <CheckCircle2 size={15} strokeWidth={2} style={{ color: "var(--success)", flexShrink: 0 }} />
-                  : <AlertCircle  size={15} strokeWidth={2} style={{ color: "var(--w3)",     flexShrink: 0 }} />
-                }
-                <span className="text-[12.5px]" style={{ color: ok ? "var(--w)" : "var(--w3)" }}>{label}</span>
-              </div>
-            ))}
-          </div>
+            {dossier.docCount === 0 ? (
+              <p style={{ margin: 0, fontSize: 13, color: "var(--w3)" }}>{T.noDocsYet}</p>
+            ) : (
+              <>
+                <DocBar ok={dossier.docsOk} pending={dossier.docsPending} total={dossier.docCount} />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 22px", marginTop: 14 }}>
+                  {[
+                    { label: T.docsApproved, value: dossier.docsOk,      st: "approved" as const },
+                    { label: T.docsPending,  value: dossier.docsPending, st: "pending" as const  },
+                    { label: T.docsTotal,    value: dossier.docCount,    st: null                },
+                  ].map(({ label, value, st }) => (
+                    <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w3)" }}>
+                      {st && <Dot st={st} />}
+                      <b style={NUM}>{value}</b>{label}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </Card>
+
+          <Card style={{ padding: "18px 20px" }}>
+            <h2 style={{ ...H2, marginBottom: 14 }}>{T.statusTitle}</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {[
+                {
+                  ok:    dossier.passportStatus === "approved",
+                  label: dossier.passportStatus === "approved" ? T.passportOk : T.passportNone,
+                },
+                {
+                  ok:    dossier.hasCvDraft,
+                  label: dossier.hasCvDraft ? T.cvReady : T.cvMissing,
+                },
+              ].map(({ ok, label }) => (
+                <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: ok ? "var(--w)" : "var(--w3)" }}>
+                  <Dot st={ok ? "approved" : "missing"} />
+                  {label}
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
 
         {/* ── Journey card ── (cross-party milestones; org sees full list +
              can tick Organization items + add custom — scoped server-side) */}
-        <div
-          className="rounded-2xl p-5"
-          style={{ background: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <Route size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
-            <h2 className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>
-              {lang === "de" ? "Verlauf" : lang === "fr" ? "Parcours" : "Journey"}
-            </h2>
-          </div>
+        <Card style={{ padding: "18px 20px" }}>
+          <h2 style={{ ...H2, marginBottom: 14 }}>
+            {lang === "de" ? "Verlauf" : lang === "fr" ? "Parcours" : "Journey"}
+          </h2>
           <JourneyChecklist candidateUserId={userId} />
+        </Card>
         </div>
 
       </main>
     </>
   );
 }
+
+// ── the one design: small pieces of this page ─────────────────────────────────
+const H2: React.CSSProperties = { margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.2, color: "var(--w)" };
+const NUM: React.CSSProperties = { fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1, color: "var(--w)" };
+const STATE: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--w2)", whiteSpace: "nowrap" };
+const CAND_CSS = `.bvc-wrap{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:12px;align-items:start}
+.bvc-side{display:flex;flex-direction:column;gap:12px;min-width:0}
+@media (max-width:900px){.bvc-wrap{grid-template-columns:minmax(0,1fr)}}`;

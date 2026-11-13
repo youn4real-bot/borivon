@@ -27,9 +27,10 @@ import { PdfViewer } from "@/components/PdfViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { isIOSDevice } from "@/lib/platform";
 import {
-  ArrowLeft, Lock, FileText, Upload, X as XIcon, Download,
-  CheckCircle2, AlertTriangle, FilePen, Hourglass, Copy, Check,
+  Lock, FileText, Upload, X as XIcon, Download,
+  AlertTriangle, FilePen, Hourglass, Copy, Check,
 } from "lucide-react";
+import { PageHead, BackLink, Btn, Card, Dot, KitStyle, STATUS_DOT, STATUS_TINT } from "@/components/fx/kit";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { CvCollabPresence, type CollabPeer } from "@/components/CvCollabPresence";
 import { LetterCollabCaret } from "@/components/LetterCollabCaret";
@@ -57,11 +58,11 @@ function countWords(text: string): number {
 // ─── i18n (UI chrome only — the letter itself is always German) ───────────────
 
 const T = {
-  fr: { buildWith: "Créer ma lettre de motivation avec", back: "Retour au portail",
+  fr: { buildWith: "Créer ma lettre de motivation avec", back: "Retour",
         print: "Imprimer", ph: "Écrivez ici votre motivation…" },
-  en: { buildWith: "Build my cover letter with", back: "Back to portal",
+  en: { buildWith: "Build my cover letter with", back: "Back",
         print: "Print", ph: "Write your motivation here…" },
-  de: { buildWith: "Motivationsschreiben erstellen mit", back: "Zurück zum Portal",
+  de: { buildWith: "Motivationsschreiben erstellen mit", back: "Zurück",
         print: "Drucken", ph: "Schreiben Sie hier Ihre Motivation…" },
 } as const;
 
@@ -80,12 +81,13 @@ interface Person {
   phone: string; email: string;
 }
 
+// the one design: a quiet paper dot with a small gold icon (gold = tiny accent, no gold border)
 const affBtnStyle: React.CSSProperties = {
   width: 20, height: 20, borderRadius: 999, flexShrink: 0,
   display: "flex", alignItems: "center", justifyContent: "center",
-  background: "var(--gdim, rgba(201,168,76,0.14))",
-  color: "var(--gold, #c9a240)",
-  border: "1px solid var(--border-gold, rgba(201,168,76,0.35))",
+  background: "var(--bg2)",
+  color: "var(--gold, #a8843a)",
+  border: 0, padding: 0, marginTop: 1,
   cursor: "pointer",
 };
 
@@ -114,8 +116,9 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
     </button>
   );
   return (
-    <div title="locked" style={{
-      userSelect: "none", fontWeight: bold ? 700 : 400,
+    <div title="locked" className="bvm-lk" style={{
+      // 600 = the PDF's Inter SemiBold for the Betreff
+      userSelect: "none", fontWeight: bold ? 600 : 400,
     }}>
       {lines.map((l, i) => {
         const showLock = lockable && needsData(l);
@@ -126,7 +129,7 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
             justifyContent: align === "right" ? "flex-end" : align === "center" ? "center" : "flex-start",
           }}>
             {showLock && lockLead && lockBtn}
-            <span style={{
+            <span className={wide ? undefined : "bvm-half"} style={{
               // Hard stop at the vertical midline of the sheet so a long
               // street address never crosses into the opposite column.
               // Text wraps inside this 50% lane, staying aligned to the
@@ -135,7 +138,9 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
               // width — otherwise the subject wrapped early ("…für eine"
               // then a near-empty second line) once a long employer name
               // like "UKSH Kiel" was appended.
-              maxWidth: wide ? "100%" : "50%",
+              // The 50% lane is the class .bvm-half (page <style>): on a phone the
+              // sheet is too narrow for two halves, so the lane opens to full width.
+              maxWidth: wide ? "100%" : undefined,
               textAlign: align === "right" ? "right" : align === "center" ? "center" : "left",
               // Wrap whole words to the next line — no hyphenation, no
               // mid-word splits ("samst-ag" style). A space-separated
@@ -174,65 +179,52 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
   if (passportStatus === "pending") {
     title = lang === "de" ? "Wird geprüft" : lang === "en" ? "Under review" : "En cours d'examen";
     body  = lang === "de"
-      ? "Ihr Reisepass wurde hochgeladen und wird derzeit von unserem Team geprüft. Sobald die Daten genehmigt sind, können Sie das Motivationsschreiben erstellen. Bitte haben Sie etwas Geduld."
+      ? "Ihr Reisepass wird gerade geprüft. Sobald die Daten genehmigt sind, können Sie das Motivationsschreiben erstellen."
       : lang === "en"
-        ? "Your passport has been uploaded and is currently being reviewed by our team. Once the data is approved you'll be able to generate the letter. Please bear with us."
-        : "Votre passeport a été téléversé et est en cours d'examen par notre équipe. Une fois les données approuvées, vous pourrez générer la lettre. Merci de patienter.";
+        ? "Your passport is being reviewed. Once the data is approved, you can generate the letter."
+        : "Votre passeport est en cours d'examen. Une fois les données approuvées, vous pourrez générer la lettre.";
   } else if (passportStatus === "approved") {
     title = lang === "de" ? "Daten bestätigt" : lang === "en" ? "Data verified" : "Données vérifiées";
     body  = lang === "de"
-      ? "Diese Daten stammen aus Ihrem genehmigten Reisepass und können nicht manuell bearbeitet werden — so bleiben sie immer mit dem Pass identisch."
+      ? "Diese Daten stammen aus Ihrem genehmigten Reisepass und sind nicht von Hand änderbar — so bleiben sie mit dem Pass identisch."
       : lang === "en"
-        ? "This data comes from your approved passport and can't be edited manually — that way it always stays identical to the passport."
-        : "Ces données proviennent de votre passeport approuvé et ne peuvent pas être modifiées manuellement — afin qu'elles restent toujours identiques au passeport.";
+        ? "This data comes from your approved passport and can't be edited by hand — so it always matches the passport."
+        : "Ces données viennent de votre passeport approuvé et ne sont pas modifiables à la main — elles restent ainsi identiques au passeport.";
   } else if (passportStatus === "rejected") {
     title = lang === "de" ? "Pass abgelehnt" : lang === "en" ? "Passport rejected" : "Passeport refusé";
     body  = lang === "de"
-      ? "Ihr Reisepass wurde abgelehnt. Bitte laden Sie ihn im Dashboard erneut hoch, damit dieses Feld ausgefüllt werden kann."
+      ? "Ihr Reisepass wurde abgelehnt. Bitte laden Sie ihn im Dashboard erneut hoch, damit dieses Feld ausgefüllt wird."
       : lang === "en"
         ? "Your passport was rejected. Please re-upload it in the dashboard so this field can be filled."
-        : "Votre passeport a été refusé. Veuillez le téléverser à nouveau dans le tableau de bord pour que ce champ soit rempli.";
+        : "Votre passeport a été refusé. Veuillez le téléverser à nouveau dans le tableau de bord pour remplir ce champ.";
   } else {
     title = lang === "de" ? "Pass erforderlich" : lang === "en" ? "Passport required" : "Passeport requis";
     body  = lang === "de"
-      ? "Dieses Feld wird automatisch ausgefüllt, sobald Sie Ihren Reisepass im Dashboard hochladen. Persönliche Daten können hier nicht manuell bearbeitet werden, um Übereinstimmung mit dem Reisepass zu garantieren."
+      ? "Wird automatisch ausgefüllt, sobald Sie Ihren Reisepass im Dashboard hochladen — nicht von Hand änderbar, damit es immer zum Pass passt."
       : lang === "en"
-        ? "This field is filled automatically once you upload your passport in the dashboard. Personal data can't be edited here manually — this ensures it always matches your passport."
-        : "Ce champ est rempli automatiquement dès que vous téléversez votre passeport dans le tableau de bord. Les données personnelles ne peuvent pas être modifiées ici manuellement — afin qu'elles correspondent toujours au passeport.";
+        ? "Filled automatically once you upload your passport in the dashboard — not editable by hand, so it always matches your passport."
+        : "Rempli automatiquement dès que vous téléversez votre passeport dans le tableau de bord — non modifiable à la main, pour toujours correspondre au passeport.";
   }
   const cta   = lang === "de" ? "Zum Dashboard" : lang === "en" ? "Go to dashboard" : "Vers le tableau de bord";
   const close = lang === "de" ? "Schließen" : lang === "en" ? "Close" : "Fermer";
+  // LAW #36: one wrapper (z 1100, blur 8) + card (radius 20); the one design inside
   return (
-    <>
-      <div className="fixed inset-0 z-[1100]"
-        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
-        onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
-        <div className="w-full max-w-[360px] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
-          <div className="px-6 pt-6 pb-2 text-center">
-            <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-              style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-              <Lock size={20} strokeWidth={1.8} />
-            </span>
-            <h3 className="text-[16px] font-semibold mb-2" style={{ color: "var(--w)" }}>{title}</h3>
-            <p className="text-[13px] leading-relaxed" style={{ color: "var(--w2)" }}>{body}</p>
-          </div>
-          <div className="flex flex-col gap-2 p-4">
-            <a href="/portal/dashboard"
-              className="block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "12px", textDecoration: "none" }}>
-              {cta}
-            </a>
-            <button type="button" onClick={onClose}
-              className="w-full px-5 py-3 text-[13.5px] font-medium transition-opacity hover:opacity-80"
-              style={{ background: "transparent", color: "var(--w2)", border: "none", cursor: "pointer" }}>
-              {close}
-            </button>
-          </div>
-        </div>
+    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+      onClick={onClose}>
+      <KitStyle />
+      <div role="dialog" aria-modal="true" className="w-full max-w-[360px] rounded-[20px] flex flex-col overflow-y-auto"
+        style={{ maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", padding: 24, textAlign: "center", animation: "bvFadeRise .28s var(--ease-out)" }}
+        onClick={(e) => e.stopPropagation()}>
+        <span aria-hidden="true" style={{ margin: "0 auto 12px", width: 44, height: 44, borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--bg2)", color: "var(--gold)", flex: "none" }}>
+          <Lock size={18} strokeWidth={1.8} />
+        </span>
+        <h3 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)" }}>{title}</h3>
+        <p style={{ margin: "8px 0 20px", fontSize: 13.5, lineHeight: 1.55, color: "var(--w2)" }}>{body}</p>
+        <a href="/portal/dashboard" className="bvk-btn bvk-primary" style={{ width: "100%", flex: "none" }}>{cta}</a>
+        <Btn kind="quiet" onClick={onClose} style={{ marginTop: 14, alignSelf: "center" }}>{close}</Btn>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -258,32 +250,23 @@ function EmployerPendingPopup({ open, onClose }: { open: boolean; onClose: () =>
       : "Your employer's information will appear here once assigned.";
   const cta = lang === "de" ? "Verstanden" : lang === "fr" ? "Compris" : "Got it";
 
+  // LAW #36: one wrapper (z 1100, blur 8) + card (radius 20); the one design inside
   return (
-    <>
-      <div className="fixed inset-0 z-[1100]"
-        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
-        onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
-        <div className="w-full max-w-[360px] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
-          <div className="px-6 pt-6 pb-2 text-center">
-            <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-              style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-              <Hourglass size={20} strokeWidth={1.8} />
-            </span>
-            <h3 className="text-[16px] font-semibold mb-2" style={{ color: "var(--w)" }}>{title}</h3>
-            <p className="text-[13px] leading-relaxed" style={{ color: "var(--w2)" }}>{body}</p>
-          </div>
-          <div className="p-4">
-            <button type="button" onClick={onClose}
-              className="block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "12px", border: "none", cursor: "pointer" }}>
-              {cta}
-            </button>
-          </div>
-        </div>
+    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+      onClick={onClose}>
+      <KitStyle />
+      <div role="dialog" aria-modal="true" className="w-full max-w-[360px] rounded-[20px] flex flex-col overflow-y-auto"
+        style={{ maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", padding: 24, textAlign: "center", animation: "bvFadeRise .28s var(--ease-out)" }}
+        onClick={(e) => e.stopPropagation()}>
+        <span aria-hidden="true" style={{ margin: "0 auto 12px", width: 44, height: 44, borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--bg2)", color: "var(--gold)", flex: "none" }}>
+          <Hourglass size={18} strokeWidth={1.8} />
+        </span>
+        <h3 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)" }}>{title}</h3>
+        <p style={{ margin: "8px 0 20px", fontSize: 13.5, lineHeight: 1.55, color: "var(--w2)" }}>{body}</p>
+        <Btn kind="primary" onClick={onClose} style={{ width: "100%", flex: "none" }}>{cta}</Btn>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1473,44 +1456,74 @@ function MotivationsschreibenPageInner() {
   // Visa letter → fixed Embassy-Rabat recipient (no employer); else the assigned employer.
   const recipient = visa ? VISA_RECIPIENT_LINES : employerLines;
 
+  // UI strings of the one-design shell (the letter itself stays German)
+  const tx = (de: string, fr: string, en: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  // Word counter — same thresholds as always, now one quiet line with a status dot.
+  const atMax    = wordCount >= MAX_WORDS;
+  const tooShort = wordCount < MIN_RECOMMENDED;
+  const countOk  = !atMax && !tooShort;
+  const countHint = atMax
+    ? (lang === "de" ? "Limit – eine Seite" : lang === "fr" ? "limite – une page" : "limit – one page")
+    : tooShort
+      ? (lang === "de" ? `zu kurz – min ${MIN_RECOMMENDED}` : lang === "fr" ? `trop court – min ${MIN_RECOMMENDED}` : `too short – min ${MIN_RECOMMENDED}`)
+      : (lang === "de" ? "ideal" : lang === "fr" ? "idéal" : "ideal");
+
   return (
     <>
+      <KitStyle />
       <style>{`
         @media print {
           body * { visibility: hidden !important; }
           #bv-doc-sheet, #bv-doc-sheet * { visibility: visible !important; }
           #bv-doc-sheet { position: absolute; left: 0; top: 0; margin: 0;
             box-shadow: none !important; width: 100%;
+            height: auto !important; max-height: none !important; overflow: visible !important;
+            border: 0 !important; border-radius: 0 !important; padding: 56px 64px !important;
             background: #fff !important; color: #1C1C1E !important; }
           #bv-doc-sheet * { color: #1C1C1E !important; }
           .bv-noprint { display: none !important; }
+          .bvm-page { height: auto !important; }
         }
-        #bv-body:empty:before { content: attr(data-ph); color: #9aa0a6; pointer-events: none; }
+        #bv-body:empty:before { content: attr(data-ph); color: var(--w3); pointer-events: none; }
         #bv-body:focus { outline: none; }
         #bv-body p  { margin: 0 0 12px; }
         #bv-body ul { list-style: disc; padding-left: 22px; margin: 0 0 12px; }
         #bv-body ol { list-style: decimal; padding-left: 22px; margin: 0 0 12px; }
+        /* the one design (founder 2026-11-13): nobody scrolls — the page is one screen, the letter is one
+           flat paper card (hairline, radius 14, no shadow) that scrolls inside, the action stays in view */
+        .bvm-page { height: 100dvh; display: flex; flex-direction: column; }
+        .bvm-wrap { flex: 1; min-height: 0; width: 100%; max-width: 794px; margin: 0 auto; display: flex; flex-direction: column; padding: 24px 0 20px; }
+        .bvm-sheet { flex: 1; min-height: 240px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: none; padding: 40px 64px; font-size: 14px; line-height: 1.6; color: var(--w); }
+        .bvm-half { max-width: 50%; }
+        .bvm-gap { margin-top: 26px; }
+        .bvm-gap-s { margin-top: 18px; }
+        @media (max-width: 640px) {
+          .bvm-wrap { padding: 12px 0 12px; }
+          .bvm-sheet { padding: 20px 18px; }
+          .bvm-half { max-width: 100%; }
+          .bvm-lk { font-size: 13px; line-height: 1.5; }
+          .bvm-gap { margin-top: 16px; }
+          .bvm-gap-s { margin-top: 12px; }
+        }
       `}</style>
 
       <main id="bv-main" tabIndex={-1}
-        className="bv-page-bottom min-h-screen pt-[58px] pb-16 px-4"
-        style={{ background: "var(--bg)" }}>
+        className="bv-page-bottom bvm-page px-4"
+        style={{ background: "var(--bg)", paddingTop: 58 }}>
         <PortalTopNav />
 
-        <div className="max-w-[820px] mx-auto bv-enter-soft">
+        <div className="bvm-wrap bv-enter-soft">
 
-          {/* Header — same hierarchy as the CV builder */}
-          <div className="mb-8 bv-noprint">
-            <div className="flex items-center justify-between gap-3 mb-5">
-              <button onClick={() => router.push("/portal/dashboard")}
-                className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-medium px-2 py-1"
-                style={{ color: "var(--w3)" }}>
-                <ArrowLeft size={13} strokeWidth={1.8} /> {t.back}
-              </button>
-              <div className="flex items-center gap-2">
+          {/* Header — the one page head: quiet back (who is here + autosave on its right, like the
+              CV builder), serif title, the word count as the sub line */}
+          <div className="bv-noprint" style={{ flex: "none" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 34, marginBottom: 10 }}>
+              <BackLink label={t.back} onClick={() => router.push("/portal/dashboard")} />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                 {isBorivonAdmin && (
-                  <button
-                    type="button"
+                  <Btn
+                    kind="ghost"
+                    size="sm"
                     onClick={async () => {
                       // Inject the candidate's CV text into the prompt's placeholder
                       // so it's all one copy. Falls back to the placeholder if the CV
@@ -1530,46 +1543,13 @@ function MotivationsschreibenPageInner() {
                       ? "Copy the AI prompt — no employer assigned yet, so it won't be employer-specific (Borivon only)"
                       : cvText && cvText.trim()
                         ? `Copy the AI prompt WITH the candidate's CV${visa ? "" : ` — aligned to ${employerName}`} (Borivon only)`
-                        : "Copy the AI prompt — CV not built yet, paste it manually (Borivon only)"}
-                    className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full transition-colors"
-                    style={{
-                      color: promptCopied ? "var(--success)" : "var(--gold)",
-                      border: `1px solid ${promptCopied ? "var(--success-border, rgba(48,209,88,0.35))" : "var(--border-gold, rgba(201,162,64,0.4))"}`,
-                    }}>
+                        : "Copy the AI prompt — CV not built yet, paste it manually (Borivon only)"}>
                     {promptCopied
-                      ? <><Check size={13} strokeWidth={2} /> {lang === "de" ? "Kopiert!" : lang === "fr" ? "Copié !" : "Copied!"}</>
+                      ? <><Check size={13} strokeWidth={2} style={{ color: STATUS_DOT.approved }} /> {lang === "de" ? "Kopiert!" : lang === "fr" ? "Copié !" : "Copied!"}</>
                       : <><Copy size={13} strokeWidth={1.8} /> {lang === "de" ? "Prompt kopieren" : lang === "fr" ? "Copier le prompt" : "Copy prompt"}</>}
-                  </button>
+                  </Btn>
                 )}
-                {(() => {
-                  const atMax  = wordCount >= MAX_WORDS;
-                  const tooShort = wordCount < MIN_RECOMMENDED;
-                  const ok = !atMax && !tooShort;
-                  const color = ok ? "var(--success)" : "var(--danger)";
-                  const hint  = atMax
-                    ? (lang === "de" ? "Limit – eine Seite" : lang === "fr" ? "limite – une page" : "limit – one page")
-                    : tooShort
-                      ? (lang === "de" ? `zu kurz – min ${MIN_RECOMMENDED}` : lang === "fr" ? `trop court – min ${MIN_RECOMMENDED}` : `too short – min ${MIN_RECOMMENDED}`)
-                      : (lang === "de" ? "ideal" : lang === "fr" ? "idéal" : "ideal");
-                  return (
-                    <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full"
-                      style={{
-                        background: ok ? "var(--bg2)" : "var(--danger-bg, rgba(255,69,58,0.12))",
-                        color,
-                        border: `1px solid ${ok ? "var(--border)" : "var(--danger-border, rgba(255,69,58,0.35))"}`,
-                      }}>
-                      {wordCount} / {MAX_WORDS} · {hint}
-                    </span>
-                  );
-                })()}
                 <AutosaveIndicator savedAt={savedAt} error={saveError} />
-                {tooLong && (
-                  <p role="alert" className="text-[12px] mt-1" style={{ color: "var(--danger)" }}>
-                    {lang === "de" ? "Der Text ist zu lang, um gespeichert zu werden. Bitte kürzen Sie ihn."
-                      : lang === "en" ? "Your text is too long to save. Please shorten it."
-                      : "Votre texte est trop long pour être enregistré. Veuillez le raccourcir."}
-                  </p>
-                )}
                 {/* Live-collab peer row — mirrors CV builder. Renders the
                     Borivon favicon disc for admins from the candidate's
                     POV, real photos admin↔admin via the side channel. */}
@@ -1579,21 +1559,28 @@ function MotivationsschreibenPageInner() {
                 />
               </div>
             </div>
-            <div className="text-center">
-              <h1 style={{ margin: 0, color: "var(--w)", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 40, lineHeight: 1.05, letterSpacing: "-.01em" }}>
-                {lang === "de" ? "Motivationsschreiben" : lang === "fr" ? "Lettre de motivation" : "Cover letter"}
-              </h1>
-            </div>
+            <PageHead
+              title={tx("Motivationsschreiben", "Lettre de motivation", "Cover letter")}
+              sub={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <Dot st={countOk ? "approved" : "rejected"} size={8} />
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    {wordCount} / {MAX_WORDS} {tx("Wörter", "mots", "words")} · {countHint}
+                  </span>
+                </span>
+              } />
+            {tooLong && (
+              <p role="alert" style={{ display: "flex", alignItems: "center", gap: 8, margin: "-6px 0 14px", padding: "9px 12px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
+                <Dot st="rejected" size={8} />
+                {lang === "de" ? "Der Text ist zu lang, um gespeichert zu werden. Bitte kürzen Sie ihn."
+                  : lang === "en" ? "Your text is too long to save. Please shorten it."
+                  : "Votre texte est trop long pour être enregistré. Veuillez le raccourcir."}
+              </p>
+            )}
           </div>
 
-          {/* Document sheet */}
-          <div id="bv-doc-sheet" className="mx-auto"
-            style={{ width: "100%", maxWidth: "794px",
-              padding: "56px 64px", background: "var(--card)",
-              border: "1px solid var(--border)",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.3), 0 8px 28px rgba(0,0,0,0.45)",
-              borderRadius: 4, fontFamily: "'Lexend', system-ui, sans-serif",
-              fontSize: 14, lineHeight: 1.55, color: "var(--w)" }}>
+          {/* Document sheet — the flat paper card; the letter scrolls inside it */}
+          <div id="bv-doc-sheet" className="bvm-sheet">
 
             <Locked align="right" lockable onLock={() => setLockedPopupOpen(true)} lines={[
               fullName, streetLn, placeLn,
@@ -1601,7 +1588,7 @@ function MotivationsschreibenPageInner() {
               person.email || "—",
             ]} />
 
-            <div style={{ marginTop: 26 }}>
+            <div className="bvm-gap">
               {visa || campusAssigned ? (
                 <Locked align="left" lines={[...recipient]} />
               ) : (
@@ -1610,11 +1597,11 @@ function MotivationsschreibenPageInner() {
               )}
             </div>
 
-            <div style={{ marginTop: 26 }}>
+            <div className="bvm-gap">
               <Locked align="right" lockable lockLead onLock={() => setLockedPopupOpen(true)} lines={[dateLn]} />
             </div>
 
-            <div style={{ marginTop: 26 }}>
+            <div className="bvm-gap">
               {visa ? (
                 <Locked align="center" wide lines={[VISA_SUBJECT]} bold />
               ) : campusAssigned ? (
@@ -1625,16 +1612,16 @@ function MotivationsschreibenPageInner() {
               )}
             </div>
 
-            <div style={{ marginTop: 18 }}>
+            <div className="bvm-gap-s">
               <Locked align="left" wide lines={["Sehr geehrte Damen und Herren,"]} />
             </div>
 
             <div id="bv-body" ref={editorRef} contentEditable
               suppressContentEditableWarning data-ph={t.ph}
               onInput={handleBodyInput} onPaste={handlePaste} spellCheck
-              style={{ marginTop: 18, minHeight: "200px" }} />
+              className="bvm-gap-s" style={{ minHeight: "200px" }} />
 
-            <div style={{ marginTop: 26 }}>
+            <div className="bvm-gap">
               <Locked align="left" wide lines={["Mit freundlichen Grüßen"]} />
               {/* Signature room — the visa letter is printed and hand-signed by the candidate. */}
               <div aria-hidden style={{ height: visa ? 52 : 6 }} />
@@ -1643,30 +1630,25 @@ function MotivationsschreibenPageInner() {
 
           </div>
 
-          {/* ── Generate / Preview / Submit (mirrors the CV builder) ── */}
-          <div className="mt-6 bv-noprint">
+          {/* ── Generate / Preview / Submit — one black primary, the rest ghost (always in view) ── */}
+          <div className="bv-noprint" style={{ marginTop: 14, flex: "none" }}>
             {!pdfUrl ? (
-              <div className="text-center">
-                <button onClick={handleGenerate} disabled={generating}
-                  className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50 w-full sm:w-auto justify-center"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                <Btn kind="primary" onClick={handleGenerate} disabled={generating}
+                  className="w-full sm:w-auto" style={{ height: 44, padding: "0 26px" }}>
                   {generating
-                    ? <><Spinner size="sm" color="#131312" /> {lang === "de" ? "Wird erstellt…" : lang === "fr" ? "Génération…" : "Generating…"}</>
+                    ? <><Spinner size="sm" color="var(--bg)" /> {lang === "de" ? "Wird erstellt…" : lang === "fr" ? "Génération…" : "Generating…"}</>
                     : <><FileText size={15} strokeWidth={1.8} /> {lang === "de" ? "PDF erstellen" : lang === "fr" ? "Générer le PDF" : "Generate PDF"}</>}
-                </button>
+                </Btn>
                 {genError && (
-                  <div className="mt-4 mx-auto max-w-md rounded-2xl px-4 py-3.5 text-left"
-                    style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
-                    <p className="text-[12.5px] font-semibold flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
-                      <AlertTriangle size={13} strokeWidth={1.9} /> {genError}
+                  <div role="alert" style={{ width: "100%", maxWidth: 460, padding: "10px 14px", borderRadius: 12, background: STATUS_TINT.rejected }}>
+                    <p style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--w)" }}>
+                      <Dot st="rejected" size={8} /> {genError}
                     </p>
                     {missingFields.length > 0 && (
-                      <ul className="space-y-1 mt-2 pl-0.5">
+                      <ul style={{ margin: "4px 0 0", padding: "0 0 0 16px", listStyle: "none" }}>
                         {missingFields.map(f => (
-                          <li key={f} className="text-[11.5px] flex items-center gap-2" style={{ color: "var(--danger)" }}>
-                            <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "var(--danger)" }} />
-                            {f}
-                          </li>
+                          <li key={f} style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--w2)" }}>{f}</li>
                         ))}
                       </ul>
                     )}
@@ -1674,46 +1656,41 @@ function MotivationsschreibenPageInner() {
                 )}
               </div>
             ) : (
-              <div className="p-7 text-center"
-                style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, boxShadow: "none" }}>
-                <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-                  style={{ background: "var(--success-bg)", color: "var(--success)" }}>
-                  <CheckCircle2 size={22} strokeWidth={1.6} />
-                </span>
-                <p className="text-[16px] font-semibold tracking-[-0.01em] mb-1.5" style={{ color: "var(--w)" }}>
-                  {lang === "de" ? "Motivationsschreiben erstellt" : lang === "fr" ? "Lettre générée" : "Cover letter ready"}
-                </p>
-                <p className="text-[12.5px] mb-6" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Vorschau ansehen, dann ins Dossier senden." : lang === "fr" ? "Vérifiez l'aperçu, puis envoyez au dossier." : "Check the preview, then submit to your dossier."}
-                </p>
+              <Card style={{ borderRadius: 14, padding: "14px 16px 14px 18px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Dot st="approved" />
+                    <span style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.15, color: "var(--w)" }}>
+                      {lang === "de" ? "Motivationsschreiben erstellt" : lang === "fr" ? "Lettre générée" : "Cover letter ready"}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 12.5, color: "var(--w3)" }}>
+                    {lang === "de" ? "Vorschau ansehen, dann ins Dossier senden." : lang === "fr" ? "Vérifiez l'aperçu, puis envoyez au dossier." : "Check the preview, then submit to your dossier."}
+                  </div>
+                </div>
                 {uploaded ? (
-                  <span className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight"
-                    style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-md, 12px)" }}>
-                    <CheckCircle2 size={14} strokeWidth={1.8} /> {lang === "de" ? "Gesendet" : lang === "fr" ? "Envoyé" : "Submitted"}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--w)" }}>
+                    <Dot st="approved" size={8} /> {lang === "de" ? "Gesendet" : lang === "fr" ? "Envoyé" : "Submitted"}
                   </span>
                 ) : (
-                  <div className="flex flex-col items-center gap-3">
-                    <button onClick={() => { setPdfUrl(null); setPdfBlob(null); setUploaded(false); }}
-                      className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full sm:w-auto justify-center"
-                      style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
-                      <FilePen size={15} strokeWidth={1.8} /> {lang === "de" ? "Weiter bearbeiten" : lang === "fr" ? "Continuer à éditer" : "Keep editing"}
-                    </button>
-                    <div className="flex gap-2.5 justify-center flex-wrap mt-1">
-                      <button onClick={() => setShowPreview(true)}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                        style={{ background: "var(--card2, var(--bg2))", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md, 12px)" }}>
-                        <FileText size={14} strokeWidth={1.8} /> {lang === "de" ? "Vorschau" : lang === "fr" ? "Aperçu" : "Preview"}
-                      </button>
-                      <button onClick={() => setShowSubmitConfirm(true)} disabled={uploading}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
-                        style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-md, 12px)" }}>
-                        <Upload size={14} strokeWidth={1.8} /> {uploading ? (lang === "de" ? "Senden…" : lang === "fr" ? "Envoi…" : "Submitting…") : (lang === "de" ? "Ins Dossier senden" : lang === "fr" ? "Envoyer au dossier" : "Submit to dossier")}
-                      </button>
-                    </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <Btn kind="primary" size="sm" onClick={() => { setPdfUrl(null); setPdfBlob(null); setUploaded(false); }}>
+                      <FilePen size={14} strokeWidth={1.8} /> {lang === "de" ? "Weiter bearbeiten" : lang === "fr" ? "Continuer à éditer" : "Keep editing"}
+                    </Btn>
+                    <Btn kind="ghost" size="sm" onClick={() => setShowPreview(true)}>
+                      <FileText size={14} strokeWidth={1.8} /> {lang === "de" ? "Vorschau" : lang === "fr" ? "Aperçu" : "Preview"}
+                    </Btn>
+                    <Btn kind="ghost" size="sm" onClick={() => setShowSubmitConfirm(true)} disabled={uploading}>
+                      <Upload size={14} strokeWidth={1.8} /> {uploading ? (lang === "de" ? "Senden…" : lang === "fr" ? "Envoi…" : "Submitting…") : (lang === "de" ? "Ins Dossier senden" : lang === "fr" ? "Envoyer au dossier" : "Submit to dossier")}
+                    </Btn>
                   </div>
                 )}
-                {uploadErr && <p className="mt-3 text-[12.5px] inline-flex items-center gap-1.5 justify-center" style={{ color: "var(--danger)" }}><AlertTriangle size={12} strokeWidth={1.8} /> {uploadErr}</p>}
-              </div>
+                {uploadErr && (
+                  <p role="alert" style={{ flexBasis: "100%", margin: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--w)" }}>
+                    <Dot st="rejected" size={8} /> {uploadErr}
+                  </p>
+                )}
+              </Card>
             )}
           </div>
 
@@ -1746,36 +1723,35 @@ function MotivationsschreibenPageInner() {
         editorRef={editorRef}
       />
 
-      {/* ── PDF Preview modal (copied from CV builder) ── */}
+      {/* ── PDF Preview modal (LAW #27 layout; LAW #36 z 1100 + blur 8 + radius 20) ── */}
       {showPreview && pdfUrl && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-x-0 z-[800] flex items-center justify-center px-2"
-          style={{ background: "rgba(0,0,0,0.72)", top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0 }}
+        <div className="fixed inset-x-0 z-[1100] flex items-center justify-center px-2 bv-modal-bottom"
+          style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0 }}
           onClick={() => setShowPreview(false)}>
-          <div className="w-full max-w-3xl flex flex-col overflow-hidden"
+          <style>{".bvm-pv{height:calc(100dvh - 58px - 24px);max-height:calc(100dvh - 58px - 24px)}@media (max-width:767px){.bvm-pv{height:calc(100dvh - 58px - 24px - 96px);max-height:calc(100dvh - 58px - 24px - 96px)}}"}</style>
+          <div className="w-full max-w-3xl flex flex-col overflow-hidden rounded-[20px] bvm-pv"
             style={{
-              height: "calc(100dvh - 58px - 24px)", maxHeight: "calc(100dvh - 58px - 24px)",
               background: "var(--card)", border: "1px solid var(--border)",
-              borderRadius: "var(--r-2xl, 20px)", boxShadow: "var(--shadow-lg)",
+              boxShadow: "var(--shadow-lg)",
               animation: "bvFadeRise 0.22s var(--ease-out)",
             }}
             onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
-              style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+            <KitStyle />
+            <div className="flex items-center justify-between flex-shrink-0"
+              style={{ padding: "10px 12px 10px 20px", borderBottom: "1px solid var(--border)" }}>
+              <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.1, color: "var(--w)" }}>
                 {lang === "de" ? "Vorschau" : lang === "fr" ? "Aperçu" : "Preview"}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center" style={{ gap: 8 }}>
                 <a href={pdfUrl}
                   download={`motivationsschreiben_${[person.firstName, person.lastName].filter(Boolean).join("_").toLowerCase() || "letter"}.pdf`}
-                  className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
-                  style={{ color: "var(--w2)" }} title="Download">
+                  className="bvk-btn bvk-ghost bvk-sm bvk-icon" title="Download" aria-label="Download">
                   <Download size={14} strokeWidth={1.8} />
                 </a>
-                <button onClick={() => setShowPreview(false)}
-                  className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
-                  style={{ color: "var(--w2)" }}>
-                  <XIcon size={16} strokeWidth={1.8} />
-                </button>
+                <Btn kind="ghost" size="sm" icon onClick={() => setShowPreview(false)}
+                  aria-label={lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close"}>
+                  <XIcon size={15} strokeWidth={1.8} />
+                </Btn>
               </div>
             </div>
             <div className="flex-1 min-h-0">
@@ -1794,40 +1770,39 @@ function MotivationsschreibenPageInner() {
         document.body
       )}
 
-      {/* ── Submit confirmation modal (copied from CV builder) ── */}
+      {/* ── Submit confirmation modal (LAW #36: one wrapper z 1100 + blur 8, card radius 20) ── */}
       {showSubmitConfirm && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-[800] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.72)" }}
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setShowSubmitConfirm(false)}>
-          <div className="w-full max-w-md p-7 flex flex-col items-center text-center"
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-[20px] flex flex-col overflow-y-auto"
             style={{
+              maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
               background: "var(--card)", border: "1px solid var(--border)",
-              borderRadius: "var(--r-2xl, 20px)", boxShadow: "var(--shadow-lg)",
-              animation: "bvFadeRise 0.22s var(--ease-out)",
+              boxShadow: "var(--shadow-lg)", padding: 24, textAlign: "center",
+              animation: "bvFadeRise .28s var(--ease-out)",
             }}
             onClick={e => e.stopPropagation()}>
-            <span className="mb-4 flex items-center justify-center w-12 h-12 rounded-full"
-              style={{ background: "rgba(224,176,0,0.12)", color: "var(--gold)" }}>
-              <AlertTriangle size={22} strokeWidth={1.6} />
+            <KitStyle />
+            <span aria-hidden="true" style={{ margin: "0 auto 12px", width: 44, height: 44, borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--bg2)", color: "var(--gold)", flex: "none" }}>
+              <AlertTriangle size={18} strokeWidth={1.7} />
             </span>
-            <p className="text-[16px] font-semibold tracking-[-0.01em] mb-2" style={{ color: "var(--w)" }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 24, lineHeight: 1.15, color: "var(--w)" }}>
               {lang === "de" ? "Ins Dossier senden?" : lang === "fr" ? "Envoyer au dossier ?" : "Submit to dossier?"}
-            </p>
-            <p className="text-[13px] leading-relaxed mb-7" style={{ color: "var(--w3)" }}>
+            </h3>
+            <p style={{ margin: "8px 0 20px", fontSize: 13.5, lineHeight: 1.55, color: "var(--w2)" }}>
               {lang === "de" ? "Ihr Motivationsschreiben wird in Ihr Dossier hochgeladen und vom Team geprüft."
                 : lang === "fr" ? "Votre lettre sera envoyée dans votre dossier et examinée par l'équipe."
                 : "Your cover letter will be uploaded to your dossier and reviewed by the team."}
             </p>
-            <button onClick={() => setShowSubmitConfirm(false)}
-              className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full justify-center mb-3"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
-              <FilePen size={15} strokeWidth={1.8} /> {lang === "de" ? "Weiter bearbeiten" : lang === "fr" ? "Continuer à éditer" : "Keep editing"}
-            </button>
-            <button onClick={async () => { setShowSubmitConfirm(false); await handleUpload(); }} disabled={uploading}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-md, 12px)" }}>
-              <Upload size={14} strokeWidth={1.8} /> {uploading ? (lang === "de" ? "Senden…" : lang === "fr" ? "Envoi…" : "Submitting…") : (lang === "de" ? "Senden" : lang === "fr" ? "Envoyer" : "Submit")}
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: "none" }}>
+              <Btn kind="primary" onClick={() => setShowSubmitConfirm(false)} style={{ width: "100%" }}>
+                <FilePen size={15} strokeWidth={1.8} /> {lang === "de" ? "Weiter bearbeiten" : lang === "fr" ? "Continuer à éditer" : "Keep editing"}
+              </Btn>
+              <Btn kind="ghost" onClick={async () => { setShowSubmitConfirm(false); await handleUpload(); }} disabled={uploading} style={{ width: "100%" }}>
+                <Upload size={14} strokeWidth={1.8} /> {uploading ? (lang === "de" ? "Senden…" : lang === "fr" ? "Envoi…" : "Submitting…") : (lang === "de" ? "Senden" : lang === "fr" ? "Envoyer" : "Submit")}
+              </Btn>
+            </div>
           </div>
         </div>,
         document.body

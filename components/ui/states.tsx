@@ -16,7 +16,7 @@
 import { BvLoader } from "@/components/ui/BvLoader";
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
-import { Loader2, Check, CloudOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 import { relativeTime } from "@/lib/relativeTime";
 
@@ -178,7 +178,8 @@ export function AutosaveIndicator({
 
   if (!savedAt && !saving && !error) return null;
 
-  const baseStyle = "inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-full";
+  // the one design: a quiet word with a status dot, no bordered pill
+  const baseStyle = "inline-flex items-center gap-1.5 text-[12.5px]";
 
   // Wrap every state in role="status" + aria-live="polite" so screen
   // readers hear each transition ("Saving…" → "Saved · just now" → on
@@ -186,8 +187,8 @@ export function AutosaveIndicator({
   if (error) {
     return (
       <span role="status" aria-live="polite" className={`${baseStyle} ${className}`}
-        style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-        <CloudOff size={11} strokeWidth={1.8} aria-hidden="true" />
+        style={{ color: "var(--w2)" }}>
+        <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "#dc2626", flex: "none" }} />
         {t.aSaveError}
       </span>
     );
@@ -196,7 +197,7 @@ export function AutosaveIndicator({
   if (saving) {
     return (
       <span role="status" aria-live="polite" className={`${baseStyle} ${className}`}
-        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+        style={{ color: "var(--w3)" }}>
         <Loader2 size={11} strokeWidth={2} className="animate-spin" aria-hidden="true" />
         {t.aSaving}
       </span>
@@ -205,8 +206,8 @@ export function AutosaveIndicator({
 
   return (
     <span role="status" aria-live="polite" className={`${baseStyle} ${className}`}
-      style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-      <Check size={11} strokeWidth={2} style={{ color: "var(--success)" }} aria-hidden="true" />
+      style={{ color: "var(--w3)" }}>
+      <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "#16a34a", flex: "none" }} />
       {t.aSaved} · {relativeTime(savedAt!, lang)}
     </span>
   );
