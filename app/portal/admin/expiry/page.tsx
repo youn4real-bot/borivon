@@ -5,16 +5,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, ShieldAlert, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { PageHead, Btn, Card, Dot, Empty, Pager, usePaged, STATUS_TINT, type Status } from "@/components/fx/kit";
 
 type Row = { userId: string; name: string; type: string; expiry: string; daysUntil: number; status: "expired" | "critical" | "soon" | "ok" };
 
-const STATUS = {
-  expired:  { fg: "var(--danger)",  bg: "var(--danger-bg)",  bd: "var(--danger-border)" },
-  critical: { fg: "var(--danger)",  bg: "var(--danger-bg)",  bd: "var(--danger-border)" },
-  soon:     { fg: "var(--gold)",    bg: "var(--gdim)",       bd: "var(--border-gold)" },
-  ok:       { fg: "var(--success)", bg: "var(--success-bg)", bd: "var(--success-border)" },
-};
+// the one status palette (components/fx/kit): expired / critical = red, soon = orange, ok = green
+const KIT_ST: Record<Row["status"], Status> = { expired: "rejected", critical: "rejected", soon: "pending", ok: "approved" };
 
 export default function ExpiryRadarPage() {
   const router = useRouter();
@@ -56,62 +53,52 @@ export default function ExpiryRadarPage() {
 
   const counts = { expired: rows.filter(r => r.status === "expired").length, critical: rows.filter(r => r.status === "critical").length, soon: rows.filter(r => r.status === "soon").length };
 
+  return <ExpiryView rows={rows} busy={busy} onRefresh={() => void load(token)} onBack={() => router.back()} T={T} label={label} daysText={daysText} counts={counts} />;
+}
+
+// the one design (founder 2026-11-13): serif head, quiet back, ghost refresh, colour = status, the list flips
+function ExpiryView({ rows, busy, onRefresh, onBack, T, label, daysText, counts }: {
+  rows: Row[]; busy: boolean; onRefresh: () => void; onBack: () => void;
+  T: (en: string, de: string, fr: string) => string; label: (s: Row["status"]) => string; daysText: (d: number) => string;
+  counts: { expired: number; critical: number; soon: number };
+}) {
+  const { slice, page, pages, setPage } = usePaged(rows, 8, 6);
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
-      <button onClick={() => router.back()} className="bv-row-hover flex items-center gap-2 text-xs px-2 py-1 mb-4" style={{ color: "var(--w3)" }}>
-        <ArrowLeft size={14} /> {T("Back", "Zurück", "Retour")}
-      </button>
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <div className="flex items-center gap-2.5">
-          <ShieldAlert size={20} style={{ color: "var(--gold)" }} />
-          <h1 className="text-[19px] font-bold" style={{ color: "var(--w)" }}>{T("Document expiry radar", "Dokument-Ablauf-Radar", "Radar d'expiration")}</h1>
-        </div>
-        <button onClick={() => void load(token)} disabled={busy} className="bv-press inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-60" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-          <RefreshCw size={11} className={busy ? "animate-spin" : ""} /> {T("Refresh", "Aktualisieren", "Actualiser")}
-        </button>
-      </div>
-      <p className="text-[12.5px] mb-4" style={{ color: "var(--w3)" }}>
-        {T("Passports expired or expiring within a year — an expired passport blocks the whole visa pipeline. From the OCR-captured expiry date.",
-           "Reisepässe, die abgelaufen sind oder innerhalb eines Jahres ablaufen — ein abgelaufener Pass blockiert den gesamten Visumprozess. Aus dem per OCR erfassten Ablaufdatum.",
-           "Passeports expirés ou expirant dans l'année — un passeport expiré bloque tout le processus de visa. D'après la date d'expiration extraite par OCR.")}
-      </p>
+      <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: onBack }}
+        title={T("Passport expiry", "Reisepass-Ablauf", "Expiration des passeports")}
+        sub={T("Expired or expiring within a year — an expired passport blocks the visa.", "Abgelaufen oder innerhalb eines Jahres — ein abgelaufener Pass blockiert das Visum.", "Expiré ou dans l’année — un passeport expiré bloque le visa.")}
+        actions={<Btn kind="ghost" size="sm" onClick={onRefresh} disabled={busy}><RefreshCw size={13} className={busy ? "animate-spin" : ""} />{T("Refresh", "Aktualisieren", "Actualiser")}</Btn>} />
 
-      {/* count strip */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[
-          { k: "expired" as const, n: counts.expired },
-          { k: "critical" as const, n: counts.critical },
-          { k: "soon" as const, n: counts.soon },
-        ].map(({ k, n }) => (
-          <div key={k} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ background: STATUS[k].bg, border: `1px solid ${STATUS[k].bd}` }}>
-            <span className="text-[12px] font-bold" style={{ color: STATUS[k].fg }}>{n}</span>
-            <span className="text-[10.5px]" style={{ color: STATUS[k].fg }}>{label(k)}</span>
-          </div>
+      {/* the counts, as three quiet coloured numbers */}
+      <div style={{ display: "flex", gap: 18, marginBottom: 16 }}>
+        {(["expired", "critical", "soon"] as const).map((k) => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w3)" }}>
+            <Dot st={KIT_ST[k]} /><b className="serif" style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, color: "var(--w)" }}>{counts[k]}</b>{label(k)}
+          </span>
         ))}
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-2xl p-5 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-          <p className="text-[13px] font-semibold" style={{ color: "var(--success)" }}>{T("All passports valid for over a year. ✅", "Alle Reisepässe über ein Jahr gültig. ✅", "Tous les passeports valides plus d'un an. ✅")}</p>
-        </div>
+        <Card><Empty>{T("All passports valid for over a year.", "Alle Reisepässe über ein Jahr gültig.", "Tous les passeports valides plus d’un an.")}</Empty></Card>
       ) : (
-        <div className="flex flex-col gap-2">
-          {rows.map((r) => {
-            const c = STATUS[r.status];
-            return (
-              <div key={r.userId + r.type} className="flex items-center justify-between gap-3 rounded-xl p-3.5" style={{ background: "var(--card)", border: `1px solid ${c.bd}` }}>
-                <div className="min-w-0">
-                  <p className="text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{r.name}</p>
-                  <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{T("Passport", "Reisepass", "Passeport")} · {T("expires", "läuft ab", "expire")} {r.expiry}</p>
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {slice.map((r) => (
+              <div key={r.userId + r.type} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: STATUS_TINT[KIT_ST[r.status]] }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--w3)", marginTop: 2 }}>{T("Passport", "Reisepass", "Passeport")} · {T("expires", "läuft ab", "expire")} {r.expiry}</div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <span className="inline-block text-[10.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded" style={{ color: c.fg, background: c.bg, border: `1px solid ${c.bd}` }}>{label(r.status)}</span>
-                  <p className="text-[11px] mt-1 tabular-nums" style={{ color: c.fg }}>{daysText(r.daysUntil)}</p>
+                <div style={{ textAlign: "right", flex: "none" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--w)" }}>{label(r.status)}</div>
+                  <div style={{ fontSize: 12, color: "var(--w3)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{daysText(r.daysUntil)}</div>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+          <Pager page={page} pages={pages} onPage={setPage} />
+        </>
       )}
     </div>
   );
