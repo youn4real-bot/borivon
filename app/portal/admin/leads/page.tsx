@@ -10,9 +10,33 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2, Check, Archive, RotateCcw } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2, Check, Archive, RotateCcw } from "lucide-react";
 import { isPlaceableLead } from "@/lib/leadKinds";
 import { roadmapLeadChips, plainDetailChips } from "@/lib/roadmap/leadSummary";
+import { PageHead, Btn, Card, Seg, Dot, Empty, Pager, usePaged, STATUS_DOT, type Status as KitStatus } from "@/components/fx/kit";
+
+// The page's own small classes (the one design: hairline rows, the dot is the state, details one tap away).
+const LEADS_CSS = `
+.lds-row{display:flex;align-items:center;gap:12px;padding:7px 8px 7px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border)}
+.lds-open{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;background:none;border:0;padding:2px 0;text-align:left;cursor:pointer;font-family:inherit;color:var(--w)}
+.lds-l1{display:flex;align-items:baseline;gap:10px;min-width:0;max-width:100%}
+.lds-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.lds-kind{flex:none;font-size:12.5px;color:var(--w3);white-space:nowrap}
+.lds-l2{font-size:12.5px;color:var(--w3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.lds-when{flex:none;font-size:12.5px;color:var(--w3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.lds-act{flex:none;display:flex;align-items:center;gap:4px}
+.lds-st{display:flex;justify-content:flex-end;gap:4px;width:250px}
+.lds-pool{display:flex;width:150px}
+.lds-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;padding-top:14px;border-top:1px solid var(--border)}
+.lds-ib{width:34px;padding:0!important}
+@media (max-width:640px){
+.lds-row{gap:8px;padding:7px 6px 7px 12px}
+.lds-act{gap:2px}
+.lds-st{width:70px;gap:2px}
+.lds-pool{width:34px}
+.lds-kv{grid-template-columns:minmax(0,1fr)}
+}`;
 
 type Lead = {
   id: string; kind: string; email: string; name: string; phone: string;
@@ -138,6 +162,11 @@ export default function AdminLeadsPage() {
       return new Date(iso).toLocaleString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
     } catch { return iso; }
   };
+  const fmtShort = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short" });
+    } catch { return iso; }
+  };
   const kindLabel = (k: string) => { const e = KIND_LABEL[k]; return e ? T(e.en, e.de, e.fr) : k; };
 
   // A lead with no status at all is untouched — every existing row predates the
@@ -147,174 +176,186 @@ export default function AdminLeadsPage() {
   const doneCount = leads.length - openLeads.length;
   const shown = showDone ? leads : openLeads;
 
-  return (
-    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 920 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-      </button>
-
-      <div className="mb-6">
-        <h1 className="bv-h1">{T("Leads", "Anfragen", "Prospects")}</h1>
-        <p className="bv-body mt-1">
-          <b>{openLeads.length}</b>{" "}
-          {T("waiting for you", "warten auf dich", "en attente")}
-          {doneCount > 0 && (
+  // The row and its details popup — the one design: a hairline row per lead, the dot is its state
+  // (orange waiting for you · green contacted · grey closed, LAW #4), everything else one tap away.
+  const leadRow = (l: Lead, onOpen: () => void, narrow: boolean) => {
+    const done = isDone(l);
+    const st: KitStatus = l.status === "contacted" ? "approved" : l.status === "closed" ? "missing" : "pending";
+    const line2 = [l.email, l.phone, (l.message || "").replace(/[\s·]+$/, "")].filter(Boolean).join(" · ");
+    const sm = { size: "sm" as const, className: narrow ? "lds-ib" : undefined };
+    return (
+      <div key={l.id} className="lds-row" style={{ opacity: done ? 0.62 : 1 }}>
+        <Dot st={st} />
+        <button type="button" className="lds-open" onClick={onOpen} title={T("Details", "Details", "Détails")}>
+          <span className="lds-l1">
+            <span className="lds-name">{l.name || l.email}</span>
+            <span className="lds-kind">{kindLabel(l.kind)}</span>
+          </span>
+          <span className="lds-l2">{narrow ? `${fmtShort(l.created_at)} · ${line2}` : line2}</span>
+        </button>
+        {!narrow && <span className="lds-when">{fmt(l.created_at)}</span>}
+        <div className="lds-act">
+          {/* Mark it dealt with. `status` shipped with the table and
+              nothing ever wrote it, so eleven enquiries sat at "new"
+              for three months with no way to tell an answered one
+              from an ignored one. */}
+          <div className="lds-st">
+          {done ? (
+            <Btn kind="quiet" {...sm} onClick={() => setStatus(l.id, "new")} disabled={statusBusy === l.id}
+              title={T("Put it back in the waiting list", "Zurück in die Warteliste", "Remettre en attente")}
+              aria-label={T("Put it back in the waiting list", "Zurück in die Warteliste", "Remettre en attente")}>
+              <RotateCcw size={13} strokeWidth={2} />
+              {!narrow && (l.status === "closed" ? T("Closed", "Geschlossen", "Fermé") : T("Contacted", "Kontaktiert", "Contacté"))}
+            </Btn>
+          ) : (
             <>
-              {" · "}
-              <button onClick={() => setShowDone((v) => !v)} className="bv-link text-[13px]">
-                {showDone
-                  ? T(`hide ${doneCount} done`, `${doneCount} erledigte ausblenden`, `masquer ${doneCount} traité(s)`)
-                  : T(`show ${doneCount} done`, `${doneCount} erledigte anzeigen`, `voir ${doneCount} traité(s)`)}
-              </button>
+              <Btn {...sm} onClick={() => setStatus(l.id, "contacted")} disabled={statusBusy === l.id}
+                title={T("I have replied to this person", "Ich habe geantwortet", "J'ai répondu")}
+                aria-label={T("Contacted", "Kontaktiert", "Contacté")}>
+                {statusBusy === l.id
+                  ? <Loader2 size={13} className="animate-spin" aria-hidden />
+                  : <Check size={13} strokeWidth={2.4} style={{ color: STATUS_DOT.approved }} />}
+                {!narrow && T("Contacted", "Kontaktiert", "Contacté")}
+              </Btn>
+              <Btn kind="quiet" {...sm} onClick={() => setStatus(l.id, "closed")} disabled={statusBusy === l.id}
+                title={T("Not going anywhere — hide it", "Nicht relevant — ausblenden", "Sans suite — masquer")}
+                aria-label={T("Close", "Schließen", "Fermer")}>
+                <Archive size={13} strokeWidth={2} />
+                {!narrow && T("Close", "Schließen", "Fermer")}
+              </Btn>
             </>
           )}
-        </p>
+          </div>
+
+          {/* The missing hop: a lead is somebody who reached out, but
+              the Pool lives in candidate_pipeline and only holds real
+              accounts — so until now every lead had to be re-created
+              by hand. One press puts them in the Pool. */}
+          <div className="lds-pool">
+          {l.candidate_user_id ? (
+            <Btn kind="quiet" {...sm}
+              // nav_user_id, not candidate — the admin panel reads the
+              // former (page.tsx:1388) and has never read the latter,
+              // so this button dropped the founder onto the panel with
+              // nobody selected and no hint which person it meant.
+              onClick={() => router.push(`/portal/admin?nav_user_id=${l.candidate_user_id}`)}
+              title={T("In the pool", "Im Pool", "Dans le vivier")} aria-label={T("In the pool", "Im Pool", "Dans le vivier")}>
+              <UserCheck size={13} strokeWidth={2} style={{ color: STATUS_DOT.approved }} />
+              {!narrow && T("In the pool", "Im Pool", "Dans le vivier")}
+            </Btn>
+          ) : isPlaceableLead(l.kind) ? (
+            <Btn {...sm} onClick={() => addToPool(l.id)} disabled={poolBusy === l.id}
+              title={T("Add to pool", "In den Pool", "Ajouter au vivier")} aria-label={T("Add to pool", "In den Pool", "Ajouter au vivier")}>
+              {poolBusy === l.id
+                ? <Loader2 size={13} className="animate-spin" aria-hidden />
+                : <UserPlus size={13} strokeWidth={2} />}
+              {!narrow && T("Add to pool", "In den Pool", "Ajouter au vivier")}
+            </Btn>
+          ) : null /* Only individuals go in the candidate pool. A clinic or
+              a company is a counterparty, not somebody we place, and
+              offering the button on their row invited a click that
+              would have made them a candidate account. */}
+          </div>
+        </div>
       </div>
+    );
+  };
+
+  // Everything the lead told us: contact, message and (Fahrplan) their answers — in the popup (LAW #36).
+  const leadDetails = (l: Lead) => {
+    // Fahrplan leads keep nested objects in details; plain chips only for the rest.
+    const extras = l.kind === "roadmap"
+      ? roadmapLeadChips(l.details, lang === "de" || lang === "fr" ? lang : "en")
+      : plainDetailChips(l.details);
+    const ico: React.CSSProperties = { color: "var(--w3)", flexShrink: 0, marginTop: 3 };
+    return (
+      <div className="px-5 py-4" style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gap: 8, fontSize: 13.5, color: "var(--w2)" }}>
+          <span style={{ display: "inline-flex", alignItems: "flex-start", gap: 8 }}>
+            <Mail size={14} style={ico} />
+            <a href={`mailto:${l.email}`} style={{ color: "var(--w)", textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: "var(--border2)", wordBreak: "break-all" }}>{l.email}</a>
+          </span>
+          {l.phone && (
+            <span style={{ display: "inline-flex", alignItems: "flex-start", gap: 8 }}><Phone size={14} style={ico} /> {l.phone}</span>
+          )}
+          {l.message && (
+            <span style={{ display: "inline-flex", alignItems: "flex-start", gap: 8, whiteSpace: "pre-wrap" }}><MessageSquare size={14} style={ico} /> {l.message.replace(/[\s·]+$/, "")}</span>
+          )}
+          <span style={{ display: "inline-flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "var(--w3)" }}><Clock size={14} style={ico} /> {fmt(l.created_at)}</span>
+        </div>
+        {extras.length > 0 && (
+          <div className="lds-kv">
+            {extras.map(({ k, v }) => (
+              <div key={k} style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)" }}>{k}</div>
+                <div style={{ marginTop: 2, fontSize: 13.5, color: "var(--w)", overflowWrap: "anywhere" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <main id="bv-main" className="mx-auto px-5 bv-page-bottom" style={{ maxWidth: 980, paddingTop: 88, paddingBottom: 20 }}>
+      <style>{LEADS_CSS}</style>
+      <PageHead
+        back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Leads", "Anfragen", "Prospects")}
+        sub={<><b style={{ fontWeight: 600, color: "var(--w)" }}>{openLeads.length}</b> {T("waiting for you", "warten auf dich", "en attente")}</>}
+        actions={doneCount > 0 ? (
+          // Default view hides what has been dealt with; the done ones are one tap away.
+          <Seg value={showDone ? "all" : "open"} onChange={(v) => setShowDone(v === "all")}
+            options={[
+              ["open", `${T("Open", "Offen", "Ouvertes")} ${openLeads.length}`],
+              ["all", `${T("All", "Alle", "Toutes")} ${leads.length}`],
+            ]} />
+        ) : undefined}
+      />
+
+      {poolErr && (
+        <p role="alert" style={{ margin: "0 0 10px", fontSize: 13, color: STATUS_DOT.rejected }}>{poolErr}</p>
+      )}
 
       {shown.length === 0 ? (
-        <div className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>
-          {leads.length === 0
-            ? T("No leads yet.", "Noch keine Anfragen.", "Aucune demande pour le moment.")
-            : T("Nothing waiting — every lead is dealt with.",
-                "Nichts offen — alle Anfragen sind erledigt.",
-                "Rien en attente — toutes les demandes sont traitées.")}
-        </div>
+        <Card>
+          <Empty>
+            {leads.length === 0
+              ? T("No leads yet.", "Noch keine Anfragen.", "Aucune demande pour le moment.")
+              : T("Nothing waiting — every lead is dealt with.",
+                  "Nichts offen — alle Anfragen sind erledigt.",
+                  "Rien en attente — toutes les demandes sont traitées.")}
+          </Empty>
+        </Card>
       ) : (
-        <div className="space-y-3">
-          {poolErr && (
-            <p className="text-[13px] pb-1" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
-          )}
-          {shown.map((l) => {
-            // Fahrplan leads keep nested objects in details; plain chips only for the rest.
-            const extras = l.kind === "roadmap"
-              ? roadmapLeadChips(l.details, lang === "de" || lang === "fr" ? lang : "en")
-              : plainDetailChips(l.details);
-            return (
-              <div key={l.id} className="p-4 sm:p-5"
-                style={{
-                  background: "var(--card)",
-                  // Done rows recede rather than disappear when the filter is
-                  // off, so "show done" reads as history, not as a second inbox.
-                  border: `1px solid ${isDone(l) ? "var(--border)" : "var(--border-gold)"}`,
-                  borderRadius: "var(--r-xl)",
-                  boxShadow: "var(--shadow-sm)",
-                  opacity: isDone(l) ? 0.62 : 1,
-                }}>
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    {l.name && <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{l.name}</p>}
-                    <div className="mt-1.5 flex flex-col gap-1 text-[13px]" style={{ color: "var(--w2)" }}>
-                      <span className="inline-flex items-center gap-1.5">
-                        <Mail size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                        <a className="bv-link break-all" href={`mailto:${l.email}`}>{l.email}</a>
-                      </span>
-                      {l.phone && (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Phone size={13} style={{ color: "var(--w3)", flexShrink: 0 }} /> {l.phone}
-                        </span>
-                      )}
-                      {l.message && (
-                        <span className="inline-flex items-start gap-1.5">
-                          <MessageSquare size={13} style={{ color: "var(--w3)", flexShrink: 0, marginTop: 2 }} /> {l.message}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <span className="bv-chip bv-chip-gold">{kindLabel(l.kind)}</span>
-                    <span className="inline-flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--w3)" }}>
-                      <Clock size={12} /> {fmt(l.created_at)}
-                    </span>
-                    {/* Mark it dealt with. `status` shipped with the table and
-                        nothing ever wrote it, so eleven enquiries sat at "new"
-                        for three months with no way to tell an answered one
-                        from an ignored one. */}
-                    <div className="flex items-center gap-1.5">
-                      {isDone(l) ? (
-                        <button
-                          onClick={() => setStatus(l.id, "new")}
-                          disabled={statusBusy === l.id}
-                          className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
-                          title={T("Put it back in the waiting list", "Zurück in die Warteliste", "Remettre en attente")}
-                        >
-                          <RotateCcw size={12} strokeWidth={2} />
-                          {l.status === "closed"
-                            ? T("Closed", "Geschlossen", "Fermé")
-                            : T("Contacted", "Kontaktiert", "Contacté")}
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => setStatus(l.id, "contacted")}
-                            disabled={statusBusy === l.id}
-                            className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
-                            title={T("I have replied to this person", "Ich habe geantwortet", "J'ai répondu")}
-                          >
-                            {statusBusy === l.id
-                              ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                              : <Check size={12} strokeWidth={2.4} style={{ color: "#16a34a" }} />}
-                            {T("Contacted", "Kontaktiert", "Contacté")}
-                          </button>
-                          <button
-                            onClick={() => setStatus(l.id, "closed")}
-                            disabled={statusBusy === l.id}
-                            className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
-                            title={T("Not going anywhere — hide it", "Nicht relevant — ausblenden", "Sans suite — masquer")}
-                          >
-                            <Archive size={12} strokeWidth={2} />
-                            {T("Close", "Schließen", "Fermer")}
-                          </button>
-                        </>
-                      )}
-                    </div>
-
-                    {/* The missing hop: a lead is somebody who reached out, but
-                        the Pool lives in candidate_pipeline and only holds real
-                        accounts — so until now every lead had to be re-created
-                        by hand. One press puts them in the Pool. */}
-                    {l.candidate_user_id ? (
-                      <button
-                        // nav_user_id, not candidate — the admin panel reads the
-                        // former (page.tsx:1388) and has never read the latter,
-                        // so this button dropped the founder onto the panel with
-                        // nobody selected and no hint which person it meant.
-                        onClick={() => router.push(`/portal/admin?nav_user_id=${l.candidate_user_id}`)}
-                        className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
-                      >
-                        <UserCheck size={12} strokeWidth={2} style={{ color: "#16a34a" }} />
-                        {T("In the pool", "Im Pool", "Dans le vivier")}
-                      </button>
-                    ) : isPlaceableLead(l.kind) ? (
-                      <button
-                        onClick={() => addToPool(l.id)}
-                        disabled={poolBusy === l.id}
-                        className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
-                      >
-                        {poolBusy === l.id
-                          ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                          : <UserPlus size={12} strokeWidth={2} />}
-                        {T("Add to pool", "In den Pool", "Ajouter au vivier")}
-                      </button>
-                    ) : null /* Only individuals go in the candidate pool. A clinic or
-                        a company is a counterparty, not somebody we place, and
-                        offering the button on their row invited a click that
-                        would have made them a candidate account. */}
-                  </div>
-                </div>
-                {extras.length > 0 && (
-                  <div className="mt-3 pt-3 flex flex-wrap gap-1.5" style={{ borderTop: "1px solid var(--border)" }}>
-                    {extras.map(({ k, v }) => (
-                      <span key={k} className="bv-chip" style={{ fontSize: 11 }}>
-                        <span style={{ color: "var(--w3)" }}>{k}:</span>&nbsp;{v}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <LeadList leads={shown} row={leadRow} details={leadDetails}
+          title={(l) => l.name || l.email} subtitle={(l) => `${kindLabel(l.kind)} · ${fmt(l.created_at)}`} />
       )}
     </main>
+  );
+}
+
+/** The leads, one page at a time (nobody scrolls); a tap on a lead opens its details in the popup. */
+function LeadList({ leads, row, details, title, subtitle }: {
+  leads: Lead[];
+  row: (l: Lead, onOpen: () => void, narrow: boolean) => React.ReactNode;
+  details: (l: Lead) => React.ReactNode;
+  title: (l: Lead) => string;
+  subtitle: (l: Lead) => string;
+}) {
+  const { slice, page, pages, setPage, narrow } = usePaged(leads, 7, 6);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const open = openId ? leads.find((l) => l.id === openId) ?? null : null;
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slice.map((l) => row(l, () => setOpenId(l.id), narrow))}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+      <Modal open={!!open} onClose={() => setOpenId(null)} size="md" title={open ? title(open) : ""} subtitle={open ? subtitle(open) : ""}>
+        {open && details(open)}
+      </Modal>
+    </>
   );
 }

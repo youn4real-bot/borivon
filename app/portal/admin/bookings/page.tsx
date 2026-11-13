@@ -23,9 +23,10 @@ import { Modal } from "@/components/ui/Modal";
 import { AddBookingModal } from "@/components/AddBookingModal";
 import { QUESTIONS, type Selections } from "@/lib/booking";
 import {
-  ArrowLeft, Plus, Video, Phone, Mail, Loader2, Check, X, CalendarDays, Building2,
-  SlidersHorizontal, Link2, UserPlus, UserCheck, Copy, ChevronDown,
+  Plus, Video, Phone, Mail, Loader2, Check, X, CalendarDays, Building2,
+  SlidersHorizontal, Link2, UserPlus, UserCheck, Copy, ChevronDown, ChevronRight,
 } from "lucide-react";
+import { PageHead, Btn, Card, Seg, Dot, Field, Empty, Pager, usePaged, STATUS_DOT, STATUS_TINT, type Status as KitStatus } from "@/components/fx/kit";
 
 type Kind = "nurse" | "clinic" | "company";
 type Status = "booked" | "held" | "no_show" | "cancelled";
@@ -69,13 +70,28 @@ const KIND_LABEL: Record<Kind, { en: string; de: string; fr: string }> = {
   company: { en: "Company", de: "Unternehmen",  fr: "Entreprise" },
 };
 
-// LAW #4 — colour carries the status, never a text label.
-const STATUS_COLOR: Record<Status, string> = {
-  booked:    "#f59e0b", // upcoming / not yet resolved
-  held:      "#16a34a", // it happened
-  no_show:   "#ef4444", // they didn't turn up
-  cancelled: "var(--w3)",
+// LAW #4 — colour carries the status, never a text label (the one palette, components/fx/kit).
+const STATUS_COLOR: Record<Status, KitStatus> = {
+  booked:    "pending",  // upcoming / not yet resolved — orange
+  held:      "approved", // it happened — green
+  no_show:   "rejected", // they didn't turn up — red
+  cancelled: "missing",  // grey
 };
+
+// The page's own small classes: one hairline row per call (phone: name over kind, time on the right).
+const BOOKINGS_CSS = `
+.bkg-row{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px 11px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border);text-align:left;cursor:pointer;font-family:inherit;color:var(--w)}
+.bkg-row:hover{background:var(--bg2)}
+.bkg-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px}
+.bkg-who{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.bkg-kind{flex:none;font-size:12.5px;color:var(--w3);white-space:nowrap}
+.bkg-when{flex:none;font-size:12.5px;color:var(--w2);white-space:nowrap;font-variant-numeric:tabular-nums}
+@media (max-width:640px){
+.bkg-main{flex-direction:column;align-items:flex-start;gap:1px}
+.bkg-who{max-width:100%}
+.bkg-hide-ph{display:none!important}
+.bkg-ib{width:36px;padding:0!important}
+}`;
 
 export default function AdminBookingsPage() {
   const router = useRouter();
@@ -224,34 +240,28 @@ export default function AdminBookingsPage() {
   };
 
   return (
-    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 920 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-      </button>
-
-      <div className="flex items-start justify-between gap-4 mb-7 flex-wrap">
-        <div>
-          <h1 className="bv-h1">{T("Bookings", "Termine", "Rendez-vous")}</h1>
-          <p className="bv-body mt-1">
-            {upcoming.length} {T("upcoming", "anstehend", "à venir")} · {rows.length} {T("total", "gesamt", "au total")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => setAvailOpen(true)} className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-2">
-            <SlidersHorizontal size={15} strokeWidth={2} /> {T("My availability", "Meine Zeiten", "Mes disponibilités")}
-          </button>
-          <button onClick={() => setAddOpen(true)} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
-            <Plus size={15} strokeWidth={2} /> {T("Add by hand", "Manuell eintragen", "Ajouter manuellement")}
-          </button>
-        </div>
-      </div>
+    <main id="bv-main" className="mx-auto px-5 bv-page-bottom" style={{ maxWidth: 880, paddingTop: 88, paddingBottom: 20 }}>
+      <style>{BOOKINGS_CSS}</style>
+      <PageHead
+        back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Bookings", "Termine", "Rendez-vous")}
+        sub={<>{upcoming.length} {T("upcoming", "anstehend", "à venir")} · {rows.length} {T("total", "gesamt", "au total")}</>}
+        actions={<>
+          <Btn size="sm" onClick={() => setAvailOpen(true)}>
+            <SlidersHorizontal size={14} strokeWidth={2} />{T("My availability", "Meine Zeiten", "Mes disponibilités")}
+          </Btn>
+          <Btn kind="primary" size="sm" onClick={() => setAddOpen(true)}>
+            <Plus size={14} strokeWidth={2} />{T("Add by hand", "Manuell eintragen", "Ajouter manuellement")}
+          </Btn>
+        </>}
+      />
 
       {poolErr && (
-        <p className="text-[13px] mb-4" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: STATUS_DOT.rejected }} role="alert">{poolErr}</p>
       )}
 
       {!types.length && typesErr && (
-        <p className="text-[13px] mb-6" style={{ color: "#ef4444" }} role="alert">
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: STATUS_DOT.rejected }} role="alert">
           {typesErr === "expired"
             ? T("Your session expired — reload the page to see your booking links.",
                 "Ihre Sitzung ist abgelaufen — laden Sie die Seite neu, um Ihre Buchungslinks zu sehen.",
@@ -275,38 +285,16 @@ export default function AdminBookingsPage() {
       )}
 
       {!rows.length ? (
-        <div className="bv-card p-8 text-center" style={{ borderRadius: 18 }}>
-          <CalendarDays size={22} style={{ color: "var(--w3)" }} className="mx-auto mb-3" />
-          <p className="bv-body">
+        <Card>
+          <Empty icon={<CalendarDays size={20} aria-hidden />}>
             {T("No bookings yet. They'll appear here as soon as someone books at /book — or add one by hand.",
                "Noch keine Termine. Sie erscheinen hier, sobald jemand unter /book bucht — oder tragen Sie einen manuell ein.",
                "Aucun rendez-vous. Ils apparaîtront ici dès qu'une réservation est faite sur /book — ou ajoutez-en un manuellement.")}
-          </p>
-        </div>
+          </Empty>
+        </Card>
       ) : (
-        <>
-          {!!upcoming.length && (
-            <Section title={T("Upcoming", "Anstehend", "À venir")}>
-              {upcoming.map((b) => (
-                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />
-              ))}
-            </Section>
-          )}
-          {!!cancelled.length && (
-            <Section title={T("Cancelled", "Abgesagt", "Annulés")}>
-              {cancelled.map((b) => (
-                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />
-              ))}
-            </Section>
-          )}
-          {!!past.length && (
-            <Section title={T("Past", "Vergangen", "Passés")}>
-              {past.map((b) => (
-                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />
-              ))}
-            </Section>
-          )}
-        </>
+        <BookingLists T={T} upcoming={upcoming} cancelled={cancelled} past={past}
+          row={(b) => <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />} />
       )}
 
       {addOpen && (
@@ -335,7 +323,7 @@ export default function AdminBookingsPage() {
  * people actually type — and until that redirect existed they landed on the
  * generic site shell with no calendar and no error.
  */
-function UniversalLinkCard({ T }: { T: (en: string, de: string, fr: string) => string }) {
+function UniversalLinkCard({ T, onDirect }: { T: (en: string, de: string, fr: string) => string; onDirect?: () => void }) {
   const url = "https://www.borivon.com/bookings";
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -351,48 +339,34 @@ function UniversalLinkCard({ T }: { T: (en: string, de: string, fr: string) => s
     }
   };
   return (
-    <div
-      className="rounded-2xl px-4 py-4 sm:px-5"
-      style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}
-    >
-      <div className="flex flex-wrap items-center gap-3 justify-between">
-        <div className="min-w-0">
-          <p className="text-[14.5px] font-semibold mb-1" style={{ color: "var(--w)" }}>
-            {T("Your booking link", "Ihr Buchungslink", "Votre lien de réservation")}
-          </p>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[13.5px] break-all underline"
-            style={{ color: "var(--gold)" }}
-          >
-            {url}
+    <Card style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "10px 14px", padding: "12px 14px 12px 16px" }}>
+      <span aria-hidden className="bkg-hide-ph" style={{ flex: "none", width: 34, height: 34, borderRadius: 10, display: "grid", placeItems: "center", background: "var(--bg2)", color: "var(--gold)" }}>
+        <Link2 size={16} />
+      </span>
+      <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{T("Your booking link", "Ihr Buchungslink", "Votre lien de réservation")}</span>
+          <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14.5, fontWeight: 500, color: "var(--w)", textDecoration: "none", wordBreak: "break-all" }}>
+            www.borivon.com/bookings
           </a>
         </div>
-        <button
-          type="button"
-          onClick={copy}
-          className="bv-btn bv-tap inline-flex items-center gap-2"
-          style={{
-            minHeight: 44,
-            background: copied ? "rgba(22,163,74,.15)" : "var(--gold)",
-            color: copied ? "#16a34a" : "#131312",
-            border: copied ? "1px solid rgba(22,163,74,.4)" : "none",
-            fontWeight: 700,
-          }}
-        >
-          {copied
-            ? T("Copied", "Kopiert", "Copié")
-            : T("Copy link", "Link kopieren", "Copier le lien")}
-        </button>
+        <div style={{ marginTop: 2, fontSize: 12.5, color: "var(--w3)" }}>
+          {T("For anyone — it asks who they are, then shows your real times.",
+             "Für alle — fragt zuerst, wer bucht, und zeigt dann Ihre echten Zeiten.",
+             "Pour tous — demande d'abord qui réserve, puis montre vos vraies disponibilités.")}
+        </div>
       </div>
-      <p className="text-[12px] mt-2.5" style={{ color: "var(--w3)" }}>
-        {T("Share this with anyone — clinics, care homes or nurses. It asks who they are, then shows your real availability.",
-           "Teilen Sie diesen mit allen — Kliniken, Pflegeheimen oder Pflegekräften. Er fragt, wer sie sind, und zeigt dann Ihre echte Verfügbarkeit.",
-           "Partagez-le avec tout le monde — cliniques, maisons de retraite ou infirmiers. Il demande qui ils sont, puis affiche vos vraies disponibilités.")}
-      </p>
-    </div>
+      <div style={{ display: "flex", gap: 6, flex: "none" }}>
+        <Btn size="sm" onClick={copy}>
+          {copied
+            ? <><Check size={14} aria-hidden style={{ color: STATUS_DOT.approved }} />{T("Copied", "Kopiert", "Copié")}</>
+            : <><Copy size={14} aria-hidden />{T("Copy link", "Link kopieren", "Copier le lien")}</>}
+        </Btn>
+        {onDirect && (
+          <Btn kind="quiet" size="sm" onClick={onDirect}>{T("Direct links", "Direkte Links", "Liens directs")}</Btn>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -435,22 +409,22 @@ function BookingLinksPanel({
   migrated: boolean;
   onSaved: (types: EventType[], defaults: LinkDefaults | null) => void;
 }) {
+  // The per-audience links open in a popup (LAW #36) instead of unfolding the page (nobody scrolls).
+  const [direct, setDirect] = useState(false);
+  const globalLine = defaults
+    ? T(
+        `Global settings, used wherever a link sets nothing of its own: ${defaults.slot_minutes} min call, ${defaults.buffer_minutes} min gap, ${defaults.min_notice_hours} h notice, ${defaults.horizon_days} days ahead.`,
+        `Globale Einstellungen, gültig überall dort, wo ein Link nichts Eigenes setzt: ${defaults.slot_minutes} Min. Termin, ${defaults.buffer_minutes} Min. Puffer, ${defaults.min_notice_hours} Std. Vorlauf, ${defaults.horizon_days} Tage im Voraus.`,
+        `Réglages globaux, utilisés partout où un lien ne définit rien : appel de ${defaults.slot_minutes} min, pause de ${defaults.buffer_minutes} min, préavis de ${defaults.min_notice_hours} h, ${defaults.horizon_days} jours à l'avance.`,
+      )
+    : "";
+  const closedLine = defaults && !defaults.accepting
+    ? T("Bookings are currently closed for every link.",
+        "Buchungen sind derzeit für alle Links geschlossen.",
+        "Les réservations sont actuellement fermées pour tous les liens.")
+    : "";
   return (
-    <section className="mb-9">
-      <p className="bv-eyebrow mb-3">{T("Your booking links", "Ihre Buchungslinks", "Vos liens de réservation")}</p>
-
-      {!migrated && (
-        <p
-          role="alert"
-          className="rounded-xl px-4 py-3 text-[13px] mb-3"
-          style={{ background: "rgba(245,158,11,.08)", border: "1px solid rgba(245,158,11,.35)", color: "var(--w)" }}
-        >
-          {T("These links work, but their settings aren't stored yet — run supabase/booking_event_types.sql to be able to change them.",
-             "Die Links funktionieren, ihre Einstellungen sind aber noch nicht gespeichert — führen Sie supabase/booking_event_types.sql aus, um sie ändern zu können.",
-             "Ces liens fonctionnent, mais leurs réglages ne sont pas encore enregistrés — exécutez supabase/booking_event_types.sql pour pouvoir les modifier.")}
-        </p>
-      )}
-
+    <section style={{ marginBottom: 14 }}>
       {/* THE ONE LINK. Everything else on this page is optional.
           /book already asks the visitor who they are before showing the
           calendar, so a single address serves nurses, clinics and companies —
@@ -458,26 +432,33 @@ function BookingLinksPanel({
           loud. Three competing links is a decision the person sharing has to
           make every time, and the wrong one is a worse first impression than no
           link at all. */}
-      <UniversalLinkCard T={T} />
+      <UniversalLinkCard T={T} onDirect={() => setDirect(true)} />
+
+      {!migrated && (
+        <p role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "8px 2px 0", fontSize: 12.5, color: "var(--w2)" }}>
+          <span style={{ marginTop: 5 }}><Dot st="pending" size={7} /></span>
+          {T("These links work, but their settings aren't stored yet — run supabase/booking_event_types.sql to be able to change them.",
+             "Die Links funktionieren, ihre Einstellungen sind aber noch nicht gespeichert — führen Sie supabase/booking_event_types.sql aus, um sie ändern zu können.",
+             "Ces liens fonctionnent, mais leurs réglages ne sont pas encore enregistrés — exécutez supabase/booking_event_types.sql pour pouvoir les modifier.")}
+        </p>
+      )}
+      {closedLine && (
+        <p style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 2px 0", fontSize: 12.5, color: "var(--w2)" }}>
+          <Dot st="pending" size={7} />{closedLine}
+        </p>
+      )}
 
       {/* The per-audience links still exist for when you deliberately want to
           skip the "who are you?" step — a company you already know is a
           company. Folded away so it is a choice, not the default. */}
-      <details className="mt-4">
-        <summary
-          className="text-[12.5px] cursor-pointer select-none"
-          style={{ color: "var(--w3)", minHeight: 44, display: "flex", alignItems: "center" }}
-        >
-          {T("Direct links per audience (optional)",
-             "Direkte Links pro Zielgruppe (optional)",
-             "Liens directs par public (facultatif)")}
-        </summary>
-        <p className="text-[12px] mt-1 mb-2.5" style={{ color: "var(--w3)" }}>
-          {T("These skip the first question and open straight on the calendar. Use them when you already know who you are sending it to.",
-             "Diese überspringen die erste Frage und öffnen direkt den Kalender. Nutzen Sie sie, wenn Sie bereits wissen, an wen Sie senden.",
-             "Ils sautent la première question et ouvrent directement le calendrier. À utiliser quand vous savez déjà à qui vous l'envoyez.")}
-        </p>
-        <div className="grid gap-2">
+      <Modal open={direct} onClose={() => setDirect(false)} size="md"
+        title={T("Direct links per audience (optional)",
+                 "Direkte Links pro Zielgruppe (optional)",
+                 "Liens directs par public (facultatif)")}
+        subtitle={T("These skip the first question and open straight on the calendar. Use them when you already know who you are sending it to.",
+                    "Diese überspringen die erste Frage und öffnen direkt den Kalender. Nutzen Sie sie, wenn Sie bereits wissen, an wen Sie senden.",
+                    "Ils sautent la première question et ouvrent directement le calendrier. À utiliser quand vous savez déjà à qui vous l'envoyez.")}>
+        <div className="px-5 py-4" style={{ display: "grid", gap: 8 }}>
           {types.map((et) => (
             <LinkCard
               key={et.slug}
@@ -490,22 +471,13 @@ function BookingLinksPanel({
               onSaved={onSaved}
             />
           ))}
-        </div>
-      </details>
-
-      {defaults && (
-        <p className="text-[12px] mt-2.5" style={{ color: "var(--w3)" }}>
-          {T(
-            `Global settings, used wherever a link sets nothing of its own: ${defaults.slot_minutes} min call, ${defaults.buffer_minutes} min gap, ${defaults.min_notice_hours} h notice, ${defaults.horizon_days} days ahead.`,
-            `Globale Einstellungen, gültig überall dort, wo ein Link nichts Eigenes setzt: ${defaults.slot_minutes} Min. Termin, ${defaults.buffer_minutes} Min. Puffer, ${defaults.min_notice_hours} Std. Vorlauf, ${defaults.horizon_days} Tage im Voraus.`,
-            `Réglages globaux, utilisés partout où un lien ne définit rien : appel de ${defaults.slot_minutes} min, pause de ${defaults.buffer_minutes} min, préavis de ${defaults.min_notice_hours} h, ${defaults.horizon_days} jours à l'avance.`,
+          {defaults && (
+            <p style={{ margin: "6px 2px 0", fontSize: 12, lineHeight: 1.5, color: "var(--w3)" }}>
+              {globalLine}{closedLine ? ` ${closedLine}` : ""}
+            </p>
           )}
-          {" "}
-          {!defaults.accepting && T("Bookings are currently closed for every link.",
-            "Buchungen sind derzeit für alle Links geschlossen.",
-            "Les réservations sont actuellement fermées pour tous les liens.")}
-        </p>
-      )}
+        </div>
+      </Modal>
     </section>
   );
 }
@@ -623,51 +595,33 @@ function LinkCard({
   const num = (v: string) => (v.trim() === "" ? null : Number(v.trim()));
 
   return (
-    <div style={{ overflow: "hidden" }}>
-      <div className="p-4 flex items-start gap-3 flex-wrap">
+    <div style={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--card)", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px 12px", padding: "10px 10px 10px 14px" }}>
         {/* LAW #4 — the dot carries live / not live, never a word. */}
-        <span
-          aria-hidden
-          style={{
-            width: 8, height: 8, borderRadius: 999, marginTop: 7, flexShrink: 0,
-            background: et.active ? "#16a34a" : "var(--w3)",
-          }}
-        />
-        <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
-          <p className="text-[14.5px] font-medium truncate" style={{ color: "var(--w)" }}>{title}</p>
-          <a
-            href={et.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bv-link block text-[12.5px] mt-1 break-all"
-          >
+        <Dot st={et.active ? "approved" : "missing"} size={8} />
+        <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</p>
+          <a href={et.url} target="_blank" rel="noopener noreferrer"
+            style={{ display: "block", marginTop: 1, fontSize: 12.5, color: "var(--w3)", textDecoration: "none", wordBreak: "break-all" }}>
             {et.url}
           </a>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={copy}
-            className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
-            style={{ minHeight: 44, borderColor: copied ? "#16a34a" : undefined }}
-            aria-label={T(`Copy the link for ${title}`, `Link für ${title} kopieren`, `Copier le lien pour ${title}`)}
-          >
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "none" }}>
+          <Btn size="sm" onClick={copy}
+            style={copied ? { borderColor: STATUS_DOT.approved } : undefined}
+            aria-label={T(`Copy the link for ${title}`, `Link für ${title} kopieren`, `Copier le lien pour ${title}`)}>
             {copied
-              ? <><Check size={14} aria-hidden style={{ color: "#16a34a" }} /> {T("Copied", "Kopiert", "Copié")}</>
-              : <><Copy size={14} aria-hidden /> {T("Copy", "Kopieren", "Copier")}</>}
-          </button>
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
-            style={{ minHeight: 44 }}
-            aria-expanded={open}
-            aria-label={T(`Settings for ${title}`, `Einstellungen für ${title}`, `Réglages pour ${title}`)}
-          >
+              ? <><Check size={14} aria-hidden style={{ color: STATUS_DOT.approved }} />{T("Copied", "Kopiert", "Copié")}</>
+              : <><Copy size={14} aria-hidden />{T("Copy", "Kopieren", "Copier")}</>}
+          </Btn>
+          <Btn kind="quiet" size="sm" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+            aria-label={T(`Settings for ${title}`, `Einstellungen für ${title}`, `Réglages pour ${title}`)}>
             <SlidersHorizontal size={14} aria-hidden />
             <ChevronDown size={13} aria-hidden style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .18s" }} />
-          </button>
+          </Btn>
         </div>
         {copyErr && (
-          <p className="w-full text-[12.5px]" style={{ color: "#ef4444" }} role="alert">
+          <p style={{ width: "100%", margin: 0, fontSize: 12.5, color: STATUS_DOT.rejected }} role="alert">
             {T("Couldn't copy — select the link above and copy it by hand.",
                "Kopieren fehlgeschlagen — markieren Sie den Link oben und kopieren Sie ihn manuell.",
                "Copie impossible — sélectionnez le lien ci-dessus et copiez-le à la main.")}
@@ -676,12 +630,13 @@ function LinkCard({
       </div>
 
       {open && (
-        <div className="px-4 pb-4 grid gap-4" style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-          <label className="flex items-center gap-2.5 text-[13.5px] bv-tap" style={{ color: "var(--w2)", minHeight: 44 }}>
+        <div style={{ display: "grid", gap: 14, padding: "14px", borderTop: "1px solid var(--border)" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "var(--w2)", cursor: "pointer" }}>
             <input
               type="checkbox"
               checked={active}
               disabled={saving || !editable}
+              style={{ width: 16, height: 16, accentColor: "var(--w)" }}
               onChange={async (e) => {
                 const v = e.target.checked;
                 const prev = active;
@@ -696,14 +651,14 @@ function LinkCard({
             {T("Link is live", "Link ist aktiv", "Lien actif")}
           </label>
           {!active && (
-            <p className="text-[12.5px] -mt-3" style={{ color: "var(--w3)" }}>
+            <p style={{ margin: "-6px 0 0", fontSize: 12.5, color: "var(--w3)" }}>
               {T("Anyone opening this link gets a Not found page. Nothing already booked is affected.",
                  "Wer diesen Link öffnet, sieht eine Nicht-gefunden-Seite. Bereits gebuchte Termine bleiben bestehen.",
                  "Ce lien affiche une page introuvable. Les rendez-vous déjà pris ne changent pas.")}
             </p>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
             {(Object.keys(OVERRIDE_RANGE) as OverrideKey[]).map((k) => (
               <OverrideField
                 key={k}
@@ -721,8 +676,8 @@ function LinkCard({
             ))}
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <Btn kind="primary" size="sm"
               onClick={() => save({
                 slot_minutes: num(draft.slot_minutes),
                 buffer_minutes: num(draft.buffer_minutes),
@@ -730,20 +685,19 @@ function LinkCard({
                 horizon_days: num(draft.horizon_days),
               }, "fields")}
               disabled={saving || !editable}
-              className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2 text-[13px]"
-              style={{ minHeight: 44 }}
             >
               {saving ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />}
               {T("Save", "Speichern", "Enregistrer")}
-            </button>
+            </Btn>
             {saved && (
-              <span className="text-[13px]" style={{ color: "#16a34a" }} role="status">
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--w2)" }} role="status">
+                <Dot st="approved" size={7} />
                 {saved === "active"
                   ? T("Saved.", "Gespeichert.", "Enregistré.")
                   : T("Saved — this link uses these now.", "Gespeichert — dieser Link nutzt das jetzt.", "Enregistré — ce lien l'utilise maintenant.")}
               </span>
             )}
-            {err && <span className="text-[13px]" style={{ color: "#ef4444" }} role="alert">{err}</span>}
+            {err && <span style={{ fontSize: 13, color: STATUS_DOT.rejected }} role="alert">{err}</span>}
           </div>
         </div>
       )}
@@ -773,23 +727,23 @@ function OverrideField({
   const overriding = value.trim() !== "";
   return (
     <div>
-      <label className="bv-label" htmlFor={id}>{label}</label>
-      <input
-        id={id}
-        className="bv-input"
-        type="number"
-        inputMode="numeric"
-        min={min}
-        max={max}
-        value={value}
-        disabled={disabled}
-        style={{ minHeight: 44 }}
-        placeholder={inherited == null
-          ? T("inherit", "erben", "hériter")
-          : `${T("inherit", "erben", "hériter")} · ${inherited} ${unit}`}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <p className="text-[12px] mt-1" style={{ color: overriding ? "var(--gold)" : "var(--w3)" }}>
+      <Field label={label}>
+        <input
+          id={id}
+          className="bvk-input"
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={value}
+          disabled={disabled}
+          placeholder={inherited == null
+            ? T("inherit", "erben", "hériter")
+            : `${T("inherit", "erben", "hériter")} · ${inherited} ${unit}`}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </Field>
+      <p style={{ margin: "5px 0 0", fontSize: 12, lineHeight: 1.45, color: overriding ? "var(--w)" : "var(--w3)", fontWeight: overriding ? 500 : 400 }}>
         {overriding
           ? T(`Only this link. Leave empty to go back to the global setting${inherited == null ? "" : ` (${inherited} ${unit})`}.`,
               `Nur dieser Link. Leer lassen, um wieder die globale Einstellung zu nutzen${inherited == null ? "" : ` (${inherited} ${unit})`}.`,
@@ -810,6 +764,15 @@ function OverrideField({
  * -------------------------------------------------------------------------- */
 
 const DAY_KEYS = [1, 2, 3, 4, 5, 6, 0] as const; // Mon-first, the way a week reads
+const DAY_SHORT: Record<number, { en: string; de: string; fr: string }> = {
+  1: { en: "Mon", de: "Mo", fr: "Lun" },
+  2: { en: "Tue", de: "Di", fr: "Mar" },
+  3: { en: "Wed", de: "Mi", fr: "Mer" },
+  4: { en: "Thu", de: "Do", fr: "Jeu" },
+  5: { en: "Fri", de: "Fr", fr: "Ven" },
+  6: { en: "Sat", de: "Sa", fr: "Sam" },
+  0: { en: "Sun", de: "So", fr: "Dim" },
+};
 const DAY_NAME: Record<number, { en: string; de: string; fr: string }> = {
   1: { en: "Monday", de: "Montag", fr: "Lundi" },
   2: { en: "Tuesday", de: "Dienstag", fr: "Mardi" },
@@ -930,6 +893,7 @@ function AvailabilityModal({
   }
 
   const dayName = (d: number) => T(DAY_NAME[d].en, DAY_NAME[d].de, DAY_NAME[d].fr);
+  const dayShort = (d: number) => T(DAY_SHORT[d].en, DAY_SHORT[d].de, DAY_SHORT[d].fr);
 
   return (
     <Modal
@@ -940,53 +904,50 @@ function AvailabilityModal({
       title={T("My availability", "Meine Zeiten", "Mes disponibilités")}
       footer={
         <>
-          <button onClick={onClose} disabled={saving} className="bv-btn bv-btn-ghost bv-tap">
+          <Btn kind="quiet" size="sm" onClick={onClose} disabled={saving}>
             {T("Close", "Schließen", "Fermer")}
-          </button>
+          </Btn>
           {/* Saving is blocked while the current availability is unknown — the
               form would be showing defaults, not their hours, and Save would
               write those defaults over the real thing. */}
-          <button onClick={save} disabled={saving || loading || !!loadErr} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
+          <Btn kind="primary" size="sm" onClick={save} disabled={saving || loading || !!loadErr}>
             {saving ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />}
             {T("Save", "Speichern", "Enregistrer")}
-          </button>
+          </Btn>
         </>
       }
     >
-      <div className="grid gap-4 px-5 py-4">
+      <div className="px-5 py-4" style={{ display: "grid", gap: 12 }}>
         {loadErr ? (
-          <div
-            role="alert"
-            className="rounded-xl px-4 py-3 text-[13px]"
-            style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.35)", color: "var(--w)" }}
-          >
+          <p role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: 0, padding: "10px 12px", borderRadius: 12, background: STATUS_TINT.rejected, fontSize: 13, color: "var(--w)" }}>
             {loadErr}
-          </div>
+          </p>
         ) : null}
         {loading ? (
           <div className="bv-skeleton" style={{ height: 260, borderRadius: 14 }} aria-busy="true" />
         ) : (
           <>
-            <label className="flex items-center gap-2.5 text-[13.5px] bv-tap" style={{ color: "var(--w2)" }}>
-              <input type="checkbox" checked={accepting} onChange={(e) => setAccepting(e.target.checked)} />
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "var(--w2)", cursor: "pointer" }}>
+              <input type="checkbox" checked={accepting} onChange={(e) => setAccepting(e.target.checked)} style={{ width: 16, height: 16, accentColor: "var(--w)" }} />
               {T("Accepting bookings", "Termine annehmen", "Accepter les réservations")}
             </label>
             {!accepting && (
-              <p className="text-[12.5px] -mt-2" style={{ color: "var(--w3)" }}>
+              <p style={{ margin: "-8px 0 0", fontSize: 12.5, color: "var(--w3)" }}>
                 {T("/book will show no times and invite people to email instead. Nothing is deleted.",
                    "/book zeigt keine Zeiten und bittet um eine E-Mail. Es wird nichts gelöscht.",
                    "/book n'affichera aucun créneau et invitera à écrire. Rien n'est supprimé.")}
               </p>
             )}
 
-            <div>
-              <p className="bv-label mb-2">{T("Working hours", "Arbeitszeiten", "Heures de travail")}</p>
-              <div className="grid gap-2">
+            <div className="bvk-field">
+              <span>{T("Working hours", "Arbeitszeiten", "Heures de travail")}</span>
+              <div style={{ display: "grid", gap: "6px 14px", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
                 {DAY_KEYS.map((d) => (
-                  <div key={d} className="flex items-center gap-3">
-                    <span className="text-[12.5px] flex-shrink-0" style={{ color: "var(--w3)", width: 84 }}>{dayName(d)}</span>
+                  <div key={d} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span aria-hidden style={{ flex: "none", width: 28, fontSize: 12.5, color: "var(--w3)" }}>{dayShort(d)}</span>
                     <input
-                      className="bv-input flex-1"
+                      className="bvk-input"
+                      style={{ height: 38 }}
                       value={week[d] ?? ""}
                       placeholder={T("closed", "geschlossen", "fermé")}
                       onChange={(e) => setWeek((w) => ({ ...w, [d]: e.target.value }))}
@@ -995,67 +956,66 @@ function AvailabilityModal({
                   </div>
                 ))}
               </div>
-              <p className="text-[12px] mt-2" style={{ color: "var(--w3)" }}>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--w3)", textTransform: "none", letterSpacing: 0 }}>
                 {T("Comma-separated, e.g. 09:00-13:00, 14:00-18:00. Leave a day empty to close it.",
                    "Kommagetrennt, z. B. 09:00-13:00, 14:00-18:00. Leer lassen = geschlossen.",
                    "Séparés par des virgules, ex. 09:00-13:00, 14:00-18:00. Laissez vide pour fermer.")}
               </p>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="bv-label" htmlFor="av-slot">{T("Appointment length", "Termindauer", "Durée du rendez-vous")}</label>
-                <select id="av-slot" className="bv-input" value={slot} onChange={(e) => setSlot(Number(e.target.value))}>
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+              <Field label={T("Appointment length", "Termindauer", "Durée du rendez-vous")}>
+                <select id="av-slot" className="bvk-input" value={slot} onChange={(e) => setSlot(Number(e.target.value))}>
                   {[15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} min</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="bv-label" htmlFor="av-buffer">{T("Gap between calls", "Puffer zwischen Terminen", "Pause entre les appels")}</label>
-                <select id="av-buffer" className="bv-input" value={buffer} onChange={(e) => setBuffer(Number(e.target.value))}>
+              </Field>
+              <Field label={T("Gap between calls", "Puffer zwischen Terminen", "Pause entre les appels")}>
+                <select id="av-buffer" className="bvk-input" value={buffer} onChange={(e) => setBuffer(Number(e.target.value))}>
                   {[0, 5, 10, 15, 30].map((m) => (
                     <option key={m} value={m}>{m === 0 ? T("none", "keiner", "aucune") : `${m} min`}</option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label className="bv-label" htmlFor="av-notice">{T("Minimum notice", "Mindestvorlauf", "Préavis minimum")}</label>
-                <select id="av-notice" className="bv-input" value={notice} onChange={(e) => setNotice(Number(e.target.value))}>
+              </Field>
+              <Field label={T("Minimum notice", "Mindestvorlauf", "Préavis minimum")}>
+                <select id="av-notice" className="bvk-input" value={notice} onChange={(e) => setNotice(Number(e.target.value))}>
                   {[0, 2, 4, 12, 24, 48].map((h) => (
                     <option key={h} value={h}>{h === 0 ? T("none", "keiner", "aucun") : `${h} h`}</option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label className="bv-label" htmlFor="av-horizon">{T("Book up to", "Buchbar bis", "Réservable jusqu'à")}</label>
-                <select id="av-horizon" className="bv-input" value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}>
+              </Field>
+              <Field label={T("Book up to", "Buchbar bis", "Réservable jusqu'à")}>
+                <select id="av-horizon" className="bvk-input" value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}>
                   {[7, 14, 21, 30, 60].map((d) => (
                     <option key={d} value={d}>{d} {T("days ahead", "Tage im Voraus", "jours à l'avance")}</option>
                   ))}
                 </select>
-              </div>
+              </Field>
             </div>
 
             <div>
-              <label className="bv-label" htmlFor="av-blackout">{T("Days off", "Freie Tage", "Jours de congé")}</label>
-              <textarea
-                id="av-blackout" className="bv-input" rows={3} value={blackout}
-                onChange={(e) => setBlackout(e.target.value)} style={{ resize: "vertical" }}
-                placeholder="2026-08-15&#10;2026-12-25"
-              />
-              <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>
+              <Field label={T("Days off", "Freie Tage", "Jours de congé")}>
+                <textarea
+                  id="av-blackout" className="bvk-input" rows={2} value={blackout}
+                  onChange={(e) => setBlackout(e.target.value)} style={{ minHeight: 60 }}
+                  placeholder="2026-08-15&#10;2026-12-25"
+                />
+              </Field>
+              <p style={{ margin: "5px 0 0", fontSize: 12, color: "var(--w3)" }}>
                 {T("One date per line (YYYY-MM-DD). Nothing is offered on these days.",
                    "Ein Datum pro Zeile (JJJJ-MM-TT). An diesen Tagen wird nichts angeboten.",
                    "Une date par ligne (AAAA-MM-JJ). Aucun créneau ces jours-là.")}
               </p>
             </div>
 
-            <a href="/book" target="_blank" rel="noopener noreferrer" className="bv-link text-[13px] inline-flex items-center gap-2">
+            <a href="/book" target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w)", textDecoration: "underline", textUnderlineOffset: 3, justifySelf: "start" }}>
               <Link2 size={13} aria-hidden /> {T("Preview the booking page", "Buchungsseite ansehen", "Voir la page de réservation")}
             </a>
 
-            {err && <p className="text-[13px]" style={{ color: "#ef4444" }} role="alert">{err}</p>}
+            {err && <p style={{ margin: 0, fontSize: 13, color: STATUS_DOT.rejected }} role="alert">{err}</p>}
             {saved && (
-              <p className="text-[13px]" style={{ color: "#16a34a" }} role="status">
+              <p style={{ display: "flex", alignItems: "center", gap: 8, margin: 0, fontSize: 13, color: "var(--w2)" }} role="status">
+                <Dot st="approved" size={7} />
                 {T("Saved — the booking page is live with these hours.",
                    "Gespeichert — die Buchungsseite nutzt diese Zeiten.",
                    "Enregistré — la page de réservation utilise ces horaires.")}
@@ -1068,12 +1028,32 @@ function AvailabilityModal({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** Upcoming · Cancelled · Past as one segmented filter, the chosen list flipping page by page (nobody scrolls). */
+function BookingLists({ T, upcoming, cancelled, past, row }: {
+  T: (en: string, de: string, fr: string) => string;
+  upcoming: Booking[];
+  cancelled: Booking[];
+  past: Booking[];
+  row: (b: Booking) => React.ReactNode;
+}) {
+  type View = "up" | "cancelled" | "past";
+  const tabs = ([
+    ["up", T("Upcoming", "Anstehend", "À venir"), upcoming],
+    ["cancelled", T("Cancelled", "Abgesagt", "Annulés"), cancelled],
+    ["past", T("Past", "Vergangen", "Passés"), past],
+  ] as [View, string, Booking[]][]).filter(([, , list]) => list.length > 0);
+  const [view, setView] = useState<View>(upcoming.length ? "up" : past.length ? "past" : "cancelled");
+  const cur = tabs.find(([k]) => k === view) ?? tabs[0];
+  const { slice, page, pages, setPage } = usePaged(cur ? cur[2] : [], 8, 4);
+  if (!cur) return null;
   return (
-    <section className="mb-9">
-      <p className="bv-eyebrow mb-3">{title}</p>
-      {/* One grouped glass list per section (the portal pattern): thin dividers, no card stack. */}
-      <div className="overflow-hidden [&>*+*]:border-t [&>*+*]:border-[var(--border)]" style={{ background: "var(--card)", borderRadius: "22px" }}>{children}</div>
+    <section>
+      <div style={{ marginBottom: 10 }}>
+        <Seg value={cur[0]} onChange={(v) => { setView(v); setPage(0); }}
+          options={tabs.map(([k, label, list]) => [k, `${label} ${list.length}`] as [View, string])} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{slice.map(row)}</div>
+      <Pager page={page} pages={pages} onPage={setPage} />
     </section>
   );
 }
@@ -1095,49 +1075,46 @@ function Row({
   const who = b.company || b.name;
   const past = Date.parse(b.starts_at) < Date.now();
 
+  const kindLabel = lang === "de" ? kl.de : lang === "fr" ? kl.fr : kl.en;
+  const linkStyle: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 8, color: "var(--w)", textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: "var(--border2)", wordBreak: "break-all" };
+  const ico: React.CSSProperties = { flex: "none", color: "var(--w3)" };
+
   return (
-    <div style={{ overflow: "hidden" }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full text-left flex items-center gap-3 p-4 bv-row-hover bv-tap"
-        aria-expanded={open}
-      >
-        <span
-          aria-hidden
-          style={{ width: 8, height: 8, borderRadius: 999, background: STATUS_COLOR[b.status], flexShrink: 0 }}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2 flex-wrap">
-            <span className="text-[14.5px] font-medium truncate" style={{ color: "var(--w)" }}>{who}</span>
-            <span className="bv-chip">{lang === "de" ? kl.de : lang === "fr" ? kl.fr : kl.en}</span>
+    <>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="bkg-row" aria-expanded={open}>
+        <Dot st={STATUS_COLOR[b.status]} size={8} />
+        <span className="bkg-main">
+          <span className="bkg-who">{who}</span>
+          <span className="bkg-kind">
+            {kindLabel}
             {b.source === "admin" && (
-              <span className="bv-chip" title={T("Added by hand", "Manuell eingetragen", "Ajouté manuellement")}>
-                {T("manual", "manuell", "manuel")}
-              </span>
+              <span title={T("Added by hand", "Manuell eingetragen", "Ajouté manuellement")}> · {T("manual", "manuell", "manuel")}</span>
             )}
           </span>
-          <span className="block text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>{fmt(b.starts_at)}</span>
         </span>
+        <span className="bkg-when">{fmt(b.starts_at)}</span>
+        <ChevronRight size={15} aria-hidden style={ico} />
       </button>
 
-      {open && (
-        <div className="px-4 pb-4 grid gap-3" style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-          <div className="grid gap-1.5 text-[13px]" style={{ color: "var(--w2)" }}>
-            {b.company && <span className="flex items-center gap-2"><Building2 size={13} aria-hidden /> {b.name}</span>}
-            {b.email && <a className="bv-link flex items-center gap-2" href={`mailto:${b.email}`}><Mail size={13} aria-hidden /> {b.email}</a>}
-            {b.phone && <a className="bv-link flex items-center gap-2" href={`tel:${b.phone.replace(/\s/g, "")}`}><Phone size={13} aria-hidden /> {b.phone}</a>}
+      {/* The call's details and what came of it, in the universal popup (LAW #36) — the list never grows. */}
+      <Modal open={open} onClose={() => setOpen(false)} busy={busy} size="sm" title={who}
+        subtitle={`${kindLabel} · ${fmt(b.starts_at)}${b.source === "admin" ? ` · ${T("manual", "manuell", "manuel")}` : ""}`}>
+        <div className="px-5 py-4" style={{ display: "grid", gap: 16 }}>
+          <div style={{ display: "grid", gap: 8, fontSize: 13.5, color: "var(--w2)" }}>
+            {b.company && <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Building2 size={14} aria-hidden style={ico} /> {b.name}</span>}
+            {b.email && <a style={linkStyle} href={`mailto:${b.email}`}><Mail size={14} aria-hidden style={ico} /> {b.email}</a>}
+            {b.phone && <a style={linkStyle} href={`tel:${b.phone.replace(/\s/g, "")}`}><Phone size={14} aria-hidden style={ico} /> {b.phone}</a>}
             {b.meet_link && (
-              <a className="bv-link flex items-center gap-2" href={b.meet_link} target="_blank" rel="noopener noreferrer">
-                <Video size={13} aria-hidden /> {T("Join video call", "Videoanruf beitreten", "Rejoindre la visio")}
+              <a style={linkStyle} href={b.meet_link} target="_blank" rel="noopener noreferrer">
+                <Video size={14} aria-hidden style={ico} /> {T("Join video call", "Videoanruf beitreten", "Rejoindre la visio")}
               </a>
             )}
-            {b.note && <span className="mt-1" style={{ color: "var(--w3)" }}>{b.note}</span>}
+            {b.note && <span style={{ color: "var(--w3)" }}>{b.note}</span>}
           </div>
 
           {/* What they ticked — the reason the form asks in taps instead of prose. */}
           {!!b.selections && Object.keys(b.selections).length > 0 && (
-            <div className="grid gap-2">
+            <div style={{ display: "grid", gap: 10 }}>
               {(QUESTIONS[b.kind] ?? []).map((q) => {
                 const ids = b.selections?.[q.id];
                 if (!ids?.length) return null;
@@ -1146,13 +1123,9 @@ function Row({
                   .filter((o): o is NonNullable<typeof o> => !!o)
                   .map((o) => (lang === "de" ? o.de : lang === "fr" ? o.fr : o.en));
                 return (
-                  <div key={q.id}>
-                    <p className="text-[11px] uppercase mb-1" style={{ color: "var(--w3)", letterSpacing: ".06em" }}>
-                      {lang === "de" ? q.de : lang === "fr" ? q.fr : q.en}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {labels.map((l) => <span key={l} className="bv-chip bv-chip-gold">{l}</span>)}
-                    </div>
+                  <div key={q.id} className="bvk-field" style={{ gap: 3 }}>
+                    <span>{lang === "de" ? q.de : lang === "fr" ? q.fr : q.en}</span>
+                    <div style={{ fontSize: 13.5, color: "var(--w)" }}>{labels.join(" · ")}</div>
                   </div>
                 );
               })}
@@ -1161,40 +1134,29 @@ function Row({
 
           {/* What happened — the field the follow-ups actually feed on. */}
           {past && (
-            <div>
-              <label className="bv-label" htmlFor={`out-${b.id}`}>
-                {T("What came out of it?", "Was kam dabei heraus?", "Qu'en est-il ressorti ?")}
-              </label>
+            <Field label={T("What came out of it?", "Was kam dabei heraus?", "Qu'en est-il ressorti ?")}>
               <textarea
-                id={`out-${b.id}`} className="bv-input" rows={2} value={outcome} maxLength={2000}
-                onChange={(e) => setOutcome(e.target.value)} style={{ resize: "vertical" }}
+                id={`out-${b.id}`} className="bvk-input" rows={2} value={outcome} maxLength={2000}
+                onChange={(e) => setOutcome(e.target.value)} style={{ minHeight: 64 }}
               />
-            </div>
+            </Field>
           )}
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {past && (
               <>
-                <button
-                  onClick={() => onPatch(b.id, { status: "held", outcome })}
-                  disabled={busy}
-                  className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
-                  style={{ borderColor: b.status === "held" ? "#16a34a" : undefined }}
-                >
-                  <Check size={13} aria-hidden /> {T("It happened", "Hat stattgefunden", "A eu lieu")}
-                </button>
-                <button
-                  onClick={() => onPatch(b.id, { status: "no_show", outcome })}
-                  disabled={busy}
-                  className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
-                  style={{ borderColor: b.status === "no_show" ? "#ef4444" : undefined }}
-                >
-                  <X size={13} aria-hidden /> {T("No show", "Nicht erschienen", "Absent")}
-                </button>
+                <Btn size="sm" onClick={() => onPatch(b.id, { status: "held", outcome })} disabled={busy}
+                  style={b.status === "held" ? { borderColor: STATUS_DOT.approved } : undefined}>
+                  <Check size={14} aria-hidden style={{ color: STATUS_DOT.approved }} />{T("It happened", "Hat stattgefunden", "A eu lieu")}
+                </Btn>
+                <Btn size="sm" onClick={() => onPatch(b.id, { status: "no_show", outcome })} disabled={busy}
+                  style={b.status === "no_show" ? { borderColor: STATUS_DOT.rejected } : undefined}>
+                  <X size={14} aria-hidden style={{ color: STATUS_DOT.rejected }} />{T("No show", "Nicht erschienen", "Absent")}
+                </Btn>
               </>
             )}
             {b.status !== "cancelled" && (
-              <button
+              <Btn kind="danger" size="sm"
                 onClick={() => {
                   // Confirm first: this is not a local state change. The server
                   // deletes the Google event, emails the person that their call
@@ -1210,34 +1172,28 @@ function Row({
                   onPatch(b.id, { status: "cancelled" });
                 }}
                 disabled={busy}
-                className="bv-btn bv-btn-ghost bv-tap text-[13px]"
-                style={{ color: "var(--w3)" }}
               >
                 {T("Cancel", "Absagen", "Annuler")}
-              </button>
+              </Btn>
             )}
             {/* A nurse who books is exactly the person the Pool is for. Clinics
                 and companies are counterparties, not candidates — no button. */}
             {b.kind === "nurse" && (
               b.pooled_user_id ? (
-                <span className="inline-flex items-center gap-1.5 text-[13px]" style={{ color: "#16a34a" }}>
-                  <UserCheck size={13} aria-hidden /> {T("In the pool", "Im Pool", "Dans le vivier")}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--w2)", padding: "0 6px" }}>
+                  <UserCheck size={14} aria-hidden style={{ color: STATUS_DOT.approved }} /> {T("In the pool", "Im Pool", "Dans le vivier")}
                 </span>
               ) : (
-                <button
-                  onClick={() => onPool(b.id)}
-                  disabled={busy}
-                  className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
-                >
-                  <UserPlus size={13} aria-hidden /> {T("Add to pool", "In den Pool", "Ajouter au vivier")}
-                </button>
+                <Btn size="sm" onClick={() => onPool(b.id)} disabled={busy}>
+                  <UserPlus size={14} aria-hidden />{T("Add to pool", "In den Pool", "Ajouter au vivier")}
+                </Btn>
               )
             )}
             {busy && <Loader2 size={14} className="animate-spin" style={{ color: "var(--w3)" }} aria-hidden />}
           </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </>
   );
 }
 

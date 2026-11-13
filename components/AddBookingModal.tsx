@@ -110,10 +110,10 @@ export function AddBookingModal({
               key={k} type="button" onClick={() => setKind(k)}
               className="bv-tap px-3 py-2 text-[13px]"
               style={{
-                borderRadius: 10,
-                border: `1px solid ${kind === k ? "var(--border-gold)" : "var(--border)"}`,
-                background: kind === k ? "rgba(212,175,55,.08)" : "var(--card)",
-                color: kind === k ? "var(--gold)" : "var(--w2)",
+                borderRadius: 999,
+                border: `1px solid ${kind === k ? "var(--w)" : "var(--border)"}`,
+                background: kind === k ? "var(--w)" : "var(--card)",
+                color: kind === k ? "var(--bg)" : "var(--w2)",
               }}
               aria-pressed={kind === k}
             >

@@ -15,9 +15,10 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
-import { b2StageLabel, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
-import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen, FolderUp, CalendarClock, GripVertical } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
+import { Search, Plus, Check, X, Pencil, NotebookPen, FolderUp, CalendarClock, GripVertical, MoreHorizontal } from "lucide-react";
+import { PageHead, Btn, Card, Seg, Dot, Field, Empty, Pager, usePaged, STATUS_DOT, STATUS_TINT, type Status } from "@/components/fx/kit";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -65,14 +66,52 @@ type Cand = {
 // (every click visibly changes; no invisible "pending" step).
 const nextInterview = (cur: string | null): string | null => (cur === "passed" ? "failed" : cur === "failed" ? null : "passed");
 
-// One flat tone per step state — no gradients, no gold, deliberately calm.
+// One flat tone per step state — the one status palette (components/fx/kit, LAW #4):
+// done = green, failed = red, needed now = orange, not yet = grey.
 type Tone = "done" | "fail" | "need" | "todo";
-const TONE: Record<Tone, { bg: string; fg: string; bd: string }> = {
-  done: { bg: "rgba(22,163,74,0.12)",  fg: "#16a34a", bd: "rgba(22,163,74,0.38)" },
-  fail: { bg: "rgba(239,68,68,0.10)",  fg: "#ef4444", bd: "rgba(239,68,68,0.38)" },
-  need: { bg: "rgba(245,158,11,0.12)", fg: "#c98212", bd: "rgba(245,158,11,0.42)" },
-  todo: { bg: "var(--bg2)",            fg: "var(--w3)", bd: "var(--border)" },
-};
+const TONE: Record<Tone, Status> = { done: "approved", fail: "rejected", need: "pending", todo: "missing" };
+
+// The board's own small classes (the one design: hairline rows, tinted steps, quiet ticks).
+// Phone: name on top, the three steps under it, the later ticks under those.
+const TRACKER_CSS = `
+.trk-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;padding:5px 8px 5px 4px;border-radius:12px}
+.trk-grip{flex:none;display:grid;place-items:center;width:20px;height:30px;background:none;border:0;padding:0;color:var(--w3)}
+.trk-av{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--bg2);color:var(--w3);font-family:var(--font-serif);font-size:13px}
+.trk-who{flex:1 1 150px;min-width:0}
+.trk-name{font-size:14px;line-height:1.35;font-weight:500;color:var(--w);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trk-sub{display:flex;align-items:center;gap:6px;margin-top:1px;font-size:12px;line-height:1.35;color:var(--w3);white-space:nowrap;min-width:0}
+.trk-sub>.t{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.trk-steps{display:flex;gap:5px;flex:none}
+.trk-later{display:flex;gap:4px;flex:none}
+.trk-act{display:flex;flex:none}
+.trk-more{display:none!important}
+.trk-step{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:500;color:var(--w);cursor:pointer;font-family:inherit;white-space:nowrap;min-width:0}
+.trk-tick{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);font-size:12px;color:var(--w2);cursor:pointer;font-family:inherit;white-space:nowrap}
+.trk-tick>i{width:11px;height:11px;border-radius:50%;flex:none}
+.trk-stats{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 22px;margin-top:12px}
+.trk-stat{display:inline-flex;align-items:baseline;gap:6px;white-space:nowrap;min-width:0}
+.trk-stat b{font-family:var(--font-serif);font-weight:400;font-size:22px;line-height:1;color:var(--w);font-variant-numeric:tabular-nums}
+.trk-stat b i{font-style:normal;font-size:14px;color:var(--w3)}
+.trk-stat span{font-size:12.5px;color:var(--w3)}
+.trk-extra{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 14px;font-size:12.5px;color:var(--w3)}
+.trk-card{padding:11px 18px}
+.trk-show-ph{display:none}
+@media (max-width:640px){
+.trk-card{padding:12px 14px}
+.trk-show-ph{display:inline}
+.trk-extra{grid-column:1/-1}
+.trk-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trk-hide-ph{display:none!important}
+.trk-ib{width:36px;padding:0!important}
+.trk-row{padding:8px 8px 9px 4px}
+.trk-steps{order:5;flex:1 1 100%}
+.trk-steps>button{flex:1;height:28px;padding:0 4px;gap:4px;font-size:11.5px}
+.trk-m .trk-later,.trk-m .trk-act{display:none}
+.trk-more{display:inline-flex!important}
+.trk-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
+.trk-stat{flex-direction:column;align-items:flex-start;gap:3px}
+.trk-stat span{font-size:11.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+}`;
 
 export default function AdminTrackerPage() {
   const router = useRouter();
@@ -449,370 +488,317 @@ export default function AdminTrackerPage() {
 
   if (loading) return <PageLoader />;
 
-  const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter(Boolean).join(" → ");
   const fmtDay = (d: string) => new Date(d + "T00:00:00").toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter((d): d is string => !!d).map(fmtDay).join(" → ");
 
-
-  // One big, obvious step in the primary row (Interview 1 · Agreement · Interview 2).
-  const Step = ({ label, tone, onClick }: { label: string; tone: Tone; onClick: () => void }) => {
-    const t = TONE[tone];
-    return (
-      <button onClick={onClick}
-        className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-1 sm:px-2 py-3 rounded-xl transition-colors"
-        style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>
-        {/* On a phone the three blocks are ~100px wide: the icon goes, the colour
-            still says the state (LAW #4), and the whole word fits. */}
-        <span className="hidden sm:inline-flex">
-          {tone === "done" ? <Check size={15} strokeWidth={2.6} />
-            : tone === "fail" ? <X size={15} strokeWidth={2.6} />
-            : <span aria-hidden style={{ width: 9, height: 9, borderRadius: 99, border: `2px solid ${t.fg}` }} />}
-        </span>
-        <span className="text-[11px] sm:text-[12.5px] font-semibold truncate">{label}</span>
-      </button>
-    );
-  };
-
-  // Small, muted toggle for the later "after" stages (contract · visa · arrived).
-  const Pill = ({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) => (
-    <button onClick={onClick}
-      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-semibold rounded-full transition-colors"
-      style={{
-        background: active ? "rgba(22,163,74,0.12)" : "var(--bg2)",
-        color: active ? "#16a34a" : "var(--w3)",
-        border: `1px solid ${active ? "rgba(22,163,74,0.38)" : "var(--border)"}`,
-      }}>
-      {active && <Check size={12} strokeWidth={2.5} />}{children}
+  // One obvious step (Interview 1 · Agreement · Interview 2): the colour is the state (LAW #4).
+  const Step = ({ label, tone, onClick, title }: { label: string; tone: Tone; onClick: () => void; title?: string }) => (
+    <button type="button" onClick={onClick} title={title} className="trk-step"
+      style={{ background: STATUS_TINT[TONE[tone]], border: `1px solid ${tone === "todo" ? "var(--border)" : "transparent"}` }}>
+      <Dot st={TONE[tone]} size={7} />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
     </button>
   );
 
-  return (
-    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 1040 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-      </button>
+  // Quiet tick for the later stages (contract · visa · arrived) — like the approved prep ticks.
+  const Pill = ({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) => (
+    <button type="button" onClick={onClick} aria-pressed={active} className="trk-tick"
+      style={active ? { background: STATUS_TINT.approved, borderColor: "transparent", color: "var(--w)" } : undefined}>
+      <i style={{ border: `1.5px solid ${active ? STATUS_DOT.approved : "var(--w3)"}`, background: active ? STATUS_DOT.approved : "transparent" }} />
+      {children}
+    </button>
+  );
 
-      <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="bv-h1">{T("Batch Tracker", "Batch-Tracker", "Suivi du lot")}</h1>
-          <p className="bv-body mt-1">{T("Track every candidate's progress in one batch.", "Verfolge den Fortschritt jedes Kandidaten in einem Batch.", "Suivez la progression de chaque candidat d'un lot.")}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {batches.length > 1 && (
-            <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
-              className="text-[13px] px-3 py-2 rounded-md" style={{ background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)" }}>
-              {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          )}
-          {isSupreme && (
-            <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-ghost inline-flex">
-              <Plus size={15} strokeWidth={2} /> {T("New batch", "Neuer Batch", "Nouveau lot")}
-            </button>
-          )}
-          {isSupreme && (
-            <button onClick={syncBatch} disabled={syncing || !batch} className="bv-btn bv-btn-ghost inline-flex"
-              title={T("Copy this batch's candidates' approved docs into your Google Drive (Agency X Borivon / batch / candidate). Manual — only when you click.",
-                       "Kopiert die genehmigten Dokumente der Kandidaten dieses Batches in dein Google Drive. Manuell — nur auf Klick.",
-                       "Copie les documents approuvés des candidats de ce lot dans ton Google Drive. Manuel — seulement au clic.")}>
-              <FolderUp size={15} strokeWidth={2} /> {syncing ? T("Syncing…", "Synchronisiere…", "Sync…") : T("Sync this batch → Drive", "Batch → Drive", "Lot → Drive")}
-            </button>
-          )}
-        </div>
+  const laterTicks = (c: Cand) => (
+    <>
+      <Pill active={c.contractDone} onClick={() => apply(c.userId, { contractDone: !c.contractDone }, { contract_done: !c.contractDone })}>{T("Contract", "Vertrag", "Contrat")}</Pill>
+      <Pill active={c.visaGranted} onClick={() => apply(c.userId, { visaGranted: !c.visaGranted }, { visa_granted: !c.visaGranted })}>{T("Visa", "Visum", "Visa")}</Pill>
+      <Pill active={c.arrivedDone} onClick={() => apply(c.userId, { arrivedDone: !c.arrivedDone }, { arrived_done: !c.arrivedDone })}>{T("Arrived", "Angekommen", "Arrivé")}</Pill>
+    </>
+  );
+
+  // Phone: the row keeps the three steps; the later ticks + the two row actions open in one popup (···).
+  const memberMore = (c: Cand, close: () => void) => (
+    <div className="px-5 py-4" style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{laterTicks(c)}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <Btn size="sm" onClick={() => { close(); openPropose(c); }}>
+          <CalendarClock size={14} />{T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")}
+        </Btn>
+        <Btn kind="quiet" size="sm" onClick={() => { close(); removeFromBatch(c); }}>
+          <X size={14} />{T("Remove from batch", "Aus Batch entfernen", "Retirer du lot")}
+        </Btn>
       </div>
+    </div>
+  );
+
+  const memberRow = (c: Cand, onMore: (id: string) => void) => {
+    const i1tone: Tone = c.interview1Status === "passed" ? "done" : c.interview1Status === "failed" ? "fail" : "todo";
+    const i2tone: Tone = c.interview2Status === "passed" ? "done" : c.interview2Status === "failed" ? "fail" : "todo";
+    // Agreement is REQUIRED after Interview 1 → orange "need" once I1 passed but not yet signed.
+    const agTone: Tone = c.agreementSigned ? "done" : c.interview1Status === "passed" ? "need" : "todo";
+    const stage = normalizeB2Stage(c.b2Stage);
+    const passed = stage === "passed";
+    // B2 in the one palette: passed green, on its way orange, still studying grey; failed once = red ring.
+    const b2st: Status = passed ? "approved" : stage === "studying" ? "missing" : "pending";
+    const late = isB2Late(c);
+    const b2Line = `B2: ${c.b2Stage ? b2StageLabel(stage, lang) : T("not set", "offen", "non défini")}${c.b2ExamDate ? ` · ${fmtDay(c.b2ExamDate)}` : ""}`;
+    return (
+      <SortableRow key={c.userId} id={c.userId}>
+        {({ listeners, isDragging }) => (
+          <div className="group trk-row trk-m" style={{
+            background: "var(--card)",
+            border: `1px solid ${isDragging ? "var(--w)" : "var(--border)"}`,
+            boxShadow: isDragging ? "0 14px 30px -16px rgba(21,19,15,.35)" : "none",
+          }}>
+            {/* Handle: dragging is handle-only so taps on steps stay taps. bv-touch = 44px hit area on phones. */}
+            <button type="button" {...listeners} aria-label={T("Reorder", "Verschieben", "Réordonner")}
+              className="bv-touch trk-grip opacity-40 group-hover:opacity-100 transition-opacity"
+              style={{ cursor: isDragging ? "grabbing" : "grab", touchAction: "none" }}>
+              <GripVertical size={15} />
+            </button>
+            {/* Minimal profile avatar — initials, no photo to load */}
+            <span aria-hidden className="trk-av">{initialsOf(c.name)}</span>
+            <div className="trk-who">
+              <div className="trk-name" title={c.name}>{c.name}</div>
+              <div className="trk-sub" title={b2Line}>
+                <span aria-hidden style={{ width: 7, height: 7, borderRadius: 99, flex: "none", background: STATUS_DOT[b2st], boxShadow: c.b2Failed && !passed ? "0 0 0 2px rgba(220,38,38,.55)" : "none" }} />
+                <span className="t">{b2Line}</span>
+                {late && <b style={{ flex: "none", fontWeight: 600, color: STATUS_DOT.rejected }}>{T("too late", "zu spät", "trop tard")}</b>}
+              </div>
+            </div>
+            {/* the three steps that matter: Interview 1 → Agreement → Interview 2 */}
+            <div className="trk-steps">
+              <Step label={`${T("Interview", "Interview", "Entretien")} 1`} tone={i1tone} onClick={() => cycleInterview(c, 1)} />
+              <Step label={T("Agreement", "Vereinbarung", "Accord")} tone={agTone} onClick={() => toggleAgreement(c)}
+                title={T("Signed right after Interview 1", "Wird direkt nach Interview 1 unterschrieben", "Se signe juste après l'entretien 1")} />
+              <Step label={`${T("Interview", "Interview", "Entretien")} 2`} tone={i2tone} onClick={() => cycleInterview(c, 2)} />
+            </div>
+            {/* later stages: quiet ticks, out of the way until they matter */}
+            <div className="trk-later">{laterTicks(c)}</div>
+            <Btn kind="quiet" size="sm" icon className="trk-more" onClick={() => onMore(c.userId)}
+              title={T("More", "Mehr", "Plus")} aria-label={T("More", "Mehr", "Plus")}>
+              <MoreHorizontal size={17} />
+            </Btn>
+            <div className="trk-act">
+              <Btn kind="quiet" size="sm" icon onClick={() => openPropose(c)}
+                title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")}
+                aria-label={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")}>
+                <CalendarClock size={15} />
+              </Btn>
+              <Btn kind="quiet" size="sm" icon onClick={() => removeFromBatch(c)}
+                title={T("Remove from batch", "Aus Batch entfernen", "Retirer du lot")}
+                aria-label={T("Remove from batch", "Aus Batch entfernen", "Retirer du lot")}>
+                <X size={15} />
+              </Btn>
+            </div>
+          </div>
+        )}
+      </SortableRow>
+    );
+  };
+
+  // THE POOL row: the pre-batch journey contact → call → CV → medical; ready ones tinted green.
+  const poolRow = (c: Cand) => {
+    const ready = poolReady(c);
+    return (
+      <div key={c.userId} className="group trk-row trk-pool" style={{ background: ready ? STATUS_TINT.approved : "var(--card)", border: `1px solid ${ready ? "transparent" : "var(--border)"}` }}>
+        <span aria-hidden className="trk-av" style={ready ? { background: "var(--card)", color: STATUS_DOT.approved } : undefined}>{initialsOf(c.name)}</span>
+        <div className="trk-who" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="trk-name" style={{ minWidth: 0 }} title={c.name}>{c.name}</span>
+          {ready && (
+            <span style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: STATUS_DOT.approved }}>
+              <Check size={12} strokeWidth={2.6} />{T("ready", "bereit", "prêt")}
+            </span>
+          )}
+        </div>
+        <div className="trk-steps">
+          <Step label={T("Contact", "Kontakt", "Contact")} tone={c.poolContacted ? "done" : "todo"}
+            onClick={() => apply(c.userId, { poolContacted: !c.poolContacted }, { pool_contacted: !c.poolContacted })} />
+          <Step label={T("Call", "Anruf", "Appel")} tone={c.poolCallDone ? "done" : "todo"}
+            onClick={() => apply(c.userId, { poolCallDone: !c.poolCallDone }, { pool_call_done: !c.poolCallDone })} />
+          <Step label={T("CV", "Lebenslauf", "CV")} tone={c.poolCvDone ? "done" : "todo"}
+            onClick={() => apply(c.userId, { poolCvDone: !c.poolCvDone }, { pool_cv_done: !c.poolCvDone })} />
+          <Step label={T("Medical", "Medical", "Médical")} tone={c.poolMedicalDone ? "done" : "todo"}
+            onClick={() => apply(c.userId, { poolMedicalDone: !c.poolMedicalDone }, { pool_medical_done: !c.poolMedicalDone })} />
+        </div>
+        {selectedBatch && (
+          <div className="trk-act">
+            <Btn size="sm" style={{ height: 30 }} onClick={() => addToBatch(c)} title={T("Add to this batch", "Zu diesem Batch hinzufügen", "Ajouter à ce lot")}>
+              <Plus size={13} strokeWidth={2.4} />{T("Place", "Platzieren", "Placer")}
+            </Btn>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const field = (label: string, input: React.ReactNode) => <Field label={label}>{input}</Field>;
+  const batchMeta = batch
+    ? [`${members.length}/${batch.seats} ${T("seats", "Plätze", "places")}`, fmtWindow(batch), [batch.agency, batch.employer].filter(Boolean).join(" → ")].filter(Boolean).join(" · ")
+    : "";
+
+  return (
+    <main id="bv-main" className="mx-auto px-5 bv-page-bottom trk-main" style={{ maxWidth: 1080, paddingTop: 88, paddingBottom: 12 }}>
+      <style>{TRACKER_CSS}</style>
+      <PageHead
+        back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Batch Tracker", "Batch-Tracker", "Suivi du lot")}
+        sub={<>
+          <span className="trk-hide-ph">{T("Tap a step: green done, red failed. Drag the handle to reorder.",
+            "Schritt antippen: grün erledigt, rot nicht bestanden. Am Griff ziehen sortiert.",
+            "Touchez une étape : vert fait, rouge échoué. Glissez la poignée pour trier.")}</span>
+          <span className="trk-show-ph">{T("Tap a step: green done, red failed.", "Antippen: grün erledigt, rot nicht bestanden.", "Touchez : vert fait, rouge échoué.")}</span>
+        </>}
+        actions={batches.length > 1 || isSupreme ? (
+          <>
+            {batches.length > 1 && (
+              <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} aria-label={T("Batch", "Batch", "Lot")}
+                className="bvk-input" style={{ height: 34, width: "auto", maxWidth: 250, borderRadius: 999, padding: "0 12px", fontSize: 13, background: "var(--card)" }}>
+                {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+            {isSupreme && (
+              <Btn size="sm" className="trk-ib" onClick={() => setShowNew(true)}
+                title={T("New batch", "Neuer Batch", "Nouveau lot")} aria-label={T("New batch", "Neuer Batch", "Nouveau lot")}>
+                <Plus size={14} strokeWidth={2} /><span className="trk-hide-ph">{T("New batch", "Neuer Batch", "Nouveau lot")}</span>
+              </Btn>
+            )}
+            {isSupreme && (
+              <Btn size="sm" className="trk-ib" onClick={syncBatch} disabled={syncing || !batch}
+                aria-label={T("Sync this batch → Drive", "Batch → Drive", "Lot → Drive")}
+                title={T("Copy this batch's candidates' approved docs into your Google Drive (Agency X Borivon / batch / candidate). Manual — only when you click.",
+                         "Kopiert die genehmigten Dokumente der Kandidaten dieses Batches in dein Google Drive. Manuell — nur auf Klick.",
+                         "Copie les documents approuvés des candidats de ce lot dans ton Google Drive. Manuel — seulement au clic.")}>
+                <FolderUp size={14} strokeWidth={2} />
+                <span className="trk-hide-ph">{syncing ? T("Syncing…", "Synchronisiere…", "Sync…") : T("Sync this batch → Drive", "Batch → Drive", "Lot → Drive")}</span>
+              </Btn>
+            )}
+          </>
+        ) : undefined}
+      />
+
       {syncMsg && (
-        <div className="mb-4 text-[13px] px-3 py-2 rounded-md" style={{ background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+        <p style={{ margin: "-6px 0 14px", fontSize: 12.5, lineHeight: 1.5, color: "var(--w2)" }}>
           {syncMsg}
           {syncUrl && (
             <>
               {" "}
-              <a href={syncUrl} target="_blank" rel="noreferrer" className="font-semibold underline" style={{ color: "var(--gold)" }}>
+              <a href={syncUrl} target="_blank" rel="noreferrer" style={{ color: "var(--w)", fontWeight: 600, textDecoration: "underline", textUnderlineOffset: 3 }}>
                 {T("Open the folder →", "Ordner öffnen →", "Ouvrir le dossier →")}
               </a>
             </>
           )}
-        </div>
+        </p>
       )}
 
       {!batch ? (
-        <div className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>
-          {T("No open batch yet — create one on the Batches page first.", "Noch kein offener Batch — erstelle zuerst einen auf der Batches-Seite.", "Aucun lot ouvert — créez-en un d'abord sur la page Lots.")}
-        </div>
+        <Card>
+          <Empty>{T("No open batch yet — create one on the Batches page first.", "Noch kein offener Batch — erstelle zuerst einen auf der Batches-Seite.", "Aucun lot ouvert — créez-en un d'abord sur la page Lots.")}</Empty>
+        </Card>
       ) : (
         <>
-          {/* Batch header + summary */}
-          <div className="p-4 sm:p-5 mb-5" style={{ background: "var(--card)", borderRadius: "22px" }}>
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <p className="text-[16px] font-semibold" style={{ color: "var(--w)" }}>{batch.name}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]" style={{ color: "var(--w3)" }}>
-                  {(batch.agency || batch.employer) && <span>{[batch.agency, batch.employer].filter(Boolean).join(" → ")}</span>}
-                  {fmtWindow(batch) && <span className="inline-flex items-center gap-1"><CalendarRange size={12} /> {fmtWindow(batch)}</span>}
-                  <span className="inline-flex items-center gap-1"><Users size={12} /> {members.length}/{batch.seats}</span>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+          {/* The batch: name, window, seats — and the progress at a glance, leading with the beginning */}
+          <Card className="trk-card" style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ minWidth: 0, flex: 1, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.2, color: "var(--w)", overflowWrap: "anywhere", paddingTop: 2 }}>{batch.name}</div>
+              <div style={{ display: "flex", gap: 6, flex: "none" }}>
                 {/* Batch note — every admin (supreme + sub-admins) can write it. */}
-                <button onClick={openNotes} className="bv-btn bv-btn-ghost inline-flex"
-                  title={T("Batch note", "Batch-Notiz", "Note du lot")}>
+                <Btn size="sm" className="trk-ib" onClick={openNotes} title={T("Batch note", "Batch-Notiz", "Note du lot")} aria-label={T("Batch note", "Batch-Notiz", "Note du lot")}>
                   <NotebookPen size={14} strokeWidth={2} style={batch.notes ? { color: "var(--gold)" } : undefined} />
-                  {T("Note", "Notiz", "Note")}
-                </button>
+                  <span className="trk-hide-ph">{T("Note", "Notiz", "Note")}</span>
+                </Btn>
                 {isSupreme && (
-                  <button onClick={openEdit} className="bv-btn bv-btn-ghost inline-flex">
-                    <Pencil size={14} strokeWidth={2} /> {T("Edit", "Bearbeiten", "Modifier")}
-                  </button>
+                  <Btn size="sm" className="trk-ib" onClick={openEdit} title={T("Edit", "Bearbeiten", "Modifier")} aria-label={T("Edit", "Bearbeiten", "Modifier")}>
+                    <Pencil size={14} strokeWidth={2} /><span className="trk-hide-ph">{T("Edit", "Bearbeiten", "Modifier")}</span>
+                  </Btn>
                 )}
-                <button onClick={() => setAddOpen((v) => !v)} className="bv-btn bv-btn-primary inline-flex">
-                  <Plus size={15} strokeWidth={2} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}
-                </button>
               </div>
             </div>
-            {/* Progress at a glance, like the /pflege portal window: one tile per step,
-                the count, and a thin thread that fills. Lead with the beginning. */}
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-x-5 gap-y-3.5">
+            <div className="trk-meta" title={batchMeta} style={{ marginTop: 2, fontSize: 12.5, color: "var(--w3)" }}>{batchMeta}</div>
+            {/* the count per step, as quiet serif numbers (green when the whole batch is through) */}
+            <div className="trk-stats">
               {([
                 [T("B2 passed", "B2 bestanden", "B2 réussi"), summary.b2],
                 [T("Interview 1", "Interview 1", "Entretien 1"), summary.i1],
                 [T("Agreement", "Vereinbarung", "Accord"), summary.agreement],
                 [T("Interview 2", "Interview 2", "Entretien 2"), summary.i2],
-              ] as const).map(([label, n]) => {
-                const pct = members.length ? Math.round((n / members.length) * 100) : 0;
-                return (
-                  <div key={label} className="min-w-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[10px] font-medium uppercase tracking-[0.12em] truncate" style={{ color: "var(--w3)" }}>{label}</span>
-                      <span className="text-[12.5px] font-semibold tabular-nums" style={{ color: pct === 100 ? "#16a34a" : "var(--w)" }}>{n}/{members.length}</span>
-                    </div>
-                    <span className="mt-1.5 block h-[3px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                      <span className="block h-full rounded-full"
-                        style={{ width: `${pct}%`, background: pct === 100 ? "#16a34a" : "linear-gradient(90deg, rgba(201,162,64,0.5), var(--gold))", transition: "width 1.3s var(--ease)" }} />
-                    </span>
-                  </div>
-                );
-              })}
+              ] as const).map(([label, n]) => (
+                <div key={label} className="trk-stat">
+                  <b style={members.length > 0 && n === members.length ? { color: STATUS_DOT.approved } : undefined}>{n}<i>/{members.length}</i></b>
+                  <span>{label}</span>
+                </div>
+              ))}
+              <div className="trk-extra">
+                {summary.b2late > 0 && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--w)", fontWeight: 600 }}>
+                    <Dot st="rejected" size={7} />{T("B2 too late", "B2 zu spät", "B2 trop tard")}: {summary.b2late}
+                  </span>
+                )}
+                <span>{T("Contract", "Vertrag", "Contrat")} {summary.contract} · {T("Visa", "Visum", "Visa")} {summary.visa} · {T("Arrived", "Angekommen", "Arrivés")} {summary.arrived}</span>
+              </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w3)" }}>
-              {summary.b2late > 0 && <span style={{ color: "#ef4444", fontWeight: 600 }}>{T("B2 too late", "B2 zu spät", "B2 trop tard")}: {summary.b2late}</span>}
-              <span>{T("Contract", "Vertrag", "Contrat")} {summary.contract} · {T("Visa", "Visum", "Visa")} {summary.visa} · {T("Arrived", "Angekommen", "Arrivés")} {summary.arrived}</span>
-            </div>
-            {/* The batch note, shown inline so it's visible at a glance */}
+            {/* The batch note, visible at a glance (the whole note opens with "Notiz") */}
             {batch.notes && (
-              <p className="mt-3 pt-3 text-[12px] whitespace-pre-wrap" style={{ borderTop: "1px solid var(--border)", color: "var(--w2)" }}>{batch.notes}</p>
+              <p className="trk-hide-ph" title={batch.notes} style={{ margin: "10px 0 0", paddingTop: 9, borderTop: "1px solid var(--border)", fontSize: 12.5, lineHeight: 1.45, color: "var(--w2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {batch.notes}
+              </p>
             )}
+          </Card>
+
+          {err && <p role="alert" style={{ margin: "0 0 10px", fontSize: 12.5, color: STATUS_DOT.rejected }}>{err}</p>}
+
+          {/* The list's toolbar: the batch and THE POOL (everyone with no batch yet — the bench you draw
+              from the day a hospital calls with slots) one tap apart, and the one black button: add. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+            {members.length > 0 ? (
+              <Seg value={poolOpen ? "pool" : "batch"} onChange={(v) => setPoolOpen(v === "pool")}
+                options={[
+                  ["batch", <>{T("In this batch", "Im Batch", "Dans le lot")} {members.length}</>],
+                  ["pool", <>Pool {pool.length}{poolReadyCount > 0 && <span style={{ color: STATUS_DOT.approved }}> · {poolReadyCount} {T("ready", "bereit", "prêts")}</span>}</>],
+                ]} />
+            ) : <span />}
+            <Btn kind="primary" size="sm" className="trk-ib" onClick={() => setAddOpen((v) => !v)}
+              aria-label={T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")} title={T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}>
+              <Plus size={15} strokeWidth={2} /><span className="trk-hide-ph">{T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}</span>
+            </Btn>
           </div>
 
-          {err && <p className="mb-3 text-[12px]" style={{ color: "#ef4444" }}>{err}</p>}
-
-          {/* Add-candidate picker */}
-          {addOpen && (
-            <div className="mb-5 p-4" style={{ background: "var(--card)", borderRadius: "22px" }}>
-              <div className="relative mb-2">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--w3)" }} />
-                <input value={addQuery} onChange={(e) => setAddQuery(e.target.value)} autoFocus
-                  placeholder={T("Search a candidate to add…", "Kandidat suchen…", "Rechercher un candidat…")}
-                  className="w-full pl-8 pr-3 py-2 text-[13px] rounded-md outline-none" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-              </div>
-              <div className="max-h-[300px] overflow-y-auto">
-                {addable.length === 0 ? (
-                  <p className="text-[12px] py-2 text-center" style={{ color: "var(--w3)" }}>{T("No candidates to add.", "Keine Kandidaten zum Hinzufügen.", "Aucun candidat à ajouter.")}</p>
-                ) : addable.map((c) => (
-                  <div key={c.userId} className="flex items-center justify-between gap-2 py-1.5">
-                    <span className="text-[13px] min-w-0 truncate" style={{ color: "var(--w2)" }}>{c.name}{c.batchId ? <span className="ml-2 text-[10.5px]" style={{ color: "var(--w3)" }}>({T("in another batch", "in anderem Batch", "dans un autre lot")})</span> : null}</span>
-                    <button onClick={() => { addToBatch(c); }} className="flex-shrink-0 px-2.5 py-1 text-[11px] font-semibold rounded-md" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{T("Add", "Hinzufügen", "Ajouter")}</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Member rows */}
           {members.length === 0 ? (
-            <div className="text-center py-14 text-[14px]" style={{ color: "var(--w3)" }}>
-              {T("No candidates in this batch yet — add some above.", "Noch keine Kandidaten in diesem Batch — oben hinzufügen.", "Aucun candidat dans ce lot — ajoutez-en ci-dessus.")}
-            </div>
+            <Card>
+              <Empty>{T("No candidates in this batch yet — add some above.", "Noch keine Kandidaten in diesem Batch — oben hinzufügen.", "Aucun candidat dans ce lot — ajoutez-en ci-dessus.")}</Empty>
+            </Card>
+          ) : !poolOpen ? (
+            <MemberBoard members={members} sensors={sensors} onDragEnd={onDragEnd} row={memberRow} more={memberMore} />
           ) : (
             <>
-              <p className="mb-2.5 text-[11.5px]" style={{ color: "var(--w3)" }}>
-                {T("Tap a step to set it — green = done, red = failed. Drag the handle to reorder. The agreement is signed right after Interview 1.",
-                   "Tippe auf einen Schritt — grün = erledigt, rot = nicht bestanden. Zum Umsortieren am Griff ziehen. Die Vereinbarung wird direkt nach Interview 1 unterschrieben.",
-                   "Touchez une étape — vert = fait, rouge = échoué. L'accord se signe juste après l'entretien 1.")}
+              <p className="trk-hide-ph" style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--w3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                title={T("No place yet: onboarding call, CV, medical — when a hospital calls, offer the ready ones.",
+                         "Noch ohne Platz: Onboarding-Call, Lebenslauf, Medical — ruft ein Krankenhaus an, die Bereiten anbieten.",
+                         "Sans place : appel d'intégration, CV, médical — quand un hôpital appelle, proposez celles qui sont prêtes.")}>
+                {T("No place yet — call, CV, medical; offer the ready ones first.",
+                   "Noch ohne Platz — Anruf, Lebenslauf, Medical; die Bereiten zuerst anbieten.",
+                   "Sans place — appel, CV, médical ; proposez d'abord les prêtes.")}
               </p>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                <SortableContext items={members.map((m) => m.userId)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2">
-                    {members.map((c) => {
-                      const i1tone: Tone = c.interview1Status === "passed" ? "done" : c.interview1Status === "failed" ? "fail" : "todo";
-                      const i2tone: Tone = c.interview2Status === "passed" ? "done" : c.interview2Status === "failed" ? "fail" : "todo";
-                      // Agreement is REQUIRED after Interview 1 → amber "need" once I1 passed but not yet signed.
-                      const agTone: Tone = c.agreementSigned ? "done" : c.interview1Status === "passed" ? "need" : "todo";
-                      const stage = normalizeB2Stage(c.b2Stage);
-                      const passed = stage === "passed";
-                      const dot = passed ? "#16a34a" : b2StageColor(stage);
-                      const late = isB2Late(c);
-                      return (
-                        <SortableRow key={c.userId} id={c.userId}>
-                          {({ listeners, isDragging }) => (
-                            <div className="group px-3 py-3 sm:px-3.5 transition-shadow" style={{
-                              background: "var(--card)",
-                              border: `1px solid ${isDragging ? "var(--border-gold)" : "var(--border)"}`,
-                              borderRadius: "var(--r-xl)",
-                              boxShadow: isDragging ? "var(--shadow-md)" : "none",
-                            }}>
-                              {/* ── identity row: handle · avatar · name+B2 · actions ── */}
-                              <div className="flex items-center gap-2.5">
-                                {/* Handle: dragging is handle-only so taps on steps stay taps.
-                                    bv-touch gives it a 44px hit area on phones. */}
-                                <button {...listeners} aria-label={T("Reorder", "Verschieben", "Réordonner")}
-                                  className="bv-touch flex-shrink-0 -ml-1 p-0.5 rounded-md opacity-40 group-hover:opacity-100 transition-opacity"
-                                  style={{ color: "var(--w3)", cursor: isDragging ? "grabbing" : "grab", touchAction: "none" }}>
-                                  <GripVertical size={16} />
-                                </button>
-
-                                {/* Minimal profile avatar — initials, no photo to load */}
-                                <span aria-hidden className="flex-shrink-0 grid place-items-center rounded-full text-[11px] font-bold"
-                                  style={{ width: 32, height: 32, background: "var(--bg2)", color: "var(--gold)", border: "1px solid var(--border)" }}>
-                                  {initialsOf(c.name)}
-                                </span>
-
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[13.5px] font-semibold truncate leading-tight" style={{ color: "var(--w)" }}>{c.name}</p>
-                                  <div className="mt-0.5 flex items-center gap-1.5 flex-wrap text-[11px] leading-tight">
-                                    <span aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: dot, boxShadow: c.b2Failed && !passed ? "0 0 0 2px rgba(239,68,68,0.55)" : "none" }} />
-                                    <span style={{ color: "var(--w3)" }}>
-                                      B2: {c.b2Stage ? b2StageLabel(stage, lang) : T("not set", "offen", "non défini")}
-                                      {c.b2ExamDate && <> · {fmtDay(c.b2ExamDate)}</>}
-                                    </span>
-                                    {late && <span className="px-1.5 rounded-full font-semibold" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}>{T("too late", "zu spät", "trop tard")}</span>}
-                                  </div>
-                                </div>
-
-                                {/* Actions stay quiet until you hover the card — less noise per row */}
-                                <div className="flex items-center gap-1 flex-shrink-0 opacity-55 group-hover:opacity-100 transition-opacity">
-                                  <button onClick={() => openPropose(c)} title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")}
-                                    className="bv-touch grid place-items-center rounded-lg h-8 w-8 hover:[background:var(--bg2)]" style={{ color: "var(--w3)" }}>
-                                    <CalendarClock size={15} />
-                                  </button>
-                                  <button onClick={() => removeFromBatch(c)} title={T("Remove from batch", "Aus Batch entfernen", "Retirer du lot")}
-                                    className="bv-touch grid place-items-center rounded-lg h-8 w-8 hover:[background:var(--bg2)]" style={{ color: "var(--w3)" }}>
-                                    <X size={15} />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* ── the three steps that matter: Interview 1 → Agreement → Interview 2 ── */}
-                              <div className="mt-2.5 flex items-stretch gap-1.5">
-                                <Step label={`${T("Interview", "Interview", "Entretien")} 1`} tone={i1tone} onClick={() => cycleInterview(c, 1)} />
-                                <Step label={T("Agreement", "Vereinbarung", "Accord")} tone={agTone} onClick={() => toggleAgreement(c)} />
-                                <Step label={`${T("Interview", "Interview", "Entretien")} 2`} tone={i2tone} onClick={() => cycleInterview(c, 2)} />
-                              </div>
-
-                              {/* ── later stages: muted, and out of the way until they matter ── */}
-                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                <span className="text-[9.5px] font-semibold uppercase tracking-wider mr-0.5" style={{ color: "var(--w3)" }}>{T("Later", "Später", "Ensuite")}</span>
-                                <Pill active={c.contractDone} onClick={() => apply(c.userId, { contractDone: !c.contractDone }, { contract_done: !c.contractDone })}>{T("Contract", "Vertrag", "Contrat")}</Pill>
-                                <Pill active={c.visaGranted} onClick={() => apply(c.userId, { visaGranted: !c.visaGranted }, { visa_granted: !c.visaGranted })}>{T("Visa", "Visum", "Visa")}</Pill>
-                                <Pill active={c.arrivedDone} onClick={() => apply(c.userId, { arrivedDone: !c.arrivedDone }, { arrived_done: !c.arrivedDone })}>{T("Arrived", "Angekommen", "Arrivé")}</Pill>
-                              </div>
-                            </div>
-                          )}
-                        </SortableRow>
-                      );
-                    })}
-                  </div>
-                </SortableContext>
-              </DndContext>
-
-              {/* ── THE POOL ── everyone with no batch yet. This is the bench you
-                  draw from the day a hospital calls with slots, so the people who
-                  are actually offerable (all four steps green) sit at the top. */}
-              <div className="mt-6 rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <button onClick={() => setPoolOpen((v) => !v)}
-                  className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:[background:var(--bg2)] transition-colors">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <Users size={15} style={{ color: "var(--gold)" }} />
-                    <span className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>
-                      {T("Pool", "Pool", "Vivier")}
-                    </span>
-                    <span className="text-[12px]" style={{ color: "var(--w3)" }}>
-                      {pool.length} {T("waiting for a place", "warten auf einen Platz", "en attente d'une place")}
-                    </span>
-                    {poolReadyCount > 0 && (
-                      <span className="px-1.5 py-px rounded-full text-[11px] font-semibold"
-                        style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", border: "1px solid rgba(22,163,74,0.38)" }}>
-                        {poolReadyCount} {T("ready", "bereit", "prêts")}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-[12px] flex-shrink-0" style={{ color: "var(--w3)" }}>{poolOpen ? "▲" : "▼"}</span>
-                </button>
-
-                {poolOpen && (
-                  <div className="px-3 pb-3 sm:px-3.5">
-                    <p className="mb-2.5 text-[11.5px] leading-relaxed" style={{ color: "var(--w3)" }}>
-                      {T("Nurses who reached out but have no place yet. Do the onboarding call, give them the free CV and medical — then when a hospital calls, offer the ones who are ready.",
-                         "Pflegekräfte ohne Platz. Onboarding-Call machen, kostenlosen Lebenslauf + Medical geben — wenn dann ein Krankenhaus anruft, bietest du die Bereiten an.",
-                         "Infirmières sans place. Fais l'appel d'intégration, offre le CV et le médical — quand un hôpital appelle, propose celles qui sont prêtes.")}
-                    </p>
-                    <div className="mb-2.5 flex items-center gap-2 px-2.5 py-1.5 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                      <Search size={14} style={{ color: "var(--w3)" }} />
-                      <input value={poolQuery} onChange={(e) => setPoolQuery(e.target.value)}
-                        placeholder={T("Search the pool…", "Pool durchsuchen…", "Rechercher…")}
-                        className="w-full bg-transparent outline-none text-[13px]" style={{ color: "var(--w)" }} />
-                    </div>
-
-                    {pool.length === 0 ? (
-                      <p className="py-6 text-center text-[13px]" style={{ color: "var(--w3)" }}>
-                        {T("Nobody waiting.", "Niemand wartet.", "Personne en attente.")}
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {pool.map((c) => {
-                          const ready = poolReady(c);
-                          return (
-                            <div key={c.userId} className="group px-3 py-2.5 rounded-xl" style={{
-                              background: "var(--bg2)",
-                              border: `1px solid ${ready ? "rgba(22,163,74,0.38)" : "var(--border)"}`,
-                            }}>
-                              <div className="flex items-center gap-2.5">
-                                <span aria-hidden className="flex-shrink-0 grid place-items-center rounded-full text-[10.5px] font-bold"
-                                  style={{ width: 28, height: 28, background: "var(--card)", color: ready ? "#16a34a" : "var(--gold)", border: "1px solid var(--border)" }}>
-                                  {initialsOf(c.name)}
-                                </span>
-                                <p className="flex-1 min-w-0 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{c.name}</p>
-                                {ready && (
-                                  <span className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: "#16a34a" }}>
-                                    <Check size={12} strokeWidth={2.6} />{T("ready", "bereit", "prêt")}
-                                  </span>
-                                )}
-                                {selectedBatch && (
-                                  <button onClick={() => addToBatch(c)}
-                                    title={T("Add to this batch", "Zu diesem Batch hinzufügen", "Ajouter à ce lot")}
-                                    className="bv-touch flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold opacity-70 group-hover:opacity-100 transition-opacity"
-                                    style={{ background: "var(--card)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                    <Plus size={12} strokeWidth={2.6} />{T("Place", "Platzieren", "Placer")}
-                                  </button>
-                                )}
-                              </div>
-                              {/* The pre-batch journey: contact → call → free CV → medical */}
-                              <div className="mt-2 flex items-stretch gap-1.5">
-                                <Step label={T("Contact", "Kontakt", "Contact")} tone={c.poolContacted ? "done" : "todo"}
-                                  onClick={() => apply(c.userId, { poolContacted: !c.poolContacted }, { pool_contacted: !c.poolContacted })} />
-                                <Step label={T("Call", "Anruf", "Appel")} tone={c.poolCallDone ? "done" : "todo"}
-                                  onClick={() => apply(c.userId, { poolCallDone: !c.poolCallDone }, { pool_call_done: !c.poolCallDone })} />
-                                <Step label={T("CV", "Lebenslauf", "CV")} tone={c.poolCvDone ? "done" : "todo"}
-                                  onClick={() => apply(c.userId, { poolCvDone: !c.poolCvDone }, { pool_cv_done: !c.poolCvDone })} />
-                                <Step label={T("Medical", "Medical", "Médical")} tone={c.poolMedicalDone ? "done" : "todo"}
-                                  onClick={() => apply(c.userId, { poolMedicalDone: !c.poolMedicalDone }, { pool_medical_done: !c.poolMedicalDone })} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div style={{ position: "relative", marginBottom: 10 }}>
+                <Search size={14} aria-hidden style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", pointerEvents: "none" }} />
+                <input value={poolQuery} onChange={(e) => setPoolQuery(e.target.value)}
+                  placeholder={T("Search the pool…", "Pool durchsuchen…", "Rechercher…")}
+                  className="bvk-input" style={{ height: 38, paddingLeft: 34 }} />
               </div>
+              {pool.length === 0 ? (
+                <Card><Empty>{T("Nobody waiting.", "Niemand wartet.", "Personne en attente.")}</Empty></Card>
+              ) : (
+                <PagedRows items={pool} perLaptop={5} perPhone={2} row={poolRow} />
+              )}
             </>
           )}
+
+          {/* Add a candidate to this batch — a popup (LAW #36) instead of a panel that pushes the board down */}
+          <Modal open={addOpen} onClose={() => setAddOpen(false)} size="sm"
+            title={T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")} subtitle={batch.name}>
+            <AddPicker T={T} query={addQuery} setQuery={setAddQuery} items={addable} onAdd={(c) => { addToBatch(c); }} />
+          </Modal>
         </>
       )}
 
@@ -820,14 +806,13 @@ export default function AdminTrackerPage() {
       <Modal open={showNotes} onClose={() => !saving && setShowNotes(false)} size="sm" busy={saving}
         title={T("Batch note", "Batch-Notiz", "Note du lot")}
         subtitle={batch ? batch.name : ""}
-        footer={<><GhostButton onClick={() => setShowNotes(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-          <GoldButton onClick={saveNotes} disabled={saving}>{T("Save", "Speichern", "Enregistrer")}</GoldButton></>}>
+        footer={<><Btn kind="quiet" size="sm" onClick={() => setShowNotes(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</Btn>
+          <Btn kind="primary" size="sm" onClick={saveNotes} disabled={saving}>{T("Save", "Speichern", "Enregistrer")}</Btn></>}>
         <div className="px-5 py-4">
           <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={7} autoFocus
             placeholder={T("Anything about this batch — what's agreed, what's pending, who to chase…", "Alles zu diesem Batch — was vereinbart ist, was offen ist, wer nachzufassen ist…", "Tout sur ce lot — ce qui est convenu, en attente, qui relancer…")}
-            className="w-full px-3 py-2 text-[14px] rounded-md outline-none resize-y"
-            style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", minHeight: 150 }} />
-          <p className="mt-2 text-[11px]" style={{ color: "var(--w3)" }}>
+            className="bvk-input" style={{ minHeight: 150 }} />
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--w3)" }}>
             {T("Visible to you and your sub-admins only.", "Nur für dich und deine Sub-Admins sichtbar.", "Visible seulement par vous et vos sous-admins.")}
           </p>
         </div>
@@ -837,48 +822,30 @@ export default function AdminTrackerPage() {
       <Modal open={showEdit} onClose={() => !saving && setShowEdit(false)} size="sm" busy={saving}
         title={T("Edit batch", "Batch bearbeiten", "Modifier le lot")}
         subtitle={T("Fix the dates, name, seats, agency or employer.", "Termine, Name, Plätze, Agentur oder Arbeitgeber korrigieren.", "Corrigez les dates, le nom, les places, l'agence ou l'employeur.")}
-        footer={<><GhostButton onClick={() => setShowEdit(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-          <GoldButton onClick={saveEdit} disabled={saving || !editForm.name.trim()}>{T("Save", "Speichern", "Enregistrer")}</GoldButton></>}>
-        <div className="px-5 py-4 space-y-3">
-          <label className="block">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Name", "Name", "Nom")}</span>
-            <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-          </label>
-          <div className="flex gap-3">
-            <label className="block w-24">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Seats", "Plätze", "Places")}</span>
-              <input type="number" min={1} max={1000} value={editForm.seats} onChange={(e) => setEditForm({ ...editForm, seats: Math.max(1, Number(e.target.value) || 1) })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
-            <label className="block flex-1">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)")}</span>
-              <select value={editForm.orgId} onChange={(e) => setEditForm({ ...editForm, orgId: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+        footer={<><Btn kind="quiet" size="sm" onClick={() => setShowEdit(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</Btn>
+          <Btn kind="primary" size="sm" onClick={saveEdit} disabled={saving || !editForm.name.trim()}>{T("Save", "Speichern", "Enregistrer")}</Btn></>}>
+        <div className="px-5 py-4" style={{ display: "grid", gap: 12 }}>
+          {field(T("Name", "Name", "Nom"),
+            <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="bvk-input" />)}
+          <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12 }}>
+            {field(T("Seats", "Plätze", "Places"),
+              <input type="number" min={1} max={1000} value={editForm.seats} onChange={(e) => setEditForm({ ...editForm, seats: Math.max(1, Number(e.target.value) || 1) })} className="bvk-input" />)}
+            {field(T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)"),
+              <select value={editForm.orgId} onChange={(e) => setEditForm({ ...editForm, orgId: e.target.value })} className="bvk-input">
                 <option value="">{T("— none —", "— keine —", "— aucune —")}</option>
                 {organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-            </label>
+              </select>)}
           </div>
-          <label className="block">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)")}</span>
-            <select value={editForm.employerId} onChange={(e) => setEditForm({ ...editForm, employerId: e.target.value })}
-              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+          {field(T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)"),
+            <select value={editForm.employerId} onChange={(e) => setEditForm({ ...editForm, employerId: e.target.value })} className="bvk-input">
               <option value="">{T("— none —", "— keiner —", "— aucun —")}</option>
               {employers.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-          </label>
-          <div className="flex gap-3">
-            <label className="block flex-1">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window start", "Fenster-Start", "Début fenêtre")}</span>
-              <input type="date" value={editForm.targetStart} onChange={(e) => setEditForm({ ...editForm, targetStart: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
-            <label className="block flex-1">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window end", "Fenster-Ende", "Fin fenêtre")}</span>
-              <input type="date" value={editForm.targetEnd} onChange={(e) => setEditForm({ ...editForm, targetEnd: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
+            </select>)}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+            {field(T("Window start", "Fenster-Start", "Début fenêtre"),
+              <input type="date" value={editForm.targetStart} onChange={(e) => setEditForm({ ...editForm, targetStart: e.target.value })} className="bvk-input" />)}
+            {field(T("Window end", "Fenster-Ende", "Fin fenêtre"),
+              <input type="date" value={editForm.targetEnd} onChange={(e) => setEditForm({ ...editForm, targetEnd: e.target.value })} className="bvk-input" />)}
           </div>
         </div>
       </Modal>
@@ -887,48 +854,30 @@ export default function AdminTrackerPage() {
       <Modal open={showNew} onClose={() => !saving && setShowNew(false)} size="sm" busy={saving}
         title={T("New batch", "Neuer Batch", "Nouveau lot")}
         subtitle={T("An employer intake, e.g. \"UKSH Kiel — April 2027\".", "Ein Arbeitgeber-Intake, z.B. \"UKSH Kiel — April 2027\".", "Un recrutement employeur, p.ex. \"UKSH Kiel — April 2027\".")}
-        footer={<><GhostButton onClick={() => setShowNew(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-          <GoldButton onClick={createBatch} disabled={saving || !form.name.trim()}>{T("Create", "Erstellen", "Créer")}</GoldButton></>}>
-        <div className="px-5 py-4 space-y-3">
-          <label className="block">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Name", "Name", "Nom")}</span>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="UKSH Kiel — April 2027"
-              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-          </label>
-          <div className="flex gap-3">
-            <label className="block w-24">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Seats", "Plätze", "Places")}</span>
-              <input type="number" min={1} max={1000} value={form.seats} onChange={(e) => setForm({ ...form, seats: Math.max(1, Number(e.target.value) || 1) })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
-            <label className="block flex-1">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)")}</span>
-              <select value={form.orgId} onChange={(e) => setForm({ ...form, orgId: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+        footer={<><Btn kind="quiet" size="sm" onClick={() => setShowNew(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</Btn>
+          <Btn kind="primary" size="sm" onClick={createBatch} disabled={saving || !form.name.trim()}>{T("Create", "Erstellen", "Créer")}</Btn></>}>
+        <div className="px-5 py-4" style={{ display: "grid", gap: 12 }}>
+          {field(T("Name", "Name", "Nom"),
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="UKSH Kiel — April 2027" className="bvk-input" />)}
+          <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12 }}>
+            {field(T("Seats", "Plätze", "Places"),
+              <input type="number" min={1} max={1000} value={form.seats} onChange={(e) => setForm({ ...form, seats: Math.max(1, Number(e.target.value) || 1) })} className="bvk-input" />)}
+            {field(T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)"),
+              <select value={form.orgId} onChange={(e) => setForm({ ...form, orgId: e.target.value })} className="bvk-input">
                 <option value="">{T("— none —", "— keine —", "— aucune —")}</option>
                 {organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-            </label>
+              </select>)}
           </div>
-          <label className="block">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)")}</span>
-            <select value={form.employerId} onChange={(e) => setForm({ ...form, employerId: e.target.value })}
-              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+          {field(T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)"),
+            <select value={form.employerId} onChange={(e) => setForm({ ...form, employerId: e.target.value })} className="bvk-input">
               <option value="">{T("— none —", "— keiner —", "— aucun —")}</option>
               {employers.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-          </label>
-          <div className="flex gap-3">
-            <label className="block flex-1">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window start", "Fenster-Start", "Début fenêtre")}</span>
-              <input type="date" value={form.targetStart} onChange={(e) => setForm({ ...form, targetStart: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
-            <label className="block flex-1">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window end", "Fenster-Ende", "Fin fenêtre")}</span>
-              <input type="date" value={form.targetEnd} onChange={(e) => setForm({ ...form, targetEnd: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
+            </select>)}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
+            {field(T("Window start", "Fenster-Start", "Début fenêtre"),
+              <input type="date" value={form.targetStart} onChange={(e) => setForm({ ...form, targetStart: e.target.value })} className="bvk-input" />)}
+            {field(T("Window end", "Fenster-Ende", "Fin fenêtre"),
+              <input type="date" value={form.targetEnd} onChange={(e) => setForm({ ...form, targetEnd: e.target.value })} className="bvk-input" />)}
           </div>
         </div>
       </Modal>
@@ -937,33 +886,102 @@ export default function AdminTrackerPage() {
       <Modal open={!!proposeFor} onClose={() => !proposing && setProposeFor(null)} size="sm" busy={proposing}
         title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux")}
         subtitle={proposeFor ? proposeFor.name : ""}
-        footer={<><GhostButton onClick={() => setProposeFor(null)} disabled={proposing}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-          <GoldButton onClick={submitPropose} disabled={proposing}>{T("Send to candidate", "An Kandidat senden", "Envoyer au candidat")}</GoldButton></>}>
-        <div className="px-5 py-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Which interview", "Welches Interview", "Quel entretien")}:</span>
-            {([1, 2] as const).map((r) => (
-              <button key={r} onClick={() => setProposeRound(r)} className="px-3 py-1 text-[12px] font-semibold rounded-full"
-                style={proposeRound === r ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                {r === 1 ? T("Interview 1", "Interview 1", "Entretien 1") : T("Interview 2", "Interview 2", "Entretien 2")}
-              </button>
-            ))}
+        footer={<><Btn kind="quiet" size="sm" onClick={() => setProposeFor(null)} disabled={proposing}>{T("Cancel", "Abbrechen", "Annuler")}</Btn>
+          <Btn kind="primary" size="sm" onClick={submitPropose} disabled={proposing}>{T("Send to candidate", "An Kandidat senden", "Envoyer au candidat")}</Btn></>}>
+        <div className="px-5 py-4" style={{ display: "grid", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, color: "var(--w3)" }}>{T("Which interview", "Welches Interview", "Quel entretien")}</span>
+            <Seg value={proposeRound === 2 ? "2" : "1"} onChange={(v) => setProposeRound(v === "2" ? 2 : 1)}
+              options={[["1", T("Interview 1", "Interview 1", "Entretien 1")], ["2", T("Interview 2", "Interview 2", "Entretien 2")]]} />
           </div>
-          <div className="space-y-2">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Offer up to 3 times", "Bis zu 3 Termine anbieten", "Proposez jusqu'à 3 créneaux")}</span>
+          <div className="bvk-field">
+            <span>{T("Offer up to 3 times", "Bis zu 3 Termine anbieten", "Proposez jusqu'à 3 créneaux")}</span>
             {proposeSlots.map((s, i) => (
               <input key={i} type="datetime-local" value={s} onChange={(e) => setProposeSlots((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
-                className="w-full px-3 py-2 text-[13.5px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+                className="bvk-input" aria-label={`${T("Time", "Termin", "Créneau")} ${i + 1}`} />
             ))}
           </div>
-          <label className="block">
-            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Note (optional)", "Notiz (optional)", "Note (optionnel)")}</span>
-            <input value={proposeNote} onChange={(e) => setProposeNote(e.target.value)} placeholder={T("e.g. video call, ~30 min", "z.B. Videoanruf, ~30 Min.", "p.ex. appel vidéo, ~30 min")}
-              className="w-full mt-1 px-3 py-2 text-[13.5px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-          </label>
-          {proposeMsg && <p className="text-[12px]" style={{ color: "var(--w2)" }}>{proposeMsg}</p>}
+          {field(T("Note (optional)", "Notiz (optional)", "Note (optionnel)"),
+            <input value={proposeNote} onChange={(e) => setProposeNote(e.target.value)} placeholder={T("e.g. video call, ~30 min", "z.B. Videoanruf, ~30 Min.", "p.ex. appel vidéo, ~30 min")} className="bvk-input" />)}
+          {proposeMsg && <p style={{ margin: 0, fontSize: 12.5, color: "var(--w2)" }}>{proposeMsg}</p>}
         </div>
       </Modal>
     </main>
+  );
+}
+
+/** The batch board, one page at a time (nobody scrolls). Dragging reorders within the page shown;
+ *  the order is still saved for the whole batch in one request (onDragEnd works on every member). */
+function MemberBoard({ members, sensors, onDragEnd, row, more }: {
+  members: Cand[];
+  sensors: ReturnType<typeof useSensors>;
+  onDragEnd: (e: DragEndEvent) => void;
+  row: (c: Cand, onMore: (id: string) => void) => React.ReactNode;
+  /** phone: the later ticks + row actions of one candidate, in a popup (LAW #36) */
+  more: (c: Cand, close: () => void) => React.ReactNode;
+}) {
+  const { slice, page, pages, setPage } = usePaged(members, 6, 2);
+  const [moreId, setMoreId] = useState<string | null>(null);
+  const moreOf = moreId ? members.find((m) => m.userId === moreId) ?? null : null;
+  return (
+    <>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={slice.map((m) => m.userId)} strategy={verticalListSortingStrategy}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{slice.map((c) => row(c, setMoreId))}</div>
+        </SortableContext>
+      </DndContext>
+      <Pager page={page} pages={pages} onPage={setPage} />
+      <Modal open={!!moreOf} onClose={() => setMoreId(null)} size="sm" title={moreOf?.name}>
+        {moreOf && more(moreOf, () => setMoreId(null))}
+      </Modal>
+    </>
+  );
+}
+
+/** Any list of rows, flipping instead of scrolling. */
+function PagedRows<X>({ items, perLaptop, perPhone, row }: { items: X[]; perLaptop: number; perPhone: number; row: (x: X) => React.ReactNode }) {
+  const { slice, page, pages, setPage } = usePaged(items, perLaptop, perPhone);
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{slice.map(row)}</div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
+  );
+}
+
+/** Add-candidate picker (inside the popup): search + the people not in this batch yet, paged. */
+function AddPicker({ T, query, setQuery, items, onAdd }: {
+  T: (en: string, de: string, fr: string) => string;
+  query: string;
+  setQuery: (v: string) => void;
+  items: Cand[];
+  onAdd: (c: Cand) => void;
+}) {
+  const { slice, page, pages, setPage } = usePaged(items, 7, 6);
+  return (
+    <div className="px-5 py-4">
+      <div style={{ position: "relative", marginBottom: 6 }}>
+        <Search size={14} aria-hidden style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", pointerEvents: "none" }} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} autoFocus
+          placeholder={T("Search a candidate to add…", "Kandidat suchen…", "Rechercher un candidat…")}
+          className="bvk-input" style={{ paddingLeft: 34 }} />
+      </div>
+      {items.length === 0 ? (
+        <Empty>{T("No candidates to add.", "Keine Kandidaten zum Hinzufügen.", "Aucun candidat à ajouter.")}</Empty>
+      ) : (
+        <>
+          {slice.map((c) => (
+            <div key={c.userId} className="bvk-row" style={{ padding: "8px 2px" }}>
+              <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {c.name}
+                {c.batchId ? <span style={{ marginLeft: 8, fontSize: 12, color: "var(--w3)" }}>({T("in another batch", "in anderem Batch", "dans un autre lot")})</span> : null}
+              </span>
+              <Btn size="sm" onClick={() => onAdd(c)}>{T("Add", "Hinzufügen", "Ajouter")}</Btn>
+            </div>
+          ))}
+          <Pager page={page} pages={pages} onPage={setPage} />
+        </>
+      )}
+    </div>
   );
 }
