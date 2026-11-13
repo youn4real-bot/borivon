@@ -16,6 +16,9 @@ import { useTheme } from "@/components/ThemeContext";
 import { Sun, Moon } from "lucide-react";
 import type { Lang } from "@/lib/translations";
 
+/** The Pipeline board is hidden for now (founder 2026-11-13); flip to show its menu link again. */
+const SHOW_PIPELINE = false as boolean;
+
 // Language = plain text codes, no flags (founder 2026-11-10: "I don't like the flags, I like the text").
 const LANGS: { code: Lang; short: string; label: string }[] = [
   { code: "fr", short: "FR", label: "Français" },
@@ -189,7 +192,7 @@ export function ProfileIcon() {
   // route only loads its bundle — it doesn't bypass any auth gate (LAW #1).
   useEffect(() => {
     if (!open || !user?.isAdmin) return;
-    const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry", "/portal/admin/chase", "/portal/admin/partner-keys"];
+    const routes = ["/portal/admin", ...(SHOW_PIPELINE ? ["/portal/admin/pipeline"] : []), "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry", "/portal/admin/chase", "/portal/admin/partner-keys"];
     if (!user.isOrgAdmin) routes.push("/portal/admin/bookings");
     if (!user.isOrgAdmin) routes.push("/portal/admin/organizations", "/portal/admin/employers");
     routes.push("/portal/admin/documents");
@@ -525,8 +528,9 @@ export function ProfileIcon() {
                 </button>
               )}
               {/* Anerkennung / Visa Autopilot — pipeline board (who's stuck where).
-                  Supreme admin + sub-admins. */}
-              {user.isAdmin && (
+                  Supreme admin + sub-admins. HIDDEN (founder 2026-11-13: "no one needs the
+                  pipeline now") — the page stays at /portal/admin/pipeline, only the link is gone. */}
+              {SHOW_PIPELINE && user.isAdmin && (
                 <button
                   onClick={() => { setOpen(false); router.push("/portal/admin/pipeline"); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
