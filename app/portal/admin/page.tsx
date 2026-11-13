@@ -4739,7 +4739,7 @@ export default function AdminPage() {
                     : lang === "fr" ? "La liste des agences n'a pas pu être chargée — cliquez pour revérifier"
                     : "Could not load which agencies can see her — click to check again"}
                   className="bvx-row"
-                  style={{ ...BVX_MROW, color: "#dc2626", cursor: shareLoadRetrying ? "default" : "pointer", opacity: shareLoadRetrying ? 0.6 : 1 }}
+                  style={{ ...BVX_MROW, color: "var(--danger)", cursor: shareLoadRetrying ? "default" : "pointer", opacity: shareLoadRetrying ? 0.6 : 1 }}
                 >
                   {shareLoadRetrying
                     ? <Loader2 size={15} className="animate-spin" style={{ flex: "none" }} aria-hidden />
@@ -8884,9 +8884,9 @@ export default function AdminPage() {
             <div className="mb-5 p-4 rounded-2xl" role="alert"
               style={{ background: "var(--danger-bg)", border: "2px solid var(--danger)", color: "var(--danger)" }}>
               <p className="text-[14px] font-bold mb-1">
-                {lang === "de" ? "⚠️ DATENLECK: Tabellen sind öffentlich lesbar"
-                  : lang === "fr" ? "⚠️ FUITE DE DONNÉES : des tables sont publiquement lisibles"
-                  : "⚠️ DATA LEAK: tables are readable by the public"}
+                {lang === "de" ? "DATENLECK: Tabellen sind öffentlich lesbar"
+                  : lang === "fr" ? "FUITE DE DONNÉES : des tables sont publiquement lisibles"
+                  : "DATA LEAK: tables are readable by the public"}
               </p>
               <p className="text-[12.5px]" style={{ color: "var(--w)" }}>
                 {lang === "de" ? "Diese Tabellen geben Daten an jeden im Internet heraus — sofort beheben (Row-Level-Security):"

@@ -7,7 +7,8 @@ import { supabase } from "@/lib/supabase";
 import { getMyNotifications, markMyNotificationsRead } from "@/lib/meApi";
 import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
-import { Bell, CheckCircle2, XCircle, FilePen, Calendar } from "@/components/PortalIcons";
+import { Bell, CheckCircle2, XCircle, FilePen, Calendar, Briefcase } from "@/components/PortalIcons";
+import { Video } from "lucide-react";
 
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
@@ -524,7 +525,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
-                    {pendingNotifId === n.id ? <Spinner size="xs" /> : liveClass ? <span style={{ fontSize: 15 }}>🎥</span> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : eventInvite ? <Calendar size={15} strokeWidth={1.8} /> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : followUp ? <span style={{ fontSize: 15 }}>🔔</span> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
+                    {pendingNotifId === n.id ? <Spinner size="xs" /> : liveClass ? <Video size={15} strokeWidth={1.8} /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <Briefcase size={15} strokeWidth={1.8} /> : eventInvite ? <Calendar size={15} strokeWidth={1.8} /> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : followUp ? <Bell size={15} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     {/* Line 1: doc / event TITLE (bold). Line 2+: body text wrapping. */}

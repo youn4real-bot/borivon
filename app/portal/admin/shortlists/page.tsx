@@ -6,15 +6,16 @@
  * login. Backed by /api/portal/admin/shortlists* (LAW #25: supreme sees all,
  * org-admins only their org's). The public view lives at /portal/shortlist/<token>.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
+import { Modal } from "@/components/ui/Modal";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
-import { ArrowLeft, Plus, Search, Trash2, ChevronUp, ChevronDown, Link2, RefreshCw, Users, Copy, Check, CheckCircle2 } from "lucide-react";
+import { Plus, Search, Trash2, ChevronUp, ChevronDown, Link2, RefreshCw, Copy, Check } from "lucide-react";
+import { PageHead, BackLink, KitStyle, Btn, Card, Dot, Field, Empty, Pager, usePaged, STATUS_TINT, type Status as KitStatus } from "@/components/fx/kit";
 
 type Org = { id: string; name: string };
 type ListItem = { id: string; title: string; note: string; status: string; shareToken: string | null; orgId: string | null; agency: string | null; employer: string | null; count: number; createdAt: string };
@@ -162,7 +163,8 @@ export default function AdminShortlistsPage() {
       c.profession ? specialtyLabel(c.profession, lang) : "",
       c.city || "",
       c.yearsExperience != null ? `${c.yearsExperience} ${T("yrs", "J.", "ans")}` : "",
-      c.b2Stage ? `B2 ${b2StageLabel(normalizeB2Stage(c.b2Stage), lang)}` : "",
+      // "B2 bestanden" already says B2 — no "B2 B2 bestanden"
+      c.b2Stage ? (normalizeB2Stage(c.b2Stage) === "passed" ? b2StageLabel("passed", lang) : `B2 ${b2StageLabel(normalizeB2Stage(c.b2Stage), lang)}`) : "",
     ].filter(Boolean);
     return bits.join(" · ");
   };
@@ -170,77 +172,41 @@ export default function AdminShortlistsPage() {
   // ── LIST VIEW ──
   if (!selected) {
     return (
-      <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 880 }}>
-        <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-          <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-        </button>
-        <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="bv-h1">{T("Employer shortlists", "Arbeitgeber-Listen", "Listes employeur")}</h1>
-            <p className="bv-body mt-1">{T("Curate candidates for an employer and share a read-only link.", "Kandidaten für einen Arbeitgeber kuratieren und einen schreibgeschützten Link teilen.", "Sélectionnez des candidats pour un employeur et partagez un lien en lecture seule.")}</p>
-          </div>
-          <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-primary inline-flex">
-            <Plus size={15} strokeWidth={2} /> {T("New shortlist", "Neue Liste", "Nouvelle liste")}
-          </button>
-        </div>
-        {err && <p className="mb-3 text-[12px]" style={{ color: "#ef4444" }}>{err}</p>}
+      <main id="bv-main" className="mx-auto px-5 bv-page-bottom" style={{ maxWidth: 760, paddingTop: 72, paddingBottom: 28 }}>
+        <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+          title={T("Employer shortlists", "Arbeitgeber-Listen", "Listes employeur")}
+          sub={T("Curate candidates for an employer and share a read-only link.", "Kandidaten für einen Arbeitgeber auswählen und per Link teilen.", "Sélectionnez des candidats et partagez un lien en lecture seule.")}
+          actions={<Btn kind="primary" onClick={() => setShowNew(true)}><Plus size={15} strokeWidth={2} /> {T("New shortlist", "Neue Liste", "Nouvelle liste")}</Btn>} />
+        {err && <p style={ERR}>{err}</p>}
         {items.length === 0 ? (
-          <div className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>
-            {T("No shortlists yet — create one to get started.", "Noch keine Listen — erstelle eine.", "Aucune liste — créez-en une.")}
-          </div>
+          <Card><Empty>{T("No shortlists yet — create one to get started.", "Noch keine Listen — erstelle eine.", "Aucune liste — créez-en une.")}</Empty></Card>
         ) : (
-          // One grouped glass list (the portal pattern), not a stack of cards.
-          <div className="overflow-hidden" style={{ background: "var(--card)", borderRadius: "22px" }}>
-            {items.map((s, i) => (
-              <button key={s.id} onClick={() => openDetail(s.id)}
-                className="bv-row-hover w-full text-left px-4 py-[15px] flex items-center gap-3 transition-colors"
-                style={i ? { borderTop: "1px solid var(--border)" } : undefined}>
-                <Users size={16} style={{ color: "var(--gold)" }} />
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[14px] font-medium truncate" style={{ color: "var(--w)" }}>{s.title}</span>
-                  <span className="block text-[12px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                    {[s.agency, s.employer].filter(Boolean).join(" → ") || T("No agency", "Keine Agentur", "Aucune agence")} · {s.count} {T("candidates", "Kandidaten", "candidats")}
-                  </span>
-                </span>
-                <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                  style={s.status === "shared"
-                    ? { background: "rgba(22,163,74,0.12)", color: "#16a34a", border: "1px solid rgba(22,163,74,0.38)" }
-                    : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                  {s.status === "shared" ? T("Shared", "Geteilt", "Partagé") : T("Draft", "Entwurf", "Brouillon")}
-                </span>
-              </button>
-            ))}
-          </div>
+          // shared = green (live), draft = paper; the list flips instead of scrolling
+          <ShortlistRows items={items} onOpen={(id) => openDetail(id)} T={T} />
         )}
 
         <Modal open={showNew} onClose={() => !busy && setShowNew(false)} size="sm" busy={busy}
           title={T("New shortlist", "Neue Liste", "Nouvelle liste")}
-          footer={<><GhostButton onClick={() => setShowNew(false)} disabled={busy}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-            <GoldButton onClick={createShortlist} disabled={busy || !form.title.trim()}>{T("Create", "Erstellen", "Créer")}</GoldButton></>}>
-          <div className="px-5 py-4 space-y-3">
-            <label className="block">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Title", "Titel", "Titre")}</span>
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="UKSH Kiel — April 2027"
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
-            </label>
+          footer={<><Btn kind="quiet" size="sm" onClick={() => setShowNew(false)} disabled={busy}>{T("Cancel", "Abbrechen", "Annuler")}</Btn>
+            <Btn kind="primary" size="sm" onClick={createShortlist} disabled={busy || !form.title.trim()}>{T("Create", "Erstellen", "Créer")}</Btn></>}>
+          <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+            <Field label={T("Title", "Titel", "Titre")}>
+              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="UKSH Kiel — April 2027" className="bvk-input" />
+            </Field>
             {(isSupreme || orgs.length > 1) && (
-              <label className="block">
-                <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Agency", "Agentur", "Agence")}</span>
-                <select value={form.orgId} onChange={(e) => setForm({ ...form, orgId: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+              <Field label={T("Agency", "Agentur", "Agence")}>
+                <select value={form.orgId} onChange={(e) => setForm({ ...form, orgId: e.target.value })} className="bvk-input">
                   <option value="">{isSupreme ? T("— none (HQ) —", "— keine (HQ) —", "— aucune (HQ) —") : T("— choose —", "— wählen —", "— choisir —")}</option>
                   {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
-              </label>
+              </Field>
             )}
-            <label className="block">
-              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)")}</span>
-              <select value={form.employerId} onChange={(e) => setForm({ ...form, employerId: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+            <Field label={T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)")}>
+              <select value={form.employerId} onChange={(e) => setForm({ ...form, employerId: e.target.value })} className="bvk-input">
                 <option value="">{T("— none —", "— keiner —", "— aucun —")}</option>
                 {employers.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
-            </label>
+            </Field>
           </div>
         </Modal>
       </main>
@@ -254,112 +220,180 @@ export default function AdminShortlistsPage() {
   const pickable = pickList.filter((p) => !onList.has(p.uid)).filter((p) => !pickQuery.trim() || p.name.toLowerCase().includes(pickQuery.trim().toLowerCase())).slice(0, 40);
 
   return (
-    <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 880 }}>
-      <button onClick={backToList} className="bv-btn bv-btn-ghost mb-6 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("All shortlists", "Alle Listen", "Toutes les listes")}
-      </button>
+    <main id="bv-main" className="mx-auto px-5 bv-page-bottom" style={{ maxWidth: 760, paddingTop: 72, paddingBottom: 28 }}>
+      <KitStyle />
+      {/* the list's title edits in place in the page-title look (serif); a hairline shows only on hover / focus */}
+      <style>{".bvs-edit{display:block;width:100%;background:transparent;border:0;border-bottom:1px solid transparent;outline:none;padding:0;font-family:inherit;color:var(--w);transition:border-color .15s}.bvs-edit:hover,.bvs-edit:focus{border-bottom-color:var(--border)}"
+        + ".bvs-title{font-family:var(--font-serif);font-weight:400;font-size:32px;line-height:1.15;letter-spacing:-.01em}.bvs-note{margin-top:4px;font-size:13.5px;line-height:1.45;color:var(--w3);resize:none}"
+        + "@media (max-width:640px){.bvs-title{font-size:28px}.bvs-lbl{display:none}.bvs-cands{margin:16px 0 10px!important;padding-top:14px!important}}"}</style>
+      <div style={{ marginBottom: 14 }}><BackLink label={T("All shortlists", "Alle Listen", "Toutes les listes")} onClick={backToList} /></div>
 
       {!detail ? <PageLoader /> : (
         <>
-          {/* Header + share controls */}
-          <div className="p-4 sm:p-5 mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-            <input value={sl!.title} onChange={(e) => setDetail({ ...detail, shortlist: { ...sl!, title: e.target.value } })}
-              onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== "" && patchShortlist({ title: e.target.value.trim() })}
-              className="w-full text-[17px] font-semibold bg-transparent outline-none mb-1" style={{ color: "var(--w)" }} />
-            <textarea value={sl!.note} onChange={(e) => setDetail({ ...detail, shortlist: { ...sl!, note: e.target.value } })}
-              onBlur={(e) => patchShortlist({ note: e.target.value })} rows={2}
-              placeholder={T("A note shown at the top of the shared view (optional)…", "Ein Hinweis oben in der geteilten Ansicht (optional)…", "Une note en haut de la vue partagée (optionnel)…")}
-              className="w-full text-[12.5px] bg-transparent outline-none resize-y" style={{ color: "var(--w2)" }} />
+          {/* Header — the title + note edit in place */}
+          <input value={sl!.title} onChange={(e) => setDetail({ ...detail, shortlist: { ...sl!, title: e.target.value } })}
+            onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== "" && patchShortlist({ title: e.target.value.trim() })}
+            aria-label={T("Title", "Titel", "Titre")} className="bvs-edit bvs-title" />
+          <textarea value={sl!.note} onChange={(e) => setDetail({ ...detail, shortlist: { ...sl!, note: e.target.value } })}
+            onBlur={(e) => patchShortlist({ note: e.target.value })} rows={2}
+            placeholder={T("A note shown at the top of the shared view (optional)…", "Ein Hinweis oben in der geteilten Ansicht (optional)…", "Une note en haut de la vue partagée (optionnel)…")}
+            className="bvs-edit bvs-note" />
 
-            <div className="mt-3 pt-3 flex flex-wrap items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <button onClick={() => patchShortlist({ status: sl!.status === "shared" ? "draft" : "shared" })}
-                className="text-[12px] font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1.5"
-                style={sl!.status === "shared"
-                  ? { background: "rgba(22,163,74,0.12)", color: "#16a34a", border: "1px solid rgba(22,163,74,0.38)" }
-                  : { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                {sl!.status === "shared" ? <><CheckCircle2 size={13} /> {T("Shared — live", "Geteilt — live", "Partagé — en ligne")}</> : <><Link2 size={13} /> {T("Share this list", "Liste teilen", "Partager la liste")}</>}
-              </button>
-              {sl!.status === "shared" && shareUrl && (
-                <>
-                  <button onClick={() => copyLink(sl!.shareToken!)} className="text-[12px] px-3 py-1.5 rounded-md inline-flex items-center gap-1.5" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                    {copied ? <><Check size={13} style={{ color: "#16a34a" }} /> {T("Copied", "Kopiert", "Copié")}</> : <><Copy size={13} /> {T("Copy link", "Link kopieren", "Copier le lien")}</>}
-                  </button>
-                  <a href={shareUrl} target="_blank" rel="noreferrer" className="text-[12px] px-3 py-1.5 rounded-md inline-flex items-center gap-1.5" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                    {T("Open view", "Ansicht öffnen", "Ouvrir la vue")}
-                  </a>
-                  <button onClick={() => patchShortlist({ regenToken: true })} className="text-[11.5px] px-2.5 py-1.5 rounded-md inline-flex items-center gap-1" style={{ color: "var(--w3)", border: "1px solid var(--border)" }} title={T("New link (old one stops working)", "Neuer Link (alter wird ungültig)", "Nouveau lien (l'ancien cesse)")}>
-                    <RefreshCw size={12} /> {T("New link", "Neuer Link", "Nouveau lien")}
-                  </button>
-                </>
-              )}
-              <button onClick={deleteShortlist} className="text-[11.5px] px-2.5 py-1.5 rounded-md inline-flex items-center gap-1 ml-auto" style={{ color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Trash2 size={12} /> {T("Delete", "Löschen", "Supprimer")}
-              </button>
-            </div>
-            {sl!.status === "shared" && (
-              <p className="mt-2 text-[10.5px]" style={{ color: "var(--w3)" }}>
-                {T("Anyone with this link can view these candidates (name, photo, profession, city, B2, experience — no contact details or documents). Switch back to Draft or make a new link to revoke.",
-                   "Jeder mit diesem Link kann diese Kandidaten sehen (Name, Foto, Fachbereich, Ort, B2, Erfahrung — keine Kontaktdaten oder Dokumente). Auf Entwurf zurückstellen oder neuen Link erzeugen, um zu widerrufen.",
-                   "Toute personne disposant de ce lien peut voir ces candidats (nom, photo, spécialité, ville, B2, expérience — aucune coordonnée ni document). Repassez en Brouillon ou générez un nouveau lien pour révoquer.")}
-              </p>
+          {/* share controls — one quiet row */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 14 }}>
+            <Btn kind="ghost" size="sm" onClick={() => patchShortlist({ status: sl!.status === "shared" ? "draft" : "shared" })}>
+              {sl!.status === "shared" ? <><Dot st="approved" size={8} /> {T("Shared — live", "Geteilt — live", "Partagé — en ligne")}</> : <><Link2 size={13} /> {T("Share this list", "Liste teilen", "Partager la liste")}</>}
+            </Btn>
+            {sl!.status === "shared" && shareUrl && (
+              <>
+                <Btn kind="ghost" size="sm" onClick={() => copyLink(sl!.shareToken!)}>
+                  {copied ? <><Dot st="approved" size={8} /> {T("Copied", "Kopiert", "Copié")}</> : <><Copy size={13} /> {T("Copy link", "Link kopieren", "Copier le lien")}</>}
+                </Btn>
+                <a href={shareUrl} target="_blank" rel="noreferrer" className="bvk-btn bvk-ghost bvk-sm">
+                  {T("Open view", "Ansicht öffnen", "Ouvrir la vue")}
+                </a>
+                <Btn kind="quiet" size="sm" onClick={() => patchShortlist({ regenToken: true })} title={T("New link (old one stops working)", "Neuer Link (alter wird ungültig)", "Nouveau lien (l'ancien cesse)")} aria-label={T("New link", "Neuer Link", "Nouveau lien")}>
+                  <RefreshCw size={12} /> <span className="bvs-lbl">{T("New link", "Neuer Link", "Nouveau lien")}</span>
+                </Btn>
+              </>
             )}
+            <Btn kind="danger" size="sm" onClick={deleteShortlist} style={{ marginLeft: "auto" }} aria-label={T("Delete", "Löschen", "Supprimer")}>
+              <Trash2 size={12} /> <span className="bvs-lbl">{T("Delete", "Löschen", "Supprimer")}</span>
+            </Btn>
           </div>
+          {sl!.status === "shared" && (
+            <p style={{ margin: "10px 0 0", fontSize: 12.5, lineHeight: 1.45, color: "var(--w3)" }}>
+              {T("The link shows name, photo, profession, city, B2, experience — no contacts, no documents. Revoke: Draft or a new link.",
+                 "Der Link zeigt Name, Foto, Fach, Ort, B2, Erfahrung — keine Kontakte, keine Dokumente. Widerruf: Entwurf oder neuer Link.",
+                 "Le lien montre nom, photo, spécialité, ville, B2, expérience — ni contacts, ni documents. Révoquer : Brouillon ou nouveau lien.")}
+            </p>
+          )}
 
-          {err && <p className="mb-3 text-[12px]" style={{ color: "#ef4444" }}>{err}</p>}
+          {err && <p style={{ ...ERR, marginTop: 12 }}>{err}</p>}
 
           {/* Candidates */}
-          <div className="flex items-center justify-between mb-2.5">
-            <span className="text-[12px] font-semibold" style={{ color: "var(--w2)" }}>{detail.candidates.length} {T("candidates", "Kandidaten", "candidats")}</span>
-            <button onClick={openPicker} className="bv-btn bv-btn-primary inline-flex"><Plus size={14} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter")}</button>
+          <div className="bvs-cands" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, margin: "22px 0 12px", paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+            <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8, fontSize: 13, color: "var(--w3)" }}>
+              <b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1, color: "var(--w)" }}>{detail.candidates.length}</b>{T("candidates", "Kandidaten", "candidats")}
+            </span>
+            <Btn kind="primary" size="sm" onClick={openPicker}><Plus size={14} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter")}</Btn>
           </div>
 
           {detail.candidates.length === 0 ? (
-            <div className="text-center py-12 text-[13px]" style={{ color: "var(--w3)" }}>{T("No candidates yet — add some above.", "Noch keine Kandidaten — oben hinzufügen.", "Aucun candidat — ajoutez-en ci-dessus.")}</div>
+            <Card><Empty>{T("No candidates yet — add some above.", "Noch keine Kandidaten — oben hinzufügen.", "Aucun candidat — ajoutez-en ci-dessus.")}</Empty></Card>
           ) : (
-            <div className="space-y-2">
-              {detail.candidates.map((c, i) => (
-                <div key={c.userId} className="p-3 flex items-center gap-3" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-                  <div className="flex flex-col gap-0.5">
-                    <button onClick={() => move(i, -1)} disabled={i === 0} className="disabled:opacity-25" style={{ color: "var(--w3)" }}><ChevronUp size={15} /></button>
-                    <button onClick={() => move(i, 1)} disabled={i === detail.candidates.length - 1} className="disabled:opacity-25" style={{ color: "var(--w3)" }}><ChevronDown size={15} /></button>
-                  </div>
-                  {c.photo
-                    ? <img src={c.photo} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
-                    : <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-bold" style={{ background: "var(--bg2)", color: "var(--w3)" }}>{c.name.charAt(0).toUpperCase()}</div>}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13.5px] font-semibold truncate flex items-center gap-1.5" style={{ color: "var(--w)" }}>{c.name}{c.verified && <Check size={12} strokeWidth={3} style={{ color: "#16a34a" }} />}</p>
-                    <p className="text-[11px] truncate" style={{ color: "var(--w3)" }}>{fmtCand(c) || T("Profile not filled yet", "Profil noch nicht ausgefüllt", "Profil non rempli")}</p>
-                  </div>
-                  <span className="text-[10.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{c.docsOk}/{c.docCount} {T("docs", "Dok.", "docs")}</span>
-                  <button onClick={() => removeCandidate(c.userId)} className="flex-shrink-0" style={{ color: "var(--w3)" }}><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </div>
+            <CandidateRows cands={detail.candidates} fmtCand={fmtCand} onMove={move} onRemove={removeCandidate} T={T} />
           )}
 
           {/* Add-candidate picker */}
           <Modal open={pickerOpen} onClose={() => setPickerOpen(false)} size="sm"
             title={T("Add a candidate", "Kandidat hinzufügen", "Ajouter un candidat")}>
-            <div className="px-5 py-4">
-              <div className="relative mb-2">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--w3)" }} />
+            <div style={{ padding: "16px 20px 18px" }}>
+              <div style={{ position: "relative", marginBottom: 10 }}>
+                <Search size={14} style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", pointerEvents: "none" }} />
                 <input value={pickQuery} onChange={(e) => setPickQuery(e.target.value)} autoFocus placeholder={T("Search a candidate…", "Kandidat suchen…", "Rechercher…")}
-                  className="w-full pl-8 pr-3 py-2 text-[13px] rounded-md outline-none" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+                  className="bvk-input" style={{ paddingLeft: 36 }} />
               </div>
-              <div className="max-h-[320px] overflow-y-auto">
-                {!pickLoaded ? <p className="text-center py-4 text-[12px]" style={{ color: "var(--w3)" }}>{T("Loading…", "Lädt…", "Chargement…")}</p>
-                  : pickable.length === 0 ? <p className="text-center py-4 text-[12px]" style={{ color: "var(--w3)" }}>{T("No candidates to add.", "Keine Kandidaten.", "Aucun candidat.")}</p>
-                  : pickable.map((p) => (
-                    <div key={p.uid} className="flex items-center justify-between gap-2 py-1.5">
-                      <span className="text-[13px] min-w-0 truncate" style={{ color: "var(--w2)" }}>{p.name}</span>
-                      <button onClick={() => addCandidate(p.uid)} className="flex-shrink-0 px-2.5 py-1 text-[11px] font-semibold rounded-md" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{T("Add", "Hinzufügen", "Ajouter")}</button>
-                    </div>
-                  ))}
-              </div>
+              {!pickLoaded ? <p style={{ ...QUIET, textAlign: "center", padding: "16px 0" }}>{T("Loading…", "Lädt…", "Chargement…")}</p>
+                : pickable.length === 0 ? <p style={{ ...QUIET, textAlign: "center", padding: "16px 0" }}>{T("No candidates to add.", "Keine Kandidaten.", "Aucun candidat.")}</p>
+                : <PickRows key={pickQuery} pickable={pickable} onAdd={(uid) => addCandidate(uid)} T={T} />}
             </div>
           </Modal>
         </>
       )}
     </main>
+  );
+}
+
+// ── the one design (founder 2026-11-13): small views so the lists can page (hooks at their top level) ──
+const ERR: CSSProperties = { margin: "0 0 12px", fontSize: 13, color: "#dc2626" };
+const QUIET: CSSProperties = { margin: 0, fontSize: 13, color: "var(--w3)" };
+type Tr = (en: string, de: string, fr: string) => string;
+const ellipsis: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+
+/** the shortlists: shared = green tinted (live), draft = paper; 8 per page (phone 6) */
+function ShortlistRows({ items, onOpen, T }: { items: ListItem[]; onOpen: (id: string) => void; T: Tr }) {
+  const { slice, page, pages, setPage } = usePaged(items, 8, 6);
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slice.map((s) => {
+          const st: KitStatus = s.status === "shared" ? "approved" : "missing";
+          return (
+            <button key={s.id} type="button" onClick={() => onOpen(s.id)}
+              style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+                background: st === "missing" ? "var(--card)" : STATUS_TINT[st], border: st === "missing" ? "1px solid var(--border)" : "1px solid transparent" }}>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", fontSize: 14, fontWeight: 500, color: "var(--w)", ...ellipsis }}>{s.title}</span>
+                <span style={{ display: "block", fontSize: 12.5, color: "var(--w3)", marginTop: 2, ...ellipsis }}>
+                  {[s.agency, s.employer].filter(Boolean).join(" → ") || T("No agency", "Keine Agentur", "Aucune agence")} · {s.count} {T("candidates", "Kandidaten", "candidats")}
+                </span>
+              </span>
+              <span style={{ flex: "none", fontSize: 12, fontWeight: 600, color: st === "missing" ? "var(--w3)" : "var(--w)" }}>
+                {s.status === "shared" ? T("Shared", "Geteilt", "Partagé") : T("Draft", "Entwurf", "Brouillon")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
+  );
+}
+
+/** the candidates on a list, in the employer's order: ‹ › reorder, their face, the facts, papers ready (dot), remove */
+function CandidateRows({ cands, fmtCand, onMove, onRemove, T }: { cands: Cand[]; fmtCand: (c: Cand) => string; onMove: (idx: number, dir: -1 | 1) => void; onRemove: (uid: string) => void; T: Tr }) {
+  const { slice, page, pages, setPage } = usePaged(cands, 5, 4);
+  const arrow = (dis: boolean): CSSProperties => ({ display: "grid", placeItems: "center", width: 22, height: 18, padding: 0, background: "none", border: 0, cursor: dis ? "default" : "pointer", color: "var(--w3)", opacity: dis ? 0.25 : 1 });
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slice.map((c) => {
+          const i = cands.findIndex((x) => x.userId === c.userId); // the place in the whole list (pages flip)
+          const docs: KitStatus = c.docCount > 0 && c.docsOk === c.docCount ? "approved" : c.docsPending > 0 ? "pending" : "missing";
+          return (
+            <div key={c.userId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px 10px 8px", borderRadius: 12, background: "var(--card)", border: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <button type="button" onClick={() => onMove(i, -1)} disabled={i === 0} aria-label={T("Move up", "Nach oben", "Monter")} style={arrow(i === 0)}><ChevronUp size={15} /></button>
+                <button type="button" onClick={() => onMove(i, 1)} disabled={i === cands.length - 1} aria-label={T("Move down", "Nach unten", "Descendre")} style={arrow(i === cands.length - 1)}><ChevronDown size={15} /></button>
+              </div>
+              {c.photo
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={c.photo} alt="" style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", flex: "none" }} />
+                : <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: "50%", flex: "none", display: "grid", placeItems: "center", background: "var(--bg2)", fontFamily: "var(--font-serif)", fontSize: 16, color: "var(--w2)" }}>{c.name.charAt(0).toUpperCase()}</span>}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 500, color: "var(--w)", minWidth: 0 }}>
+                  <span style={ellipsis}>{c.name}</span>{c.verified && <Check size={13} strokeWidth={2.6} aria-label={T("Verified", "Geprüft", "Vérifié")} style={{ color: "#16a34a", flex: "none" }} />}
+                </p>
+                <p style={{ margin: "2px 0 0", fontSize: 12.5, color: "var(--w3)", ...ellipsis }}>{fmtCand(c) || T("Profile not filled yet", "Profil noch nicht ausgefüllt", "Profil non rempli")}</p>
+              </div>
+              <span style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--w3)", fontVariantNumeric: "tabular-nums" }}>
+                <Dot st={docs} size={7} />{c.docsOk}/{c.docCount} {T("docs", "Dok.", "docs")}
+              </span>
+              <Btn kind="quiet" size="sm" icon onClick={() => onRemove(c.userId)} aria-label={T("Remove", "Entfernen", "Retirer")} style={{ width: 30 }}><Trash2 size={14} /></Btn>
+            </div>
+          );
+        })}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
+  );
+}
+
+/** the add-candidate picker: hairline rows, 7 per page (phone 6) instead of a scroll box */
+function PickRows({ pickable, onAdd, T }: { pickable: PickCand[]; onAdd: (uid: string) => void; T: Tr }) {
+  const { slice, page, pages, setPage } = usePaged(pickable, 7, 6);
+  return (
+    <>
+      <div>
+        {slice.map((p) => (
+          <div key={p.uid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 2px", borderBottom: "1px solid var(--border)" }}>
+            <span style={{ fontSize: 14, color: "var(--w)", minWidth: 0, ...ellipsis }}>{p.name}</span>
+            <Btn kind="ghost" size="sm" onClick={() => onAdd(p.uid)} style={{ flex: "none" }}>{T("Add", "Hinzufügen", "Ajouter")}</Btn>
+          </div>
+        ))}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </>
   );
 }

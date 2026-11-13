@@ -396,7 +396,7 @@ export function JourneyMap({
       <MapCtx.Provider value={ctx}>
         <div className="bv-card" style={{ padding: "26px 24px", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--w)", letterSpacing: -0.3 }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--w)", letterSpacing: -0.3 }}>{T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
           </div>
           {/* Legend: stage colours + the red-halo = failed-before meaning. */}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
@@ -466,7 +466,7 @@ export function JourneyMap({
       <MapCtx.Provider value={ctx}>
         <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--w)", letterSpacing: -0.2 }}>🏅 {T("Anerkennung — recognition pathway", "Anerkennung — Anerkennungsweg", "Reconnaissance — parcours")}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--w)", letterSpacing: -0.2 }}>{T("Anerkennung — recognition pathway", "Anerkennung — Anerkennungsweg", "Reconnaissance — parcours")}</span>
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
             {ANERKENNUNG_STAGES.map((s) => (
@@ -527,7 +527,7 @@ export function JourneyMap({
       <MapCtx.Provider value={ctx}>
         <div className="bv-card" style={{ padding: "26px 24px", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--w)", letterSpacing: -0.3 }}>💉 {T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--w)", letterSpacing: -0.3 }}>{T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
           </div>
           <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
             {T("Only candidates whose agency requires vaccines.", "Nur Kandidaten, deren Agentur Impfungen verlangt.", "Seuls les candidats dont l'agence exige des vaccins.")}

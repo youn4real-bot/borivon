@@ -974,7 +974,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
                     ) : (
                       <>
                         {lastSender === "candidate" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>{lang === "fr" ? "Vous : " : lang === "de" ? "Sie: " : "You: "}</span>}
-                        <span className="truncate">{hasAttachment && !lastBody ? `📎 ${t.miImage}` : (lastBody || "—")}</span>
+                        <span className="truncate">{hasAttachment && !lastBody ? t.miImage : (lastBody || "—")}</span>
                       </>
                     )}
                   </p>
@@ -1016,7 +1016,7 @@ type CandPick = { userId: string; name: string; photo: string | null };
 
 // The fixed reminder posted into the candidate's chat — ALWAYS German (the
 // working language toward Germany). One canonical text, edited here only.
-const GERMAN_REMINDER = "Hallo 👋 Kurze Erinnerung von Borivon — bitte logge dich in dein Portal ein und antworte uns, sobald du kannst. Vielen Dank! 🙏";
+const GERMAN_REMINDER = "Hallo, kurze Erinnerung von Borivon — bitte logge dich in dein Portal ein und antworte uns, sobald du kannst. Vielen Dank!";
 
 // Header button: post the German reminder straight into the in-app chat with
 // one click. Free + never hits spam, so no throttle (the 2s "sent" state just
@@ -1425,7 +1425,7 @@ function ConversationList({
               style={{ color: c.unread > 0 ? "var(--w2)" : "var(--w3)", fontWeight: c.unread > 0 ? 500 : 400 }}>
               {c.lastKind === "bug" && <Bug size={10} strokeWidth={2.2} style={{ color: "var(--danger)", flexShrink: 0 }} />}
               {c.lastSender === "admin" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>{lang === "fr" ? "Vous : " : lang === "de" ? "Sie: " : "You: "}</span>}
-              <span className="truncate">{c.hasAttachment && !c.lastBody ? `📎 ${t.miImage}` : (c.lastBody || "—")}</span>
+              <span className="truncate">{c.hasAttachment && !c.lastBody ? t.miImage : (c.lastBody || "—")}</span>
             </p>
           </div>
           {c.unread > 0 && (

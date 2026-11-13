@@ -3,31 +3,38 @@
 /**
  * Anerkennung / Visa Autopilot — admin Pipeline board ("who's stuck where").
  *
- * Every candidate the admin can see, one row each, ordered most-urgent-first and
- * color-coded by health (blocked → overdue → due soon → on track → done). Click
- * a row → jump to that candidate in the admin panel (where the journey lives).
- * Read-only overview; edits happen in the candidate's journey checklist.
+ * Every candidate the admin can see, ordered most-urgent-first and color-coded by
+ * health (blocked → overdue → due soon → on track → done). The one design (founder
+ * 2026-11-13): a board of four phase columns (Auswahl · Papiere · Ankunft · Im Dienst)
+ * or the five B2 stages, paper + tinted cards in the kit palette, columns page and
+ * flip instead of scrolling. Click a card → the peek (guided step + status + papers).
+ * The old station rail (components/JourneyMap) is kept, hidden (SHOW_RAIL).
  */
 
 import { Wordmark } from "@/components/Wordmark";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { JOURNEY_PRESETS, SEQUENTIAL_PRESETS } from "@/lib/candidateJourney";
+import { JOURNEY_PRESETS, SEQUENTIAL_PRESETS, JOURNEY_PHASES, resolvePreset, type JourneyPhase } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
-import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
-import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR, B2_STAGES } from "@/lib/b2Journey";
-import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor, ANERKENNUNG_STAGES } from "@/lib/anerkennungJourney";
-import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
+import { Modal } from "@/components/ui/Modal";
+import { normalizeB2Stage, b2StageLabel, B2_STAGES } from "@/lib/b2Journey";
+import { normalizeAnerkennungStage, anerkennungStageLabel, ANERKENNUNG_STAGES } from "@/lib/anerkennungJourney";
+import { impfungStageLabel, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { translateDocLabel } from "@/lib/fileKeys";
 import type { PassportProfile } from "@/lib/passportReview";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Search, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check, Link2, MousePointerClick, Calendar } from "lucide-react";
+import { Search, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check, Link2, Calendar } from "lucide-react";
+import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { PageHead, BackLink, KitStyle, Btn, Card, Seg, Dot, Empty, Pager, usePaged, STATUS_DOT, STATUS_TINT, type Status as KitStatus } from "@/components/fx/kit";
+
+// the old 23-station rail (components/JourneyMap) — hidden, not deleted (founder rule); the board below replaces it
+const SHOW_RAIL = false as boolean;
 
 // Document review reused VERBATIM from the dashboard — opened as a popup ON TOP
 // of the peek so the admin never has to leave the candidate to approve/reject.
@@ -88,6 +95,14 @@ const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: strin
   done:     { dot: "#6b7280", label: { en: "Complete",  de: "Fertig",      fr: "Terminé" } },
 };
 
+// The one status palette (components/fx/kit, LAW #4): red = blocked / overdue, orange = due soon / waiting,
+// green = on track / done / passed, grey = not started.
+const HEALTH_KIT: Record<Health, KitStatus> = { blocked: "rejected", overdue: "rejected", due_soon: "pending", on_track: "approved", done: "approved" };
+const b2Kit = (s: string): KitStatus => (s === "passed" ? "approved" : s === "studying" ? "missing" : "pending");
+const anerkKit = (s: string): KitStatus => (s === "recognized" ? "approved" : s === "not_started" ? "missing" : "pending");
+const docKit = (s: string | null | undefined): KitStatus => (s === "approved" ? "approved" : s === "rejected" ? "rejected" : s === "pending" ? "pending" : "missing");
+type Tr = (en: string, de: string, fr: string) => string;
+
 function presetLabel(key: string | undefined, lang: string): string {
   if (!key) return "—";
   const p = JOURNEY_PRESETS.find((x) => x.key === key);
@@ -127,30 +142,240 @@ function GermanDateField({ valueIso, onChangeIso, confirmed, onToggleConfirmed, 
   useEffect(() => { setText(isoToDe(valueIso)); }, [valueIso]);
   const nativeRef = useRef<HTMLInputElement>(null);
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <div style={{ position: "relative", width: 140 }}>
-        <input className="bv-input" inputMode="numeric" placeholder={placeholder ?? "TT.MM.JJJJ"}
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ position: "relative", width: 150 }}>
+        <input className="bvk-input" inputMode="numeric" placeholder={placeholder ?? "TT.MM.JJJJ"}
           value={text}
           onChange={(e) => { setText(e.target.value); onChangeIso(deToIso(e.target.value)); }}
-          style={{ fontSize: 12.5, width: "100%", paddingRight: 30 }} />
+          style={{ paddingRight: 34, fontVariantNumeric: "tabular-nums" }} />
         <button type="button" aria-label={tr("Pick date", "Datum wählen", "Choisir la date")}
           onClick={() => { const el = nativeRef.current; if (el?.showPicker) el.showPicker(); else el?.focus(); }}
-          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", padding: 4, lineHeight: 0 }}>
+          style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", padding: 4, lineHeight: 0, background: "none", border: 0, cursor: "pointer" }}>
           <Calendar size={14} strokeWidth={1.9} />
         </button>
         <input ref={nativeRef} type="date" value={valueIso || ""} tabIndex={-1} aria-hidden
           onChange={(e) => { onChangeIso(e.target.value); setText(isoToDe(e.target.value)); }}
           style={{ position: "absolute", right: 4, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }} />
       </div>
+      {/* confirmed = green, still only expected = orange (the kit palette) */}
       {typeof confirmed === "boolean" && onToggleConfirmed && (
-        <button type="button" onClick={() => onToggleConfirmed(!confirmed)}
-          className="bv-press text-[11px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap"
-          style={confirmed
-            ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
-            : { background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.35)" }}>
+        <button type="button" onClick={() => onToggleConfirmed(!confirmed)} aria-pressed={confirmed}
+          style={{ ...PILL, background: STATUS_TINT[confirmed ? "approved" : "pending"], border: "1px solid transparent" }}>
+          <Dot st={confirmed ? "approved" : "pending"} size={7} />
           {confirmed ? tr("Confirmed", "Bestätigt", "Confirmé") : tr("Expected", "Erwartet", "Prévu")}
         </button>
       )}
+    </div>
+  );
+}
+
+// ── the one design: small shared looks for the board + the peek ───────────────────
+/** a quiet pill toggle (Bestätigt / Bestanden …): tinted by its status when on, hairline when off */
+const PILL: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, height: 34, padding: "0 13px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" };
+const pill = (st: KitStatus | null): CSSProperties => (st ? { ...PILL, background: STATUS_TINT[st], border: "1px solid transparent" } : PILL);
+/** form-field label (uppercase 11px, the kit's Field look) */
+const LBL: CSSProperties = { display: "flex", alignItems: "center", gap: 6, fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--w3)", marginBottom: 5 };
+/** one quiet line of help text */
+const HINT: CSSProperties = { fontSize: 12.5, lineHeight: 1.45, color: "var(--w3)", margin: 0 };
+/** a section title inside the peek (serif) */
+const SEC: CSSProperties = { fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 18, lineHeight: 1.2, color: "var(--w)", margin: "0 0 10px" };
+/** a tinted row (status = whole row colour, like the papers list) */
+const tintRow = (st: KitStatus): CSSProperties => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", minWidth: 0, textAlign: "left", padding: "10px 12px", borderRadius: 12, background: st === "missing" ? "var(--card)" : STATUS_TINT[st], border: st === "missing" ? "1px solid var(--border)" : "1px solid transparent", color: "var(--w)", fontSize: 13.5, fontFamily: "inherit", cursor: "pointer" });
+const ROUND = (dis: boolean): CSSProperties => ({ width: 32, height: 32, flex: "none", borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: dis ? "var(--border)" : "var(--w2)", cursor: dis ? "default" : "pointer", display: "grid", placeItems: "center", padding: 0 });
+
+function initialsOf(n: string): string {
+  return n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
+}
+
+/** her face: the photo, or her initials in serif on paper */
+function Face({ name, photo, size = 30 }: { name: string; photo: string | null; size?: number }) {
+  return photo
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img src={photo} alt="" className="bvp-face" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flex: "none" }} />
+    : <span aria-hidden="true" className="bvp-face" style={{ width: size, height: size, borderRadius: "50%", flex: "none", display: "grid", placeItems: "center", background: "var(--card)", border: "1px solid var(--border)", fontFamily: "var(--font-serif)", fontSize: Math.round(size * 0.42), color: "var(--w2)", lineHeight: 1 }}>{initialsOf(name)}</span>;
+}
+
+function useNarrow() {
+  const [n, setN] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia("(max-width:640px)");
+    const f = () => setN(m.matches);
+    f(); m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, []);
+  return n;
+}
+
+// Board: per column, cards per page (laptop / phone) — nobody scrolls, columns flip.
+const PER_LAPTOP = 6, PER_PHONE = 5;
+
+/** which journey column she sits in = the phase of her current (first open) step; all done = Im Dienst */
+function phaseOf(r: Row): JourneyPhase {
+  const k = r.status.current?.key;
+  if (!k) return "work";
+  return resolvePreset(k)?.phase ?? "selection";
+}
+
+/** what a card says: its status colour, one bold word (only when something is wrong / due), and the step */
+function cardLook(r: Row, track: "journey" | "b2", lang: string, T: Tr): { st: KitStatus; word: string; sub: string } {
+  if (track === "b2") {
+    const s = normalizeB2Stage(r.b2Stage);
+    const sub = r.b2ExamDate ? `${T("Exam", "Prüfung", "Examen")} ${isoToDe(r.b2ExamDate)}` : (r.facts?.specialty ? specialtyLabel(r.facts.specialty, lang) : "");
+    return { st: b2Kit(s), word: "", sub };
+  }
+  const h = r.status.health;
+  const d = r.status.current?.daysToDue ?? null;
+  const word = h === "blocked" ? T("Blocked", "Blockiert", "Bloqué")
+    : h === "overdue" ? (d != null && d < 0 ? T(`${-d}d overdue`, `${-d} T. überfällig`, `${-d} j de retard`) : T("Overdue", "Überfällig", "En retard"))
+    : h === "due_soon" ? (d != null && d >= 0 ? (d === 0 ? T("due today", "heute fällig", "dû aujourd’hui") : T(`due in ${d}d`, `in ${d} T. fällig`, `dans ${d} j`)) : T("Due soon", "Bald fällig", "Bientôt"))
+    : "";
+  const sub = h === "done" ? T("Part of the team", "Fest im Team", "Dans l'équipe") : presetLabel(r.status.current?.key, lang);
+  return { st: HEALTH_KIT[h], word, sub };
+}
+
+function CardBody({ r, track, lang, T }: { r: Row; track: "journey" | "b2"; lang: string; T: Tr }) {
+  const { word, sub } = cardLook(r, track, lang, T);
+  return (
+    <>
+      <Face name={r.name} photo={r.photo} />
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--w)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+          {/* weekly check-in due (no update in a week): one tiny gold bell */}
+          {r.needsUpdate && <Bell size={12} strokeWidth={2.2} aria-label={T("Check in this week", "Diese Woche nachfragen", "À relancer cette semaine")} style={{ color: "var(--gold)", flex: "none" }} />}
+          {/* failed B2 once (retaking): a small red dot */}
+          {track === "b2" && r.b2Failed && <span title={T("failed before (retaking)", "vorher nicht bestanden", "échoué avant")} style={{ display: "inline-flex", flex: "none" }}><Dot st="rejected" size={7} /></span>}
+        </span>
+        {(word || sub) && (
+          <span style={{ display: "block", fontSize: 12.5, color: "var(--w3)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {word && <b style={{ fontWeight: 600, color: "var(--w)" }}>{word}</b>}{word && sub ? " · " : ""}{sub}
+          </span>
+        )}
+      </span>
+    </>
+  );
+}
+
+const cardStyle = (st: KitStatus): CSSProperties => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", minWidth: 0, minHeight: 56, textAlign: "left", padding: "9px 12px 9px 10px", borderRadius: 12, background: st === "missing" ? "var(--card)" : STATUS_TINT[st], border: st === "missing" ? "1px solid var(--border)" : "1px solid transparent", fontFamily: "inherit", color: "var(--w)", cursor: "pointer" });
+
+/** one candidate card — tap = the peek; on the B2 board (laptop) it can be dragged to another stage */
+function BoardCard({ r, track, lang, T, onPick, canDrag }: { r: Row; track: "journey" | "b2"; lang: string; T: Tr; onPick: (uid: string) => void; canDrag: boolean }) {
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id: r.userId, disabled: !canDrag });
+  const { st } = cardLook(r, track, lang, T);
+  return (
+    <button ref={setNodeRef} type="button" className="bvp-card" {...(canDrag ? { ...listeners, ...attributes } : {})} onClick={() => onPick(r.userId)} title={r.name}
+      style={{ ...cardStyle(st), opacity: isDragging ? 0.35 : 1, cursor: canDrag ? (isDragging ? "grabbing" : "grab") : "pointer", touchAction: canDrag ? "none" : undefined }}>
+      <CardBody r={r} track={track} lang={lang} T={T} />
+    </button>
+  );
+}
+
+type BoardCol = { key: string; title: string; dot?: KitStatus; items: Row[] };
+
+/** one column: serif title + count over a hairline, the cards, ‹ 1 / 2 › when it is long. Phone: ‹ title › flips columns. */
+function BoardColumn({ col, track, lang, T, onPick, canDrag, flip }: {
+  col: BoardCol; track: "journey" | "b2"; lang: string; T: Tr; onPick: (uid: string) => void; canDrag: boolean;
+  flip?: { prev: () => void; next: () => void; first: boolean; last: boolean };
+}) {
+  const { slice, page, pages, setPage } = usePaged(col.items, PER_LAPTOP, PER_PHONE);
+  const { setNodeRef, isOver } = useDroppable({ id: col.key, disabled: !canDrag });
+  const b2 = track === "b2";
+  return (
+    <section ref={setNodeRef} style={{ minWidth: 0, borderRadius: 14, outline: `1.5px dashed ${isOver ? "var(--w3)" : "transparent"}`, outlineOffset: 5, transition: "outline-color .15s" }}>
+      <header style={{ display: "flex", alignItems: flip ? "center" : "flex-start", gap: 8, paddingBottom: 10, marginBottom: 10, borderBottom: "1px solid var(--border)", minHeight: b2 && !flip ? 54 : undefined }}>
+        {flip && <button type="button" aria-label="‹" disabled={flip.first} onClick={flip.prev} style={ROUND(flip.first)}><ChevronLeft size={16} /></button>}
+        <span title={col.title} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", justifyContent: flip ? "center" : "flex-start", gap: 8 }}>
+          {col.dot && <span style={{ display: "inline-flex", alignSelf: "center", flex: "none" }}><Dot st={col.dot} size={8} /></span>}
+          <span style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: b2 ? 17 : 20, lineHeight: 1.2, color: "var(--w)", minWidth: 0, ...(flip ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>{col.title}</span>
+          <span style={{ fontSize: 12.5, color: "var(--w3)", fontVariantNumeric: "tabular-nums", flex: "none", marginLeft: flip ? 0 : "auto" }}>{col.items.length}</span>
+        </span>
+        {flip && <button type="button" aria-label="›" disabled={flip.last} onClick={flip.next} style={ROUND(flip.last)}><ChevronRight size={16} /></button>}
+      </header>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: canDrag ? 120 : undefined }}>
+        {slice.map((r) => <BoardCard key={r.userId} r={r} track={track} lang={lang} T={T} onPick={onPick} canDrag={canDrag} />)}
+        {col.items.length === 0 && <span style={{ fontSize: 13, color: "var(--w3)", padding: "6px 4px" }}>—</span>}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </section>
+  );
+}
+
+/** the board — Reise: four phase columns; B2: the five stages (drag a card to another stage on a laptop) */
+function PipelineBoard({ rows, track, lang, T, onPick, onMoveStage }: { rows: Row[]; track: "journey" | "b2"; lang: string; T: Tr; onPick: (uid: string) => void; onMoveStage: (uid: string, stage: string) => void }) {
+  const narrow = useNarrow();
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const [dragId, setDragId] = useState<string | null>(null);
+  const L = lang as "en" | "fr" | "de";
+  const cols: BoardCol[] = useMemo(() => (track === "b2"
+    ? B2_STAGES.map((s) => ({ key: s.key, title: b2StageLabel(s.key, lang), dot: b2Kit(s.key), items: rows.filter((r) => normalizeB2Stage(r.b2Stage) === s.key) }))
+    : JOURNEY_PHASES.map((p) => ({ key: p.key, title: p.label[L] ?? p.label.en, items: rows.filter((r) => phaseOf(r) === p.key) }))), [rows, track, lang, L]);
+  const [col, setCol] = useState<number | null>(null);
+  const firstFull = Math.max(0, cols.findIndex((c) => c.items.length > 0));
+  const ci = Math.min(col ?? firstFull, cols.length - 1);
+  const canDrag = track === "b2" && !narrow;
+  // Drop a card on another B2 stage → move her there (no-op on the same stage).
+  const onDragEnd = (e: DragEndEvent) => {
+    setDragId(null);
+    const overId = e.over?.id;
+    if (!overId) return;
+    const uid = String(e.active.id);
+    const row = rows.find((x) => x.userId === uid);
+    if (!row) return;
+    if (normalizeB2Stage(row.b2Stage) === String(overId)) return;
+    onMoveStage(uid, String(overId));
+  };
+  const dragRow = dragId ? rows.find((x) => x.userId === dragId) : undefined;
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter}
+      onDragStart={(e) => setDragId(String(e.active.id))} onDragEnd={onDragEnd} onDragCancel={() => setDragId(null)}>
+      {narrow ? (
+        <BoardColumn key={cols[ci].key} col={cols[ci]} track={track} lang={lang} T={T} onPick={onPick} canDrag={false}
+          flip={{ prev: () => setCol(Math.max(0, ci - 1)), next: () => setCol(Math.min(cols.length - 1, ci + 1)), first: ci === 0, last: ci === cols.length - 1 }} />
+      ) : (
+        <div className="bvp-board" style={{ display: "grid", gridTemplateColumns: `repeat(${cols.length}, minmax(0, 1fr))`, gap: track === "b2" ? 14 : 20, alignItems: "start" }}>
+          {cols.map((c) => <BoardColumn key={c.key} col={c} track={track} lang={lang} T={T} onPick={onPick} canDrag={canDrag} />)}
+        </div>
+      )}
+      <DragOverlay dropAnimation={null}>
+        {dragRow ? (
+          <div style={{ ...cardStyle(cardLook(dragRow, track, lang, T).st), boxShadow: "0 18px 40px -18px rgba(21,19,15,.35)", transform: "rotate(-2deg)", cursor: "grabbing", background: "var(--card)" }}>
+            <CardBody r={dragRow} track={track} lang={lang} T={T} />
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+/** "Mehr" in the peek = the second face: one section at a time (Status · Papiere · Profil · Nachricht), so the popup never scrolls */
+function PeekMore({ T, onBack, tabs }: { T: Tr; onBack: () => void; tabs: [string, string, ReactNode][] }) {
+  const [tab, setTab] = useState(tabs[0][0]);
+  const cur = tabs.find(([k]) => k === tab) ?? tabs[0];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px 14px", flexWrap: "wrap" }}>
+        <BackLink label={T("Back to the step", "Zurück zum Schritt", "Retour à l’étape")} onClick={onBack} />
+        <Seg<string> value={cur[0]} onChange={setTab} options={tabs.map(([k, l]) => [k, l] as [string, ReactNode])} />
+      </div>
+      {cur[2]}
+    </div>
+  );
+}
+
+/** her papers in the peek — tinted rows (green done · orange waiting · red redo), ‹ › when long; tap = review */
+function PeekDocList({ docs, lang, onOpen }: { docs: PeekDoc[]; lang: string; onOpen: (d: PeekDoc) => void }) {
+  const { slice, page, pages, setPage } = usePaged(docs, 6, 5);
+  return (
+    <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slice.map((d) => (
+          <button key={d.id} type="button" onClick={() => onOpen(d)} style={tintRow(docKit(d.status))}>
+            <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{translateDocLabel(d.file_type, lang as "en" | "fr" | "de")}</span>
+            <FileText size={13} style={{ color: "var(--w3)", flex: "none" }} />
+          </button>
+        ))}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
     </div>
   );
 }
@@ -510,86 +735,124 @@ export default function AdminPipelinePage() {
 
   if (loading) return <PageLoader />;
 
-  const initials =(n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
+  const boardRows = track !== "journey" ? searchOnlyRows : shown;
+  const L3 = lang as "en" | "fr" | "de";
+  const healthCount = (h: Health) => rows.filter((r) => r.status.health === h).length;
+  const failedCount = rows.filter((r) => r.b2Failed).length;
+  const count =(st: KitStatus, n: number, label: string, cls?: string) => (
+    <span key={label} className={cls} style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--w3)", whiteSpace: "nowrap" }}>
+      <Dot st={st} /><b style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 21, lineHeight: 1, color: "var(--w)" }}>{n}</b>{label}
+    </span>
+  );
 
   return (
-    <main id="bv-main" className="mx-auto px-4 sm:px-5 py-5 sm:py-7 bv-page-bottom" style={{ maxWidth: 1080 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-press inline-flex items-center gap-1.5 mb-3 text-[12px]" style={{ color: "var(--w3)" }}>
-        <ArrowLeft size={14} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
-      </button>
+    <main id="bv-main" className="mx-auto px-4 sm:px-5 bv-page-bottom" style={{ maxWidth: 1180, paddingTop: 72, paddingBottom: 28 }}>
+      <KitStyle />
+      {/* page-only looks: the controls row stacks on a phone, faces leave narrow board columns */}
+      <style>{".bvp-ctl{display:flex;align-items:center;gap:12px 20px;flex-wrap:wrap;margin-bottom:18px}.bvp-search{position:relative;flex:0 1 300px;min-width:220px;margin-left:auto}"
+        + "@media (max-width:640px){.bvp-search{order:-1;flex:1 1 100%;margin-left:0}.bvp-ctl{gap:10px 14px;margin-bottom:14px}.bvp-lbl{display:none!important}.bvp-card{padding-top:7px!important;padding-bottom:7px!important}}"
+        + "@media (min-width:641px) and (max-width:1023px){.bvp-board .bvp-face{display:none!important}}"}</style>
+      <PageHead back={{ label: T("Back", "Zurück", "Retour"), onClick: () => router.push("/portal/admin") }}
+        title={T("Pipeline", "Pipeline", "Pipeline")}
+        sub={T(`${rows.length} candidates — tap one to open`, `${rows.length} Pflegekräfte — antippen zum Öffnen`, `${rows.length} candidats — touchez pour ouvrir`)}
+        actions={<Seg<"journey" | "b2"> value={track} onChange={setTrack} options={[["journey", T("Journey", "Reise", "Parcours")], ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")]]} />} />
 
-      {/* Compact top bar — title · stats · track + view, all tight. */}
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4, color: "var(--w)" }}>{T("Pipeline", "Pipeline", "Pipeline")}</h1>
-        <div className="inline-flex items-center gap-1.5">
-          {([
-            ["journey", T("Journey", "Reise", "Parcours")],
-            ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
-          ] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setTrack(v)}
-              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors"
-              style={track === v ? { background: "var(--gold)", color: "#131312" } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-              {label}
-            </button>
-          ))}
+      {/* where everyone stands (quiet coloured numbers) + search */}
+      <div className="bvp-ctl">
+        {track === "journey" ? (
+          <>
+            {count("rejected", healthCount("blocked"), HEALTH_STYLE.blocked.label[L3])}
+            {count("rejected", healthCount("overdue"), HEALTH_STYLE.overdue.label[L3])}
+            {count("pending", healthCount("due_soon"), HEALTH_STYLE.due_soon.label[L3])}
+            {/* "on track" is the calm default — on a phone the three that need you are enough (one line) */}
+            {count("approved", healthCount("on_track"), HEALTH_STYLE.on_track.label[L3], "bvp-lbl")}
+          </>
+        ) : (
+          <>
+            {count("rejected", failedCount, T("failed before (retaking)", "vorher nicht bestanden", "échoué avant"))}
+            <span className="bvp-lbl" style={{ fontSize: 12.5, color: "var(--w3)" }}>{T("Drag a card to change the stage.", "Karte ziehen = Stufe ändern.", "Glissez une carte pour changer d’étape.")}</span>
+          </>
+        )}
+        <div className="bvp-search">
+          <Search size={14} style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", pointerEvents: "none" }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} className="bvk-input" style={{ paddingLeft: 36 }}
+            placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
         </div>
       </div>
 
-      {/* Search — slim. */}
-      <div className="relative mb-2.5">
-        <Search size={14} className="absolute" style={{ left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
-        <input value={q} onChange={(e) => setQ(e.target.value)} className="bv-input" style={{ paddingLeft: 34, height: 38, fontSize: 13 }}
-          placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
-      </div>
-
-      {/* The map is the single view — new features live on it (user directive). */}
-      <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
-        onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
-        onMoveStage={moveStage} />
+      {/* The board is the single view — new features live on it (user directive). */}
+      {boardRows.length === 0 ? (
+        <Card><Empty>{q.trim() ? T("No match.", "Kein Treffer.", "Aucun résultat.") : T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</Empty></Card>
+      ) : (
+        <PipelineBoard key={track} rows={boardRows} track={track} lang={lang} T={T}
+          onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
+          onMoveStage={moveStage} />
+      )}
+      {SHOW_RAIL && (
+        <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
+          onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
+          onMoveStage={moveStage} />
+      )}
       {/* Candidate peek — quick cross-track summary; the dossier is one click away. */}
       <Modal
         open={!!peek}
         onClose={() => setPeek(null)}
         size="md"
-        title={peek?.name ?? ""}
+        title={peek ? (
+          // her face + name (the popup's own serif title), and where she stands in quiet words (status = the kit dot) —
+          // in the head, so the body never scrolls
+          <span style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <Face name={peek.name} photo={peek.photo} size={40} />
+            <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{peek.name}</span>
+              <span style={{ display: "flex", flexWrap: "wrap", gap: "2px 14px", marginTop: 3, fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 400, lineHeight: 1.4, letterSpacing: 0, color: "var(--w2)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <Dot st={HEALTH_KIT[peek.status.health]} size={8} />{HEALTH_STYLE[peek.status.health].label[L3]}<span style={{ color: "var(--w3)" }}>· {Math.round(peek.status.progress * 100)}%</span>
+                </span>
+                {peek.sellable?.sellable && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--w)" }}><Dot st="approved" size={7} />{T("Ready to sell", "Verkaufsbereit", "Prêt à vendre")}</span>
+                )}
+                {(peek.pipeline?.interview1 === "failed" || peek.pipeline?.interview2 === "failed") && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--w)" }}><Dot st="rejected" size={7} />{T("Interview not passed", "Interview nicht bestanden", "Entretien non réussi")}</span>
+                )}
+              </span>
+            </span>
+          </span>
+        ) : ""}
         footer={peek ? (
           <>
-            <GhostButton onClick={() => setPeek(null)}>{T("Close", "Schließen", "Fermer")}</GhostButton>
-            <button onClick={() => setSheetOpen(true)}
-              className="bv-press text-[12.5px] font-semibold px-3.5 py-2 rounded-lg inline-flex items-center gap-1.5"
-              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-              <FileText size={14} /> {T("Employer sheet", "Arbeitgeber-Blatt", "Fiche employeur")}
-            </button>
-            <GoldButton onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }}>
-              {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
-            </GoldButton>
+            <Btn kind="quiet" size="sm" onClick={() => setPeek(null)}>{T("Close", "Schließen", "Fermer")}</Btn>
+            <Btn kind="ghost" size="sm" onClick={() => setSheetOpen(true)} aria-label={T("Employer sheet", "Arbeitgeber-Blatt", "Fiche employeur")}>
+              <FileText size={14} /> <span className="bvp-lbl">{T("Employer sheet", "Arbeitgeber-Blatt", "Fiche employeur")}</span>
+            </Btn>
+            <Btn kind="ghost" size="sm" onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }}>
+              {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.2} />
+            </Btn>
           </>
         ) : null}>
         {peek && (() => {
           const b2s = normalizeB2Stage(peek.b2Stage);
           const anerk = normalizeAnerkennungStage(peek.anerkennungStage);
           const imp = (peek.impfungStage ?? "not_required") as ImpfungStage;
-          const impDef = imp !== "not_required" && imp !== "not_started" ? IMPFUNG_STAGE_BY_KEY[imp] : undefined;
+          const impKit: KitStatus = imp === "not_required" || imp === "not_started" ? "missing" : imp === "accepted" ? "approved" : "pending";
           const pct = Math.round(peek.status.progress * 100);
-          const hs = HEALTH_STYLE[peek.status.health];
-          const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
-          const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
-          const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
+          const hk = HEALTH_KIT[peek.status.health];
+          // a hairline box on the paper popup (no fills, no shadows)
+          const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", padding: 16 };
+          const lbl: CSSProperties = LBL;
           const reportLabel = (rep: SelfReport) => {
-            if (rep.kind === "b2") return rep.outcome === "passed" ? T("Passed B2 🎉", "B2 bestanden 🎉", "B2 réussi 🎉") : T("Didn't pass B2 — retaking", "B2 nicht bestanden", "B2 non réussi");
-            if (rep.kind === "interview") return rep.outcome === "passed" ? T("Passed an interview ✅", "Gespräch bestanden ✅", "Entretien réussi ✅")
-              : rep.outcome === "scheduled" ? T("Interview scheduled 📅", "Gespräch geplant 📅", "Entretien planifié 📅")
+            if (rep.kind === "b2") return rep.outcome === "passed" ? T("Passed B2", "B2 bestanden", "B2 réussi") : T("Didn't pass B2 — retaking", "B2 nicht bestanden", "B2 non réussi");
+            if (rep.kind === "interview") return rep.outcome === "passed" ? T("Passed an interview", "Gespräch bestanden", "Entretien réussi")
+              : rep.outcome === "scheduled" ? T("Interview scheduled", "Gespräch geplant", "Entretien planifié")
               : T("Interview didn't pass", "Gespräch nicht bestanden", "Entretien non réussi");
             return rep.note || T("Update", "Update", "Mise à jour");
           };
+          const reportKit = (rep: SelfReport): KitStatus => (rep.outcome === "passed" ? "approved" : rep.outcome === "scheduled" ? "pending" : rep.kind === "b2" || rep.kind === "interview" ? "rejected" : "missing");
           const passFail = (value: string, onChange: (v: string) => void) => (
-            <div className="flex gap-2">
-              {([["passed", T("Passed ✅", "Bestanden ✅", "Réussi ✅"), "good"], ["failed", T("Didn't pass ✗", "Nicht bestanden ✗", "Échoué ✗"), "bad"]] as const).map(([v, label, tone]) => {
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {([["passed", T("Passed", "Bestanden", "Réussi"), "approved"], ["failed", T("Didn't pass", "Nicht bestanden", "Échoué"), "rejected"]] as const).map(([v, label, kst]) => {
                 const active = value === v;
-                const st: CSSProperties = active
-                  ? (tone === "good" ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" })
-                  : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" };
-                return <button key={v} onClick={() => onChange(active ? "pending" : v)} className="bv-press text-[12px] font-semibold px-2.5 py-1.5 rounded-lg" style={st}>{label}</button>;
+                return <button key={v} type="button" aria-pressed={active} onClick={() => onChange(active ? "pending" : v)} style={pill(active ? kst : null)}>{active && <Dot st={kst} size={7} />}{label}</button>;
               })}
             </div>
           );
@@ -648,18 +911,22 @@ export default function AdminPipelinePage() {
               );
             }
           };
+          // "Erledigt" = a green tinted word; the answer itself = the one black pill of the popup
+          const doneMark = (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, background: STATUS_TINT.approved, fontSize: 14, fontWeight: 600, color: "var(--w)" }}>
+              <Dot st="approved" /> {T("Done", "Erledigt", "Fait")}
+            </span>
+          );
           const confirmControls = (done: boolean, on: Record<string, unknown>, onOpt: Partial<PipelineFacts>, off: Record<string, unknown>, offOpt: Partial<PipelineFacts>, yes?: string) => (
-            <div className="flex items-center gap-2 flex-wrap">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               {!done ? (
-                <button onClick={() => void saveStep(on, onOpt)} disabled={savingStep} className="bv-press inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl disabled:opacity-60" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                  <Check size={15} strokeWidth={2.6} /> {yes ?? T("Yes, done", "Ja, erledigt", "Oui, fait")}
-                </button>
+                <Btn kind="primary" onClick={() => void saveStep(on, onOpt)} disabled={savingStep}>
+                  <Check size={15} strokeWidth={2.4} /> {yes ?? T("Yes, done", "Ja, erledigt", "Oui, fait")}
+                </Btn>
               ) : (
                 <>
-                  <span className="inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                    <CheckCircle2 size={15} strokeWidth={2.4} /> {T("Done ✓", "Erledigt ✓", "Fait ✓")}
-                  </span>
-                  <button onClick={() => void saveStep(off, offOpt)} disabled={savingStep} className="bv-press text-[12px] font-medium px-3 py-2" style={{ color: "var(--w3)" }}>{T("Undo", "Rückgängig", "Annuler")}</button>
+                  {doneMark}
+                  <Btn kind="quiet" size="sm" onClick={() => void saveStep(off, offOpt)} disabled={savingStep}>{T("Undo", "Rückgängig", "Annuler")}</Btn>
                 </>
               )}
             </div>
@@ -671,101 +938,70 @@ export default function AdminPipelinePage() {
             const done = !!peek.status.doneKeys?.includes(k);
             const auto = !!peek.status.autoKeys?.includes(k);
             return (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 {!done ? (
-                  <button onClick={() => void saveJourneyStep(k, true)} disabled={savingStep} className="bv-press inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl disabled:opacity-60" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                    <Check size={15} strokeWidth={2.6} /> {T("Yes, done", "Ja, erledigt", "Oui, fait")}
-                  </button>
+                  <Btn kind="primary" onClick={() => void saveJourneyStep(k, true)} disabled={savingStep}>
+                    <Check size={15} strokeWidth={2.4} /> {T("Yes, done", "Ja, erledigt", "Oui, fait")}
+                  </Btn>
                 ) : (
                   <>
-                    <span className="inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                      <CheckCircle2 size={15} strokeWidth={2.4} /> {T("Done ✓", "Erledigt ✓", "Fait ✓")}
-                    </span>
-                    {!auto && <button onClick={() => void saveJourneyStep(k, false)} disabled={savingStep} className="bv-press text-[12px] font-medium px-3 py-2" style={{ color: "var(--w3)" }}>{T("Undo", "Rückgängig", "Annuler")}</button>}
+                    {doneMark}
+                    {!auto && <Btn kind="quiet" size="sm" onClick={() => void saveJourneyStep(k, false)} disabled={savingStep}>{T("Undo", "Rückgängig", "Annuler")}</Btn>}
                   </>
                 )}
               </div>
             );
           };
           const saveAndNext = (onSave: () => void, disabled: boolean) => (
-            <button onClick={onSave} disabled={savingStep || disabled} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl disabled:opacity-50 mt-1" style={{ background: "var(--gold)", color: "#131312" }}>
-              {savingStep ? T("Saving…", "Speichern…", "Enregistrement…") : <>{T("Save & next", "Speichern & weiter", "Enregistrer & suivant")} <ArrowRight size={14} strokeWidth={2.5} /></>}
-            </button>
+            <Btn kind="primary" onClick={onSave} disabled={savingStep || disabled} style={{ alignSelf: "flex-start", marginTop: 4 }}>
+              {savingStep ? T("Saving…", "Speichern…", "Enregistrement…") : <>{T("Save & next", "Speichern & weiter", "Enregistrer & suivant")} <ArrowRight size={14} strokeWidth={2.2} /></>}
+            </Btn>
           );
           // Compact, tappable list of the candidate's documents — each opens the
           // review popup (approve / reject / download). Used on the docs step AND
           // in "More" so any paper (passport included) is reviewable without
           // leaving her. The review modal handles passports safely (LAW #39).
-          const docDot = (s: string) => s === "approved" ? "var(--success)" : s === "rejected" ? "var(--danger)" : s === "pending" ? "#f59e0b" : "var(--w3)";
-          const docList = (docs: PeekDoc[]) => (
-            <div className="flex flex-col gap-1.5">
-              {docs.map((d) => (
-                <button key={d.id} onClick={() => setDocReview(d)} className="bv-press w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 999, background: docDot(d.status), flexShrink: 0 }} />
-                  <span className="flex-1 truncate text-[12.5px] font-medium" style={{ color: "var(--w2)" }}>{translateDocLabel(d.file_type, lang as "en" | "fr" | "de")}</span>
-                  <FileText size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                </button>
-              ))}
-            </div>
-          );
+          // Tinted rows (green done · orange waiting · red redo), ‹ › instead of scrolling.
+          const docList = (docs: PeekDoc[]) => <PeekDocList docs={docs} lang={lang} onOpen={(d) => setDocReview(d)} />;
           return (
-            <div className="p-5 flex flex-col gap-3">
-              {/* Identity */}
-              <div className="flex items-center gap-3.5 pb-3 mb-0.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                {peek.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={peek.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 60, height: 60, border: `2.5px solid ${hs.dot}`, boxShadow: `0 0 0 4px color-mix(in srgb, ${hs.dot} 14%, transparent)` }} />
-                ) : (
-                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[20px] font-bold" style={{ width: 60, height: 60, background: "var(--gdim)", color: "var(--gold)", border: `2.5px solid ${hs.dot}`, boxShadow: `0 0 0 4px color-mix(in srgb, ${hs.dot} 14%, transparent)` }}>{initials(peek.name)}</span>
-                )}
-                <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                  {peek.sellable?.sellable && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
-                      <BadgeCheck size={10} strokeWidth={2.5} /> {T("READY TO SELL", "VERKAUFSBEREIT", "PRÊT À VENDRE")}
-                    </span>
-                  )}
-                  {(peek.pipeline?.interview1 === "failed" || peek.pipeline?.interview2 === "failed") && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                      ⚠ {T("INTERVIEW NOT PASSED", "INTERVIEW NICHT BESTANDEN", "ENTRETIEN NON RÉUSSI")}
-                    </span>
-                  )}
-                </div>
-              </div>
+            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Two faces, nothing scrolls: the guided step (default) — or "Mehr", one section at a time. */}
+              {!moreOpen ? (<>
+              {/* Identity (face · status · Verkaufsbereit · Interview nicht bestanden) sits in the popup head above. */}
 
               {/* THE one thing — a single guided question for exactly where they are. */}
               {showDone ? (
-                <div style={{ ...card, textAlign: "center", padding: 22 }}>
-                  <div style={{ fontSize: 30, marginBottom: 4 }}>🎉</div>
-                  <div className="text-[15px] font-bold" style={{ color: "var(--w)" }}>{T("Probation passed, part of the team", "Probezeit bestanden, fest im Team", "Période d'essai réussie, dans l'équipe")}</div>
-                  <div className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{T("Every milestone complete.", "Alle Etappen abgeschlossen.", "Toutes les étapes terminées.")}</div>
+                <div style={{ textAlign: "center", padding: "20px 16px", borderRadius: 16, background: STATUS_TINT.approved }}>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: 22, lineHeight: 1.2, color: "var(--w)" }}>{T("Probation passed, part of the team", "Probezeit bestanden, fest im Team", "Période d'essai réussie, dans l'équipe")}</div>
+                  <div style={{ fontSize: 12.5, marginTop: 4, color: "var(--w3)" }}>{T("Every milestone complete.", "Alle Etappen abgeschlossen.", "Toutes les étapes terminées.")}</div>
                 </div>
               ) : (
-                <div style={{ ...card, padding: 18 }}>
-                  <div className="text-[16.5px] font-bold leading-snug mb-3.5" style={{ color: "var(--w)", letterSpacing: -0.2 }}>{stepQuestion(stepKey)}</div>
+                <div style={{ ...card, padding: "14px 16px 16px" }}>
+                  <div style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.2, letterSpacing: "-.01em", color: "var(--w)", marginBottom: 10 }}>{stepQuestion(stepKey)}</div>
                   {(() => {
                     switch (stepKey) {
                       case "cv_finalized":
                         return (
-                          <div className="flex flex-col gap-2.5">
+                          <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
                             {peekDocs === null ? (
-                              <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>{T("Loading their documents…", "Dokumente werden geladen…", "Chargement des documents…")}</p>
+                              <p style={HINT}>{T("Loading their documents…", "Dokumente werden geladen…", "Chargement des documents…")}</p>
                             ) : cvDoc ? (
                               <>
-                                <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>
+                                <p style={{ ...HINT, color: "var(--w2)" }}>
                                   {cvDoc.status === "rejected"
                                     ? T("Their German CV was rejected — open it to review again.", "Lebenslauf wurde abgelehnt — erneut prüfen.", "Leur CV a été refusé — rouvrez-le pour revoir.")
                                     : T("Their German CV is in — review it and approve or reject, right here.", "Lebenslauf liegt vor — hier prüfen und genehmigen oder ablehnen.", "Leur CV est là — vérifiez et approuvez ou refusez, ici même.")}
                                 </p>
-                                <button onClick={() => setDocReview(cvDoc)} className="bv-press inline-flex items-center gap-1.5 self-start text-[13px] font-bold px-4 py-2.5 rounded-xl" style={{ background: "var(--gold)", color: "#131312" }}>
+                                <Btn kind="primary" onClick={() => setDocReview(cvDoc)}>
                                   <FileText size={14} /> {T("Review CV — approve / reject", "Lebenslauf prüfen", "Vérifier le CV")}
-                                </button>
+                                </Btn>
                               </>
                             ) : (
                               <>
-                                <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>{T("No German CV uploaded yet — build or upload one in their profile.", "Noch kein Lebenslauf — im Profil erstellen oder hochladen.", "Aucun CV allemand encore — créez-en un dans leur profil.")}</p>
-                                <button onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                  {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
-                                </button>
+                                <p style={{ ...HINT, color: "var(--w2)" }}>{T("No German CV uploaded yet — build or upload one in their profile.", "Noch kein Lebenslauf — im Profil erstellen oder hochladen.", "Aucun CV allemand encore — créez-en un dans leur profil.")}</p>
+                                <Btn kind="ghost" size="sm" onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }}>
+                                  {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.2} />
+                                </Btn>
                               </>
                             )}
                           </div>
@@ -787,37 +1023,44 @@ export default function AdminPipelinePage() {
                         const setApptConf = (c: boolean) => setPipeDraft((d) => (n === 1 ? { ...d, interview1DateConfirmed: c } : { ...d, interview2DateConfirmed: c }));
                         const setResIso   = (iso: string)=> setPipeDraft((d) => (n === 1 ? { ...d, interview1ResultDate: iso } : { ...d, interview2ResultDate: iso }));
                         const setResConf  = (c: boolean) => setPipeDraft((d) => (n === 1 ? { ...d, interview1ResultDateConfirmed: c } : { ...d, interview2ResultDateConfirmed: c }));
-                        const stageLbl: CSSProperties = { fontSize: 11, fontWeight: 700, color: "var(--w2)", marginBottom: 6, display: "block" };
+                        const stageLbl: CSSProperties = LBL;
                         return (
-                          <div className="flex flex-col gap-3.5">
+                          <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
                             {/* Portal-gated interview link — the candidate can ONLY reach the
                                 Teams/Zoom room through their own dashboard, so an "open" here is
                                 the closest honest "they showed up" signal we can capture. */}
-                            <div className="rounded-xl p-3 flex flex-col gap-2" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                              <label style={lbl} className="flex items-center gap-1.5"><Link2 size={13} strokeWidth={2.2} /> {T("Interview link (Teams / Zoom)", "Interview-Link (Teams / Zoom)", "Lien de l'entretien (Teams / Zoom)")}</label>
-                              <div className="flex items-center gap-2">
-                                <input className="bv-input" type="url" inputMode="url" value={pipeDraft.interviewLink}
-                                  onChange={(e) => setPipeDraft((d) => ({ ...d, interviewLink: e.target.value }))}
-                                  placeholder="https://…" style={{ fontSize: 12.5, flex: 1 }} />
+                            <div>
+                              {/* one line: the link (its name sits in the field), whether she opened it, save when changed */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px 10px", flexWrap: "wrap" }}>
+                                <span style={{ position: "relative", flex: "1 1 220px", minWidth: 0 }}>
+                                  <Link2 size={14} strokeWidth={2} aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", pointerEvents: "none" }} />
+                                  <input className="bvk-input" type="url" inputMode="url" value={pipeDraft.interviewLink}
+                                    onChange={(e) => setPipeDraft((d) => ({ ...d, interviewLink: e.target.value }))}
+                                    aria-label={T("Interview link (Teams / Zoom)", "Interview-Link (Teams / Zoom)", "Lien de l'entretien (Teams / Zoom)")}
+                                    placeholder={T("Interview link (Teams / Zoom) — https://…", "Interview-Link (Teams / Zoom) — https://…", "Lien de l'entretien (Teams / Zoom) — https://…")} style={{ paddingLeft: 34 }} />
+                                </span>
+                                {pf?.interviewLink ? (
+                                  clicks > 0 ? (
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--w)", whiteSpace: "nowrap" }}>
+                                      <Dot st="approved" size={7} />
+                                      {T(`Opened ${clicks}×`, `${clicks}× geöffnet`, `Ouvert ${clicks}×`)}
+                                      {pf.interviewLinkLastClickedAt ? <span style={{ color: "var(--w3)" }}>{` · ${T("last", "zuletzt", "dernier")} ${relativeTimeShort(pf.interviewLinkLastClickedAt, lang)}`}</span> : null}
+                                    </span>
+                                  ) : (
+                                    <span title={T("Not opened yet — they reach it only from their dashboard.", "Noch nicht geöffnet — erreichbar nur über ihr Dashboard.", "Pas encore ouvert — accessible uniquement depuis leur tableau de bord.")}
+                                      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--w3)", whiteSpace: "nowrap" }}>
+                                      <Dot st="missing" size={7} />{T("Not opened yet", "Noch nicht geöffnet", "Pas encore ouvert")}
+                                    </span>
+                                  )
+                                ) : null}
                                 {linkChanged && (
-                                  <button onClick={() => void saveStep({ interview_link: pipeDraft.interviewLink.trim() }, { interviewLink: pipeDraft.interviewLink.trim() || null })}
-                                    className="bv-press text-[12px] font-bold px-3 py-2 rounded-lg whitespace-nowrap" style={{ background: "var(--gold)", color: "#131312" }}>
+                                  <Btn kind="ghost" onClick={() => void saveStep({ interview_link: pipeDraft.interviewLink.trim() }, { interviewLink: pipeDraft.interviewLink.trim() || null })}>
                                     {T("Save link", "Speichern", "Enregistrer")}
-                                  </button>
+                                  </Btn>
                                 )}
                               </div>
-                              {pf?.interviewLink ? (
-                                clicks > 0 ? (
-                                  <p className="text-[11.5px] flex items-center gap-1.5 font-semibold" style={{ color: "var(--success)" }}>
-                                    <MousePointerClick size={13} strokeWidth={2.2} />
-                                    {T(`Opened ${clicks}×`, `${clicks}× geöffnet`, `Ouvert ${clicks}×`)}
-                                    {pf.interviewLinkLastClickedAt ? <span style={{ color: "var(--w3)", fontWeight: 400 }}>{` · ${T("last", "zuletzt", "dernier")} ${relativeTimeShort(pf.interviewLinkLastClickedAt, lang)}`}</span> : null}
-                                  </p>
-                                ) : (
-                                  <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Not opened yet — they reach it only from their dashboard.", "Noch nicht geöffnet — erreichbar nur über ihr Dashboard.", "Pas encore ouvert — accessible uniquement depuis leur tableau de bord.")}</p>
-                                )
-                              ) : (
-                                <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Add the link so they join through the portal — then you'll see when they open it.", "Link hinzufügen, damit sie über das Portal beitreten — dann sehen Sie, wann sie ihn öffnen.", "Ajoutez le lien pour qu'ils rejoignent via le portail — vous verrez quand ils l'ouvrent.")}</p>
+                              {!pf?.interviewLink && (
+                                <p style={{ ...HINT, marginTop: 6 }}>{T("Add the link so they join through the portal — then you'll see when they open it.", "Link hinzufügen, damit sie über das Portal beitreten — dann sehen Sie, wann sie ihn öffnen.", "Ajoutez le lien pour qu'ils rejoignent via le portail — vous verrez quand ils l'ouvrent.")}</p>
                               )}
                             </div>
 
@@ -830,36 +1073,34 @@ export default function AdminPipelinePage() {
                             {/* STAGE 2 — did she actually show up + do it (separate from passing). */}
                             <div>
                               <label style={stageLbl}>{T("2 · Did the interview take place?", "2 · Interview durchgeführt?", "2 · L'entretien a-t-il eu lieu ?")}</label>
-                              <div className="flex gap-2">
-                                {([[false, T("Not yet", "Noch nicht", "Pas encore")], [true, T("Yes, took place ✓", "Ja, durchgeführt ✓", "Oui, effectué ✓")]] as const).map(([v, label]) => {
-                                  const active = held === v;
-                                  const st: CSSProperties = active
-                                    ? (v ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" })
-                                    : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" };
-                                  return <button key={String(v)} onClick={() => { setHeld(v); if (!v) setStatus("pending"); }} className="bv-press text-[12px] font-semibold px-3 py-1.5 rounded-lg" style={st}>{label}</button>;
-                                })}
-                              </div>
+                              <Seg<"no" | "yes"> value={held ? "yes" : "no"}
+                                onChange={(k) => { const v = k === "yes"; setHeld(v); if (!v) setStatus("pending"); }}
+                                options={[["no", T("Not yet", "Noch nicht", "Pas encore")], ["yes", T("Yes, took place", "Ja, durchgeführt", "Oui, effectué")]]} />
                             </div>
 
                             {/* STAGE 3 — the result + when it came (only once it's been held). */}
                             {held ? (
                               <div>
                                 <label style={stageLbl}>{T("3 · Result", "3 · Ergebnis", "3 · Résultat")}</label>
-                                <div className="flex flex-col gap-2">
-                                  {passFail(statusVal, setStatus)}
+                                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                  {/* the pills, and — once "not passed" — what that means, on the same line */}
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px 12px", flexWrap: "wrap" }}>
+                                    {passFail(statusVal, setStatus)}
+                                    {statusVal === "failed" && (
+                                      <span title={T("Logged as not passed — they'll re-sit before moving on.", "Als nicht bestanden erfasst — Wiederholung nötig.", "Enregistré comme non réussi — à repasser.")}
+                                        style={{ ...HINT, color: "var(--w2)" }}>{T("they'll re-sit", "Wiederholung nötig", "à repasser")}</span>
+                                    )}
+                                  </div>
                                   {(statusVal === "passed" || statusVal === "failed") && (
-                                    <div>
-                                      <label style={lbl}>{T("Result date", "Ergebnis am", "Date du résultat")}</label>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px 12px", flexWrap: "wrap" }}>
+                                      <label style={{ ...lbl, marginBottom: 0 }}>{T("Result date", "Ergebnis am", "Date du résultat")}</label>
                                       <GermanDateField valueIso={resIso} onChangeIso={setResIso} confirmed={resConf} onToggleConfirmed={setResConf} lang={lang} />
                                     </div>
-                                  )}
-                                  {statusVal === "failed" && (
-                                    <p className="text-[11.5px]" style={{ color: "var(--danger)" }}>{T("Logged as not passed — they'll re-sit before moving on.", "Als nicht bestanden erfasst — Wiederholung nötig.", "Enregistré comme non réussi — à repasser.")}</p>
                                   )}
                                 </div>
                               </div>
                             ) : (
-                              <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Log the result later — once she's done the interview and heard back.", "Ergebnis später erfassen — sobald sie das Interview hatte und Bescheid bekommen hat.", "Enregistrez le résultat plus tard — une fois l'entretien passé et la réponse reçue.")}</p>
+                              <p className="bvp-lbl" style={HINT}>{T("Log the result later — once she's done the interview and heard back.", "Ergebnis später erfassen — nach dem Interview und der Antwort.", "Enregistrez le résultat plus tard — une fois l'entretien passé et la réponse reçue.")}</p>
                             )}
 
                             {saveAndNext(() => saveInterviewFull(n), false)}
@@ -871,23 +1112,23 @@ export default function AdminPipelinePage() {
                       case "vorabzustimmung": return confirmControls(!!pf?.vorabDone, { vorab_done: true }, { vorabDone: true }, { vorab_done: false }, { vorabDone: false });
                       case "docs_collected":
                         return (
-                          <div className="flex flex-col gap-3">
+                          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             {peekDocs === null ? (
-                              <p className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Loading documents…", "Dokumente laden…", "Chargement…")}</p>
+                              <p style={HINT}>{T("Loading documents…", "Dokumente laden…", "Chargement…")}</p>
                             ) : peekDocs.length > 0 ? (
-                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[11px] font-semibold" style={{ color: "var(--w3)" }}>{T("Tap any to review · approve · reject", "Zum Prüfen tippen", "Touchez pour vérifier")}</span>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <span style={HINT}>{T("Tap any to review · approve · reject", "Zum Prüfen tippen", "Touchez pour vérifier")}</span>
                                 {docList(peekDocs)}
                               </div>
                             ) : (
-                              <p className="text-[12px]" style={{ color: "var(--w3)" }}>{T("No documents uploaded yet.", "Noch keine Dokumente.", "Aucun document encore.")}</p>
+                              <p style={HINT}>{T("No documents uploaded yet.", "Noch keine Dokumente.", "Aucun document encore.")}</p>
                             )}
-                            {confirmControls(!!pf?.docsReady, { docs_ready: true }, { docsReady: true }, { docs_ready: false }, { docsReady: false }, T("All ready for embassy ✓", "Alle bereit ✓", "Tout est prêt ✓"))}
+                            {confirmControls(!!pf?.docsReady, { docs_ready: true }, { docsReady: true }, { docs_ready: false }, { docsReady: false }, T("All ready for embassy", "Alle bereit", "Tout est prêt"))}
                           </div>
                         );
                       case "visa_appointment":
                         return (
-                          <div className="flex flex-col gap-2">
+                          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             <GermanDateField valueIso={pipeDraft.visaApptDate} onChangeIso={(iso) => setPipeDraft((d) => ({ ...d, visaApptDate: iso }))} confirmed={pipeDraft.visaApptDateConfirmed} onToggleConfirmed={(c) => setPipeDraft((d) => ({ ...d, visaApptDateConfirmed: c }))} lang={lang} />
                             {saveAndNext(() => void saveStep({ visa_appt_date: pipeDraft.visaApptDate || "", visa_appt_date_confirmed: pipeDraft.visaApptDateConfirmed }, { visaApptDate: pipeDraft.visaApptDate || null, visaApptDateConfirmed: pipeDraft.visaApptDateConfirmed }), !pipeDraft.visaApptDate)}
                           </div>
@@ -895,20 +1136,20 @@ export default function AdminPipelinePage() {
                       case "visa_approved": return confirmControls(!!pf?.visaGranted, { visa_granted: true }, { visaGranted: true }, { visa_granted: false, visa_date: "" }, { visaGranted: false });
                       case "flight_booked":
                         return (
-                          <div className="flex flex-col gap-2.5">
+                          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                             <div>
                               <label style={lbl}>{T("Flight date", "Flugdatum", "Date de vol")}</label>
                               <GermanDateField valueIso={pipeDraft.flightDate} onChangeIso={(iso) => setPipeDraft((d) => ({ ...d, flightDate: iso }))} confirmed={pipeDraft.flightDateConfirmed} onToggleConfirmed={(c) => setPipeDraft((d) => ({ ...d, flightDateConfirmed: c }))} lang={lang} />
                             </div>
                             <div>
                               <label style={lbl}>{T("Flight info (optional)", "Fluginfo (optional)", "Infos vol (option.)")}</label>
-                              <input className="bv-input" type="text" maxLength={200} value={pipeDraft.flightInfo} onChange={(e) => setPipeDraft((d) => ({ ...d, flightInfo: e.target.value }))} placeholder={T("e.g. CMN → FRA, 14:30", "z. B. CMN → FRA, 14:30", "ex. CMN → FRA, 14:30")} style={{ fontSize: 12.5 }} />
+                              <input className="bvk-input" type="text" maxLength={200} value={pipeDraft.flightInfo} onChange={(e) => setPipeDraft((d) => ({ ...d, flightInfo: e.target.value }))} placeholder={T("e.g. CMN → FRA, 14:30", "z. B. CMN → FRA, 14:30", "ex. CMN → FRA, 14:30")} />
                             </div>
                             {saveAndNext(() => void saveStep({ flight_date: pipeDraft.flightDate || "", flight_date_confirmed: pipeDraft.flightDateConfirmed, flight_info: pipeDraft.flightInfo }, { flightDate: pipeDraft.flightDate || null, flightDateConfirmed: pipeDraft.flightDateConfirmed, flightInfo: pipeDraft.flightInfo || null }), !pipeDraft.flightDate)}
                           </div>
                         );
                       case "housing_arranged": return confirmControls(!!pf?.housingDone, { housing_done: true }, { housingDone: true }, { housing_done: false }, { housingDone: false });
-                      case "arrived": return confirmControls(!!pf?.arrivedDone, { arrived_done: true }, { arrivedDone: true }, { arrived_done: false }, { arrivedDone: false }, T("Yes, arrived 🎉", "Ja, angekommen 🎉", "Oui, arrivé 🎉"));
+                      case "arrived": return confirmControls(!!pf?.arrivedDone, { arrived_done: true }, { arrivedDone: true }, { arrived_done: false }, { arrivedDone: false }, T("Yes, arrived", "Ja, angekommen", "Oui, arrivé"));
                       // Stations with no candidate_pipeline field (the ones added for the
                       // full journey: application, German check, Bürgeramt, bank, tax ID,
                       // insurance, first shift, coaching, probation) tick their journey row.
@@ -918,164 +1159,92 @@ export default function AdminPipelinePage() {
                 </div>
               )}
 
-              {/* Move through steps — thin progress, ◀ ▶ to log any other step. */}
-              <div className="flex items-center gap-2.5">
-                <button onClick={() => setStepIndex(Math.max(0, viewPos - 1))} disabled={viewPos <= 0}
-                  className="bv-press flex items-center justify-center rounded-lg flex-shrink-0 disabled:opacity-25" style={{ width: 30, height: 30, background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }} aria-label={T("Previous step", "Vorheriger Schritt", "Étape précédente")}>
+              {/* Move through steps — thin progress, ‹ › to log any other step. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button type="button" onClick={() => setStepIndex(Math.max(0, viewPos - 1))} disabled={viewPos <= 0}
+                  style={ROUND(viewPos <= 0)} aria-label={T("Previous step", "Vorheriger Schritt", "Étape précédente")}>
                   <ChevronLeft size={16} />
                 </button>
-                <div className="flex-1" style={{ height: 6, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: hs.dot, transition: "width .3s ease" }} />
+                <div style={{ flex: 1, height: 4, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: STATUS_DOT[hk], transition: "width .3s ease" }} />
                 </div>
                 {stepIndex !== null && (
-                  <button onClick={() => setStepIndex(null)} className="bv-press text-[10.5px] font-bold flex-shrink-0" style={{ color: "var(--gold)" }}>{T("now", "jetzt", "actuel")} →</button>
+                  <Btn kind="quiet" size="sm" onClick={() => setStepIndex(null)} style={{ fontSize: 12.5, color: "var(--w)" }}>{T("now", "jetzt", "actuel")} →</Btn>
                 )}
-                <button onClick={() => setStepIndex(Math.min(total - 1, viewPos + 1))} disabled={viewPos >= total - 1}
-                  className="bv-press flex items-center justify-center rounded-lg flex-shrink-0 disabled:opacity-25" style={{ width: 30, height: 30, background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }} aria-label={T("Next step", "Nächster Schritt", "Étape suivante")}>
+                <button type="button" onClick={() => setStepIndex(Math.min(total - 1, viewPos + 1))} disabled={viewPos >= total - 1}
+                  style={ROUND(viewPos >= total - 1)} aria-label={T("Next step", "Nächster Schritt", "Étape suivante")}>
                   <ChevronRight size={16} />
                 </button>
               </div>
 
-              {/* MORE — everything secondary, collapsed so the question stays the star. */}
-              <button onClick={() => setMoreOpen((o) => !o)} className="bv-press w-full flex items-center gap-1.5 text-[11.5px] font-semibold pt-0.5" style={{ color: "var(--w3)" }}>
-                <ChevronDown size={14} style={{ transform: moreOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-                {moreOpen ? T("Less", "Weniger", "Moins") : T("More — status · profile · updates", "Mehr — Status · Profil · Updates", "Plus — statut · profil · mises à jour")}
+              {/* MORE — everything secondary, one tap away so the question stays the star. */}
+              <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-expanded={moreOpen}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: "none", border: 0, padding: 0, fontSize: 13, color: "var(--w3)", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                <ChevronDown size={14} style={{ transform: "rotate(-90deg)" }} />
+                {T("More — status · papers · profile · note", "Mehr — Status · Papiere · Profil · Nachricht", "Plus — statut · papiers · profil · message")}
               </button>
-              {moreOpen && (
-                <div className="flex flex-col gap-3">
-
-              {/* Nurse profile — one compact line; click to edit (progressive disclosure). */}
-              {!factsEdit ? (
-                <button onClick={() => setFactsEdit(true)}
-                  className="bv-press w-full text-left flex items-center gap-2 text-[12.5px] px-3 py-2.5 rounded-xl"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }}>
-                  <span style={{ flexShrink: 0 }}>🩺</span>
-                  <span className="flex-1 truncate">
-                    {[
-                      peek.facts?.specialty ? specialtyLabel(peek.facts.specialty, lang) : null,
-                      peek.facts?.yearsExperience != null ? `${peek.facts.yearsExperience} ${T("yrs", "J.", "ans")}` : null,
-                      peek.facts?.workplace || null,
-                      peek.facts?.availableFrom ? `${T("from", "ab", "dès")} ${peek.facts.availableFrom}` : null,
-                    ].filter(Boolean).join("  ·  ") || T("Add nurse details", "Pflegedetails hinzufügen", "Ajouter des détails")}
-                  </span>
-                  <Pencil size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                </button>
-              ) : (
-                <div style={card}>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="col-span-2">
-                      <label style={lbl}>{T("Specialty", "Fachbereich", "Spécialité")}</label>
-                      <select className="bv-input" value={factsDraft.specialty} onChange={(e) => updateFact({ specialty: e.target.value })} style={{ fontSize: 12.5 }}>
-                        <option value="">{T("— none set —", "— keine —", "— aucune —")}</option>
-                        {NURSE_SPECIALTIES.map((s) => <option key={s.key} value={s.key}>{specialtyLabel(s.key, lang)}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={lbl}>{T("Years", "Jahre", "Années")}</label>
-                      <input className="bv-input" type="number" min={0} max={60} value={factsDraft.years} onChange={(e) => updateFact({ years: e.target.value })} style={{ fontSize: 12.5 }} />
-                    </div>
-                    <div>
-                      <label style={lbl}>{T("Available from", "Verfügbar ab", "Disponible dès")}</label>
-                      <input className="bv-input" type="date" value={factsDraft.availableFrom} onChange={(e) => updateFact({ availableFrom: e.target.value })} style={{ fontSize: 12.5 }} />
-                    </div>
-                    <div className="col-span-2">
-                      <label style={lbl}>{T("Current workplace", "Aktueller Arbeitsplatz", "Lieu de travail actuel")}</label>
-                      <input className="bv-input" type="text" maxLength={120} value={factsDraft.workplace} onChange={(e) => updateFact({ workplace: e.target.value })}
-                        placeholder={T("e.g. CHU Ibn Sina — ICU", "z. B. CHU Ibn Sina — Intensiv", "ex. CHU Ibn Sina — soins intensifs")} style={{ fontSize: 12.5 }} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 mt-3">
-                    <button onClick={() => void saveFacts()} disabled={factsSaving}
-                      className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60"
-                      style={{ background: "var(--gold)", color: "#131312" }}>
-                      {factsSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save", "Speichern", "Enregistrer")}
-                    </button>
-                    <button onClick={() => setFactsEdit(false)} className="bv-press text-[12px] font-medium px-3 py-1.5" style={{ color: "var(--w3)" }}>
-                      {T("Cancel", "Abbrechen", "Annuler")}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Needs-follow-up banner + one-click reminder */}
+              </>) : (
+              <PeekMore T={T} onBack={() => setMoreOpen((o) => !o)} tabs={[
+                ["status", T("Status", "Status", "Statut"), (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Needs-follow-up banner + one-click reminder (orange = waiting on us) */}
               {peek.followUp?.needed && (
-                <div style={{ borderRadius: 16, border: "1px solid color-mix(in srgb, #f59e0b 45%, var(--border))", background: "color-mix(in srgb, #f59e0b 10%, transparent)", padding: 16 }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle size={15} style={{ color: "#f59e0b" }} />
-                    <span className="text-[13px] font-bold" style={{ color: "var(--w)" }}>{T("Needs follow-up", "Nachfassen nötig", "À relancer")}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {peek.followUp.reasons.map((reason) => (
-                      <span key={reason} className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                        {reason === "blocked" ? T("Blocked", "Blockiert", "Bloqué")
+                <div style={{ borderRadius: 14, background: STATUS_TINT.pending, padding: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, color: "var(--w)" }}>
+                      <Dot st="pending" />{T("Needs follow-up", "Nachfassen nötig", "À relancer")}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--w2)", marginTop: 3 }}>
+                      {peek.followUp.reasons.map((reason) => (
+                        reason === "blocked" ? T("Blocked", "Blockiert", "Bloqué")
                           : reason === "overdue" ? T("Overdue step", "Überfälliger Schritt", "Étape en retard")
-                          : T("Rejected document", "Abgelehntes Dokument", "Document rejeté")}
-                      </span>
-                    ))}
+                          : T("Rejected document", "Abgelehntes Dokument", "Document rejeté")
+                      )).join(" · ")}
+                    </div>
                   </div>
-                  <button onClick={() => sendNudge(peek.userId)} disabled={nudging || nudged === peek.userId}
-                    className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg disabled:opacity-70"
-                    style={nudged === peek.userId
-                      ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
-                      : { background: "#f59e0b", color: "#131312" }}>
+                  <Btn kind="ghost" size="sm" onClick={() => sendNudge(peek.userId)} disabled={nudging || nudged === peek.userId}
+                    style={nudged === peek.userId ? { opacity: 1 } : undefined}>
                     {nudged === peek.userId
-                      ? <><CheckCircle2 size={14} strokeWidth={2.2} /> {T("Reminder sent", "Erinnerung gesendet", "Rappel envoyé")}</>
+                      ? <><Dot st="approved" size={7} /> {T("Reminder sent", "Erinnerung gesendet", "Rappel envoyé")}</>
                       : <><Bell size={14} strokeWidth={2.2} /> {nudging ? T("Sending…", "Senden…", "Envoi…") : T("Send reminder", "Erinnerung senden", "Envoyer un rappel")}</>}
-                  </button>
+                  </Btn>
                 </div>
               )}
 
-              {/* Candidate updates — what they self-reported (passed B2, interview…) */}
-              {peek.reports && peek.reports.length > 0 && (
-                <div style={card}>
-                  <div style={cap}>🗣️ {T("Candidate updates", "Kandidaten-Updates", "Mises à jour du candidat")}</div>
-                  <div className="flex flex-col gap-2">
-                    {peek.reports.map((rep, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                        <span className="truncate">{reportLabel(rep)}</span>
-                        <span className="flex-shrink-0" style={{ color: "var(--w3)", fontSize: 11 }}>{relativeTimeShort(rep.created_at, lang)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Status — B2 / Anerkennung / Impfung at a glance (one card). */}
-              <div style={card}>
-                <div style={cap}>{T("Status", "Status", "Statut")}</div>
-                <div className="flex flex-col gap-2.5">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2 text-[12.5px]">
-                      <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
-                      <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>📜 {T("B2", "B2", "B2")}</span>
-                      <select value={b2s} onChange={(e) => void setPeekStage("b2", peek.userId, e.target.value)} className="bv-input" style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 8px", height: "auto", flex: 1, minWidth: 0 }}>
+              {/* Status — B2 / Anerkennung / Impfung at a glance (one block). */}
+              <div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Dot st={b2Kit(b2s)} />
+                      <span style={{ color: "var(--w3)", fontSize: 13, width: 54, flex: "none" }}>{T("B2", "B2", "B2")}</span>
+                      <select value={b2s} onChange={(e) => void setPeekStage("b2", peek.userId, e.target.value)} className="bvk-input" style={{ height: 38, flex: 1, minWidth: 0, fontSize: 13.5 }}>
                         {B2_STAGES.map((s) => <option key={s.key} value={s.key}>{b2StageLabel(s.key, lang)}</option>)}
                       </select>
                       <button type="button" onClick={() => void setB2Failed(peek.userId, !peek.b2Failed)} title={T("Mark / unmark failed once", "Als (nicht) bestanden markieren", "Marquer / annuler échoué")}
-                        className="bv-press flex-shrink-0 text-[11px] font-bold px-2 py-1.5 rounded-lg"
-                        style={peek.b2Failed ? { background: "var(--danger-bg)", color: B2_FAILED_COLOR, border: `1px solid ${B2_FAILED_COLOR}` } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                        ↺ {T("failed", "1×", "échoué")}
+                        aria-pressed={!!peek.b2Failed} style={pill(peek.b2Failed ? "rejected" : null)}>
+                        {peek.b2Failed && <Dot st="rejected" size={7} />}↺ {T("failed", "1×", "échoué")}
                       </button>
                     </div>
-                    <div className="flex items-center gap-2" style={{ paddingLeft: 75 }}>
-                      <span style={{ color: "var(--w3)", fontSize: 11, flexShrink: 0 }}>{T("Exam date", "Prüfungstermin", "Date d'examen")}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", paddingLeft: 83 }}>
+                      <span style={{ color: "var(--w3)", fontSize: 12.5, flex: "none" }}>{T("Exam date", "Prüfungstermin", "Date d'examen")}</span>
                       <GermanDateField valueIso={peek.b2ExamDate ?? ""} onChangeIso={(iso) => { if (iso) void setB2ExamDate(peek.userId, iso); }} lang={lang} />
                       {peek.b2ExamDate && (
-                        <button type="button" onClick={() => void setB2ExamDate(peek.userId, "")} className="bv-press text-[11px] px-2 py-1 rounded-lg" style={{ color: "var(--w3)", background: "var(--bg2)", border: "1px solid var(--border)" }}>{T("clear", "löschen", "effacer")}</button>
+                        <Btn kind="quiet" size="sm" onClick={() => void setB2ExamDate(peek.userId, "")}>{T("clear", "löschen", "effacer")}</Btn>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-[12.5px]">
-                    <span style={{ width: 9, height: 9, borderRadius: 999, background: anerkennungStageColor(anerk), flexShrink: 0 }} />
-                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>🏅 {T("Anerk.", "Anerk.", "Reconn.")}</span>
-                    <select value={anerk} onChange={(e) => void setPeekStage("anerk", peek.userId, e.target.value)} className="bv-input" style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 8px", height: "auto", flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Dot st={anerkKit(anerk)} />
+                    <span style={{ color: "var(--w3)", fontSize: 13, width: 54, flex: "none" }}>{T("Anerk.", "Anerk.", "Reconn.")}</span>
+                    <select value={anerk} onChange={(e) => void setPeekStage("anerk", peek.userId, e.target.value)} className="bvk-input" style={{ height: 38, flex: 1, minWidth: 0, fontSize: 13.5 }}>
                       {ANERKENNUNG_STAGES.map((s) => <option key={s.key} value={s.key}>{anerkennungStageLabel(s.key, lang)}</option>)}
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 text-[12.5px]">
-                    <span style={{ width: 9, height: 9, borderRadius: 999, background: imp === "not_required" || imp === "not_started" ? "var(--w3)" : (impDef?.color ?? "var(--w3)"), flexShrink: 0 }} />
-                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>💉 {T("Impf.", "Impf.", "Vacc.")}</span>
-                    <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 38 }}>
+                    <Dot st={impKit} />
+                    <span style={{ color: "var(--w3)", fontSize: 13, width: 54, flex: "none" }}>{T("Impf.", "Impf.", "Vacc.")}</span>
+                    <span style={{ color: "var(--w)", fontSize: 13.5, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {imp === "not_required" ? T("Not required", "Nicht erforderlich", "Non requis")
                         : imp === "not_started" ? T("Required — not started", "Erforderlich — offen", "Requis — à faire")
                         : impfungStageLabel(imp, lang)}
@@ -1084,49 +1253,119 @@ export default function AdminPipelinePage() {
                   </div>
                 </div>
               </div>
-
-              {/* Documents — review ANY of her papers (passport, diplomas, …)
-                  right here; each opens the same approve/reject/download popup as
-                  the CV step. The review modal handles passports safely (LAW #39). */}
-              {peekDocs && peekDocs.length > 0 && (
-                <div style={card}>
-                  <div style={cap}>📄 {T("Documents", "Dokumente", "Documents")}</div>
-                  {docList(peekDocs)}
-                </div>
-              )}
-
+                  </div>
+                )],
+                ["papers", T("Papers", "Papiere", "Papiers"), (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Passport data — extracted fields + human confirm + approve/reject,
                   reviewed inline (LAW #38/#39 preserved by the review modal). */}
               {peekProfile && ((peekDocs ?? []).some((d) => /pass/i.test(d.file_type)) || !!peekProfile.passport_no || !!peekProfile.passport_status) && (() => {
                 const pst = peekProfile.passport_status ?? null;
-                const c = pst === "approved" ? "var(--success)" : pst === "rejected" ? "var(--danger)" : pst === "pending" ? "#f59e0b" : "var(--w3)";
                 const label = pst === "approved" ? T("Approved", "Genehmigt", "Approuvé") : pst === "rejected" ? T("Rejected", "Abgelehnt", "Refusé") : pst === "pending" ? T("Pending review", "In Prüfung", "En vérification") : T("Not submitted", "Nicht eingereicht", "Non soumis");
                 return (
-                  <div style={card}>
-                    <div style={cap}>🪪 {T("Passport data", "Reisepassdaten", "Données du passeport")}</div>
-                    <button onClick={() => setPassportOpen(true)} className="bv-press w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 999, background: c, flexShrink: 0 }} />
-                      <span className="flex-1 truncate text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{label}</span>
-                      <span className="text-[12px] font-bold flex-shrink-0" style={{ color: "var(--gold)" }}>{T("Review", "Prüfen", "Vérifier")} →</span>
+                  <div>
+                    <h3 style={SEC}>{T("Passport data", "Reisepassdaten", "Données du passeport")}</h3>
+                    <button type="button" onClick={() => setPassportOpen(true)} style={tintRow(docKit(pst))}>
+                      <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, flex: "none" }}>{T("Review", "Prüfen", "Vérifier")} →</span>
                     </button>
                   </div>
                 );
               })()}
 
-              {/* Quick note — reaches her as "Borivon" (never an individual admin). */}
-              <div style={card}>
-                <div style={cap}>✉️ {T("Send a quick note", "Kurze Nachricht", "Petit message")}</div>
-                <textarea value={msgText} onChange={(e) => setMsgText(e.target.value)} rows={2} maxLength={2000}
-                  placeholder={T("Write to her — she sees it as Borivon…", "Nachricht — sie sieht „Borivon“…", "Écrivez-lui — elle voit « Borivon »…")}
-                  className="bv-input" style={{ fontSize: 12.5, resize: "none", lineHeight: 1.45 }} />
-                <button onClick={() => void sendMessage()} disabled={!msgText.trim() || sendingMsg}
-                  className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50 mt-2"
-                  style={msgSent ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "var(--gold)", color: "#131312" }}>
-                  {msgSent ? <><CheckCircle2 size={14} strokeWidth={2.2} /> {T("Sent", "Gesendet", "Envoyé")}</> : (sendingMsg ? T("Sending…", "Senden…", "Envoi…") : T("Send", "Senden", "Envoyer"))}
-                </button>
-              </div>
-
+              {/* Documents — review ANY of her papers (passport, diplomas, …)
+                  right here; each opens the same approve/reject/download popup as
+                  the CV step. The review modal handles passports safely (LAW #39). */}
+              {peekDocs && peekDocs.length > 0 ? (
+                <div>
+                  <h3 style={SEC}>{T("Documents", "Dokumente", "Documents")}</h3>
+                  {docList(peekDocs)}
                 </div>
+              ) : (
+                <p style={HINT}>{peekDocs === null ? T("Loading documents…", "Dokumente laden…", "Chargement…") : T("No documents uploaded yet.", "Noch keine Dokumente.", "Aucun document encore.")}</p>
+              )}
+                  </div>
+                )],
+                ["profile", T("Profile", "Profil", "Profil"), (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Nurse profile — one compact line; click to edit (progressive disclosure). */}
+              {!factsEdit ? (
+                <button type="button" onClick={() => setFactsEdit(true)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "11px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--card)", fontSize: 13.5, color: "var(--w2)", cursor: "pointer", fontFamily: "inherit" }}>
+                  <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {[
+                      peek.facts?.specialty ? specialtyLabel(peek.facts.specialty, lang) : null,
+                      peek.facts?.yearsExperience != null ? `${peek.facts.yearsExperience} ${T("yrs", "J.", "ans")}` : null,
+                      peek.facts?.workplace || null,
+                      peek.facts?.availableFrom ? `${T("from", "ab", "dès")} ${peek.facts.availableFrom}` : null,
+                    ].filter(Boolean).join("  ·  ") || T("Add nurse details", "Pflegedetails hinzufügen", "Ajouter des détails")}
+                  </span>
+                  <Pencil size={13} style={{ color: "var(--w3)", flex: "none" }} />
+                </button>
+              ) : (
+                <div style={card}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <label style={lbl}>{T("Specialty", "Fachbereich", "Spécialité")}</label>
+                      <select className="bvk-input" value={factsDraft.specialty} onChange={(e) => updateFact({ specialty: e.target.value })}>
+                        <option value="">{T("— none set —", "— keine —", "— aucune —")}</option>
+                        {NURSE_SPECIALTIES.map((s) => <option key={s.key} value={s.key}>{specialtyLabel(s.key, lang)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={lbl}>{T("Years", "Jahre", "Années")}</label>
+                      <input className="bvk-input" type="number" min={0} max={60} value={factsDraft.years} onChange={(e) => updateFact({ years: e.target.value })} />
+                    </div>
+                    <div>
+                      <label style={lbl}>{T("Available from", "Verfügbar ab", "Disponible dès")}</label>
+                      <input className="bvk-input" type="date" value={factsDraft.availableFrom} onChange={(e) => updateFact({ availableFrom: e.target.value })} />
+                    </div>
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <label style={lbl}>{T("Current workplace", "Aktueller Arbeitsplatz", "Lieu de travail actuel")}</label>
+                      <input className="bvk-input" type="text" maxLength={120} value={factsDraft.workplace} onChange={(e) => updateFact({ workplace: e.target.value })}
+                        placeholder={T("e.g. CHU Ibn Sina — ICU", "z. B. CHU Ibn Sina — Intensiv", "ex. CHU Ibn Sina — soins intensifs")} />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+                    <Btn kind="ghost" size="sm" onClick={() => void saveFacts()} disabled={factsSaving}>
+                      {factsSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save", "Speichern", "Enregistrer")}
+                    </Btn>
+                    <Btn kind="quiet" size="sm" onClick={() => setFactsEdit(false)}>
+                      {T("Cancel", "Abbrechen", "Annuler")}
+                    </Btn>
+                  </div>
+                </div>
+              )}
+
+              {/* Candidate updates — what they self-reported (passed B2, interview…) */}
+              {peek.reports && peek.reports.length > 0 && (
+                <div>
+                  <h3 style={SEC}>{T("Candidate updates", "Kandidaten-Updates", "Mises à jour du candidat")}</h3>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {peek.reports.map((rep, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: "1px solid var(--border)", fontSize: 13.5, color: "var(--w)" }}>
+                        <Dot st={reportKit(rep)} size={7} />
+                        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportLabel(rep)}</span>
+                        <span style={{ color: "var(--w3)", fontSize: 12, flex: "none" }}>{relativeTimeShort(rep.created_at, lang)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+                  </div>
+                )],
+                ["note", T("Message", "Nachricht", "Message"), (
+              /* Quick note — reaches her as "Borivon" (never an individual admin). */
+              <div>
+                <textarea value={msgText} onChange={(e) => setMsgText(e.target.value)} rows={3} maxLength={2000}
+                  placeholder={T("Write to her — she sees it as Borivon…", "Nachricht — sie sieht „Borivon“…", "Écrivez-lui — elle voit « Borivon »…")}
+                  className="bvk-input" style={{ minHeight: 96, resize: "none", lineHeight: 1.45 }} />
+                <Btn kind="ghost" size="sm" onClick={() => void sendMessage()} disabled={!msgText.trim() || sendingMsg} style={{ marginTop: 10, ...(msgSent ? { opacity: 1 } : {}) }}>
+                  {msgSent ? <><Dot st="approved" size={7} /> {T("Sent", "Gesendet", "Envoyé")}</> : (sendingMsg ? T("Sending…", "Senden…", "Envoi…") : T("Send", "Senden", "Envoyer"))}
+                </Btn>
+              </div>
+                )],
+              ]} />
               )}
             </div>
           );
@@ -1172,8 +1411,8 @@ export default function AdminPipelinePage() {
         title={T("Employer profile sheet", "Arbeitgeber-Profil", "Fiche profil employeur")}
         footer={peek ? (
           <>
-            <GhostButton onClick={() => setSheetOpen(false)}>{T("Close", "Schließen", "Fermer")}</GhostButton>
-            <GoldButton onClick={() => window.print()}><Printer size={14} strokeWidth={2.2} /> {T("Print / Save PDF", "Drucken / PDF", "Imprimer / PDF")}</GoldButton>
+            <Btn kind="quiet" size="sm" onClick={() => setSheetOpen(false)}>{T("Close", "Schließen", "Fermer")}</Btn>
+            <Btn kind="primary" size="sm" onClick={() => window.print()}><Printer size={14} strokeWidth={2.2} /> {T("Print / Save PDF", "Drucken / PDF", "Imprimer / PDF")}</Btn>
           </>
         ) : null}>
         {peek && (() => {
@@ -1182,35 +1421,31 @@ export default function AdminPipelinePage() {
           const imp = (peek.impfungStage ?? "not_required") as ImpfungStage;
           const fct = peek.facts;
           const pct = peek.docPack && peek.docPack.total ? Math.round((peek.docPack.collected / peek.docPack.total) * 100) : 0;
-          const rowS: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--border)", fontSize: 13 };
-          const k: CSSProperties = { color: "var(--w3)", fontWeight: 600 };
-          const val: CSSProperties = { color: "var(--w)", fontWeight: 700, textAlign: "right" };
+          // hairline rows: the label quiet on the left, the fact on the right
+          const rowS: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)", fontSize: 13.5 };
+          const k: CSSProperties = { color: "var(--w3)" };
+          const val: CSSProperties = { color: "var(--w)", fontWeight: 500, textAlign: "right" };
           return (
             <div data-employer-sheet style={{ padding: 24 }}>
               <style>{`@media print { body * { visibility: hidden !important; } [data-employer-sheet], [data-employer-sheet] * { visibility: visible !important; color: #111 !important; } [data-employer-sheet] { position: fixed !important; inset: 0 !important; margin: 0 !important; padding: 28px !important; background: #fff !important; } }`}</style>
               {/* Brand header — Borivon, never an individual admin (LAW). */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, paddingBottom: 14, borderBottom: "2px solid var(--gold)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
                 <div>
                   <div style={{ lineHeight: 1 }}><Wordmark size={24} /></div>
-                  <div style={{ fontSize: 11, color: "var(--w3)" }}>{T("Vetted nursing candidate", "Geprüfte Pflegekraft", "Candidat infirmier vérifié")}</div>
+                  <div style={{ fontSize: 12, color: "var(--w3)", marginTop: 6 }}>{T("Vetted nursing candidate", "Geprüfte Pflegekraft", "Candidat infirmier vérifié")}</div>
                 </div>
                 {peek.sellable?.sellable && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
-                    <BadgeCheck size={11} strokeWidth={2.5} /> {T("READY", "BEREIT", "PRÊT")}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: "var(--w)" }}>
+                    <Dot st="approved" size={8} /> {T("Ready", "Bereit", "Prêt")}
                   </span>
                 )}
               </div>
               {/* Identity */}
-              <div className="flex items-center gap-3.5 mb-4">
-                {peek.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={peek.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 68, height: 68, border: "2px solid var(--gold)" }} />
-                ) : (
-                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[22px] font-bold" style={{ width: 68, height: 68, background: "var(--gdim)", color: "var(--gold)", border: "2px solid var(--gold)" }}>{initials(peek.name)}</span>
-                )}
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--w)" }}>{peek.name}</div>
-                  <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 600 }}>{fct?.specialty ? specialtyLabel(fct.specialty, lang) : T("Nurse", "Pflegekraft", "Infirmier")}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+                <Face name={peek.name} photo={peek.photo} size={64} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 26, lineHeight: 1.15, color: "var(--w)" }}>{peek.name}</div>
+                  <div style={{ fontSize: 13.5, color: "var(--w3)", marginTop: 3 }}>{fct?.specialty ? specialtyLabel(fct.specialty, lang) : T("Nurse", "Pflegekraft", "Infirmier")}</div>
                 </div>
               </div>
               {/* Facts */}
@@ -1223,7 +1458,7 @@ export default function AdminPipelinePage() {
                 <div style={rowS}><span style={k}>{T("Documents ready", "Dokumente bereit", "Documents prêts")}</span><span style={val}>{peek.docPack ? `${peek.docPack.collected}/${peek.docPack.total} (${pct}%)` : "—"}</span></div>
                 <div style={{ ...rowS, borderBottom: "none" }}><span style={k}>{T("Available from", "Verfügbar ab", "Disponible dès")}</span><span style={val}>{fct?.availableFrom || "—"}</span></div>
               </div>
-              <div style={{ marginTop: 16, fontSize: 10, color: "var(--w3)", textAlign: "center" }}>
+              <div style={{ marginTop: 18, fontSize: 11, color: "var(--w3)", textAlign: "center" }}>
                 {T("Confidential — shared by Borivon. Contact us to proceed with this candidate.",
                    "Vertraulich — von Borivon bereitgestellt. Kontaktieren Sie uns für diesen Kandidaten.",
                    "Confidentiel — partagé par Borivon. Contactez-nous pour ce candidat.")}
@@ -1233,8 +1468,8 @@ export default function AdminPipelinePage() {
         })()}
       </Modal>
 
-      {/* Smooth, battle-tested toasts (sonner) for save / reminder / move feedback. */}
-      <Toaster theme="dark" position="top-center" richColors toastOptions={{ style: { fontSize: "13px" } }} />
+      {/* Smooth, battle-tested toasts (sonner) for save / reminder / move feedback — light, like the portal. */}
+      <Toaster theme="light" position="top-center" richColors toastOptions={{ style: { fontSize: "13px" } }} />
     </main>
   );
 }

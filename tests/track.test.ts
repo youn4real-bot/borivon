@@ -78,7 +78,8 @@ describe("consent", () => {
     // the page script sends nothing until start(), and start() only runs on "Akzeptieren" or a stored yes
     expect(js).toMatch(/if \(!queue\.length \|\| !started\) return;/);
     expect(js).toMatch(/if \(c && c\.s === 1\) start\(\);/);
-    expect(js).toContain('data-c="0">Ablehnen</button><button type="button" data-c="1">Akzeptieren</button>');
+    // first layer: "Akzeptieren" and "Nur notwendige" side by side, equal, one click each (VG Hannover 2025)
+    expect(js).toContain('<button type="button" data-c="1">Akzeptieren</button><button type="button" data-c="0">Nur notwendige</button>');
   });
 });
 
