@@ -5709,7 +5709,7 @@ export default function AdminPage() {
                 const tds = getAdminDocs(trans);
                 return { id: k, label, st: stOf(ds), tags, act, sub: [
                   { label: orig, st: stOf(ds), act },
-                  { de: true, label: germ, st: stOf(tds), act: open(latest(tds), toLegacy) },
+                  { de: true, label: germ, st: stOf(tds), act: open(latest(tds), upload(trans, canonicalDocLabel(trans, lang as "de" | "en" | "fr") || label)) },
                 ] };
               };
               const langDs = getAdminDocs("langcert");
@@ -5763,7 +5763,11 @@ export default function AdminPage() {
                 ...(getAdminDocs("berufserfahrung_visum").length ? [paper("berufserfahrung_visum", t.pTypeBerufserfahrungVisum, "V")] : []),
                 ...visaSlots.filter(isGlobal).map((sl) => slotRow(sl, "V", false)),
                 ...bearSlots.filter(isGlobal).map((sl) => slotRow(sl, "A", false)),
-                { id: "other", label: t.pTypeOther, st: otherDs.length ? stOf(otherDs) : "missing", tags: "AV", act: toLegacy },
+                // Sonstiges (founder 2026-11-13: no more old view): each file a sheet, "+ Neu" while fewer than 5 (LAW #9)
+                { id: "other", label: t.pTypeOther, st: otherDs.length ? stOf(otherDs) : "missing", tags: "AV", ownSt: true, act: upload("other", t.pTypeOther), sub: [
+                  ...[...otherDs].sort((x, y) => String(x.uploaded_at).localeCompare(String(y.uploaded_at))).map((d, i): DocSub => ({ label: String(i + 1), st: stOf([d]), act: () => setPreviewDoc(d) })),
+                  ...(otherDs.length < 5 ? [{ label: L3("Neu", "Nouveau", "New"), st: "missing" as DocSt, act: upload("other", t.pTypeOther) }] : []),
+                ] },
                 // extras: the agency / employer set this nurse is placed under, then hers alone
                 ...bearSlots.filter((sl) => !isGlobal(sl)).map((sl) => slotRow(sl, "A", true)),
                 ...visaSlots.filter((sl) => !isGlobal(sl)).map((sl) => slotRow(sl, "V", true)),
@@ -5781,7 +5785,7 @@ export default function AdminPage() {
               return (
                 <div id="bv-admin-tiles">
                   <DocList lang={lang} keys={keys} rows={rows} mode={docMeta.mode} onMode={docMeta.setMode} onAdd={docMeta.add}
-                    onClose={() => setAdminDocsOpen(false)} onLegacy={() => (legacyDocs ? setLegacyDocs(false) : toLegacy())} legacyOpen={legacyDocs} />
+                    onClose={() => setAdminDocsOpen(false)} onLegacy={legacyDocs ? () => setLegacyDocs(false) : undefined} legacyOpen={legacyDocs} />
                 </div>
               );
             })()}

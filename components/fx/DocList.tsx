@@ -53,6 +53,8 @@ export type DocSub = { label: string; st: DocSt; act: () => void; de?: boolean }
 export type DocRow = {
   id: string; label: string; st: DocSt; tags: string; act: () => void;
   sub?: DocSub[]; special?: boolean; onInfo?: () => void; extra?: boolean; onRemove?: () => void;
+  /** the row keeps its own state instead of the worst of its sheets (Sonstiges: an empty "Neu" sheet is not a gap) */
+  ownSt?: boolean;
 };
 export type DocKey = { id: "id" | "cv" | "letter"; label: string; st: DocSt; act: () => void; spark?: boolean };
 export type DocMode = "all" | "A" | "V";
@@ -60,7 +62,7 @@ export type DocMode = "all" | "A" | "V";
 const DOT: Record<DocSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
 const TINT: Record<DocSt, string> = { approved: "rgba(22,163,74,.10)", pending: "rgba(245,158,11,.16)", rejected: "rgba(220,38,38,.12)", missing: "transparent" };
 const worst = (a: DocSt[]): DocSt => (a.includes("rejected") ? "rejected" : a.includes("pending") ? "pending" : a.includes("missing") ? "missing" : "approved");
-export const rowSt = (r: DocRow): DocSt => (r.sub && !r.special ? worst(r.sub.map((y) => y.st)) : r.st);
+export const rowSt = (r: DocRow): DocSt => (r.sub && !r.special && !r.ownSt ? worst(r.sub.map((y) => y.st)) : r.st);
 
 const KEY_ICON: Record<DocKey["id"], string> = {
   id: "M7 2.5h10a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2zM12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM8.5 17h7",

@@ -3649,8 +3649,11 @@ export default function DashboardPage() {
                 ...(getDoc("berufserfahrung_visum") ? paper("berufserfahrung_visum", "V") : []),
                 ...vis.filter((sl) => !scoped(sl)).map((sl) => slotRow(sl, "V", false)),
                 ...bea.filter((sl) => !scoped(sl)).map((sl) => slotRow(sl, "A", false)),
-                { id: "other", label: t.pTypeOther, st: otherDocs.length ? stOf(otherDocs[0]) : "missing", tags: "AV",
-                  act: () => { setPhase(0); setLegacyDocs(true); requestAnimationFrame(() => document.getElementById("bv-docs")?.scrollIntoView({ behavior: "smooth", block: "start" })); } },
+                // Sonstiges (founder 2026-11-13: no more old view): each file a sheet, "+ Neu" while fewer than 5 (LAW #9)
+                { id: "other", label: t.pTypeOther, st: otherDocs.some((d) => d.status === "rejected") ? "rejected" : otherDocs.some((d) => d.status !== "approved") ? (otherDocs.length ? "pending" : "missing") : otherDocs.length ? "approved" : "missing", tags: "AV", ownSt: true, act: () => openPicker("other"), sub: [
+                  ...[...otherDocs].sort((x, y) => String(x.uploaded_at).localeCompare(String(y.uploaded_at))).map((d, i) => ({ label: String(i + 1), st: stOf(d), act: () => handlePreview(d) })),
+                  ...(otherDocs.length < 5 ? [{ label: L3("Neu", "Nouveau", "New"), st: "missing" as DocSt, act: () => openPicker("other") }] : []),
+                ] },
                 // her extras: the agency / employer set she is placed under, then the papers added for her alone
                 ...bea.filter(scoped).map((sl) => slotRow(sl, "A", true)),
                 ...vis.filter(scoped).map((sl) => slotRow(sl, "V", true)),
@@ -3664,7 +3667,7 @@ export default function DashboardPage() {
               return (
                 <div id="bv-my-tiles" className="mb-6">
                   <DocList lang={lang} keys={keys} rows={rows} mode={myDocMeta.mode} onMode={myDocMeta.setMode}
-                    onLegacy={() => setLegacyDocs((v) => !v)} legacyOpen={legacyDocs} />
+                    onLegacy={legacyDocs ? () => setLegacyDocs(false) : undefined} legacyOpen={legacyDocs} />
                 </div>
               );
         })()}
