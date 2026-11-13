@@ -5,12 +5,15 @@
  * (and www.borivon.com/affiliate/<token>). No login: the private token in the
  * URL IS the key. Read-only, no candidate PII — just the affiliate's own
  * numbers. Simple yet clear.
+ * The one design (founder 2026-11-13, components/fx/kit): serif greeting, the link as one hairline card,
+ * the numbers in serif, the placements as hairline rows with a status dot that flip instead of scrolling.
  */
 import { Wordmark } from "@/components/Wordmark";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useParams } from "next/navigation";
-import { Copy, Check, Link2, Users, Plane, Wallet, Loader2, MessageCircle } from "lucide-react";
+import { Copy, Check, Loader2, MessageCircle } from "lucide-react";
 import { waMeUrl } from "@/lib/waLink";
+import { KitStyle, PageHead, Btn, Card, Seg, Dot, Field, Empty, Pager, usePaged, type Status } from "@/components/fx/kit";
 
 type Earning = { placed_at: string; status: string; amount_eur: number };
 type Stats = {
@@ -19,6 +22,15 @@ type Stats = {
   owedEur: number; paidEur: number; earnings: Earning[];
   termsAccepted: boolean; termsVersion: string;
 };
+
+// this page's few layout rules (phone: the link row stacks, the accept row stacks, the terms go one column)
+const AF_CSS = ".bvaf-share{display:flex;align-items:flex-end;gap:8px}.bvaf-share>.bvk-field{flex:1;min-width:0}"
+  + ".bvaf-acts{display:flex;gap:8px}.bvaf-acts>.bvk-btn{height:42px}"
+  + ".bvaf-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}"
+  + ".bvaf-terms{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 28px}"
+  + ".bvaf-accept{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px}"
+  + "@media (max-width:640px){.bvaf-share{flex-direction:column;align-items:stretch}.bvaf-acts>.bvk-btn{flex:1}"
+  + ".bvaf-terms{grid-template-columns:minmax(0,1fr)}.bvaf-accept{flex-direction:column;align-items:stretch;gap:14px}}";
 
 export default function AffiliateDashboard() {
   const params = useParams();
@@ -29,6 +41,8 @@ export default function AffiliateDashboard() {
   const [copied, setCopied] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  // nobody scrolls: the placements flip (laptop 4, phone 3 per page)
+  const placements = usePaged(stats?.earnings ?? [], 4, 3);
 
   const L = (en: string, fr: string, de: string) => (lang === "fr" ? fr : lang === "de" ? de : en);
 
@@ -63,34 +77,30 @@ export default function AffiliateDashboard() {
     setAccepting(false);
   };
 
+  const serifNum: CSSProperties = { fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: "clamp(24px, 6.4vw, 30px)", lineHeight: 1.1, color: "var(--w)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+
   return (
     <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--w)" }}>
+      <KitStyle />
+      <style>{AF_CSS}</style>
       {/* Minimal header (portal chrome is suppressed on /affiliate) */}
-      <header className="flex items-center justify-between px-5 sm:px-8 h-[58px] border-b" style={{ borderColor: "var(--border)", background: "var(--nav-bg)" }}>
-        <span>
+      <header className="flex items-center justify-between px-5 sm:px-8 h-[58px] border-b" style={{ borderColor: "var(--border)", background: "var(--nav-bg)", gap: 12 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <Wordmark size="1.3rem" />
-          <span className="not-italic ml-2 align-middle text-[11px] font-semibold tracking-wide" style={{ color: "var(--w3)" }}>{L("AFFILIATE", "AFFILIÉ", "AFFILIATE")}</span>
+          <span style={{ paddingLeft: 10, borderLeft: "1px solid var(--border)", fontSize: 13, lineHeight: "16px", color: "var(--w3)", whiteSpace: "nowrap" }}>{L("Affiliate", "Affilié", "Affiliate")}</span>
         </span>
-        <div className="flex gap-1">
-          {(["fr", "en", "de"] as const).map((l) => (
-            <button key={l} onClick={() => setLang(l)}
-              className="text-[11px] font-bold px-2 py-1 rounded-md uppercase"
-              style={{ color: lang === l ? "#1a1205" : "var(--w3)", background: lang === l ? "var(--gold)" : "transparent", border: "none", cursor: "pointer" }}>
-              {l}
-            </button>
-          ))}
-        </div>
+        <Seg value={lang} onChange={setLang} options={[["fr", "FR"], ["en", "EN"], ["de", "DE"]]} />
       </header>
 
-      <main className="mx-auto w-full max-w-[680px] px-5 sm:px-6 py-8">
+      <main className="mx-auto w-full max-w-[680px] px-5 sm:px-6" style={{ paddingTop: "clamp(20px, 2.2vw, 28px)", paddingBottom: 16 }}>
         {state === "loading" && (
-          <div className="flex items-center justify-center py-24"><Loader2 className="animate-spin" style={{ color: "var(--gold)" }} /></div>
+          <div className="flex items-center justify-center py-24"><Loader2 className="animate-spin" style={{ color: "var(--w3)" }} /></div>
         )}
 
         {state === "notfound" && (
-          <div className="text-center py-24">
-            <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{L("This link isn't valid.", "Ce lien n'est pas valide.", "Dieser Link ist ungültig.")}</p>
-            <p className="text-[12.5px] mt-2" style={{ color: "var(--w3)" }}>{L("Ask Borivon for your personal affiliate link.", "Demandez à Borivon votre lien d'affilié personnel.", "Bitte fordern Sie Ihren persönlichen Affiliate-Link bei Borivon an.")}</p>
+          <div style={{ textAlign: "center", padding: "96px 0" }}>
+            <h1 style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 30, lineHeight: 1.15, color: "var(--w)" }}>{L("This link isn't valid.", "Ce lien n'est pas valide.", "Dieser Link ist ungültig.")}</h1>
+            <p style={{ margin: "8px 0 0", fontSize: 13.5, color: "var(--w3)" }}>{L("Ask Borivon for your personal affiliate link.", "Demandez à Borivon votre lien d'affilié personnel.", "Bitte fordern Sie Ihren persönlichen Affiliate-Link bei Borivon an.")}</p>
           </div>
         )}
 
@@ -124,132 +134,138 @@ export default function AffiliateDashboard() {
           ];
           return (
             <div>
-              <h1 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>{L("Affiliate Terms", "Conditions d'affiliation", "Affiliate-Bedingungen")}</h1>
-              <p className="text-[12.5px] mt-1 mb-4" style={{ color: "var(--w3)" }}>{L("Please read and confirm to activate your affiliate dashboard.", "Veuillez lire et confirmer pour activer votre tableau de bord.", "Bitte lesen und bestätigen Sie, um Ihr Dashboard zu aktivieren.")}</p>
-              <div className="rounded-2xl p-4 mb-4 space-y-3" style={{ background: "var(--card)", border: "1px solid var(--border)", maxHeight: "48vh", overflowY: "auto" }}>
-                {terms.map((s, i) => (
-                  <div key={i}>
-                    <p className="text-[12.5px] font-bold" style={{ color: "var(--w)" }}>{s.t}</p>
-                    <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: "var(--w2)" }}>{s.b}</p>
-                  </div>
-                ))}
+              <PageHead title={L("Affiliate Terms", "Conditions d'affiliation", "Affiliate-Bedingungen")}
+                sub={L("Please read and confirm to activate your affiliate dashboard.", "Veuillez lire et confirmer pour activer votre tableau de bord.", "Bitte lesen und bestätigen Sie, um Ihr Dashboard zu aktivieren.")} />
+              <TermsCard terms={terms} />
+              {/* the box starts unticked and only a human click ticks it */}
+              <div className="bvaf-accept">
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, cursor: "pointer" }}>
+                  <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ width: 18, height: 18, margin: "1px 0 0", flex: "none", accentColor: "var(--w)", cursor: "pointer" }} />
+                  <span style={{ fontSize: 13.5, lineHeight: 1.45, color: "var(--w)" }}>{L("I have read and accept the Borivon Affiliate Terms.", "J'ai lu et j'accepte les conditions d'affiliation Borivon.", "Ich habe die Borivon Affiliate-Bedingungen gelesen und akzeptiere sie.")}</span>
+                </label>
+                <Btn kind="primary" disabled={!agreed || accepting} onClick={acceptTerms} style={{ flex: "none" }}>
+                  {accepting ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                  {L("Confirm & continue", "Confirmer et continuer", "Bestätigen & fortfahren")}
+                </Btn>
               </div>
-              <label className="flex items-start gap-2.5 mb-4 cursor-pointer">
-                <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 w-4 h-4" style={{ accentColor: "var(--gold)" }} />
-                <span className="text-[12.5px]" style={{ color: "var(--w)" }}>{L("I have read and accept the Borivon Affiliate Terms.", "J'ai lu et j'accepte les conditions d'affiliation Borivon.", "Ich habe die Borivon Affiliate-Bedingungen gelesen und akzeptiere sie.")}</span>
-              </label>
-              <button disabled={!agreed || accepting} onClick={acceptTerms}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-semibold disabled:opacity-40"
-                style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: agreed && !accepting ? "pointer" : "not-allowed" }}>
-                {accepting ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-                {L("Confirm & continue", "Confirmer et continuer", "Bestätigen & fortfahren")}
-              </button>
             </div>
           );
         })()}
 
         {state === "ok" && stats && stats.termsAccepted && (
           <>
-            <div className="mb-6">
-              <h1 className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>{L("Hi", "Bonjour", "Hallo")} {stats.name} 👋</h1>
-              <p className="text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>
-                {L("You earn", "Vous gagnez", "Sie erhalten")} <b style={{ color: "var(--gold)" }}>{money(stats.commissionEur)}</b> {L("for every nurse you refer who is placed in Germany.", "pour chaque infirmière que vous parrainez et qui est placée en Allemagne.", "für jede von Ihnen empfohlene Pflegekraft, die in Deutschland vermittelt wird.")}
-              </p>
-              {!stats.active && (
-                <p className="text-[11.5px] mt-2 inline-block px-2 py-1 rounded" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>{L("Your affiliate account is currently paused.", "Votre compte affilié est en pause.", "Ihr Affiliate-Konto ist derzeit pausiert.")}</p>
-              )}
-            </div>
+            <PageHead title={<>{L("Hi", "Bonjour", "Hallo")} {stats.name}</>}
+              sub={<>
+                {L("You earn", "Vous gagnez", "Sie erhalten")} <b style={{ fontWeight: 600, color: "var(--w)" }}>{money(stats.commissionEur)}</b> {L("for every nurse you refer who is placed in Germany.", "pour chaque infirmière que vous parrainez et qui est placée en Allemagne.", "für jede von Ihnen empfohlene Pflegekraft, die in Deutschland vermittelt wird.")}
+                {!stats.active && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12.5, fontWeight: 600, color: "var(--w)" }}>
+                    <Dot st="rejected" size={8} />{L("Your affiliate account is currently paused.", "Votre compte affilié est en pause.", "Ihr Affiliate-Konto ist derzeit pausiert.")}
+                  </span>
+                )}
+              </>} />
 
-            {/* Share link */}
-            <div className="rounded-2xl p-4 mb-6" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-              <p className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{L("Your referral link", "Votre lien de parrainage", "Ihr Empfehlungslink")}</p>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                  <Link2 size={14} style={{ color: "var(--gold)", flexShrink: 0 }} />
-                  <span className="text-[12.5px] truncate" style={{ color: "var(--w)" }}>{stats.shareUrl}</span>
+            {/* Share link — one hairline card: the link, copy, WhatsApp */}
+            <Card style={{ padding: "16px 18px", marginBottom: 14 }}>
+              <div className="bvaf-share">
+                <Field label={L("Your referral link", "Votre lien de parrainage", "Ihr Empfehlungslink")}>
+                  <input className="bvk-input" readOnly value={stats.shareUrl} style={{ textOverflow: "ellipsis" }} />
+                </Field>
+                <div className="bvaf-acts">
+                  <Btn kind="primary" onClick={() => copy(stats.shareUrl)}>
+                    {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? L("Copied", "Copié", "Kopiert") : L("Copy", "Copier", "Kopieren")}
+                  </Btn>
+                  {/* One-tap share — opens WhatsApp with a ready invite + the link, no
+                      recipient set, so the affiliate just picks who to send it to. */}
+                  <a
+                    href={waMeUrl("", L(
+                      `Want to work as a nurse in Germany? Borivon handles the whole process — visa, recognition, the lot. Start here: ${stats.shareUrl}`,
+                      `Envie de travailler comme infirmier·ère en Allemagne ? Borivon s'occupe de tout — visa, reconnaissance, etc. Commencez ici : ${stats.shareUrl}`,
+                      `Möchten Sie als Pflegekraft in Deutschland arbeiten? Borivon übernimmt alles — Visum, Anerkennung, den kompletten Weg. Starten Sie hier: ${stats.shareUrl}`,
+                    ))}
+                    target="_blank" rel="noopener noreferrer"
+                    className="bvk-btn bvk-ghost"
+                    aria-label={L("Share on WhatsApp", "Partager sur WhatsApp", "Auf WhatsApp teilen")} title={L("Share on WhatsApp", "Partager sur WhatsApp", "Auf WhatsApp teilen")}>
+                    <MessageCircle size={15} style={{ color: "#25d366" }} /> WhatsApp
+                  </a>
                 </div>
-                <button onClick={() => copy(stats.shareUrl)}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-[12.5px] font-semibold flex-shrink-0"
-                  style={{ background: "var(--gold)", color: "#1a1205", border: "none", cursor: "pointer" }}>
-                  {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? L("Copied", "Copié", "Kopiert") : L("Copy", "Copier", "Kopieren")}
-                </button>
               </div>
-              {/* One-tap share — opens WhatsApp with a ready invite + the link, no
-                  recipient set, so the affiliate just picks who to send it to. */}
-              <a
-                href={waMeUrl("", L(
-                  `Want to work as a nurse in Germany? Borivon handles the whole process — visa, recognition, the lot. Start here: ${stats.shareUrl}`,
-                  `Envie de travailler comme infirmier·ère en Allemagne ? Borivon s'occupe de tout — visa, reconnaissance, etc. Commencez ici : ${stats.shareUrl}`,
-                  `Möchten Sie als Pflegekraft in Deutschland arbeiten? Borivon übernimmt alles — Visum, Anerkennung, den kompletten Weg. Starten Sie hier: ${stats.shareUrl}`,
-                ))}
-                target="_blank" rel="noopener noreferrer"
-                className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12.5px] font-semibold no-underline"
-                style={{ background: "#25d366", color: "#0b3d1f", border: "none" }}>
-                <MessageCircle size={15} /> {L("Share on WhatsApp", "Partager sur WhatsApp", "Auf WhatsApp teilen")}
-              </a>
-              <p className="text-[11px] mt-2" style={{ color: "var(--w3)" }}>{L("Share it. When a nurse joins through your link and reaches Germany, you get paid.", "Partagez-le. Quand une infirmière s'inscrit via votre lien et arrive en Allemagne, vous êtes payé.", "Teilen Sie ihn. Wenn eine Pflegekraft über Ihren Link beitritt und Deutschland erreicht, werden Sie bezahlt.")}</p>
-            </div>
+              <p style={{ margin: "10px 0 0", fontSize: 12.5, lineHeight: 1.45, color: "var(--w3)" }}>{L("Share it: when a nurse joins through it and reaches Germany, you get paid.", "Partagez-le : quand une infirmière inscrite via ce lien arrive en Allemagne, vous êtes payé.", "Teilen Sie ihn: Kommt eine Pflegekraft über Ihren Link nach Deutschland, werden Sie bezahlt.")}</p>
+            </Card>
 
-            {/* Stat tiles */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              {[
-                { icon: <Link2 size={16} />, label: L("Clicks", "Clics", "Klicks"), value: String(stats.clicks) },
-                { icon: <Users size={16} />, label: L("Referred", "Parrainés", "Empfohlen"), value: String(stats.referred) },
-                { icon: <Plane size={16} />, label: L("Placed", "Placés", "Vermittelt"), value: String(stats.placed) },
-                { icon: <Wallet size={16} />, label: L("Earned", "Gagné", "Verdient"), value: money(stats.owedEur + stats.paidEur) },
-              ].map((t, i) => (
-                <div key={i} className="rounded-2xl p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                  <span style={{ color: "var(--gold)" }}>{t.icon}</span>
-                  <p className="text-[22px] font-bold mt-2 leading-none" style={{ color: "var(--w)" }}>{t.value}</p>
-                  <p className="text-[11px] mt-1.5" style={{ color: "var(--w3)" }}>{t.label}</p>
+            {/* The numbers, quiet on the paper — activity on top, money below (earned = to be paid + paid) */}
+            <div style={{ padding: "4px 2px 0", marginBottom: 20 }}>
+              {([
+                [
+                  [L("Clicks", "Clics", "Klicks"), String(stats.clicks)],
+                  [L("Referred", "Parrainés", "Empfohlen"), String(stats.referred)],
+                  [L("Placed", "Placés", "Vermittelt"), String(stats.placed)],
+                ],
+                [
+                  [L("Earned", "Gagné", "Verdient"), money(stats.owedEur + stats.paidEur)],
+                  [L("To be paid", "À payer", "Ausstehend"), money(stats.owedEur), "pending"],
+                  [L("Paid", "Payé", "Bezahlt"), money(stats.paidEur), "approved"],
+                ],
+              ] as [string, string, Status?][][]).map((row, r) => (
+                <div key={r} className="bvaf-nums" style={r ? { marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" } : undefined}>
+                  {row.map(([label, value, st], i) => (
+                    <div key={i} style={{ minWidth: 0 }}>
+                      <div style={serifNum}>{value}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, fontSize: 12.5, color: "var(--w3)", whiteSpace: "nowrap" }}>{st && <Dot st={st} size={7} />}{label}</div>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
 
-            {/* Payout summary */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <div className="rounded-2xl p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--warning)" }}>{L("To be paid", "À payer", "Ausstehend")}</p>
-                <p className="text-[24px] font-bold mt-1" style={{ color: "var(--w)" }}>{money(stats.owedEur)}</p>
-              </div>
-              <div className="rounded-2xl p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--success)" }}>{L("Paid", "Payé", "Bezahlt")}</p>
-                <p className="text-[24px] font-bold mt-1" style={{ color: "var(--w)" }}>{money(stats.paidEur)}</p>
-              </div>
-            </div>
-
             {/* Placement list (no nurse PII — date + status only) */}
-            <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <p className="text-[11px] font-semibold uppercase tracking-wide px-4 py-3" style={{ color: "var(--w3)", background: "var(--bg2)" }}>{L("Your placements", "Vos placements", "Ihre Vermittlungen")}</p>
-              {stats.earnings.length === 0 ? (
-                <p className="text-[12.5px] px-4 py-6 text-center" style={{ color: "var(--w3)" }}>{L("No placements yet — keep sharing your link.", "Aucun placement pour l'instant — continuez à partager votre lien.", "Noch keine Vermittlungen — teilen Sie Ihren Link weiter.")}</p>
-              ) : (
-                stats.earnings.map((e, i) => (
-                  <div key={i} className="flex items-center justify-between px-4 py-3" style={{ borderTop: i ? "1px solid var(--border)" : "none" }}>
-                    <span className="text-[12.5px]" style={{ color: "var(--w2)" }}>
-                      {new Date(e.placed_at).toLocaleDateString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB", { year: "numeric", month: "short", day: "numeric" })}
-                    </span>
-                    <span className="flex items-center gap-3">
-                      <span className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{money(e.amount_eur)}</span>
-                      <span className="text-[10.5px] font-semibold px-2 py-1 rounded-full" style={{
-                        background: e.status === "paid" ? "var(--success-bg, rgba(22,163,74,0.14))" : "var(--warning-bg, rgba(245,158,11,0.14))",
-                        color: e.status === "paid" ? "var(--success)" : "var(--warning)",
-                      }}>
+            <h2 style={{ margin: "0 0 6px", fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.2, color: "var(--w)" }}>{L("Your placements", "Vos placements", "Ihre Vermittlungen")}</h2>
+            {stats.earnings.length === 0 ? (
+              <Card><Empty>{L("No placements yet — keep sharing your link.", "Aucun placement pour l'instant — continuez à partager votre lien.", "Noch keine Vermittlungen — teilen Sie Ihren Link weiter.")}</Empty></Card>
+            ) : (
+              <>
+                <div style={{ borderTop: "1px solid var(--border)" }}>
+                  {placements.slice.map((e, i) => (
+                    <div key={`${e.placed_at}-${i}`} className="bvk-row" style={{ padding: "10px 4px" }}>
+                      <span style={{ flex: 1, minWidth: 0, color: "var(--w2)" }}>
+                        {new Date(e.placed_at).toLocaleDateString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB", { year: "numeric", month: "short", day: "numeric" })}
+                      </span>
+                      <span style={{ fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{money(e.amount_eur)}</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 92, fontSize: 12, fontWeight: 600, color: "var(--w)" }}>
+                        <Dot st={e.status === "paid" ? "approved" : "pending"} size={8} />
                         {e.status === "paid" ? L("Paid", "Payé", "Bezahlt") : L("Pending", "En attente", "Ausstehend")}
                       </span>
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
+                    </div>
+                  ))}
+                </div>
+                <Pager page={placements.page} pages={placements.pages} onPage={placements.setPage} />
+              </>
+            )}
 
-            <p className="text-[11px] text-center mt-8" style={{ color: "var(--w3)" }}>
+            <p style={{ margin: "14px 0 0", textAlign: "center", fontSize: 12, color: "var(--w3)" }}>
               {L("Payouts are handled directly by Borivon.", "Les paiements sont gérés directement par Borivon.", "Auszahlungen werden direkt von Borivon abgewickelt.")}{" · "}
-              <a href="mailto:contact@borivon.com" className="no-underline" style={{ color: "var(--gold)" }}>{L("Contact", "Contact", "Kontakt")}</a>
+              <a href="mailto:contact@borivon.com" style={{ color: "var(--w2)", textDecoration: "underline", textUnderlineOffset: 3 }}>{L("Contact", "Contact", "Kontakt")}</a>
             </p>
           </>
         )}
       </main>
     </div>
+  );
+}
+
+/** the six terms in one hairline card: laptop shows all in two columns, the phone flips two at a time (nobody scrolls) */
+function TermsCard({ terms }: { terms: { t: string; b: string }[] }) {
+  const { slice, page, pages, setPage } = usePaged(terms, 6, 2);
+  return (
+    <Card style={{ padding: "18px 20px" }}>
+      <div className="bvaf-terms">
+        {slice.map((s) => (
+          <div key={s.t} style={{ minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--w)" }}>{s.t}</p>
+            <p style={{ margin: "3px 0 0", fontSize: 12.5, lineHeight: 1.55, color: "var(--w2)" }}>{s.b}</p>
+          </div>
+        ))}
+      </div>
+      <Pager page={page} pages={pages} onPage={setPage} />
+    </Card>
   );
 }
