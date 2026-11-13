@@ -582,8 +582,8 @@ export function AdminDocPreviewModal({
                 onClick={onShowPassportData}
                 title={dt.passportData}
                 aria-label={dt.passportData}
-                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-medium px-3 h-8 rounded-full transition-colors"
+                style={{ background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)" }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <rect x="3" y="4" width="18" height="16" rx="2"/>

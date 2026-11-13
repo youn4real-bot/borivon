@@ -4022,9 +4022,7 @@ export default function AdminPage() {
         {/* Passport Info Modal — with approve / reject / edit */}
         {showPassportInfo && (() => {
           const pst = p_info?.passport_status ?? null;
-          const pstBg    = pst === "approved" ? "var(--success-bg)"   : pst === "rejected" ? "var(--danger-bg)"  : "var(--gdim)";
           const pstColor = pst === "approved" ? "var(--success)"                : pst === "rejected" ? "var(--danger)"               : "#f59e0b";
-          const pstBdr   = pst === "approved" ? "var(--success-border)"   : pst === "rejected" ? "var(--danger-border)"   : "var(--border-gold)";
           const pstLabel = pst === "approved"
             ? (lang === "fr" ? "Approuvé" : lang === "de" ? "Genehmigt" : "Approved")
             : pst === "rejected"
@@ -4254,16 +4252,14 @@ export default function AdminPage() {
                 <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
                   style={{ borderBottom: "1px solid var(--border)" }}>
                   <div className="flex items-center gap-2">
-                    <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
-                      <IdCard size={12} strokeWidth={1.8} /> {lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport data"}
+                    <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.15, letterSpacing: "-.01em", color: "var(--w)" }}>
+                      {lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport data"}
                     </p>
                     {/* Status badge — hidden when approved */}
                     {pst !== "approved" && (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-semibold tracking-wide uppercase"
-                        style={{ background: pstBg, color: pstColor, border: `1px solid ${pstBdr}` }}>
-                        {pst === "rejected" ? <XCircle size={11} strokeWidth={2} />
-                          : pst === "pending"  ? <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />
-                          : null}
+                      <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold"
+                        style={{ color: "var(--w2)" }}>
+                        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: pstColor }} />
                         {pstLabel}
                       </span>
                     )}
@@ -4280,8 +4276,8 @@ export default function AdminPage() {
                             setPassportInfoEditMode(true); setPassportInfoEdits({});
                           }
                         }}
-                        className="h-7 px-2 rounded-lg flex items-center gap-1.5 text-xs transition-opacity hover:opacity-70"
-                        style={{ background: passportInfoEditMode ? "var(--info-bg)" : "var(--bg2)", color: passportInfoEditMode ? "var(--info)" : "var(--w3)", border: `1px solid ${passportInfoEditMode ? "var(--info-border)" : "var(--border)"}` }}>
+                        className="h-8 px-3 rounded-full flex items-center gap-1.5 text-[12.5px] font-medium transition-opacity hover:opacity-80"
+                        style={{ background: passportInfoEditMode ? "var(--w)" : "var(--card)", color: passportInfoEditMode ? "var(--bg)" : "var(--w2)", border: `1px solid ${passportInfoEditMode ? "var(--w)" : "var(--border)"}` }}>
                         <FilePen size={11} strokeWidth={1.8} /> {passportInfoEditMode ? "Editing" : "Edit"}
                       </button>
                     )}
@@ -4373,7 +4369,7 @@ export default function AdminPage() {
                   {!p_info ? (
                     <div className="py-10 text-center">
                       <span className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full"
-                        style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", color: "var(--gold)" }}>
+                        style={{ background: "var(--bg2)", color: "var(--w3)" }}>
                         <IdCard size={22} strokeWidth={1.6} />
                       </span>
                       <p className="text-sm font-medium" style={{ color: "var(--w2)" }}>{lang === "fr" ? "Pas encore de données de passeport" : lang === "de" ? "Noch keine Reisepassdaten" : "No passport data yet"}</p>
@@ -4453,7 +4449,7 @@ export default function AdminPage() {
                     <>
                     {pst !== "approved" && (
                       <div className="mb-3 px-1 space-y-1">
-                        <p className="text-[10px]" style={{ color: "var(--warning)" }}>
+                        <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>
                           {lang === "fr" ? "Comparez chaque champ avec le document passeport." : lang === "de" ? "Vergleichen Sie jedes Feld mit dem Reisepassdokument." : "Compare each field against the passport document."}
                         </p>
                         <div className="flex items-center gap-1.5">
@@ -4465,7 +4461,7 @@ export default function AdminPage() {
                             <rect width="16" height="16" rx="3.5" fill="var(--success)"/>
                             <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                          <p className="text-[10px]" style={{ color: "var(--warning)" }}>
+                          <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>
                             {lang === "fr" ? "Cochez toutes les cases pour confirmer, puis Approuver." : lang === "de" ? "Aktivieren Sie alle Kästchen zur Bestätigung, dann Genehmigen." : "Tick every box to confirm, then Approve."}
                           </p>
                         </div>
@@ -4473,14 +4469,14 @@ export default function AdminPage() {
                     )}
                     {passportDisplayGroups.map((group, gi) => (
                       <div key={group.title} className={gi > 0 ? "mt-4" : ""}>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
+                        <p className="text-[11px] font-medium uppercase tracking-[0.08em] mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
                         <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
                           {group.fields.map(f => {
                             if (pst === "approved") {
                               return (
                                 <div key={f.label} className="min-w-0">
-                                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
-                                  <p className="text-[12.5px] font-medium" style={{ color: "var(--w)" }}>{f.value}</p>
+                                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
+                                  <p className="text-[14px]" style={{ color: "var(--w)" }}>{f.value}</p>
                                 </div>
                               );
                             }
@@ -4572,7 +4568,7 @@ export default function AdminPage() {
                           title={!allFilledConfirmed ? `${unconfirmedCount} field${unconfirmedCount !== 1 ? "s" : ""} not yet reviewed` : ""}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
                           style={{ background: "var(--success-bg)", color: "var(--success)" }}>
-                          {passportInfoSaving ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> Approve</>}
+                          {passportInfoSaving ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> {lang === "fr" ? "Approuver" : lang === "de" ? "Genehmigen" : "Approve"}</>}
                         </button>
                         <button
                           // LAW #20: a rejection ALWAYS carries a reason. This
@@ -4590,7 +4586,7 @@ export default function AdminPage() {
                           disabled={passportInfoSaving || pst === "rejected"}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
                           style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
-                          {passportInfoSaving ? "…" : <><XCircle size={13} strokeWidth={1.8} /> Reject</>}
+                          {passportInfoSaving ? "…" : <><XCircle size={13} strokeWidth={1.8} /> {lang === "fr" ? "Refuser" : lang === "de" ? "Ablehnen" : "Reject"}</>}
                         </button>
                       </>
                     ) : null /* approved: download moved to header icon */}

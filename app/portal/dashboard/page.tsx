@@ -5062,8 +5062,7 @@ export default function DashboardPage() {
             <div className="px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
-                    <IdCard size={12} strokeWidth={1.8} />
+                  <p style={{ margin: 0, fontFamily: "var(--font-serif)", fontWeight: 400, fontSize: 22, lineHeight: 1.15, letterSpacing: "-.01em", color: "var(--w)" }}>
                     {t.pPassportTitle}
                   </p>
                   {/* Subtitle ("Review and correct…") removed to save space —
@@ -5091,8 +5090,9 @@ export default function DashboardPage() {
                   </div>
                 ) : isPassportPending ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold"
+                      style={{ color: "var(--w2)" }}>
+                      <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b" }} />
                       {lang === "de" ? "In Prüfung" : lang === "fr" ? "En attente" : "Pending review"}
                     </span>
                     <button onClick={() => setPassportModal(null)}
@@ -5232,7 +5232,7 @@ export default function DashboardPage() {
                   }
                 });
 
-                const inputCls = "w-full rounded-lg px-2.5 py-1.5 text-xs outline-none";
+                const inputCls = "w-full rounded-[10px] px-3 h-10 text-[14px] outline-none";
                 const labelStyle = { color: "var(--w3)" };
 
                 // SVG checkmark icons
@@ -5283,8 +5283,8 @@ export default function DashboardPage() {
                         const display = displayVal(f);
                         return (
                           <div key={f.key} className={f.wide ? "col-span-2" : ""}>
-                            <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
-                            <p className="text-[12.5px] font-medium" style={{ color: display === "—" ? "var(--w3)" : "var(--w)" }}>{display}</p>
+                            <p className="text-[11px] font-medium uppercase tracking-[0.08em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
+                            <p className="text-[14px]" style={{ color: display === "—" ? "var(--w3)" : "var(--w)" }}>{display}</p>
                           </div>
                         );
                       })}
@@ -5296,7 +5296,7 @@ export default function DashboardPage() {
                   <>
                     {/* ── Always-visible orange review note ───────────────── */}
                     <div className="mb-3 px-1 space-y-1">
-                      <p className="text-[10px]" style={{ color: "var(--warning)" }}>
+                      <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>
                         {t.pPassportReviewNote}
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -5304,7 +5304,7 @@ export default function DashboardPage() {
                         {IconUnchecked}
                         <span style={{ color: "#aaa", fontSize: 9 }}>→</span>
                         {IconChecked}
-                        <p className="text-[10px]" style={{ color: "var(--warning)" }}>
+                        <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>
                           {t.pPassportReviewNote2}
                         </p>
                       </div>
@@ -5314,8 +5314,8 @@ export default function DashboardPage() {
                     {fields.map(f => {
                       const missing    = missingKeys.has(f.key);
                       const suspicious = !missing && suspiciousKeys.has(f.key);
-                      const borderColor = missing ? "var(--danger)" : suspicious ? "var(--warning)" : "var(--border2)";
-                      const inputStyle = { background: "var(--bg2)", border: `1px solid ${borderColor}`, color: "var(--w)" };
+                      const borderColor = missing ? "var(--danger)" : suspicious ? "var(--warning)" : "var(--border)";
+                      const inputStyle = { background: "var(--bg)", border: `1px solid ${borderColor}`, color: "var(--w)" };
                       const filled     = !missing;
                       // address_number is optional — allow confirming even when empty
                       const canConfirm = filled || f.key === "address_number";
@@ -5323,7 +5323,7 @@ export default function DashboardPage() {
                       return (
                       <div key={f.key} className={f.wide ? "col-span-2" : ""}>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-medium" style={labelStyle}>
+                          <label className="text-[11.5px] font-medium" style={labelStyle}>
                             {f.label}
                             <span className="ml-1" style={{ color: "var(--danger)" }}>*</span>
                             {f.manual && <FilePen size={10} strokeWidth={1.8} className="inline ml-1 opacity-40" />}
@@ -5331,24 +5331,24 @@ export default function DashboardPage() {
                           {f.key === "issuing_authority" && (
                             <button type="button"
                               onClick={() => setPassportHint("issuing_authority")}
-                              className="text-[9px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
-                              style={{ color: "var(--info)" }}>
+                              className="text-[11px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
+                              style={{ color: "var(--w2)" }}>
                               {t.pWhatIsThis}
                             </button>
                           )}
                           {f.key === "address_street" && (
                             <button type="button"
                               onClick={() => setPassportHint("address_street")}
-                              className="text-[9px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
-                              style={{ color: "var(--info)" }}>
+                              className="text-[11px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
+                              style={{ color: "var(--w2)" }}>
                               {t.pAddrHintBtn}
                             </button>
                           )}
                           {f.key === "address_postal" && (
                             <button type="button"
                               onClick={() => setPassportHint("address_postal")}
-                              className="text-[9px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
-                              style={{ color: "var(--info)" }}>
+                              className="text-[11px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
+                              style={{ color: "var(--w2)" }}>
                               {t.pPostalHintBtn}
                             </button>
                           )}
@@ -5577,7 +5577,7 @@ export default function DashboardPage() {
                   {lang === "fr" ? "Télécharger les données" : lang === "de" ? "Daten herunterladen" : "Download data"}
                 </button>
               ) : isPassportPending ? (
-                <p className="text-[11.5px] py-2 text-center font-medium" style={{ color: "var(--gold)" }}>
+                <p className="text-[13px] py-2 text-center font-medium" style={{ color: "var(--w2)" }}>
                   {lang === "de" ? "Eingereicht — wird geprüft" : lang === "fr" ? "Soumis — en cours de vérification" : "Submitted — under review"}
                 </p>
               ) : (
