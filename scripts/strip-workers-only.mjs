@@ -30,3 +30,26 @@ for (const r of roots) walk(r);
 const left = (() => { let c = 0; const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) w(p); else if (e.name.endsWith(".js") && /(require|import)\(["']@react-pdf\/renderer["']\)/.test(fs.readFileSync(p, "utf8"))) c++; } }; roots.forEach(w); return c; })();
 if (left) { console.error(`strip-workers-only: ${left} file(s) still load "@react-pdf/renderer" — refusing`); process.exit(1); }
 console.log(`strip-workers-only: @react-pdf/renderer cut from ${files} server file(s) (${hits} imports)`);
+
+// 2) The static portal pages (○ in `next build`) are served straight from the edge (scripts/edge-shells.mjs
+// copies their prerendered HTML into the assets), so the worker never renders them. Their page modules
+// were still bundled into the worker and parsed on every cold isolate. Dropping them from the standalone
+// app-paths-manifest keeps OpenNext from bundling them (its requirePage map is built from that manifest).
+// Only routes that are BOTH under /portal AND prerendered — dynamic portal pages stay in the worker.
+const sa = path.join(process.cwd(), ".next", "standalone", ".next", "server", "app-paths-manifest.json");
+const pmFile = path.join(process.cwd(), ".next", "prerender-manifest.json");
+if (fs.existsSync(sa) && fs.existsSync(pmFile)) {
+  const pm = JSON.parse(fs.readFileSync(pmFile, "utf8"));
+  const staticPortal = new Set(Object.keys(pm.routes || {}).filter((r) => r === "/portal" || r.startsWith("/portal/")));
+  const app = path.join(process.cwd(), ".next", "server", "app");
+  const m = JSON.parse(fs.readFileSync(sa, "utf8"));
+  const dropped = [];
+  for (const k of Object.keys(m)) {
+    if (!k.endsWith("/page")) continue;
+    const route = k.slice(0, -"/page".length) || "/";
+    // the edge must really have this page's HTML before the worker lets go of it
+    if (staticPortal.has(route) && fs.existsSync(path.join(app, `${route.slice(1)}.html`))) { delete m[k]; dropped.push(route); }
+  }
+  fs.writeFileSync(sa, JSON.stringify(m));
+  console.log(`strip-workers-only: ${dropped.length} static portal pages left to the edge (${dropped.slice(0, 3).join(", ")}…)`);
+}
