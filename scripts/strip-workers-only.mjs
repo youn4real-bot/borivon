@@ -10,7 +10,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const root = path.join(process.cwd(), ".next", "server");
+// OpenNext bundles from Next's standalone copy (.next/standalone/.next/server), so both copies are cut
+const roots = [path.join(process.cwd(), ".next", "server"), path.join(process.cwd(), ".next", "standalone", ".next", "server")].filter((d) => fs.existsSync(d));
 const NEEDLES = ['import("@react-pdf/renderer")', "import('@react-pdf/renderer')"];
 const STUB = 'Promise.reject(new Error("@react-pdf/renderer is not in the Cloudflare build (use lib/pdflib)"))';
 let files = 0, hits = 0;
@@ -25,7 +26,7 @@ const walk = (dir) => {
     if (n) { fs.writeFileSync(p, s); files++; hits += n; }
   }
 };
-walk(root);
-const left = (() => { let c = 0; const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) w(p); else if (e.name.endsWith(".js") && /require\(["']@react-pdf\/renderer["']\)/.test(fs.readFileSync(p, "utf8"))) c++; } }; w(root); return c; })();
-if (left) { console.error(`strip-workers-only: ${left} file(s) still require("@react-pdf/renderer") statically — refusing`); process.exit(1); }
+for (const r of roots) walk(r);
+const left = (() => { let c = 0; const w = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) w(p); else if (e.name.endsWith(".js") && /(require|import)\(["']@react-pdf\/renderer["']\)/.test(fs.readFileSync(p, "utf8"))) c++; } }; roots.forEach(w); return c; })();
+if (left) { console.error(`strip-workers-only: ${left} file(s) still load "@react-pdf/renderer" — refusing`); process.exit(1); }
 console.log(`strip-workers-only: @react-pdf/renderer cut from ${files} server file(s) (${hits} imports)`);
