@@ -13,6 +13,8 @@ import { TalkView, useTalk, talkDays } from "./Talk";
 import { ProfileCard } from "./Profile";
 import { StartView, useStart } from "./Start";
 import { SalaryView } from "./Salary";
+// "Gehalt" was built without his pick (founder 2026-11-13: "why did you do the Gehalt?") — hidden, not deleted
+const SHOW_SALARY = false as boolean;
 
 /**
  * The nurse's whole way, as the approved premium mock (founder 2026-11-11: "less is more, visuals,
@@ -339,7 +341,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
               </button>
             )}
             {/* her first salary (sample 3): once her first working day is set */}
-            {!!start?.date && (
+            {SHOW_SALARY && !!start?.date && (
               <button type="button" onClick={() => setView("salary")} style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>
                 <span style={{ color: "var(--gold)", display: "inline-flex", fontWeight: 600 }}>€</span>{l === "de" ? "Gehalt" : l === "fr" ? "Salaire" : "Salary"}
               </button>
@@ -458,7 +460,7 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
           { k: "talk", icon: "talk", label: l === "de" ? "Gespräch" : l === "fr" ? "Entretien" : "Interview", on: canEdit && !way.landed },
           { k: "profile", icon: "user", label: l === "de" ? "Profil" : l === "fr" ? "Profil" : "Profile", on: true },
           { k: "start", icon: "bld", label: l === "de" ? "Arbeitsstart" : l === "fr" ? "Premier jour" : "First day", on: canEdit && !way.landed },
-          { k: "salary", icon: "contract", label: l === "de" ? "Gehalt" : l === "fr" ? "Salaire" : "Salary", on: canEdit },
+          { k: "salary", icon: "contract", label: l === "de" ? "Gehalt" : l === "fr" ? "Salaire" : "Salary", on: SHOW_SALARY && canEdit },
           { k: "kp", icon: "kp", label: l === "de" ? "Kenntnisprüfung" : l === "fr" ? "Examen" : "Knowledge test", on: !!marks && (way.landed || !!marks.kp_date) },
         ];
         const shown = tabs.filter((x) => x.on);
