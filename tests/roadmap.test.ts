@@ -443,7 +443,8 @@ describe("the Fahrplan on the website", () => {
     const { pdfLinks } = await import("../lib/roadmap/hosted");
     const bytes = await renderRoadmapPdf({ result: scoreRoadmap(struggling), lang: "de", name: "", facility: "Haus", date: new Date("2026-11-08"), calcUrl: "https://borivon.com/fahrplan/rechner?o=9" });
     const links = await pdfLinks(bytes);
-    expect(links.some((l) => l.url === "https://borivon.com/fahrplan/rechner?o=9")).toBe(true);
+    // founder 2026-11-14: no way out in the middle. The calculator link is gone from the document (it comes by e-mail).
+    expect(links.some((l) => l.url.includes("/fahrplan/rechner"))).toBe(false);
     // founder: no pitch in the PDF, only ONE soft link (to /workshop) on the last page
     const book = links.filter((l) => l.url.includes("/book/") || l.url.includes("/workshop"));
     expect(book.length).toBe(1);
