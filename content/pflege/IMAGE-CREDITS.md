@@ -53,3 +53,4 @@ Shown as "Symbolbilder" in drawn example screens, names invented, no real data.
 2026-11-11: bonus.webp re-cropped (now handshake.webp, renamed so no cache serves the old frame) to the handshake only. The original frame had a pistol lying on the table in front
 (easy to miss at small size). Never use the uncropped photo again; ws/bonus-meet.webp (same photo) removed.
 - founder-youness-v3.webp — the founder’s own new photo (2026-11-14, sent as a file): square crop around the head, 720 px, q84. Replaces v2 on the home page and the workshop page.
+- founder-youness-v4.webp — same photo as v3, relit 2026-11-14 (founder: lighting did not show well): tighter crop, shadows lifted, warmer, slightly less saturated.
