@@ -81,7 +81,7 @@ function sceneHouse(root) {
   const carer = person("nurse"); carer.position.set(2.2, 0, 1.3); carer.rotation.y = -0.55; root.add(carer);
   const walkers = []; for (let i = 0; i < 7; i++) { const n = person("nurse"); n.rotation.y = Math.PI; root.add(n); walkers.push(n); }
   return {
-    fit: 8.6, target: [0, 1.2, 0], radius: 14.6, height: 4.9, low: -0.63, up: 0.1,
+    fit: 8.6, target: [0, 1.2, 0], radius: 14.6, height: 4.9, low: -0.63, up: 0.17,
     update(p, t) {
       const n = 3 + (wins.length - 3) * ss(0.32, 0.9, p);
       wins.forEach((w, i) => { const k = clamp(n - i); w.m.emissiveIntensity = k * (0.62 + 0.06 * Math.sin(t * 2 + i)); w.m.color.lerpColors(dark, lit, k); });
@@ -225,7 +225,9 @@ function makeStage(holder, build, mobile) {
   const track = document.createElement("div"); track.className = "s3d"; const pin = document.createElement("div"); pin.className = "s3d-pin"; track.appendChild(pin);
   const hs = makeStage(pin, sceneHouse, mobile); if (!hs) { document.documentElement.classList.remove("fx3d-on"); return; }
   stage.parentNode.insertBefore(space, stage);
-  const beats = [].map.call(caps ? caps.children : [], (el, i) => { const c = document.createElement("p"); c.className = "s3d-cap"; c.innerHTML = "<b>0" + (i + 1) + "</b>"; c.appendChild(document.createTextNode(el.textContent)); pin.appendChild(c); return c; });
+  const beats = [].map.call(caps ? caps.children : [], (el, i) => { const c = document.createElement("p"); c.className = "s3d-cap"; c.appendChild(document.createTextNode(el.textContent)); pin.appendChild(c); return c; });
+  // the last beat is the promise kept: the button sits right under it
+  const hb = hero.querySelector(".cta .btn"); let endBtn = null; if (hb && beats.length) { endBtn = hb.cloneNode(true); endBtn.classList.add("s3d-go"); beats[beats.length - 1].appendChild(endBtn); }
   if (CAP) document.documentElement.classList.add("cap");
   hero.insertBefore(track, hero.firstChild); hero.classList.add("fx3d");
 
@@ -260,7 +262,8 @@ function makeStage(holder, build, mobile) {
     if (hs.vis || CAP) {
       const p = clamp((scrollY - top) / range); ps = ps < 0 || CAP ? p : ps + (p - ps) * 0.14;
       hs.render(ps, t, ptr, lerp(1.06, 0.94, ss(0.1, 1, ps)), lerp(hs.sc.low, hs.sc.up, ss(0, 0.3, ps)));
-      beats.forEach((b, i) => { const a = 0.36 + i * 0.2, o = win(ps, a, a + 0.2, 0.045); b.style.opacity = o.toFixed(3); b.style.transform = "translateY(" + ((1 - o) * 14).toFixed(1) + "px)"; });
+      beats.forEach((b, i) => { const a = 0.36 + i * 0.2, o = i === beats.length - 1 ? ss(a, a + 0.045, ps) : win(ps, a, a + 0.2, 0.045); b.style.opacity = o.toFixed(3); b.style.transform = "translateY(" + ((1 - o) * 14).toFixed(1) + "px)"; });
+      if (endBtn) endBtn.style.pointerEvents = ps > 0.8 ? "auto" : "none";
     }
     if (pain && (pain.vis || CAP)) {
       const sr = psec.getBoundingClientRect(), L = clamp(-sr.top / Math.max(1, sr.height - innerHeight)) * 5.5;

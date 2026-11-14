@@ -40,3 +40,9 @@ html.cap .mcta{display:none!important}
 .fx-step-cap small{flex-basis:100%;font-size:1.05rem;color:#4a453c}
 .fx-steps .steps-foot{justify-content:center;margin-top:22px}
 @media (max-width:900px){.fx-steps-box{height:34vh}.fx-steps .hp{display:none}}
+/* the hero ends on its button: clicks pass through the empty scroll room to it */
+.hero.fx3d>.c{pointer-events:none}
+.hero.fx3d>.c>*{pointer-events:auto}
+.hero.fx3d>.c>.s3d-space{pointer-events:none}
+.s3d-cap .s3d-go{display:flex;width:max-content;margin:22px auto 0;font-style:normal;letter-spacing:.005em;pointer-events:none}
+@media (max-width:640px){.s3d-cap{bottom:7vh}}
