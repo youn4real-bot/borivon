@@ -11,6 +11,7 @@ import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { CHECKLIST_ITEMS } from "@/lib/candidateChecklist";
 import { PageHead, Btn, Card, Seg, Dot, Field, Empty, Pager, usePaged, STATUS_DOT, STATUS_TINT } from "@/components/fx/kit";
+import QrCode from "@/components/QrCode";
 
 const t = {
   en: {
@@ -1178,14 +1179,9 @@ export default function OrganizationsPage() {
             <Btn kind="quiet" icon onClick={() => setQrModal(null)} title={T.close} aria-label={T.close}><XIcon size={18} strokeWidth={1.6} /></Btn>
           </div>
           <div style={{ overflowY: "auto", minHeight: 0, padding: "14px 22px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=ffffff&color=15130f&data=${encodeURIComponent(qrModal.url)}`}
-              alt="QR code"
-              width={200}
-              height={200}
-              style={{ borderRadius: 12, border: "1px solid var(--border)", width: "clamp(140px, 30dvh, 200px)", height: "auto", objectFit: "contain" }}
-            />
+            {/* drawn in the browser (lib/qr): the single-use invite link never goes to a QR web service */}
+            <QrCode value={qrModal.url} label="QR code"
+              style={{ borderRadius: 12, border: "1px solid var(--border)", width: "clamp(140px, 30dvh, 200px)", height: "auto" }} />
             <p style={{ margin: 0, fontSize: 11.5, color: "var(--w3)", textAlign: "center", wordBreak: "break-all" }}>{qrModal.url}</p>
             <p style={{ margin: 0, fontSize: 12, color: "var(--w3)", textAlign: "center" }}>{T.singleUseWarning}</p>
             <div style={{ display: "flex", gap: 8, width: "100%", marginTop: 4 }}>

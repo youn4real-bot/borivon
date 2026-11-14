@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { encodeQr, qrPng } from "@/lib/qr";
 
 /** GET /api/portal/qr?data=<url>&label=<label>
- *  Proxies the QR image from api.qrserver.com so the browser can download it
- *  without CORS issues (cross-origin fetch → blob download).
+ *  The invite QR as a PNG download, generated in-process (lib/qr). It used to
+ *  proxy api.qrserver.com, which handed every single-use invite token to a
+ *  third party.
  *
- *  Auth-gated: any signed-in portal user can request a QR for arbitrary data.
- *  This is a soft gate to prevent the route being used as an open relay /
- *  abuse vector against api.qrserver.com — it does not restrict WHAT data
- *  callers can encode.
+ *  Auth-gated: any signed-in portal user can request a QR for an http(s) URL.
+ *  The gate, length cap and rate limit keep it from being a free image
+ *  service — they do not restrict WHAT URL callers can encode.
  */
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
@@ -37,15 +38,8 @@ export async function GET(req: NextRequest) {
   const rl = await enforceUserRateLimit("qr", `u:${auth.userId}`, { limit: 30, windowMs: 60000 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
-  const qrUrl =
-    `https://api.qrserver.com/v1/create-qr-code/?size=400x400` +
-    `&bgcolor=ffffff&color=15130f` +
-    `&data=${encodeURIComponent(data)}`;
-
-  const imgRes = await fetch(qrUrl);
-  if (!imgRes.ok) return NextResponse.json({ error: "QR fetch failed" }, { status: 502 });
-
-  const buf = await imgRes.arrayBuffer();
+  // drawn here (lib/qr) — this route must never fetch: the URL is a single-use invite token
+  const buf = await qrPng(encodeQr(data));
   const filename = label.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "_") + "_qr.png";
 
   return new Response(buf, {
