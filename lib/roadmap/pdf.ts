@@ -91,7 +91,8 @@ export function roadmapPageCount(_level: Level, timeline = false, platform = fal
 type Fonts = { reg: DocFont; med: DocFont; semi: DocFont };
 type Tone = "paper" | "night";
 
-/** The motto, word for word (German only: it is how Borivon describes itself). */
+/** The motto. No longer printed (founder 2026-11-14). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MOTTO = "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.";
 
 export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Array> {
@@ -197,6 +198,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       page.drawSvgPath(P([[cx, cy - t2 - hgt], [cx + w2, cy - hgt], [cx, cy + t2 - hgt], [cx - w2, cy - hgt]]), { ...o, color: hexColor("#2b2722") });
     }
   };
+  const COPY = `© ${input.date.getFullYear()} Borivon LLC`;
   const tagLine = `${t.title}  ·  ${sn(lv)}: ${levelName(lv)}`.toUpperCase();
 
   // ── 1 · cover: night, a big title, their level, the five steps ────────────
@@ -226,9 +228,10 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       const who = `${t.for} ${input.name}`;
       s.text(who, PW - M - measure(who, F.reg, 11.5), base - 6, F.reg, 11.5, FG);
     }
-    s.hline(M, PW - M, PH - 92, NIGHT_LINE, 0.8);
-    if (lang === "de") para(s, MOTTO, M, PH - 74, W - 40, F.reg, 8.5, MUTED_NIGHT, 1.55);
-    else s.text("borivon.com", M, PH - 74, F.reg, 8.5, MUTED_NIGHT);
+    // the same footer as every other page (founder 2026-11-14: no motto, the logo and a small copyright line)
+    s.hline(M, PW - M, PH - 54, NIGHT_LINE, 0.8);
+    wordmark(fr.page, M, PH - 44, 12, FG);
+    s.text(COPY, PW - M - measure(COPY, F.reg, 7, 0.4), PH - 40, F.reg, 7, MUTED_NIGHT, 0.4);
   }
 
   // ── 2 · the 5 levels as a staircase, "you are here" on theirs ─────────────
@@ -595,8 +598,9 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       const fc = bottom === "paper" ? INK : FG;
       s.hline(M, M + W, PH - 54, bottom === "paper" ? LINE : NIGHT_LINE, 0.8);
       wordmark(page, M, PH - 44, 12, fc);
-      const pn = String(no).padStart(2, "0");
-      s.text(pn, PW - M - measure(pn, F.med, 8.5, 0.6), PH - 41, F.med, 8.5, bottom === "paper" ? MUTED : MUTED_NIGHT, 0.6);
+      const pn = String(no).padStart(2, "0"), pnW = measure(pn, F.med, 8.5, 0.6), fm = bottom === "paper" ? MUTED : MUTED_NIGHT;
+      s.text(pn, PW - M - pnW, PH - 41, F.med, 8.5, fm, 0.6);
+      s.text(COPY, PW - M - pnW - 14 - measure(COPY, F.reg, 7, 0.4), PH - 40, F.reg, 7, fm, 0.4);
     }
     const refs = links.get(page);
     if (refs?.length) page.node.set(PDFName.of("Annots"), doc.context.obj(refs));
