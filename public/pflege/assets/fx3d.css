@@ -1,0 +1,42 @@
+/* 3D hero: a pinned WebGL stage behind the hero; the page scrolls, the scene tells the story. */
+.hero.fx3d{position:relative}
+.hero.fx3d>.c{position:relative;z-index:1}
+html.fx3d-on .hero .stage{visibility:hidden;height:230vh;margin-top:0}
+html.fx3d-on .hero .caps3{visibility:hidden}
+.hero.fx3d .stage,.hero.fx3d .caps3{display:none!important}
+.s3d-space{height:230vh;pointer-events:none}
+.s3d{position:absolute;top:0;left:0;right:0;z-index:0;pointer-events:none}
+.s3d-pin{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden}
+.s3d-pin canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.s3d-cap{position:absolute;left:0;right:0;bottom:8.5vh;margin:0;padding:0 20px;text-align:center;opacity:0;will-change:opacity,transform;font:italic 400 clamp(1.5rem,1.05rem + 1.7vw,2.6rem)/1.2 "EB Garamond",Georgia,serif;letter-spacing:-.01em;color:#15130f;text-wrap:balance}
+.s3d-cap b{display:block;margin:0 0 12px;font:500 11.5px/1 Inter,sans-serif;font-style:normal;letter-spacing:.16em;text-transform:uppercase;color:#8a6a28}
+@media (max-width:640px){.s3d-cap{bottom:11vh}}
+html.cap *{transition:none!important;animation:none!important}
+html.cap .nav{transform:none!important}
+html.cap .mcta{display:none!important}
+
+/* the problem, pinned: the scene is big, the five lines light one by one as you scroll */
+.sec.fx-pain{padding:0;height:340vh}
+.sec.fx-pain>.c{position:sticky;top:0;height:100vh;height:100svh;align-items:center;align-content:center;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(24px,4vw,72px)}
+.sec.fx-pain .stick{position:static}
+.fx-pain .media.fx3d-box{background:none;aspect-ratio:auto;height:min(58vh,560px);margin:8px 0 0;overflow:visible;border-radius:0}
+.fx-pain .media.fx3d-box .pi{display:none}
+.fx-pain .media.fx3d-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.js .fx-pain .lines li{color:#cdc6b8;transition:color .5s}
+.js .fx-pain .lines li.fx-on{color:#15130f}
+.fx-pain .after,.fx-pain .after+p{transition:opacity .6s!important}
+.fx-pain:not(.fx-end) .after,.fx-pain:not(.fx-end) .after+p{opacity:0!important}
+@media (max-width:900px){.sec.fx-pain>.c{grid-template-columns:1fr;gap:6px;padding-top:56px}.fx-pain .media.fx3d-box{height:33vh}.fx-pain .small{display:none}.fx-pain .lines li{font-size:1.32rem}.fx-pain .after{margin-top:14px;font-size:.95rem}}
+/* the five levels, pinned: a staircase the nurses climb; the cards stay in the page for screen readers */
+.sec.fx-steps{padding:0;height:270vh}
+.sec.fx-steps>.c{position:sticky;top:0;height:100vh;height:100svh;display:flex;flex-direction:column;justify-content:center}
+.fx-steps .head2{margin-bottom:0}
+.fx-steps .steps5{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.fx-steps-box{position:relative;height:min(46vh,440px);margin-top:4px}
+.fx-steps-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.fx-step-cap{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:6px 16px;min-height:3.2em;margin:4px 0 0;text-align:center;color:#15130f}
+.fx-step-cap b{font:400 clamp(2.2rem,1.6rem + 1.6vw,3.2rem)/1 "EB Garamond",Georgia,serif;color:#8a6a28}
+.fx-step-cap span{font:500 clamp(1.6rem,1.2rem + 1.2vw,2.3rem)/1.1 "EB Garamond",Georgia,serif;letter-spacing:-.01em}
+.fx-step-cap small{flex-basis:100%;font-size:1.05rem;color:#4a453c}
+.fx-steps .steps-foot{justify-content:center;margin-top:22px}
+@media (max-width:900px){.fx-steps-box{height:34vh}.fx-steps .hp{display:none}}
