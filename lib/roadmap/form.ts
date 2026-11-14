@@ -75,6 +75,9 @@ export type FormV2 = {
   datum: string;
   haben: (keyof typeof HABEN)[];
   wer: (typeof WER)[number];
+  /** The exact number of missing nurses the visitor set in the tool on the home page (1–50). Only sent when they
+   *  kept the matching need range; 0 / absent = not known, the range's average is used. */
+  fehlen?: number;
 };
 
 const one = <T extends string>(v: unknown, list: readonly T[], dflt: T): T => (list.includes(v as T) ? (v as T) : dflt);
@@ -106,6 +109,7 @@ export function normalizeForm(a: Record<string, unknown>): FormV2 {
     datum: start === "date" ? datum : "",
     haben: many(a.haben, keys(HABEN)),
     wer: one(a.wer, WER, "me"),
+    fehlen: typeof a.fehlen === "number" && Number.isInteger(a.fehlen) && a.fehlen >= 1 && a.fehlen <= 50 ? a.fehlen : 0,
   };
 }
 
@@ -126,6 +130,7 @@ export function facilityTypeOf(f: FormV2): FacilityType {
  * over the year, about half of it is open at any one time.
  */
 export function openPostsOf(f: FormV2): number {
+  if (f.fehlen && f.fehlen > 0) return f.fehlen; // their own number from the home tool
   return Math.max(1, Math.ceil(MID_BEDARF[f.bedarf] / 2));
 }
 
@@ -205,7 +210,7 @@ export const BANDS: Record<FormV2["bedarf"], L> = {
 };
 /** The "how we count" line on the numbers page: where the open posts come from. */
 export const BEDARF_LINE: Record<keyof L, (f: FormV2) => string> = {
-  de: (f) => `Ihr Bedarf: ${BANDS[f.bedarf].de} Fachkräfte in 12 Monaten. Übers Jahr verteilt sind im Schnitt etwa ${openPostsOf(f)} Stellen gleichzeitig leer.`,
-  en: (f) => `Your need: ${BANDS[f.bedarf].en} nurses in 12 months. Spread over the year, about ${openPostsOf(f)} posts are empty at the same time.`,
-  fr: (f) => `Votre besoin : ${BANDS[f.bedarf].fr} infirmières en 12 mois. Sur l'année, environ ${openPostsOf(f)} postes sont vides en même temps.`,
+  de: (f) => f.fehlen ? (f.fehlen === 1 ? "Ihre Angabe: 1 Pflegefachkraft fehlt Ihnen jetzt." : `Ihre Angabe: ${f.fehlen} Pflegefachkräfte fehlen Ihnen jetzt.`) : `Ihr Bedarf: ${BANDS[f.bedarf].de} Fachkräfte in 12 Monaten. Übers Jahr verteilt sind im Schnitt etwa ${openPostsOf(f)} Stellen gleichzeitig leer.`,
+  en: (f) => f.fehlen ? (f.fehlen === 1 ? "Your figure: 1 nurse is missing right now." : `Your figure: ${f.fehlen} nurses are missing right now.`) : `Your need: ${BANDS[f.bedarf].en} nurses in 12 months. Spread over the year, about ${openPostsOf(f)} posts are empty at the same time.`,
+  fr: (f) => f.fehlen ? (f.fehlen === 1 ? "Votre chiffre : il vous manque 1 infirmière aujourd'hui." : `Votre chiffre : il vous manque ${f.fehlen} infirmières aujourd'hui.`) : `Votre besoin : ${BANDS[f.bedarf].fr} infirmières en 12 mois. Sur l'année, environ ${openPostsOf(f)} postes sont vides en même temps.`,
 };
