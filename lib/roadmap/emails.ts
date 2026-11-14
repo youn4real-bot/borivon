@@ -86,27 +86,27 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
     de: {
       subject: "Bitte bestätigen: Ihr Pflege-Fahrplan",
       lines: [
-        `fast geschafft. Bitte bestätigen Sie Ihre E-Mail-Adresse mit einem Klick. Danach schicken wir Ihnen sofort Ihren Fahrplan${fac ? ` für ${fac}` : ""} als PDF.`,
+        `fast geschafft. Bitte bestätigen Sie Ihre E-Mail-Adresse mit einem Klick. Danach öffnet sich Ihr Fahrplan${fac ? ` für ${fac}` : ""} sofort. Eine Kopie schicken wir Ihnen zusätzlich per E-Mail.`,
       ],
-      btn: "Ja, Fahrplan senden",
+      btn: "Fahrplan jetzt öffnen",
       notYou: "Sie haben das nicht angefordert? Dann ignorieren Sie diese E-Mail einfach. Wir schreiben Ihnen nicht wieder.",
       bye: BYE.de,
     },
     en: {
       subject: "Please confirm: your nurse staffing roadmap",
       lines: [
-        `almost done. Please confirm your email address with one click. Then we send you your roadmap${fac ? ` for ${fac}` : ""} as a PDF right away.`,
+        `almost done. Please confirm your email address with one click. Then your roadmap${fac ? ` for ${fac}` : ""} opens right away. We also send a copy to your inbox.`,
       ],
-      btn: "Yes, send my roadmap",
+      btn: "Open my roadmap now",
       notYou: "You did not ask for this? Then just ignore this email. We will not write to you again.",
       bye: BYE.en,
     },
     fr: {
       subject: "Merci de confirmer : votre plan infirmier",
       lines: [
-        `c'est presque fini. Merci de confirmer votre adresse e-mail en un clic. Ensuite, nous vous envoyons tout de suite votre plan${fac ? ` pour ${fac}` : ""} en PDF.`,
+        `c'est presque fini. Merci de confirmer votre adresse e-mail en un clic. Ensuite, votre plan${fac ? ` pour ${fac}` : ""} s'ouvre tout de suite. Nous vous en envoyons aussi une copie par e-mail.`,
       ],
-      btn: "Oui, envoyer mon plan",
+      btn: "Ouvrir mon plan",
       notYou: "Vous n'avez rien demandé ? Ignorez simplement cet e-mail. Nous ne vous écrirons plus.",
       bye: BYE.fr,
     },

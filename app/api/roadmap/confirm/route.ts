@@ -7,6 +7,7 @@ import { setListSubscribed } from "@/lib/roadmap/resendList";
 import { clientIp } from "@/lib/roadmap/consent";
 import { deliverRoadmap, leadLang } from "@/lib/roadmap/delivery";
 import { lastDelivered, supersedeOlder } from "@/lib/roadmap/repeat";
+import { viewLink } from "@/lib/roadmap/hosted";
 import { keepAlive } from "@/lib/keepAlive";
 import { trackServer } from "@/lib/track/server";
 
@@ -19,32 +20,35 @@ import { trackServer } from "@/lib/track/server";
  * worthless as proof of consent under §7 UWG.
  *
  * After the POST, and only then (founder, 2026-11-07): the contact is
- * subscribed on the Resend list and the Fahrplan PDF goes out. Rendering takes
- * 4-10 s on Workers, so it runs after the answer page (keepAlive); a failed
- * send is retried by the daily job.
+ * subscribed on the Resend list and the Fahrplan PDF goes out.
+ *
+ * Since 2026-11-14 (founder: "once they click and verify, they get their roadmap immediately"): the POST
+ * answers with a redirect to the viewer page (/fahrplan/plan, signed link), which renders the plan itself
+ * if it is not stored yet. The e-mail still goes out after the answer (keepAlive) as the copy to keep; a
+ * failed send is retried by the daily job. Nobody waits on an inbox any more.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const TXT = {
   de: {
-    ask: ["Fahrplan anfordern", "Ein Klick, und wir schicken Ihnen Ihren Fahrplan als PDF."], btn: "Ja, Fahrplan senden",
-    done: ["Bestätigt", "Danke! Ihr Fahrplan ist unterwegs. In ein paar Minuten ist er in Ihrem Postfach."],
-    sent: ["Schon bestätigt", "Ihr Fahrplan ist schon in Ihrem Postfach. Nichts da? Schauen Sie im Spam-Ordner nach."],
+    ask: ["Ihr Fahrplan ist fertig", "Ein Klick, und er öffnet sich sofort hier. Eine Kopie schicken wir Ihnen zusätzlich per E-Mail."], btn: "Fahrplan jetzt öffnen",
+    done: ["Ihr Fahrplan ist fertig", "Er öffnet sich hier, sofort. Eine Kopie ist auf dem Weg in Ihr Postfach."],
+    sent: ["Ihr Fahrplan ist fertig", "Öffnen Sie ihn hier. Eine Kopie liegt auch in Ihrem Postfach."], open: "Fahrplan öffnen",
     off: ["Abgemeldet", "Sie haben sich abgemeldet. Wir schicken Ihnen nichts mehr."],
     err: "Kurzer Fehler. Bitte noch einmal klicken.",
   },
   en: {
-    ask: ["Get your roadmap", "One click and we send you your roadmap as a PDF."], btn: "Yes, send my roadmap",
-    done: ["Confirmed", "Thank you! Your roadmap is on its way. It will be in your inbox in a few minutes."],
-    sent: ["Already confirmed", "Your roadmap is already in your inbox. Nothing there? Check your spam folder."],
+    ask: ["Your roadmap is ready", "One click and it opens right here. We also send a copy to your inbox."], btn: "Open my roadmap now",
+    done: ["Your roadmap is ready", "It opens here, right away. A copy is on its way to your inbox."],
+    sent: ["Your roadmap is ready", "Open it here. A copy is in your inbox as well."], open: "Open my roadmap",
     off: ["Unsubscribed", "You unsubscribed. We will not send you anything else."],
     err: "Small error. Please click again.",
   },
   fr: {
-    ask: ["Recevoir votre plan", "Un clic, et nous vous envoyons votre plan en PDF."], btn: "Oui, envoyer mon plan",
-    done: ["C'est confirmé", "Merci ! Votre plan est en route. Il sera dans votre boîte mail dans quelques minutes."],
-    sent: ["Déjà confirmé", "Votre plan est déjà dans votre boîte mail. Rien reçu ? Regardez dans les spams."],
+    ask: ["Votre plan est prêt", "Un clic, et il s'ouvre ici, tout de suite. Nous vous en envoyons aussi une copie par e-mail."], btn: "Ouvrir mon plan",
+    done: ["Votre plan est prêt", "Il s'ouvre ici, tout de suite. Une copie arrive dans votre boîte mail."],
+    sent: ["Votre plan est prêt", "Ouvrez-le ici. Une copie est aussi dans votre boîte mail."], open: "Ouvrir mon plan",
     off: ["Désabonné", "Vous vous êtes désabonné. Nous ne vous enverrons plus rien."],
     err: "Petite erreur. Merci de réessayer.",
   },
@@ -69,7 +73,7 @@ export async function GET(req: NextRequest) {
   if (!x) return invalid();
   const T = TXT[x.lang];
   if (x.d.unsubscribedAt) return linkPage(x.lang, T.off[0], T.off[1]);
-  if (x.d.consent?.confirmedAt) { const m = x.d.delivery?.sentAt ? T.sent : T.done; return linkPage(x.lang, m[0], m[1]); }
+  if (x.d.consent?.confirmedAt) { const m = x.d.delivery?.sentAt ? T.sent : T.done; return linkPage(x.lang, m[0], m[1], 200, undefined, { label: T.open, href: await viewLink(x.id, x.lang, "plan") }); }
   return linkPage(x.lang, T.ask[0], T.ask[1], 200, { label: T.btn });
 }
 
@@ -95,7 +99,9 @@ export async function POST(req: NextRequest) {
       } else console.error("[roadmap] list subscribe failed:", r.status ?? "no key/network");
     }
   }
-  if (d.delivery?.sentAt) return linkPage(x.lang, T.sent[0], T.sent[1]);
+  // straight to the plan on the website (303: the browser follows with a GET)
+  const open = () => viewLink(x.id, x.lang, "plan").then((to) => new Response(null, { status: 303, headers: { location: to, "cache-control": "no-store" } }));
+  if (d.delivery?.sentAt) return open();
   // the PDF: first click, or a retry after a failed send (not twice in 30 min)
   if (deliveryDue(d, new Date())) {
     const lead = { id: x.id, email: x.email, details: d };
@@ -109,5 +115,5 @@ export async function POST(req: NextRequest) {
       await deliverRoadmap(x.db, lead);
     });
   }
-  return linkPage(x.lang, T.done[0], T.done[1]);
+  return open();
 }
