@@ -36,7 +36,7 @@ const pages = {};
 // ── shared design system: content/pflege/bv.css + bv.js → public/pflege/assets, cache-busted (?v=hash) ──
 // A page opts in with <!--BV--> in its <head> and <!--BVJS--> before </body>.
 const BV = {};
-for (const f of ["bv.css", "bv.js", "fx3d.css", "fx3d.js"]) {
+for (const f of ["bv.css", "bv.js"]) {
   const src = fs.readFileSync(path.join(SRC, f), "utf8");
   fs.writeFileSync(path.join(OUT, "pflege", "assets", f), src);
   BV[f] = `/pflege/assets/${f}?v=${crypto.createHash("sha1").update(src).digest("hex").slice(0, 8)}`;
@@ -47,9 +47,6 @@ const BV_HEAD = `<script>document.documentElement.classList.add('js');setTimeout
 <link rel="preload" href="/pflege/assets/fonts/ebgaramond-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${BV["bv.css"]}">`;
 function bv(s) {
-  // <!--FX3D--> (head) + <!--FX3DJS--> (before </body>): the page gets the clay scenes (content/pflege/fx3d.js).
-  // The class goes on early so the hero keeps its room and nothing jumps; it comes off if the scenes never start.
-  s = s.split("<!--FX3D-->").join(`<link rel="stylesheet" href="${BV["fx3d.css"]}"><script>if(window.WebGLRenderingContext&&!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches)){document.documentElement.classList.add("fx3d-on");setTimeout(function(){if(!window.__fx)document.documentElement.classList.remove("fx3d-on")},7000)}</script>`).split("<!--FX3DJS-->").join(`<script type="module" src="${BV["fx3d.js"]}"></script>`);
   return s.replace("<!--BV-->", BV_HEAD).replace("<!--BVJS-->", `<script src="${BV["bv.js"]}"></script>`);
 }
 
