@@ -383,14 +383,20 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
       icon(page, ic, M, y - 1, 15, on(PAPER));
       y = para(s, txt, M + 26, y, W - 26, F.reg, 9.3, MUTED, 1.5) + 7;
     }
-    // the calculator band (like acquisition.com's "Got it? Let's start" bar)
-    const bandTop = Math.max(y + 16, PH - 218);
+    // No way out in the middle of the document (founder 2026-11-14: a button here "takes them far from the last
+    // page we want them to have", the workshop). The calculator left this page and comes by e-mail later.
+    // The band pulls to the next page instead; the only links are on the last pages (workshop, platform).
+    const bandTop = Math.max(y + 16, PH - 172);
     s.rect(0, bandTop, PW, PH - bandTop, NIGHT);
     fr.bottom = "night";
-    const cl = calcLinkFor(input, lang, result);
-    let by = disp(page, H, SU.calcH, M, bandTop + 28, W, 25, FG, 1.1, -0.012);
-    by = para(s, t.ownNumbers, M, by + 6, W, F.reg, 10.5, MUTED_NIGHT, 1.5) + 14;
-    button(page, s, t.calcBtn, M, by, PAPER, INK, GOLD_D, cl, 12);
+    const NEXT = ({
+      de: ["Nächste Seite", "Bis wann Sie starten müssen.", "Ihre nächsten Schritte."],
+      en: ["Next page", "When you have to start.", "Your next steps."],
+      fr: ["Page suivante", "Quand vous devez commencer.", "Vos prochaines étapes."],
+    } as Record<Lang, string[]>)[lang];
+    caps(s, NEXT[0], M, bandTop + 30, 8, MUTED_NIGHT);
+    disp(page, H, input.form ? NEXT[1] : NEXT[2], M, bandTop + 50, W - 70, 25, FG, 1.1, -0.012);
+    arrow(page, PW - M - 34, bandTop + 66, 30, GOLD, 1.5);
   }
 
   // ── 6b · the personal deadline (only with the v2 form) ────────────────────
@@ -600,6 +606,7 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
 }
 
 /** The calculator link: the personal one when given, else a generic one. */
+void calcLinkFor;
 function calcLinkFor(input: RoadmapPdfInput, lang: Lang, result: RoadmapResult): string {
   return input.calcUrl || `https://borivon.com/fahrplan/rechner?lang=${lang}&f=${result.facilityType}`;
 }
