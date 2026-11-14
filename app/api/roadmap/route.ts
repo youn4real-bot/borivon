@@ -79,10 +79,12 @@ export async function POST(req: NextRequest) {
   // Same email, already confirmed before → no second confirm mail (lib/roadmap/repeat.ts)
   // Founder 2026-11-14: always the same way for everyone: confirm mail first, the click opens the plan.
   // His own test mailbox is never treated as known, so every test runs the full flow (and is never refused).
-  const prior = form && !isTestMailbox(email) ? await findConfirmedPrior(db, email) : null;
+  const known = form && !isTestMailbox(email) ? await findConfirmedPrior(db, email) : null;
   // One Fahrplan per address (founder 2026-11-14): an address that already confirmed and got its plan is told so,
   // politely, and nothing new is made. Only the founder's own test mailbox may ask again and again (repeat.ts path).
-  if (prior) return NextResponse.json({ error: "already_used" }, { status: 409 });
+  if (known) return NextResponse.json({ error: "already_used" }, { status: 409 });
+  // nobody skips the confirm mail any more; the repeat path below stays for the day that changes
+  const prior = null as { id: string; delivered: boolean } | null;
   // where this visitor came from (tracked link / utm / referrer), for the founder's analytics
   const track = readTrack(body.track);
   const details = {
