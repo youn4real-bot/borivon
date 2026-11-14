@@ -271,6 +271,8 @@ function isFree(m){var s=String(m||'').trim().toLowerCase(),k=s.lastIndexOf('@')
 var lang='de';
 // consent starts EMPTY (never pre-ticked); only the visitor's own click sets it.
 var A={kontakt:{anrede:'',vor:'',nach:'',mail:'',consent: false}},hist=[],i=0,err='',busy=false;
+/* from the home tool: their number of missing nurses pre-selects the matching range (they can change it) */
+try{var KXN=parseInt(new URLSearchParams(location.search).get('n'),10);if(KXN>0&&KXN<=50)A.bedarf=KXN<=5?'1-5':KXN<=10?'6-10':KXN<=25?'11-25':'26-50'}catch(e){}
 
 // The questions. c = part (0–3, 4 = contact); when = shown only if true. Answers are short codes (lib/roadmap/form.ts).
 function o(map,vis){return Object.keys(map).map(function(k){return [k,map[k],vis?vis[k]:null]})}
