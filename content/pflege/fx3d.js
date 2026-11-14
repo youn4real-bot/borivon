@@ -190,18 +190,36 @@ function scenePain(root) {
   };
 }
 
+/* ───────── scene: the Fahrplan. Three real pages open like a fan as the section comes in ───────── */
+function sceneSheets(root) {
+  const L = new THREE.TextureLoader(), sheets = ["fp-steps", "fp-cover", "fp-numbers"].map((n, i) => {
+    const g = new THREE.Group(), tx = L.load("/pflege/assets/home/" + n + ".webp?v=2"); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8;
+    g.add(mesh(new THREE.BoxGeometry(1.5, 2.12, 0.02), mat(0xffffff)));
+    const f = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.12), new THREE.MeshBasicMaterial({ map: tx })); f.position.z = 0.012; g.add(f); root.add(g); return g; });
+  const n = person("nurse"); n.position.set(1.95, 0, 0.9); n.rotation.y = -0.5; root.add(n);
+  return {
+    fit: 4.9, target: [0, 1.08, 0], radius: 9.4, height: 1.5,
+    update(p, t) {
+      const e = ss(0.05, 0.6, p);
+      sheets.forEach((g, i) => { const k = i - 1; g.position.set(k * 1.12 * e, 1.08 + Math.sin(t * 1.1 + i * 1.7) * 0.03, k === 0 ? 0.25 : -0.12 * e); g.rotation.set(-0.06, -k * 0.42 * e, k * 0.02); });
+      n.scale.setScalar(ss(0.3, 0.6, p)); n.visible = p > 0.3;
+      root.rotation.y = lerp(-0.35, 0.18, ss(0, 1, p));
+    },
+  };
+}
+
 /* ───────── stages ───────── */
-function makeStage(holder, build, mobile) {
+function makeStage(holder, build, mobile, night) {
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" }); } catch (e) { return null; }
   holder.appendChild(renderer.domElement);
   renderer.setClearColor(0x000000, 0); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(26, 1, 0.1, 100), root = new THREE.Group(); scene.add(root);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc4ad, 1.55));
-  const sun = new THREE.DirectionalLight(0xfff1dc, 2.1); sun.position.set(5.5, 9, 6.5); sun.castShadow = true; sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); sun.shadow.radius = 5; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+  scene.add(night ? new THREE.HemisphereLight(0x8fa0c8, 0x1a1712, 0.5) : new THREE.HemisphereLight(0xffffff, 0xcfc4ad, 1.55));
+  const sun = new THREE.DirectionalLight(night ? 0xbfcdf0 : 0xfff1dc, night ? 0.55 : 2.1); sun.position.set(5.5, 9, 6.5); sun.castShadow = true; sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); sun.shadow.radius = 5; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
   Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 30 }); scene.add(sun);
   const sc = build(root, mobile);
-  if (!sc.points) { const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.16 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.14; floor.receiveShadow = true; scene.add(floor); }
+  if (!sc.points && !night) { const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.16 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.14; floor.receiveShadow = true; scene.add(floor); }
   const st = { sc, W: 1, H: 1, dpr: 1, vis: true,
     resize() { st.W = holder.clientWidth || 1; st.H = holder.clientHeight || 1; st.dpr = Math.min(devicePixelRatio || 1, 2); renderer.setPixelRatio(st.dpr); renderer.setSize(st.W, st.H, false); cam.aspect = st.W / st.H; },
     render(p, t, ptr, zoom, offFrac) {
@@ -246,10 +264,24 @@ function makeStage(holder, build, mobile) {
     } else box.remove();
   }
 
+  // the Fahrplan section: its flat page becomes the three real pages
+  const pg1 = document.querySelector("figure.page1"); let sheets = null; if (pg1) { sheets = makeStage(pg1, sceneSheets, mobile); if (sheets) pg1.classList.add("fx-sheets"); }
+  // the ending: the same home, at night, every window lit
+  const fin = document.querySelector(".final .c"); let night = null, nbox = null;
+  if (fin) { nbox = document.createElement("div"); nbox.className = "fx-night-box"; fin.insertBefore(nbox, fin.firstChild); night = makeStage(nbox, sceneHouse, mobile, true); if (night) fin.parentNode.classList.add("fx-night"); else nbox.remove(); }
+  // the platform picture leans in as it arrives, its bars fill; the three numbers count up
+  const duo = document.querySelector(".duo-box"); if (duo) duo.classList.add("fx-duo");
+  [].forEach.call(document.querySelectorAll(".stats b"), (b) => {
+    const m = b.textContent.match(/^(d+)(.*)$/); if (!m || CAP) return; const end = +m[1], suf = m[2]; b.textContent = "0" + suf;
+    new IntersectionObserver((es, io) => { if (!es[0].isIntersecting) return; io.disconnect(); const t0 = performance.now();
+      (function step(now) { const k = Math.min(1, (now - t0) / 1400), e = 1 - Math.pow(1 - k, 3); b.textContent = Math.round(end * e) + suf; if (k < 1) requestAnimationFrame(step); })(t0); }, { threshold: 0.6 }).observe(b);
+  });
+  const through = (el) => { const r = el.getBoundingClientRect(), vh = innerHeight; return clamp((vh - r.top) / (vh + r.height)); };
+
   let range = 1, top = 0;
   function layout() {
     track.style.height = space.offsetTop + space.offsetHeight + (hero.querySelector(".c").offsetTop || 0) + "px";
-    hs.resize(); if (pain) pain.resize(); if (stairs) stairs.resize();
+    hs.resize(); if (pain) pain.resize(); if (stairs) stairs.resize(); if (sheets) sheets.resize(); if (night) night.resize();
     const tr = track.getBoundingClientRect(); top = tr.top + scrollY; range = Math.max(1, tr.height - hs.H);
   }
   const ptr = { x: 0, y: 0, tx: 0, ty: 0, px: 9, py: 9 };
@@ -276,6 +308,10 @@ function makeStage(holder, build, mobile) {
       stairs.render(lerp(0.22, 0.95, sp), t, { x: ptr.x, y: ptr.y, px: 9, py: 9 }, stairs.W / stairs.H > 1.7 ? 0.66 : 1, 0.04);
       const k = stairs.sc.step || 0; if (k !== lastK && sts[k]) { lastK = k; scap.textContent = ""; ["b", "span", "small"].forEach((tag, n) => { const e = document.createElement(tag); e.textContent = sts[k][n]; scap.appendChild(e); }); scap.classList.toggle("top", k === 4); }
     }
+    const quiet = { x: ptr.x, y: ptr.y, px: 9, py: 9 };
+    if (sheets && (sheets.vis || CAP)) sheets.render(clamp(through(pg1) * 1.7), t, quiet, 0.8, 0.03);
+    if (night && (night.vis || CAP)) { quiet.x += Math.sin(t * 0.25) * 0.6; night.render(1, t, quiet, 0.82, 0.06); }
+    if (duo) { const k = 1 - clamp(through(duo) * 2.1); duo.style.setProperty("--k", k.toFixed(3)); if (k < 0.45) duo.classList.add("in2"); }
   }
   window.__fx = { frame, layout, get range() { return range; }, get top() { return top; } };
   if (CAP) { frame(0); return; }

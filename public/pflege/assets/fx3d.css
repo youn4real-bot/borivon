@@ -46,3 +46,16 @@ html.cap .mcta{display:none!important}
 .hero.fx3d>.c>.s3d-space{pointer-events:none}
 .s3d-cap .s3d-go{display:flex;width:max-content;margin:22px auto 0;font-style:normal;letter-spacing:.005em;pointer-events:none}
 @media (max-width:640px){.s3d-cap{bottom:7vh}}
+/* the Fahrplan pages, the platform picture, the night ending */
+.page1.fx-sheets{aspect-ratio:1/.92;max-width:560px;margin-top:20px}
+.page1.fx-sheets img{display:none}
+.page1.fx-sheets canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.fx-duo .shot{transform:perspective(1500px) rotateY(calc(var(--k,0)*13deg)) rotateX(calc(var(--k,0)*5deg));transform-origin:50% 60%;will-change:transform}
+.fx-duo .ph{transform:perspective(1500px) translateY(calc(var(--k,0)*70px)) rotateY(calc(var(--k,0)*-16deg));will-change:transform}
+.fx-duo .sh-pr i,.fx-duo .ph .pb i b{transition:width 1.5s cubic-bezier(.2,.7,.2,1) .15s}
+.fx-duo:not(.in2) .sh-pr i,.fx-duo:not(.in2) .ph .pb i b{width:0!important}
+.final.fx-night{padding-top:clamp(56px,7vw,96px)}
+.final.fx-night .fbg{display:none}
+.fx-night-box{position:relative;height:min(40vh,380px);margin:0 auto 12px;max-width:760px}
+.fx-night-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+@media (max-width:900px){.fx-night-box{height:30vh}}
