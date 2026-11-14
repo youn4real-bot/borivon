@@ -244,7 +244,10 @@ var T={
 
 // Business emails only (founder rule). Same list as lib/roadmap/freeMail.ts.
   var FREE = ["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","yahoo.com","ymail.com","rocketmail.com","icloud.com","me.com","mac.com","aol.com","proton.me","protonmail.com","pm.me","tutanota.com","tutanota.de","tuta.io","tuta.com","gmx.com","mail.com","yandex.com","yandex.ru","mail.ru","zohomail.com","hey.com","gmx.de","gmx.net","gmx.at","gmx.ch","web.de","t-online.de","freenet.de","posteo.de","mailbox.org","arcor.de","online.de","email.de","outlook.de","hotmail.de","live.de","yahoo.de","aol.de","bluewin.ch","kabelmail.de","vodafonemail.de","ewe.net","orange.fr","wanadoo.fr","free.fr","laposte.net","sfr.fr","neuf.fr","bbox.fr","outlook.fr","hotmail.fr","live.fr","yahoo.fr","aol.fr","gmx.fr","skynet.be","hotmail.co.uk","yahoo.co.uk","outlook.at","hotmail.it","libero.it"];
-function isFree(m){var s=String(m||'').trim().toLowerCase(),k=s.lastIndexOf('@');return k>=0&&FREE.indexOf(s.slice(k+1))>=0}
+/* the founder's own test mailbox may pass: a fingerprint, not the address (same function as lib/roadmap/freeMail.ts mailFingerprint) */
+var TESTERS=['df08f37b0daea749'];
+function mfp(s){var a=0x811c9dc5,b=0x1b873593,i,c;for(i=0;i<s.length;i++){c=s.charCodeAt(i);a=Math.imul(a^c,16777619);b=Math.imul(b^c,2246822519)^(b>>>13)}return ('0000000'+(a>>>0).toString(16)).slice(-8)+('0000000'+(b>>>0).toString(16)).slice(-8)}
+function isFree(m){var s=String(m||'').trim().toLowerCase(),k=s.lastIndexOf('@');if(TESTERS.indexOf(mfp(s))>=0)return false;return k>=0&&FREE.indexOf(s.slice(k+1))>=0}
 
 // German only (founder 2026-11-08): the facilities are German. EN/FR text stays only for the consent-text check.
 var lang='de';

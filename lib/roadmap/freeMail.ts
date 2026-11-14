@@ -33,7 +33,21 @@ export function emailDomain(email: string): string {
   return at < 0 ? "" : String(email).trim().toLowerCase().slice(at + 1);
 }
 
-/** True for addresses at a free mailbox provider (gmail.com, gmx.de, …). */
+/**
+ * The founder's own private mailbox may pass, so he can test the live form (2026-11-14). Kept as a
+ * fingerprint, not as an address: the same function runs in content/pflege/fahrplan.html, where clear
+ * text would be readable by anyone. Not a security boundary (it only lets that one mailbox sign up).
+ */
+const TESTERS: readonly string[] = ["df08f37b0daea749"];
+export function mailFingerprint(email: string): string {
+  const s = String(email ?? "").trim().toLowerCase();
+  let a = 0x811c9dc5, b = 0x1b873593;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 16777619); b = Math.imul(b ^ c, 2246822519) ^ (b >>> 13); }
+  return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
+}
+
+/** True for addresses at a free mailbox provider (gmail.com, gmx.de, …), except the founder's test mailbox. */
 export function isFreeMail(email: string): boolean {
+  if (TESTERS.includes(mailFingerprint(email))) return false;
   return FREE.has(emailDomain(email));
 }
