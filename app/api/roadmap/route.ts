@@ -145,6 +145,8 @@ export async function POST(req: NextRequest) {
       "",
       "https://borivon.com/portal/admin/leads",
     ].filter((l) => l !== null).join("\n");
+    // the founder tests with his own mailbox: no owner alert then, so his inbox shows exactly what a client gets
+    if (isTestMailbox(email)) return;
     const noticed = await sendAdminAlertEmail(`Fahrplan: ${facility} (Stufe ${result.level})`, lines);
     if (!noticed) console.error("[roadmap] internal notice email failed (ADMIN_EMAIL set?)");
   });
