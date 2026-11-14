@@ -5,6 +5,7 @@ import { makeDriveRestClient } from "@/lib/googleDriveShim";
 import { UUID_RE } from "@/lib/uuid";
 import { deleteUserStorage } from "@/lib/deleteUserStorage";
 import { deleteAuthLinkedRows } from "@/lib/authLinkedRows";
+import { revokeUserTokens } from "@/lib/authRevoked";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
@@ -84,6 +85,17 @@ export async function POST(req: NextRequest) {
     [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") ||
     userEmail ||
     userId;
+
+  // ── 0. Refuse the person's tokens everywhere — BEFORE anything is removed ──
+  // Access tokens are checked locally now (lib/authVerify.ts) and stay valid
+  // until they expire, deleted account or not. The D1 revoked list is what
+  // makes Delete take effect at once; written first, so a delete can never
+  // finish with the person still let in. Nothing is deleted if it fails.
+  const revoked = await revokeUserTokens(userId, "delete-user");
+  if (!revoked.ok) {
+    console.error("[delete-user] could not revoke the account's tokens:", revoked.error);
+    return Response.json({ error: "Delete failed: could not sign the account out — nothing was deleted" }, { status: 500 });
+  }
 
   // ── 1. Move all Drive files to "Deleted Data" ──────────────────────────────
   const { data: docs } = await db

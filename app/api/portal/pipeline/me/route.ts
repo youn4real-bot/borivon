@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
   const jwt = authHeader.slice(7);
-  const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(jwt);
+  const { data: { user }, error: authErr } = await getUserFromToken(jwt);
   if (authErr || !user) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }

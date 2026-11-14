@@ -5,7 +5,8 @@
  * the authenticated user's own id; an admin/org viewer can't read someone else's.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { isReadFailure, readFailureResponse } from "@/lib/readFailure";
 import { enforceRateLimit } from "@/lib/rateLimit";
 
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
 
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(authHeader.slice(7));
+  const { data: { user }, error } = await getUserFromToken(authHeader.slice(7));
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // A FAILED READ IS NOT "no interviews". Swallowing it hides an invitation

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { UUID_RE } from "@/lib/uuid";
 import { enforceUserRateLimit, requestIp } from "@/lib/rateLimit";
 import { canReadSlotTemplate } from "@/lib/slotTemplateAccess";
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
   const m = header.match(/^Bearer\s+(.+)$/i);
   if (!m) return new NextResponse("Unauthorized", { status: 401 });
 
-  const { data: authData, error: authErr } = await getAnonVerifyClient().auth.getUser(m[1].trim());
+  const { data: authData, error: authErr } = await getUserFromToken(m[1].trim());
   if (authErr || !authData?.user) return new NextResponse("Unauthorized", { status: 401 });
   const callerId = authData.user.id;
   const callerEmail = (authData.user.email ?? "").toLowerCase();

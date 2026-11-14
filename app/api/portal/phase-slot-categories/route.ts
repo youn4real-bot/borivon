@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
   const header = req.headers.get("authorization") ?? "";
   const m = header.match(/^Bearer\s+(.+)$/i);
   if (!m) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data: authData, error: authErr } = await getAnonVerifyClient().auth.getUser(m[1].trim());
+  const { data: authData, error: authErr } = await getUserFromToken(m[1].trim());
   if (authErr || !authData?.user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   const userId = authData.user.id;
 

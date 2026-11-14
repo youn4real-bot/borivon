@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { normalizeSex } from "@/lib/sex";
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const jwt = authHeader.slice(7);
-  const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(jwt);
+  const { data: { user }, error: authErr } = await getUserFromToken(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   // Anti-spam: the passport form autosaves on every change → a generous

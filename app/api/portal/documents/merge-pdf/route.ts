@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mergeDocumentsToPdf, refusalStatus, type MergeRefusalCode } from "@/lib/mergeDocs";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
@@ -64,7 +65,7 @@ async function isAuthorised(
   const headerJwt = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
   let actorId: string | null = null;
   if (headerJwt) {
-    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    const { data: { user }, error } = await getUserFromToken(headerJwt);
     if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
   } else {
     actorId = dlTokenUserId(req);

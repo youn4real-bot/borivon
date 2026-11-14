@@ -11,8 +11,9 @@
  */
 
 import { NextRequest } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { verifyAccessToken } from "@/lib/authVerify";
 
 /**
  * Case-insensitive EXACT email match for Postgres `ilike`.
@@ -54,23 +55,24 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
   const jwt = m[1].trim();
   if (!jwt) return { ok: false, status: 401, error: "Empty token" };
 
-  // Verify the JWT against Supabase using the cached anon client
-  const { data, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !data?.user) return { ok: false, status: 401, error: "Invalid token" };
-
+  // Verify the JWT — locally (ES256 + Supabase's published key, no network)
+  // when that can decide, else against Supabase as before (lib/authVerify.ts).
+  //
   // A "deleted" account whose hard-delete was FK-blocked is only banned +
   // email-scrambled + user_metadata.deleted=true — its existing JWT (and
   // refresh token) can still mint valid sessions. Lists filter ghosts, but
   // the AUTH GATE itself did not — a deleted sub-admin kept full admin
-  // access until token expiry. Reject here so deleted = gone everywhere.
-  if (isSoftDeletedAuthUser(data.user)) {
-    return { ok: false, status: 401, error: "Account disabled" };
-  }
+  // access until token expiry. verifyAccessToken refuses it ("Account
+  // disabled") — and any id on the D1 revoked list, which both delete paths
+  // write first — so deleted = gone everywhere, even for a token checked
+  // without asking Supabase.
+  const v = await verifyAccessToken(jwt);
+  if (!v.ok) return { ok: false, status: 401, error: v.error };
 
-  const email = (data.user.email ?? "").trim().toLowerCase();
+  const email = (v.user.email ?? "").trim().toLowerCase();
   if (!email) return { ok: false, status: 401, error: "User has no email" };
 
-  return resolveRoleForEmail(email, data.user.id);
+  return resolveRoleForEmail(email, v.user.id);
 }
 
 /**
@@ -462,20 +464,15 @@ export async function requireUser(req: NextRequest): Promise<
   const jwt = m[1].trim();
   if (!jwt) return { ok: false, status: 401, error: "Empty token" };
 
-  // Verify the JWT using the cached anon client
-  const { data, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !data?.user) return { ok: false, status: 401, error: "Invalid token" };
-
-  // Deleted (FK-blocked → soft-disabled) accounts must not authenticate even
-  // with a still-valid token. Same gate as requireAdminRole.
-  if (isSoftDeletedAuthUser(data.user)) {
-    return { ok: false, status: 401, error: "Account disabled" };
-  }
+  // Same verification as requireAdminRole (lib/authVerify.ts): deleted /
+  // soft-disabled accounts must not authenticate even with a still-valid token.
+  const v = await verifyAccessToken(jwt);
+  if (!v.ok) return { ok: false, status: 401, error: v.error };
 
   return {
     ok: true,
-    userId: data.user.id,
-    email: (data.user.email ?? "").trim().toLowerCase(),
+    userId: v.user.id,
+    email: (v.user.email ?? "").trim().toLowerCase(),
     jwt,
   };
 }

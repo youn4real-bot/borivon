@@ -6,7 +6,8 @@
  * PATCH → upserts the row for the calling admin.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { requireAdminRole } from "@/lib/admin-auth";
 
 const FIELDS = [
@@ -17,7 +18,7 @@ const FIELDS = [
 async function callerUserId(req: NextRequest): Promise<string | null> {
   const m = (req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  const { data } = await getAnonVerifyClient().auth.getUser(m[1].trim());
+  const { data } = await getUserFromToken(m[1].trim());
   return data?.user?.id ?? null;
 }
 

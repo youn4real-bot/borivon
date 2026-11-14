@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { natToLang } from "@/lib/countries";
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest) {
   if (!row && !paramUid) {
     try {
       const headerJwt0 = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-      const { data: u0 } = await getAnonVerifyClient().auth.getUser(headerJwt0);
+      const { data: u0 } = await getUserFromToken(headerJwt0);
       const m0 = u0?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
       const seed: Record<string, unknown> = { user_id: targetUid };
       if (m0?.first_name) seed.first_name = String(m0.first_name).trim();
@@ -139,7 +140,7 @@ export async function GET(req: NextRequest) {
   } else {
     const headerJwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
     try {
-      const { data: u } = await getAnonVerifyClient().auth.getUser(headerJwt);
+      const { data: u } = await getUserFromToken(headerJwt);
       email = u?.user?.email ?? "";
       const meta = u?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
       metaFirst = meta?.first_name ?? "";

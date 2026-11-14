@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
@@ -19,7 +20,7 @@ export async function GET(
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(token);
+  const { data: { user }, error: authErr } = await getUserFromToken(token);
   const db = getServiceSupabase();
   if (authErr || !user || isSoftDeletedAuthUser(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

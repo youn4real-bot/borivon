@@ -34,6 +34,7 @@ import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { isFunnelStage } from "@/lib/batchBoard";
 import { UUID_RE } from "@/lib/uuid";
 import { deleteAuthLinkedRows } from "@/lib/authLinkedRows";
+import { revokeUserTokens } from "@/lib/authRevoked";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { normalizeReq } from "@/lib/impfungJourney";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -1432,6 +1433,10 @@ async function writeDeleteOrganization(orgId: string): Promise<WriteResult> {
 async function writeDeleteCandidate(userId: string): Promise<WriteResult> {
   if (!UUID_RE.test(userId)) return { ok: false, error: "bad_id" };
   const db = getServiceSupabase();
+  // Refuse this login's still-valid tokens everywhere BEFORE anything is removed
+  // (lib/authRevoked.ts — tokens are checked locally now), exactly as the
+  // website's delete-user route does. Nothing is deleted if that fails.
+  if (!(await revokeUserTokens(userId, "bot-delete")).ok) return { ok: false, error: "delete_failed" };
   // Capture every storage path (R2 documents, sign PDFs, doc-cache, CV preview,
   // PUBLIC profile + feed photos) BEFORE the cascade drops the rows that name
   // them — the SAME sweep the website's delete-user route runs.

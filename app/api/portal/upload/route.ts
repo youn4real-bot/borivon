@@ -2,7 +2,7 @@ import { extraDocLabel } from "@/lib/facility/extraDocs";
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
-import { createClient } from "@supabase/supabase-js";
+import { getUserFromToken } from "@/lib/authVerify";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { natToLang } from "@/lib/countries";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
@@ -647,11 +647,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const jwt = authHeader.slice(7);
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
-  );
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
+  const { data: { user }, error: authErr } = await getUserFromToken(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   // ── Client-side failure beacon ───────────────────────────────────────────────

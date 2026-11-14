@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
   const header = req.headers.get("authorization");
   const jwt = header?.startsWith("Bearer ") ? header.slice(7) : "";
   if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
+  const { data: { user }, error } = await getUserFromToken(jwt);
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const rl = await enforceUserRateLimit("upload", `u:${user.id}`, { limit: 30, windowMs: 60000 });
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
   const headerJwt = header?.startsWith("Bearer ") ? header.slice(7) : "";
   let actorId: string | null = null;
   if (headerJwt) {
-    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    const { data: { user }, error } = await getUserFromToken(headerJwt);
     if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
   } else {
     actorId = dlTokenUserId(req);

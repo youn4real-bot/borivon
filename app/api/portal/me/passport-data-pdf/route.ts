@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
-import { getAnonVerifyClient } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { enforceRateLimitDistributed, enforceUserRateLimit } from "@/lib/rateLimit";
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
   const headerJwt = header?.startsWith("Bearer ") ? header.slice(7) : "";
   let actorId: string | null = null;
   if (headerJwt) {
-    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    const { data: { user }, error } = await getUserFromToken(headerJwt);
     if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
   } else {
     actorId = dlTokenUserId(req);

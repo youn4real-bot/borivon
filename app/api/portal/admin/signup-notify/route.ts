@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { requireUser } from "@/lib/admin-auth";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
   let displayName = auth.email;
   let phone = "";
   try {
-    const { data } = await getAnonVerifyClient().auth.getUser(auth.jwt);
+    const { data } = await getUserFromToken(auth.jwt);
     const fullName = data?.user?.user_metadata?.full_name;
     if (typeof fullName === "string" && fullName.trim()) displayName = clipText(fullName.trim(), 200);
     const rawPhone = data?.user?.user_metadata?.phone;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase } from "@/lib/supabase";
+import { getUserFromToken } from "@/lib/authVerify";
 import { enforceRateLimit } from "@/lib/rateLimit";
 
 /**
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ ok: false }, { status: 401 });
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(authHeader.slice(7));
+  const { data: { user }, error } = await getUserFromToken(authHeader.slice(7));
   if (error || !user) return NextResponse.json({ ok: false }, { status: 401 });
 
   const db = getServiceSupabase();
