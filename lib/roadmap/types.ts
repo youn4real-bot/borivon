@@ -43,9 +43,9 @@ export const FACILITY: Record<FacilityType, {
       fr: "1 poste vide = 80 heures d'intérim à 55 € (4 400 €) + 1 lit fermé (15 600 €) = 20 000 € par mois.",
     },
     openModelNoAgency: {
-      de: "1 offene Stelle = 1 gesperrtes Bett = 15.600 € im Monat.",
-      en: "1 open post = 1 closed bed = €15,600 a month.",
-      fr: "1 poste vide = 1 lit fermé = 15 600 € par mois.",
+      de: "1 offene Stelle = 1 gesperrtes Bett (15.600 €) + 80 Überstunden im Team, Zuschlag 6,40 € (512 €) = 16.112 € im Monat.",
+      en: "1 open post = 1 closed bed (€15,600) + 80 overtime hours in the team, surcharge €6.40 (€512) = €16,112 a month.",
+      fr: "1 poste vide = 1 lit fermé (15 600 €) + 80 heures supplémentaires dans l'équipe, majoration 6,40 € (512 €) = 16 112 € par mois.",
     },
     source: {
       de: "Ein Bett bringt rund 650 € am Tag: Bundesbasisfallwert 2026 (4.570,64 €) geteilt durch rund 7 Tage Liegezeit. Bei 80 % Belegung sind das 15.600 € im Monat.",
@@ -71,9 +71,9 @@ export const FACILITY: Record<FacilityType, {
       fr: "1 poste vide = 80 heures d'intérim à 55 € (4 400 €) + 2 places vides à 4 600 € (9 200 €) = 13 600 € par mois.",
     },
     openModelNoAgency: {
-      de: "1 offene Stelle = 2 leere Plätze à 4.600 € = 9.200 € im Monat.",
-      en: "1 open post = 2 empty places at €4,600 = €9,200 a month.",
-      fr: "1 poste vide = 2 places vides à 4 600 € = 9 200 € par mois.",
+      de: "1 offene Stelle = 2 leere Plätze à 4.600 € (9.200 €) + 80 Überstunden im Team, Zuschlag 6,40 € (512 €) = 9.712 € im Monat.",
+      en: "1 open post = 2 empty places at €4,600 (€9,200) + 80 overtime hours in the team, surcharge €6.40 (€512) = €9,712 a month.",
+      fr: "1 poste vide = 2 places vides à 4 600 € (9 200 €) + 80 heures supplémentaires dans l'équipe, majoration 6,40 € (512 €) = 9 712 € par mois.",
     },
     source: {
       de: "Ein Heimplatz bringt rund 4.600 € im Monat: Eigenanteil im Schnitt 3.364 € (vdek, Juli 2026) plus Pflegekasse bei Pflegegrad 3 (1.319 €).",
@@ -99,9 +99,9 @@ export const FACILITY: Record<FacilityType, {
       fr: "1 poste vide = 80 heures d'intérim à 55 € (4 400 €) + 4 patients refusés à 1 300 € (5 200 €) = 9 600 € par mois.",
     },
     openModelNoAgency: {
-      de: "1 offene Stelle = 4 abgelehnte Patienten à 1.300 € = 5.200 € im Monat.",
-      en: "1 open post = 4 refused patients at €1,300 = €5,200 a month.",
-      fr: "1 poste vide = 4 patients refusés à 1 300 € = 5 200 € par mois.",
+      de: "1 offene Stelle = 4 abgelehnte Patienten à 1.300 € (5.200 €) + 80 Überstunden im Team, Zuschlag 6,40 € (512 €) = 5.712 € im Monat.",
+      en: "1 open post = 4 refused patients at €1,300 (€5,200) + 80 overtime hours in the team, surcharge €6.40 (€512) = €5,712 a month.",
+      fr: "1 poste vide = 4 patients refusés à 1 300 € (5 200 €) + 80 heures supplémentaires dans l'équipe, majoration 6,40 € (512 €) = 5 712 € par mois.",
     },
     source: {
       de: "Ein Patient bringt einem Pflegedienst im Schnitt rund 1.200 bis 1.400 € im Monat. Wir rechnen mit 1.300 €.",

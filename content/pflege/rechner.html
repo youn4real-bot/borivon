@@ -156,11 +156,14 @@ footer a { color: var(--muted); }
   var lang = T[q.get("lang")] ? q.get("lang") : "de";
   var type = MODEL[q.get("f")] ? q.get("f") : "care_home";
   var M = MODEL[type];
+  // a=0: no agency staff. The team covers the hours, so the row counts the overtime surcharge instead (lib/roadmap/score.ts OVERTIME_*).
+  var NOAG = q.get("a") === "0";
+  if (NOAG) { var OT = { de: ["Überstunden-Zuschlag pro offener Stelle, im Monat", "Überstunden pro Monat", "Zuschlag pro Stunde (€)"], en: ["Overtime surcharge per open post, per month", "Overtime hours per month", "Surcharge per hour (€)"], fr: ["Majoration d'heures supplémentaires par poste vacant, par mois", "Heures supplémentaires par mois", "Majoration par heure (€)"] }[lang]; T[lang].agency = OT[0]; T[lang].agHours = OT[1]; T[lang].agRate = OT[2]; }
   var num = function (k, d, max) { var v = parseFloat(q.get(k)); return isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : d; };
   // Everything the visitor can change. Salary and agency are built from their parts.
   var V = { open: num("o", 3, 60), left: num("l", 4, 60), growth: 0,
     rate: MIN_RATE, hours: 40, share: EMPLOYER_SHARE,
-    agHours: q.get("a") === "0" ? 0 : M.agency / AGENCY_RATE, agRate: AGENCY_RATE,
+    agHours: NOAG ? 80 : M.agency / AGENCY_RATE, agRate: NOAG ? 6.4 : AGENCY_RATE,
     units: M.units, perUnit: M.perUnit };
   var years = 3, openRow = null;
   var lead = { id: q.get("id") || "", t: q.get("t") || "" };
@@ -233,7 +236,7 @@ footer a { color: var(--muted); }
       editRow("salary", t.salary, esc(eur(c.salYear)),
         field("rate", t.rate, "0.01") + field("hours", t.hours, "1") + field("share", t.share, "0.5") + '<div class="note">' + esc(t.salaryNote) + '</div>') +
       editRow("agency", t.agency, esc(eur(c.agency)),
-        field("agHours", t.agHours, "1") + field("agRate", t.agRate, "1")) +
+        field("agHours", t.agHours, "1") + field("agRate", t.agRate, NOAG ? "0.1" : "1")) +
       editRow("places", t.places[type], esc(fmtUnits()),
         field("units", t.units, "0.5") + field("perUnit", t.perUnit[type], "50") + '<div class="note">' + esc(t.unitNote[type]) + '</div>') +
       stepRow("growth", t.grow) +

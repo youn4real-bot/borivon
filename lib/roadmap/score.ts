@@ -70,6 +70,10 @@ export type RoadmapResult = {
 export const AGENCY_HOURS_PER_POST = 160;
 export const AGENCY_RATE = 55;
 export const EMPTY_BEDS_PER_POST = 3;
+// Without agency staff the team covers the hours: only the surcharge counts (25 % on the Pflegemindestlohn 21,03 € incl. 21 % employer share ≈ 6,40 €).
+// Same start values as the tool on borivon.com (content/pflege/home.html).
+export const OVERTIME_HOURS_PER_POST = 80;
+export const OVERTIME_SURCHARGE = 6.4;
 export const REVENUE_PER_BED = 3200;
 export const COST_PER_OPEN_POST_MONTH =
   AGENCY_HOURS_PER_POST * AGENCY_RATE + EMPTY_BEDS_PER_POST * REVENUE_PER_BED; // 18.400 €
@@ -106,7 +110,7 @@ export const COST_MODEL: Record<FacilityType, { agencyHours: number; lossUnits: 
 };
 export function costPerOpenPost(t: FacilityType, usesAgency = true): number {
   const m = COST_MODEL[t] ?? COST_MODEL.care_home;
-  return (usesAgency ? m.agencyHours * AGENCY_RATE : 0) + m.lossUnits * m.lossPerUnit;
+  return (usesAgency ? m.agencyHours * AGENCY_RATE : OVERTIME_HOURS_PER_POST * OVERTIME_SURCHARGE) + m.lossUnits * m.lossPerUnit;
 }
 export function costPerDeparture(t: FacilityType): number {
   return DEPARTURE_GAP_MONTHS * costPerOpenPost(t) + ONBOARDING_HOURS * ONBOARDING_RATE + REPLACEMENT_COST;
