@@ -24,7 +24,7 @@ import { LEVELS, CLIMB, PLAN_90, UI, pick, type Lang } from "./content";
 import { STAGE_UI } from "./stages";
 import { drawIcon, type IconName, type IconColors } from "./icons";
 import { FACILITY, leaveModel } from "./types";
-import { costPerDeparture } from "./score";
+import { costPerDeparture, costPerOpenPost, COST_MODEL } from "./score";
 import { loadVectorFont, wrapVector, type VectorFont } from "./vectorFont";
 import { VIDEO_INTRO } from "./videos";
 import { PLAYBOOK } from "./playbook";
@@ -181,6 +181,21 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     arrow(page, x + 24 + lw + 14, top + h / 2, 16, arrowC);
     link(page, x, top, w, h, url);
     return w;
+  };
+  /** The website's picture of the ward, small: twenty places seen at an angle. A filled place is a dark block,
+   *  an empty one a dashed outline (same drawing as borivon.com, bv.js bvIso). 68 wide, 40 high. */
+  const ward = (page: PDFPage, x: number, top: number, empty: number) => {
+    const C = 5, R = 4, tw = 15, th = 7.5, hgt = 6, order = [7, 12, 3, 16, 9, 1, 18, 5, 14, 10, 0, 19, 6, 13, 2, 17, 8, 11, 4, 15];
+    const ox = x + (R * tw) / 2, oy = top + hgt + th / 2, o = { x: 0, y: PH };
+    const P = (pts: number[][]) => "M " + pts.map((q) => q[0].toFixed(2) + " " + q[1].toFixed(2)).join(" L ") + " Z";
+    for (let d = 0; d <= C + R - 2; d++) for (let c = 0; c < C; c++) {
+      const r = d - c; if (r < 0 || r >= R) continue;
+      const cx = ox + ((c - r) * tw) / 2, cy = oy + ((c + r) * th) / 2, w2 = tw / 2 - 0.6, t2 = th / 2 - 0.3;
+      if (order.indexOf(r * C + c) < empty) { page.drawSvgPath(P([[cx, cy - t2], [cx + w2, cy], [cx, cy + t2], [cx - w2, cy]]), { ...o, color: LOSS_SOFT, borderColor: LOSS, borderWidth: 0.6, borderDashArray: [1.6, 1.4] }); continue; }
+      page.drawSvgPath(P([[cx - w2, cy - hgt], [cx, cy + t2 - hgt], [cx, cy + t2], [cx - w2, cy]]), { ...o, color: INK });
+      page.drawSvgPath(P([[cx, cy + t2 - hgt], [cx + w2, cy - hgt], [cx + w2, cy], [cx, cy + t2]]), { ...o, color: INK2 });
+      page.drawSvgPath(P([[cx, cy - t2 - hgt], [cx + w2, cy - hgt], [cx, cy + t2 - hgt], [cx - w2, cy - hgt]]), { ...o, color: hexColor("#2b2722") });
+    }
   };
   const tagLine = `${t.title}  ·  ${sn(lv)}: ${levelName(lv)}`.toUpperCase();
 
@@ -340,16 +355,19 @@ export async function renderRoadmapPdf(input: RoadmapPdfInput): Promise<Uint8Arr
     }
     caps(s, SU.whereFrom, M, y, 7.5, MUTED);
     y += 16;
-    const row = (ic: IconName, label: string, big: string, small: string, color: RGB) => {
-      const rh = 72;
+    const row = (ic: IconName, label: string, big: string, small: string, color: RGB, wardEmpty = 0) => {
+      const rh = 72, tx = wardEmpty > 0 ? M + 84 : M + 54;
       s.hline(M, M + W, y, LINE, 0.8);
-      icon(page, ic, M + 2, y + 19, 34, on(PAPER));
-      s.text(label, M + 54, y + 14, F.reg, 10, MUTED);
-      HN.draw(page, PH, big, M + 54, y + 30, 25, color);
+      if (wardEmpty > 0) ward(page, M, y + 16, wardEmpty); else icon(page, ic, M + 2, y + 19, 34, on(PAPER));
+      s.text(label, tx, y + 14, F.reg, 10, MUTED);
+      HN.draw(page, PH, big, tx, y + 30, 25, color);
       if (small) s.text(small, PW - M - measure(small, F.reg, 10), y + 40, F.reg, 10, MUTED);
       y += rh;
     };
-    row("bed", t.openPosts, `−${formatEuro(result.openCostMonth, lang)} ${t.perMonth}`, `−${formatEuro(result.openCostYear, lang)} ${t.perYear}`, LOSS);
+    // the open posts as places that stay empty (the same picture as on the website): posts x places per post, at most the twenty shown
+    const perPost = costPerOpenPost(result.facilityType, result.usesAgency);
+    const emptyPlaces = perPost > 0 ? Math.min(20, Math.round((result.openCostMonth / perPost) * (COST_MODEL[result.facilityType] ?? COST_MODEL.care_home).lossUnits)) : 0;
+    row("bed", t.openPosts, `−${formatEuro(result.openCostMonth, lang)} ${t.perMonth}`, `−${formatEuro(result.openCostYear, lang)} ${t.perYear}`, LOSS, emptyPlaces);
     if (result.turnoverCostYear > 0) row("door", t.leaving, `−${formatEuro(result.turnoverCostYear, lang)} ${t.perYear}`, "", LOSS);
     s.hline(M, M + W, y, LINE, 0.8);
     y += 18;
