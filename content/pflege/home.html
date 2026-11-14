@@ -214,7 +214,23 @@
 .kx-src p{margin:10px 0 0;line-height:1.6}
 .kx-in{display:flex;flex-wrap:wrap;gap:12px 22px;margin-top:12px}
 .kx-in label{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.kx-in label{max-width:150px}
 .kx-in input{width:120px;height:40px;padding:0 10px;border:1px solid #3b372f;border-radius:3px;background:#1b1915;color:#f6f1e6;font:400 15px var(--sans)}
+.kx-eq{margin:20px 0 0;font-size:.95rem;color:var(--ink2)}
+.kx-eq b{font-weight:500;color:#9a4a33}
+.kx-bd{margin-top:10px;min-height:28px}
+.kx-pp.kx-bd svg{width:36px;height:25px;color:#9a4a33}
+.kx-split{display:grid;gap:12px;margin:6px 0 20px}
+.kx-split div{display:grid;grid-template-columns:104px 1fr auto;gap:14px;align-items:center}
+.kx-split span{font:500 10.5px/1.2 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:#8f887b}
+.kx-split i{display:block;height:6px;border-radius:3px;background:#24211c;overflow:hidden}
+.kx-split i b{display:block;height:100%;width:0;border-radius:3px;background:#e2725b;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+.kx-split div+div i b{background:var(--gold-l)}
+.kx-split em{min-width:6.2em;text-align:right;font:400 1.05rem/1 var(--serif);font-style:normal;color:#f6f1e6;font-variant-numeric:lining-nums tabular-nums}
+.kx-by{display:flex;align-items:center;gap:12px;margin:20px 0 0;padding-top:18px;border-top:1px solid #2f2c26}
+.kx-by img{width:42px;height:42px;border-radius:50%;object-fit:cover}
+.kx-by span{font-size:13px;line-height:1.35;color:#8f887b}
+.kx-by b{display:block;font:500 1.05rem/1.2 var(--serif);color:#f6f1e6}
 .kx-head{max-width:820px;margin:0 auto clamp(8px,1vw,16px);text-align:center}
 .kx-head .hp{margin:22px auto 0;max-width:32em}
 .kx-cta{display:flex;flex-direction:column;align-items:center;margin-top:clamp(40px,4vw,60px)}
@@ -241,6 +257,7 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
  <symbol id="p" viewBox="0 0 24 30"><circle cx="12" cy="7" r="6" fill="currentColor"/><path d="M1 30v-6a11 9 0 0 1 22 0v6z" fill="currentColor"/></symbol>
  <symbol id="pe" viewBox="0 0 24 30"><circle cx="12" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/><path d="M1.8 29.2v-5.2a10.2 8.2 0 0 1 20.4 0v5.2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2.4"/></symbol>
+ <symbol id="bd" viewBox="0 0 34 24"><path d="M2 4v18M2 15h30v7M32 15v-3a4 4 0 0 0-4-4H13v7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="3 2.4"/><circle cx="7.5" cy="10.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="3 2.4"/></symbol>
 </svg>
 <!-- the one tool: what the empty posts cost, live, with no sign-up (founder 2026-11-14) -->
 <header class="hero kx" id="kosten">
@@ -248,17 +265,19 @@
   <div class="kx-l">
    <p class="lbl" data-r>Für Gesundheitseinrichtungen</p>
    <h1 class="h1" data-split><span class="main">Leere Stellen kosten. <em>Jede Sekunde.</em></span></h1>
-   <p class="for" data-r>Sehen Sie live, was fehlende Pflegekräfte Ihre Einrichtung kosten. Ohne Anmeldung.</p>
+   <p class="for" data-r>Jede fehlende Pflegekraft heißt: Plätze bleiben leer, Ihr Team macht Überstunden. Sehen Sie live, was das kostet. Ohne Anmeldung.</p>
    <div class="kx-q" data-r>
     <p id="kxlab">Wie viele Pflegefachkräfte fehlen Ihnen?</p>
     <div class="kx-step" role="group" aria-labelledby="kxlab"><button type="button" id="kxm" aria-label="Eine weniger">−</button><b id="kxn" aria-live="polite">3</b><button type="button" id="kxp" aria-label="Eine mehr">+</button></div>
     <div class="kx-pp" id="kxpp" aria-hidden="true"></div>
+    <p class="kx-eq" id="kxeq"></p>
+    <div class="kx-pp kx-bd" id="kxbd" aria-hidden="true"></div>
    </div>
   </div>
   <div class="kx-panel" data-r>
-   <p class="kx-cap"><i></i>Live · seit Januar</p>
+   <p class="kx-cap"><i></i><span id="kxcap">Live · Beispiel: 3 fehlende Pflegekräfte</span></p>
    <p class="kx-big" id="kxbig" aria-live="off">−0,00 €</p>
-   <p class="kx-sub">So viel kosten diese leeren Stellen, wenn sie seit Januar fehlen.</p>
+   <p class="kx-sub">So viel fehlt Ihnen, wenn diese Stellen seit Januar leer sind.</p>
    <svg class="kx-chart" viewBox="0 0 600 210" role="img" aria-label="Die Kosten wachsen von Januar bis Dezember">
     <line class="ax" x1="20" y1="28" x2="580" y2="28"/>
     <path class="ar2" id="kxarea" d=""/><path class="fut" d="M20 28L580 178"/><path class="past" id="kxpast" d=""/>
@@ -266,11 +285,13 @@
     <text class="tx" x="20" y="18">0 €</text><text class="tx" x="20" y="204">Januar</text><text class="tx" x="580" y="204" text-anchor="end">Dezember</text>
     <text class="now" id="kxnow" text-anchor="middle">Heute</text><text class="end" id="kxend" x="580" y="166" text-anchor="end"></text>
    </svg>
-   <div class="kx-tiles"><div><span>Pro Monat</span><b id="kxmo">−0 €</b></div><div><span>Pro Jahr</span><b id="kxyr">−0 €</b></div><div><span>Seit Sie hier sind</span><b id="kxhere">−0,00 €</b></div></div>
-   <div class="kx-go"><p>Das muss nicht so bleiben.</p><a class="btn light" href="/fahrplan?src=home-kosten"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
+   <div class="kx-split" aria-hidden="true"><div><span>Leere Plätze</span><i><b id="kxb1"></b></i><em id="kxv1"></em></div><div><span>Überstunden</span><i><b id="kxb2"></b></i><em id="kxv2"></em></div></div>
+   <div class="kx-tiles"><div><span>Jeder Monat Warten</span><b id="kxmo">−0 €</b></div><div><span>Pro Jahr</span><b id="kxyr">−0 €</b></div><div><span>Seit Sie hier sind</span><b id="kxhere">−0,00 €</b></div></div>
+   <div class="kx-go"><p>Ihr Fahrplan zeigt, was Sie zuerst tun.</p><a class="btn light" id="kxgo" href="/fahrplan?src=home-kosten"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
+   <p class="kx-by"><img src="/pflege/assets/ws/founder-youness-v2.webp" alt="" width="476" height="476" loading="lazy" decoding="async"><span><b>Youness Taoufiq</b>Gründer von Borivon</span></p>
    <details class="kx-src"><summary>So rechnen wir</summary>
-    <p>Jede leere Stelle: 160 Stunden im Monat, die jemand anders leisten muss, zu rund 32 € je Stunde. Grundlage: Pflegemindestlohn für Pflegefachkräfte 21,03 € (seit 1. Juli 2026), plus 21 % Abgaben, plus 25 % Zuschlag für Überstunden. Leihkräfte kosten oft mehr.</p>
-    <div class="kx-in"><label>Stunden pro Monat, je Stelle <input type="number" id="kxh" value="160" min="1" max="250" step="1" inputmode="numeric"></label><label>Kosten je Stunde (€) <input type="number" id="kxr" value="32" min="1" max="200" step="1" inputmode="numeric"></label></div>
+    <p>Je fehlender Pflegekraft rechnen wir mit zwei Dingen. Erstens: Plätze, die Sie nicht belegen können. Start: 2 Plätze zu rund 4.600 € im Monat (Pflegeheim: Eigenanteil Ø 3.364 €, vdek 07/2026, plus Pflegekasse Pflegegrad 3). Zweitens: Überstunden Ihres Teams. Start: 80 Stunden im Monat, gerechnet wird nur der Zuschlag von 25 % auf den Pflegemindestlohn von 21,03 € samt Abgaben, also rund 6,40 € je Stunde. Das eingesparte Gehalt der leeren Stelle ist nicht gegengerechnet. Ihre eigenen Werte:</p>
+    <div class="kx-in"><label>Leere Plätze je fehlender Kraft <input type="number" id="kxu" value="2" min="0" max="20" step="0.5" inputmode="decimal"></label><label>Erlös je Platz und Monat (€) <input type="number" id="kxr" value="4600" min="0" max="50000" step="100" inputmode="numeric"></label><label>Überstunden im Monat je fehlender Kraft <input type="number" id="kxh" value="80" min="0" max="250" step="1" inputmode="numeric"></label><label>Zuschlag je Überstunde (€) <input type="number" id="kxz" value="6.4" min="0" max="100" step="0.1" inputmode="decimal"></label></div>
    </details>
   </div>
  </div>
@@ -298,7 +319,7 @@
    <li><b>2</b><span>E-Mail bestätigen<small>ein Klick</small></span></li>
    <li><b>3</b><span>Fahrplan + Plattform<small>als PDF, mit Ihrem Zugang</small></span></li>
   </ol>
-  <div class="kx-cta" data-r><a class="btn" href="/fahrplan"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a><p class="status"><i></i>In unter 60 Sekunden · 0 € · per E-Mail</p></div>
+  <div class="kx-cta" data-r><a class="btn" id="kxgo2" href="/fahrplan"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a><p class="status"><i></i>In unter 60 Sekunden · 0 € · per E-Mail</p></div>
   <figure class="quote" data-r>
    <blockquote>„Bis ins Detail durchdacht. Sehr konkrete, taktische Hilfe. Wir haben den Fahrplan mit unserem Team umgesetzt und sehen schon Verbesserungen.“</blockquote>
    <figcaption><b>Geschäftsführer eines Trägers in Bayern</b>Mehr als 5 Standorte, über 200 Betten · Klinik, ambulanter Dienst, Pflegeheime · Name auf Wunsch nicht genannt</figcaption>
@@ -369,33 +390,40 @@
 
 <script src="/pflege/assets/t.js"></script>
 <script>
-/* the one tool: empty posts x hours x cost per hour. Runs from 1 January to this second. */
+/* the one tool. Per missing nurse and month: places that stay empty x revenue per place, plus the overtime surcharge the team is paid.
+   Runs from 1 January to this second; opens as a labelled example, becomes "Ihre Zahlen" on the first change. */
 (function(){
-  var $=function(id){return document.getElementById(id)},n=3,t0=Date.now(),shown={};
+  var $=function(id){return document.getElementById(id)},n=3,t0=Date.now(),shown={},mine=false;
   var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
-  function num(id,min){var v=parseFloat($(id).value);return isFinite(v)&&v>=min?v:min}
+  function num(id,min){var v=parseFloat(String($(id).value).replace(",","."));return isFinite(v)&&v>=min?v:min}
   function eur(v,d){var t=v.toLocaleString("de-DE",{minimumFractionDigits:d||0,maximumFractionDigits:d||0});return (/[1-9]/.test(t)?"\u2212":"")+t+" \u20ac"}
-  function year(){return n*num("kxh",0)*num("kxr",0)*12}
+  function parts(){return [n*num("kxu",0)*num("kxr",0),n*num("kxh",0)*num("kxz",0)]}
+  function month(){var p=parts();return p[0]+p[1]}
   function frac(){var d=new Date(),s=new Date(d.getFullYear(),0,1);return (d-s)/(365*864e5)}
   function glide(id,to){var from=shown[id]==null?0:shown[id];shown[id]=to;if(reduce){$(id).textContent=eur(to);return}var s=performance.now();(function f(now){var k=Math.min(1,(now-s)/600),e=1-Math.pow(1-k,3);$(id).textContent=eur(from+(to-from)*e);if(k<1&&shown[id]===to)requestAnimationFrame(f)})(s)}
+  function icons(id,sym,ok,miss){var h="";for(var i=0;i<ok;i++)h+='<svg style="animation-delay:'+i*30+'ms"><use href="#p"/></svg>';for(var j=0;j<miss;j++)h+='<svg class="e" style="animation-delay:'+(ok+j)*30+'ms"><use href="#'+sym+'"/></svg>';$(id).innerHTML=h}
   function draw(){
-    $("kxn").textContent=n;var h="",ok=Math.max(2,10-Math.min(n,8));
-    for(var i=0;i<ok;i++)h+='<svg style="animation-delay:'+i*30+'ms"><use href="#p"/></svg>';
-    for(var j=0;j<Math.min(n,24);j++)h+='<svg class="e" style="animation-delay:'+(ok+j)*30+'ms"><use href="#pe"/></svg>';
-    $("kxpp").innerHTML=h;
-    var y=year(),f=Math.min(1,frac()),x=20+560*f,yy=28+150*f;
+    $("kxn").textContent=n;icons("kxpp","pe",Math.max(2,10-Math.min(n,8)),Math.min(n,24));
+    var beds=Math.round(n*num("kxu",0));icons("kxbd","bd",0,Math.min(beds,20));
+    $("kxeq").innerHTML=beds?"Das hei\u00dft: <b>"+beds+" leere Pl\u00e4tze</b>"+(beds>20?" (20 gezeigt)":""):"";
+    $("kxcap").textContent=mine?"Live \u00b7 Ihre Zahlen":"Live \u00b7 Beispiel: 3 fehlende Pflegekr\u00e4fte";
+    var p=parts(),m=p[0]+p[1],y=m*12,f=Math.min(1,frac()),x=20+560*f,yy=28+150*f;
     $("kxpast").setAttribute("d","M20 28L"+x.toFixed(1)+" "+yy.toFixed(1));
     $("kxarea").setAttribute("d","M20 28L"+x.toFixed(1)+" "+yy.toFixed(1)+"L"+x.toFixed(1)+" 28Z");
     ["kxdot","kxring"].forEach(function(id){$(id).setAttribute("cx",x.toFixed(1));$(id).setAttribute("cy",yy.toFixed(1))});
-    var nx=Math.min(540,Math.max(60,x));$("kxnow").setAttribute("x",nx);$("kxnow").setAttribute("y",(yy+26).toFixed(1));
-    if(f>.8){$("kxend").setAttribute("y","20");$("kxend").setAttribute("x","580")}
+    $("kxnow").setAttribute("x",Math.min(540,Math.max(60,x)));$("kxnow").setAttribute("y",(yy+26).toFixed(1));
+    if(f>.8){$("kxend").setAttribute("y","20")}
     $("kxend").textContent=eur(y);
-    glide("kxmo",y/12);glide("kxyr",y);tick();
+    $("kxb1").style.width=(m?p[0]/m*100:0)+"%";$("kxb2").style.width=(m?Math.max(p[1]/m*100,p[1]?2:0):0)+"%";
+    $("kxv1").textContent=eur(p[0]);$("kxv2").textContent=eur(p[1]);
+    glide("kxmo",m);glide("kxyr",y);
+    var q="?src=home-kosten"+(mine?"&n="+n+"&m="+Math.round(m):"");$("kxgo").href="/fahrplan"+q;if($("kxgo2"))$("kxgo2").href="/fahrplan"+q;
+    tick();
   }
-  function tick(){var y=year(),s=(Date.now()-t0)/1000,here=s*y/31536000;
+  function tick(){var y=month()*12,s=(Date.now()-t0)/1000,here=s*y/31536000;
     $("kxbig").textContent=eur(y*frac(),2);$("kxhere").textContent=eur(here,2);if($("kxhere2"))$("kxhere2").textContent=eur(here,2)}
-  $("kxm").onclick=function(){n=Math.max(1,n-1);draw()};$("kxp").onclick=function(){n=Math.min(50,n+1);draw()};
-  ["kxh","kxr"].forEach(function(id){$(id).addEventListener("input",draw)});
+  $("kxm").onclick=function(){mine=true;n=Math.max(1,n-1);draw()};$("kxp").onclick=function(){mine=true;n=Math.min(50,n+1);draw()};
+  ["kxu","kxr","kxh","kxz"].forEach(function(id){$(id).addEventListener("input",function(){mine=true;draw()})});
   draw();setInterval(tick,reduce?1000:90);
 })();
 </script>
