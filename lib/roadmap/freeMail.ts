@@ -46,6 +46,11 @@ export function mailFingerprint(email: string): string {
   return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
 }
 
+/** The founder's own test mailbox: passes the business-only rule and may ask for a Fahrplan as often as he likes. */
+export function isTestMailbox(email: string): boolean {
+  return TESTERS.includes(mailFingerprint(email));
+}
+
 /** True for addresses at a free mailbox provider (gmail.com, gmx.de, …), except the founder's test mailbox. */
 export function isFreeMail(email: string): boolean {
   if (TESTERS.includes(mailFingerprint(email))) return false;

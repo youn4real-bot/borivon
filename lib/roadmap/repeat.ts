@@ -1,5 +1,7 @@
 /**
  * Same email, new Fahrplan (founder 2026-11-08: "they should still benefit").
+ * Since 2026-11-14 this path is only reached by the founder's own test mailbox: every other address that
+ * already confirmed and got its plan is refused politely in app/api/roadmap/route.ts ("already_used").
  *
  *   · every request makes a NEW plan from the new answers; the old one stays valid
  *   · email already confirmed (and not unsubscribed) → no second confirm mail,
