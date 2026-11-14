@@ -45,7 +45,8 @@ const DISCLAIMER: Record<Lang, string> = {
   en: "This message and your roadmap are for information only and are not legal or business advice. All numbers are estimates based on your answers. Results depend on many factors. We make no promise of any specific outcome.",
   fr: "Ce message et votre plan sont fournis à titre d'information uniquement et ne constituent pas un conseil juridique ou professionnel. Tous les chiffres sont des estimations basées sur vos réponses. Les résultats dépendent de nombreux facteurs. Nous ne garantissons aucun résultat précis.",
 };
-/** The company motto (founder 2026-11-09): word for word, everywhere. Borivon helps facilities; it does not "bring nurses". */
+/** The company motto. No longer shown in the mails (founder 2026-11-14); kept for reference. Borivon helps facilities; it does not "bring nurses". */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MOTTO: Record<Lang, string> = {
   de: "Das Unternehmen Borivon hilft Gesundheitseinrichtungen, Pflegekräfte aus dem Ausland zu gewinnen und zu halten, weil gute Pflege kein Luxus sein darf.",
   en: "Borivon helps healthcare facilities win and keep nurses from abroad, because good care must never be a luxury.",
@@ -59,7 +60,6 @@ function shell(lang: Lang, bodyHtml: string, footerExtra = ""): string {
 ${bodyHtml}
 <div style="margin-top:56px;text-align:center">
 <img src="https://borivon.com/email-logo.png" alt="Borivon." width="170" height="55" style="display:inline-block;border:0;outline:none;text-decoration:none" />
-<p style="font-size:13px;line-height:1.6;margin:14px auto 0;max-width:440px;color:#1c1c1e">${MOTTO[lang]}</p>
 <p style="font-size:12px;line-height:1.6;margin:14px 0 0;${muted}">Borivon LLC, 30 N Gould St Ste R,<br>Sheridan, WY 82801, USA</p>
 <p style="font-size:12px;line-height:1.6;margin:12px 0 0;${muted}"><a href="https://borivon.com/impressum" style="${muted}">${legal[0]}</a> · <a href="https://borivon.com/datenschutz" style="${muted}">${legal[1]}</a>${footerExtra}</p>
 <p style="font-size:11px;line-height:1.6;margin:16px auto 0;max-width:460px;${muted}">${DISCLAIMER[lang]}</p>
@@ -71,6 +71,10 @@ const p = (s: string) => `<p style="font-size:15px;line-height:1.6;margin:0 0 16
 /** The link, the way acquisition.com does it: >> LABEL << */
 const btn = (href: string, label: string) =>
   `<p style="margin:20px 0;font-size:15px;font-weight:bold">&gt;&gt; <a href="${esc(href)}" style="color:${LINK};text-decoration:underline">${esc(label)}</a> &lt;&lt;</p>`;
+/** The site's button for the one mail that is only a button (mail #1): ink block, paper text. Table-based so Outlook draws it. */
+const cta = (href: string, label: string) =>
+  `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 12px"><tr><td bgcolor="#15130f" style="border-radius:3px;background:#15130f"><a href="${esc(href)}" style="display:inline-block;padding:18px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;line-height:1;color:#f4f1ea;text-decoration:none">${esc(label)} &nbsp;&rarr;</a></td></tr></table>`;
+const headline = (s: string) => `<p style="font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:1.15;letter-spacing:-0.01em;color:#15130f;margin:0 0 18px">${esc(s)}</p>`;
 const unsubLabel = (lang: Lang) =>
   lang === "de" ? "Keine E-Mails mehr? Hier abmelden" : lang === "fr" ? "Plus d'e-mails ? Se désabonner" : "No more emails? Unsubscribe";
 const unsubFooter = (lang: Lang, url: string) => ` · <a href="${esc(url)}" style="color:#8a8a8a">${esc(unsubLabel(lang))}</a>`;
@@ -112,7 +116,10 @@ export function confirmMail(o: Addressee & { lang: Lang; facility: string; confi
     },
   }[lang];
   const hello = esc(greeting(lang, o.salutation, o.lastName, o.firstName));
-  const body = p(hello) + T.lines.map(p).join("") + btn(o.confirmUrl, T.btn) +
+  const HEAD = { de: "Ihr Fahrplan ist fertig.", en: "Your roadmap is ready.", fr: "Votre plan est prêt." }[lang];
+  const OR = { de: "Der Knopf geht nicht? Dann dieser Link:", en: "Button not working? Use this link:", fr: "Le bouton ne marche pas ? Utilisez ce lien :" }[lang];
+  const body = headline(HEAD) + p(hello) + T.lines.map(p).join("") + cta(o.confirmUrl, T.btn) +
+    `<p style="font-size:12px;line-height:1.6;margin:0 0 22px;color:#6d6a63">${OR} <a href="${esc(o.confirmUrl)}" style="color:${LINK}">${esc(T.btn)}</a></p>` +
     `<p style="font-size:13px;line-height:1.6;margin:0 0 14px;color:#6d6a63">${T.notYou}</p>` + p(T.bye);
   const strip = (x: string) => x.replace(/<br>/g, "\n").replace(/<[^>]+>/g, "");
   const text = [greeting(lang, o.salutation, o.lastName, o.firstName), ...T.lines.map(strip), `${T.btn}: ${o.confirmUrl}`, T.notYou, strip(T.bye)].join("\n\n");
@@ -165,7 +172,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       promised: "wie versprochen, hier ist Ihr Pflege-Fahrplan:", tap: "Tippen Sie hier für Ihr PDF:",
       link: `PFLEGE-FAHRPLAN – STUFE ${n}`, insideH: "Darin finden Sie:",
       inside: [`Was Stufe ${n} genau ist und was Sie gerade bremst`, "Was Sie dagegen tun können, mit Checklisten zum Abhaken", n < 5 ? `Was es braucht, um auf Stufe ${next} zu kommen` : "Was es braucht, um oben zu bleiben"],
-      note: "<b>Hinweis</b>: Im Fahrplan finden Sie auch Ihren Zeitplan, einen Rechner für Ihre eigenen Zahlen und als Bonus den Agentur-Check. Und weil Sie den ersten Schritt gemacht haben, wartet auf der letzten Seite eine Belohnung für Sie.",
+      note: "<b>Hinweis</b>: Im Fahrplan finden Sie auch Ihren Zeitplan und als Bonus den Agentur-Check. Und weil Sie den ersten Schritt gemacht haben, wartet auf der letzten Seite eine Belohnung für Sie.",
       next: "Der Fahrplan zeigt Ihnen, was Sie als Nächstes tun.",
       ps: `P.S. Viele Einrichtungen bleiben auf Stufe ${n} hängen. Zu viel kommt auf einmal, und es ist schwer zu wissen, wo man anfängt.`,
       ps2: "In unserem Workshop in Casablanca bauen wir in 2 Tagen Ihren Plan: was Sie zuerst lösen und in welcher Reihenfolge. Am zweiten Tag lernen Sie die Pflegekräfte dafür persönlich kennen.",
@@ -177,7 +184,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       promised: "as promised, here is your roadmap:", tap: "Tap below for your PDF:",
       link: `NURSE ROADMAP – LEVEL ${n}`, insideH: "Inside you'll find:",
       inside: [`Exactly what level ${n} is and what is holding you back`, "What to do about it, with checklists to tick off", n < 5 ? `And what it takes to reach level ${next}` : "And what it takes to stay on top"],
-      note: "<b>Note</b>: the roadmap also has your timeline, a calculator for your own numbers and, as a bonus, the agency check. And on the last page, a thank-you is waiting for you.",
+      note: "<b>Note</b>: the roadmap also has your timeline and, as a bonus, the agency check. And on the last page, a thank-you is waiting for you.",
       next: "The roadmap shows you what to do next.",
       ps: `P.S. Many facilities get stuck at level ${n}. Too much hits at once, and it's hard to know where to start.`,
       ps2: "At our workshop in Casablanca, Morocco, we build your plan in 2 days: what to fix first and in what order. On day two you meet the nurses for it in person.",
@@ -189,7 +196,7 @@ export function deliveryMail(o: Addressee & { lang: Lang; facility: string; resu
       promised: "comme promis, voici votre plan :", tap: "Cliquez ici pour votre PDF :",
       link: `PLAN INFIRMIER – NIVEAU ${n}`, insideH: "Vous y trouverez :",
       inside: [`Ce qu'est exactement le niveau ${n} et ce qui vous freine`, "Quoi faire, avec des listes à cocher", n < 5 ? `Et ce qu'il faut pour passer au niveau ${next}` : "Et ce qu'il faut pour rester au sommet"],
-      note: "<b>Remarque</b> : le plan contient aussi votre calendrier, un calculateur pour vos propres chiffres et, en bonus, le check agence. Et à la dernière page, un remerciement vous attend.",
+      note: "<b>Remarque</b> : le plan contient aussi votre calendrier et, en bonus, le check agence. Et à la dernière page, un remerciement vous attend.",
       next: "Le plan vous montre quoi faire ensuite.",
       ps: `P.S. Beaucoup d'établissements restent bloqués au niveau ${n}. Trop de choses arrivent en même temps, et on ne sait pas par où commencer.`,
       ps2: "Dans notre atelier à Casablanca, au Maroc, nous construisons votre plan en 2 jours : quoi régler d'abord et dans quel ordre. Le deuxième jour, vous rencontrez les infirmières en personne.",
