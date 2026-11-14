@@ -153,6 +153,11 @@ select:focus,input[type=text]:focus,input[type=email]:focus,input[type=date]:foc
 @media (max-width:480px){.fp-how{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.fp-how li{flex-direction:column;gap:7px;text-align:center;font-size:13px;line-height:1.3}}
 @media (prefers-reduced-motion:reduce){.fp-stage .p1{animation:none;transform:translateX(-122%) rotateY(24deg) scale(.9)}.fp-stage .p3{animation:none;transform:translateX(22%) rotateY(-24deg) scale(.9)}}
 .fp-kx{max-width:30em;margin:14px auto 0;padding:12px 16px;border:1px solid #e3c9bf;border-radius:4px;background:#faf1ed;font-size:.98rem;line-height:1.45;color:#7a3a28;text-align:center}
+.fp-stage .p2{animation:fpFloat 7s ease-in-out infinite}
+.fp-stage .p1{animation:fpL 1.5s var(--ease) .25s both,fpFloat 7s ease-in-out -2.3s infinite}
+.fp-stage .p3{animation:fpR 1.5s var(--ease) .25s both,fpFloat 7s ease-in-out -4.6s infinite}
+@keyframes fpFloat{50%{translate:0 -7px}}
+@media (prefers-reduced-motion:reduce){.fp-stage .pg{animation:none}}
 </style>
 </head>
 <body>
@@ -272,7 +277,7 @@ var lang='de';
 // consent starts EMPTY (never pre-ticked); only the visitor's own click sets it.
 var A={kontakt:{anrede:'',vor:'',nach:'',mail:'',consent: false}},hist=[],i=0,err='',busy=false;
 /* from the home tool: their number of missing nurses pre-selects the matching range (they can change it) */
-try{var KXN=parseInt(new URLSearchParams(location.search).get('n'),10);if(KXN>0&&KXN<=50)A.bedarf=KXN<=5?'1-5':KXN<=10?'6-10':KXN<=25?'11-25':'26-50'}catch(e){}
+try{var KXF=new URLSearchParams(location.search).get('f');if(KXF==='care_home'||KXF==='hospital'||KXF==='home_care')A.art=KXF;var KXN=parseInt(new URLSearchParams(location.search).get('n'),10);if(KXN>0&&KXN<=50)A.bedarf=KXN<=5?'1-5':KXN<=10?'6-10':KXN<=25?'11-25':'26-50'}catch(e){}
 
 // The questions. c = part (0–3, 4 = contact); when = shown only if true. Answers are short codes (lib/roadmap/form.ts).
 function o(map,vis){return Object.keys(map).map(function(k){return [k,map[k],vis?vis[k]:null]})}

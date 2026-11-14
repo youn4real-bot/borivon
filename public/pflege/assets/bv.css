@@ -300,3 +300,17 @@ html #bv-consent .b button{font-weight:500;border-radius:10px}
 .ft-llc{border-bottom:0;padding-bottom:6px}
 .ft-legal{margin-top:clamp(48px,6vw,80px);padding:14px 0 22px;border-top:1px solid var(--night-line);border-bottom:1px solid var(--night-line)}
 .ft-legal p{max-width:78em;margin:10px 0 0;font-size:12.5px;line-height:1.6;color:#8f887b}
+
+/* isometric blocks (bv.js bvIso) + pointer lean */
+.iso{display:block;width:100%;max-width:400px;height:auto;overflow:visible}
+.iso .t{fill:#2b2722}.iso .l{fill:#15130f}.iso .r{fill:#1f1c18}.iso .d{fill:#d4b676;transition:opacity .4s}
+.iso polygon{stroke:var(--paper);stroke-width:1;stroke-linejoin:round;transition:fill .5s}
+.iso .e .t{fill:rgba(154,74,51,.09);stroke:#9a4a33;stroke-width:1.3;stroke-dasharray:3.5 3}
+.iso .e .l,.iso .e .r{fill:rgba(154,74,51,.18);stroke:none}
+.iso .e .d{opacity:0}
+.iso.seats .e .t{fill:rgba(168,132,58,.10);stroke:var(--gold)}
+.iso.seats .e .l,.iso.seats .e .r{fill:rgba(168,132,58,.2)}
+.alt .iso polygon{stroke:var(--paper2)}
+.seatmap{display:flex;flex-direction:column;align-items:center;margin:clamp(40px,5vw,72px) auto 0}
+.seatmap figcaption{margin-top:14px;font:500 11.5px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--gold-d)}
+[data-lean]{transform:perspective(1800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));will-change:transform}

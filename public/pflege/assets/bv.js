@@ -145,3 +145,50 @@
   window.addEventListener("resize", fit);
   window.addEventListener("load", fit);
 })();
+
+/* Isometric blocks: twenty places seen from above at an angle (SVG, no library). A filled place stands,
+   an empty one sinks to a dashed outline. bvIso(svg) returns set(emptyCount).
+   svg[data-iso="N"] draws itself when it comes into view; svg[data-iso-from="selector"] takes N from the
+   first number in that element's text (the workshop's "18 Plätze frei") and writes "N von 20 …" into its figcaption.
+   [data-lean="k"]: the element leans a little with the pointer (CSS reads --rx / --ry). Desktop only. */
+(function () {
+  var d = document, w = window, NS = "http://www.w3.org/2000/svg";
+  var reduce = w.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  w.bvIso = function (svg) {
+    var C = 5, Rw = 4, TW = 58, TH = 29, cells = [], order = [7, 12, 3, 16, 9, 1, 18, 5, 14, 10, 0, 19, 6, 13, 2, 17, 8, 11, 4, 15], raf = 0;
+    function el(n, c) { var e = d.createElementNS(NS, n); e.setAttribute("class", c); return e; }
+    for (var s = 0; s <= C + Rw - 2; s++) for (var c = 0; c < C; c++) {
+      var r = s - c; if (r < 0 || r >= Rw) continue;
+      var g = el("g", "cl"), o = { i: r * C + c, h: 20, to: 20, x: 146 + (c - r) * 32, y: 44 + (c + r) * 16, g: g, l: el("polygon", "l"), rt: el("polygon", "r"), t: el("polygon", "t"), dt: el("circle", "d") };
+      o.dt.setAttribute("r", "2.6"); g.appendChild(o.l); g.appendChild(o.rt); g.appendChild(o.t); g.appendChild(o.dt); svg.appendChild(g); cells.push(o);
+    }
+    function P(a) { return a.map(function (q) { return q[0].toFixed(1) + "," + q[1].toFixed(1); }).join(" "); }
+    function put(o) {
+      var x = o.x, y = o.y, h = o.h, hw = TW / 2, t = TH / 2;
+      o.t.setAttribute("points", P([[x, y - t - h], [x + hw, y - h], [x, y + t - h], [x - hw, y - h]]));
+      o.l.setAttribute("points", P([[x - hw, y - h], [x, y + t - h], [x, y + t], [x - hw, y]]));
+      o.rt.setAttribute("points", P([[x, y + t - h], [x + hw, y - h], [x + hw, y], [x, y + t]]));
+      o.dt.setAttribute("cx", x); o.dt.setAttribute("cy", (y - h).toFixed(1)); o.g.setAttribute("class", "cl" + (o.to < 5 ? " e" : ""));
+    }
+    function step() { var moving = false; cells.forEach(function (o) { var k = o.to - o.h; if (Math.abs(k) > .15) { o.h += k * (reduce ? 1 : .16); moving = true; } else o.h = o.to; put(o); }); raf = moving ? requestAnimationFrame(step) : 0; }
+    cells.forEach(put);
+    return function (empty) { cells.forEach(function (o) { o.to = order.indexOf(o.i) < empty ? 1.2 : 20; }); if (!raf) raf = requestAnimationFrame(step); };
+  };
+  [].forEach.call(d.querySelectorAll("svg[data-iso],svg[data-iso-from]"), function (s) {
+    var n = +s.getAttribute("data-iso") || 0, from = s.getAttribute("data-iso-from");
+    if (from) { var src = d.querySelector(from), m = src && /(\d+)/.exec(src.textContent); n = m ? Math.min(20, +m[1]) : 0; var cap = s.parentNode.querySelector("figcaption"); if (cap && m) cap.textContent = n + " von 20 Plätzen frei"; if (!m) { s.parentNode.style.display = "none"; return; } }
+    var set = w.bvIso(s);
+    if (!("IntersectionObserver" in w)) { set(n); return; }
+    var io = new IntersectionObserver(function (es) { if (es[0].isIntersecting) { io.disconnect(); setTimeout(function () { set(n); }, 250); } }, { threshold: .35 }); io.observe(s);
+  });
+  var lean = [].slice.call(d.querySelectorAll("[data-lean]"));
+  if (lean.length && !reduce && w.matchMedia && matchMedia("(min-width: 901px) and (pointer: fine)").matches) {
+    var tx = 0, ty = 0, cx = 0, cy = 0, on = false;
+    w.addEventListener("pointermove", function (e) { tx = e.clientX / w.innerWidth * 2 - 1; ty = e.clientY / w.innerHeight * 2 - 1; if (!on) { on = true; requestAnimationFrame(run); } }, { passive: true });
+    function run() {
+      cx += (tx - cx) * .07; cy += (ty - cy) * .07;
+      lean.forEach(function (el) { var k = +el.getAttribute("data-lean") || 1; el.style.setProperty("--ry", (cx * 3.2 * k).toFixed(2) + "deg"); el.style.setProperty("--rx", (cy * -2.2 * k).toFixed(2) + "deg"); });
+      if (Math.abs(tx - cx) + Math.abs(ty - cy) > .002) requestAnimationFrame(run); else on = false;
+    }
+  }
+})();

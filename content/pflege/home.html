@@ -216,6 +216,11 @@
 .kx-in label{display:flex;flex-direction:column;gap:6px;font-size:12px}
 .kx-in label{max-width:150px}
 .kx-in input{width:120px;height:40px;padding:0 10px;border:1px solid #3b372f;border-radius:3px;background:#1b1915;color:#f6f1e6;font:400 15px var(--sans)}
+.kx-type{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 22px}
+.kx-type button{height:38px;padding:0 16px;border:1px solid var(--line2);border-radius:19px;background:none;font:500 14px/1 var(--sans);color:var(--ink2);cursor:pointer;transition:background .3s,color .3s,border-color .3s}
+.kx-type button.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+@media (max-width:900px){.kx-type{justify-content:center}}
+@media (min-width:901px){.kx-q>.kx-type{grid-column:1/-1}}
 .kx-eq{margin:20px 0 0;font-size:.95rem;color:var(--ink2)}
 .kx-eq b{font-weight:500;color:#9a4a33}
 .kx-bd{margin-top:10px;min-height:28px}
@@ -231,16 +236,11 @@
 .kx-by img{width:42px;height:42px;border-radius:50%;object-fit:cover}
 .kx-by span{font-size:13px;line-height:1.35;color:#8f887b}
 .kx-by b{display:block;font:500 1.05rem/1.2 var(--serif);color:#f6f1e6}
-.kx-iso{display:block;width:100%;max-width:400px;height:auto;margin:6px 0 0 -8px;overflow:visible}
-.kx-iso .t{fill:#2b2722}.kx-iso .l{fill:#15130f}.kx-iso .r{fill:#1f1c18}.kx-iso .d{fill:#d4b676}
-.kx-iso polygon{stroke:#f4f1ea;stroke-width:1;stroke-linejoin:round;transition:fill .5s}
-.kx-iso .e .t{fill:rgba(154,74,51,.09);stroke:#9a4a33;stroke-width:1.3;stroke-dasharray:3.5 3}
-.kx-iso .e .l,.kx-iso .e .r{fill:rgba(154,74,51,.18);stroke:none}
-.kx-iso .e .d{opacity:0}.kx-iso .d{transition:opacity .4s}
+.kx-iso{margin:6px 0 0 -8px}
 @media (max-width:900px){.kx-iso{margin:6px auto 0}}
-@media (min-width:901px){.kx-q{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);column-gap:18px;align-items:center}.kx-q>#kxlab{grid-column:1/-1}.kx-q>.kx-step,.kx-q>.kx-pp,.kx-q>.kx-eq{grid-column:1}.kx-q>.kx-iso{grid-column:2;grid-row:2/span 3;margin:0;max-width:none}.kx-q .kx-pp svg{width:21px;height:27px}}
+@media (min-width:901px){.kx-q{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);column-gap:18px;align-items:center}.kx-q>#kxlab{grid-column:1/-1}.kx-q>.kx-step,.kx-q>.kx-pp,.kx-q>.kx-eq{grid-column:1}.kx-q>.kx-iso{grid-column:2;grid-row:3/span 3;margin:0;max-width:none}.kx-q .kx-pp svg{width:21px;height:27px}}
 /* depth */
-.kx-panel{transform:perspective(1600px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transform-style:preserve-3d;will-change:transform}
+.stage[data-lean]{transform:none}
 .stage.in .p2{transform:translateX(-50%) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateZ(46px)!important}
 .stage.in .p1{transform:translateX(-128%) rotateX(var(--rx,0deg)) rotateY(calc(24deg + var(--ry,0deg))) scale(.9)!important}
 .stage.in .p3{transform:translateX(28%) rotateX(var(--rx,0deg)) rotateY(calc(-24deg + var(--ry,0deg))) scale(.9)!important}
@@ -291,14 +291,15 @@
    <h1 class="h1" data-split><span class="main">Leere Stellen kosten. <em>Jede Sekunde.</em></span></h1>
    <p class="for" data-r>Jede fehlende Pflegekraft heißt: Plätze bleiben leer, Ihr Team macht Überstunden. Sehen Sie live, was das kostet. Ohne Anmeldung.</p>
    <div class="kx-q" data-r>
+    <div class="kx-type" role="group" aria-label="Art der Einrichtung"><button type="button" class="on" data-f="care_home" data-track="tool-pflegeheim">Pflegeheim</button><button type="button" data-f="hospital" data-track="tool-krankenhaus">Krankenhaus</button><button type="button" data-f="home_care" data-track="tool-ambulant">Ambulanter Dienst</button></div>
     <p id="kxlab">Wie viele Pflegefachkräfte fehlen Ihnen?</p>
-    <div class="kx-step" role="group" aria-labelledby="kxlab"><button type="button" id="kxm" aria-label="Eine weniger">−</button><b id="kxn" aria-live="polite">3</b><button type="button" id="kxp" aria-label="Eine mehr">+</button></div>
+    <div class="kx-step" role="group" aria-labelledby="kxlab"><button type="button" id="kxm" aria-label="Eine weniger" data-track="tool-minus">−</button><b id="kxn" aria-live="polite">3</b><button type="button" id="kxp" aria-label="Eine mehr" data-track="tool-plus">+</button></div>
     <div class="kx-pp" id="kxpp" aria-hidden="true"></div>
     <p class="kx-eq" id="kxeq"></p>
-    <svg class="kx-iso" id="kxiso" viewBox="0 0 320 196" aria-hidden="true"></svg>
+    <svg class="iso kx-iso" id="kxiso" viewBox="0 0 320 196" aria-hidden="true"></svg>
    </div>
   </div>
-  <div class="kx-panel" data-r>
+  <div class="kx-panel" data-r data-lean="-1">
    <p class="kx-cap"><i></i><span id="kxcap">Live · Beispiel: 3 fehlende Pflegekräfte</span></p>
    <p class="kx-big" id="kxbig" aria-live="off">−0,00 €</p>
    <p class="kx-sub">So viel fehlt Ihnen, wenn diese Stellen seit Januar leer sind.</p>
@@ -309,13 +310,13 @@
     <text class="tx" x="20" y="18">0 €</text><text class="tx" x="20" y="204">Januar</text><text class="tx" x="580" y="204" text-anchor="end">Dezember</text>
     <text class="now" id="kxnow" text-anchor="middle">Heute</text><text class="end" id="kxend" x="580" y="166" text-anchor="end"></text>
    </svg>
-   <div class="kx-split" aria-hidden="true"><div><span>Leere Plätze</span><i><b id="kxb1"></b></i><em id="kxv1"></em></div><div><span>Überstunden</span><i><b id="kxb2"></b></i><em id="kxv2"></em></div></div>
+   <div class="kx-split" aria-hidden="true"><div><span id="kxl1">Leere Plätze</span><i><b id="kxb1"></b></i><em id="kxv1"></em></div><div><span>Überstunden</span><i><b id="kxb2"></b></i><em id="kxv2"></em></div></div>
    <div class="kx-tiles"><div><span>Jeder Monat Warten</span><b id="kxmo">−0 €</b></div><div><span>Pro Jahr</span><b id="kxyr">−0 €</b></div><div><span>Seit Sie hier sind</span><b id="kxhere">−0,00 €</b></div></div>
-   <div class="kx-go"><p>Ihr Fahrplan zeigt, was Sie zuerst tun.</p><a class="btn light" id="kxgo" href="/fahrplan?src=home-kosten"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
+   <div class="kx-go"><p>Ihr Fahrplan zeigt, was Sie zuerst tun.</p><a class="btn light" id="kxgo" data-track="tool-fahrplan" href="/fahrplan?src=home-kosten"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a></div>
    <p class="kx-by"><img src="/pflege/assets/ws/founder-youness-v4.webp" alt="" width="720" height="720" loading="lazy" decoding="async"><span><b>Youness Taoufiq</b>Gründer von Borivon</span></p>
    <details class="kx-src"><summary>So rechnen wir</summary>
-    <p>Je fehlender Pflegekraft rechnen wir mit zwei Dingen. Erstens: Plätze, die Sie nicht belegen können. Start: 2 Plätze zu rund 4.600 € im Monat (Pflegeheim: Eigenanteil Ø 3.364 €, vdek 07/2026, plus Pflegekasse Pflegegrad 3). Zweitens: Überstunden Ihres Teams. Start: 80 Stunden im Monat, gerechnet wird nur der Zuschlag von 25 % auf den Pflegemindestlohn von 21,03 € samt Abgaben, also rund 6,40 € je Stunde. Das eingesparte Gehalt der leeren Stelle ist nicht gegengerechnet. Ihre eigenen Werte:</p>
-    <div class="kx-in"><label>Leere Plätze je fehlender Kraft <input type="number" id="kxu" value="2" min="0" max="20" step="0.5" inputmode="decimal"></label><label>Erlös je Platz und Monat (€) <input type="number" id="kxr" value="4600" min="0" max="50000" step="100" inputmode="numeric"></label><label>Überstunden im Monat je fehlender Kraft <input type="number" id="kxh" value="80" min="0" max="250" step="1" inputmode="numeric"></label><label>Zuschlag je Überstunde (€) <input type="number" id="kxz" value="6.4" min="0" max="100" step="0.1" inputmode="decimal"></label></div>
+    <p>Je fehlender Pflegekraft rechnen wir mit zwei Dingen. Erstens: <span id="kxnote"></span> Zweitens: Überstunden Ihres Teams. Start: 80 Stunden im Monat, gerechnet wird nur der Zuschlag von 25 % auf den Pflegemindestlohn von 21,03 € samt Abgaben, also rund 6,40 € je Stunde. Das eingesparte Gehalt der leeren Stelle ist nicht gegengerechnet. Ihre eigenen Werte:</p>
+    <div class="kx-in"><label><span id="kxlu">Leere Plätze je fehlender Kraft</span> <input type="number" id="kxu" value="2" min="0" max="20" step="0.5" inputmode="decimal"></label><label><span id="kxlr">Erlös je Platz und Monat (€)</span> <input type="number" id="kxr" value="4600" min="0" max="50000" step="100" inputmode="numeric"></label><label>Überstunden im Monat je fehlender Kraft <input type="number" id="kxh" value="80" min="0" max="250" step="1" inputmode="numeric"></label><label>Zuschlag je Überstunde (€) <input type="number" id="kxz" value="6.4" min="0" max="100" step="0.1" inputmode="decimal"></label></div>
    </details>
   </div>
  </div>
@@ -332,7 +333,7 @@
    <h2 class="h2" data-split>Ihr Pflege-Fahrplan. <em>Für Ihre Einrichtung.</em></h2>
    <p class="hp" data-r>Wo Sie stehen, was es Sie kostet und was Sie als Nächstes tun. Als PDF, in unter 60 Sekunden.</p>
   </div>
-  <a class="stage" href="/fahrplan" data-r aria-label="Ihr Pflege-Fahrplan">
+  <a class="stage" href="/fahrplan" data-r data-lean="2.2" aria-label="Ihr Pflege-Fahrplan">
    <span class="pg p1"><img src="/pflege/assets/home/fp-steps.webp?v=2" alt="" width="900" height="1273" decoding="async"></span>
    <span class="pg p3"><img src="/pflege/assets/home/fp-numbers.webp?v=2" alt="" width="900" height="1273" decoding="async"></span>
    <span class="pg p2"><img src="/pflege/assets/home/fp-cover.webp?v=2" alt="" width="900" height="1273" decoding="async" fetchpriority="high"></span>
@@ -413,11 +414,18 @@
 <a class="mcta" href="/fahrplan"><span>Ihren Fahrplan holen</span><svg class="ar" viewBox="0 0 20 10" aria-hidden="true"><path d="M1 5h17M14 1l4 4-4 4"/></svg></a>
 
 <script src="/pflege/assets/t.js"></script>
+<!--BVJS-->
 <script>
 /* the one tool. Per missing nurse and month: places that stay empty x revenue per place, plus the overtime surcharge the team is paid.
    Runs from 1 January to this second; opens as a labelled example, becomes "Ihre Zahlen" on the first change. */
 (function(){
-  var $=function(id){return document.getElementById(id)},n=3,t0=Date.now(),shown={},mine=false;
+  var $=function(id){return document.getElementById(id)},n=3,t0=Date.now(),shown={},mine=false,type="care_home";
+  /* same start values as the Fahrplan calculator (lib/roadmap/score.ts COST_MODEL) */
+  var TYPES={
+    care_home:{u:2,r:4600,one:"leerer Platz",many:"leere Pl\u00e4tze",cap:"Leere Pl\u00e4tze",lu:"Leere Pl\u00e4tze je fehlender Kraft",lr:"Erl\u00f6s je Platz und Monat (\u20ac)",note:"Pl\u00e4tze, die Sie nicht belegen k\u00f6nnen. Start: 2 Pl\u00e4tze zu rund 4.600 \u20ac im Monat (Eigenanteil \u00d8 3.364 \u20ac, vdek 07/2026, plus Pflegekasse Pflegegrad 3)."},
+    hospital:{u:1,r:15600,one:"gesperrtes Bett",many:"gesperrte Betten",cap:"Gesperrte Betten",lu:"Gesperrte Betten je fehlender Kraft",lr:"Erl\u00f6s je Bett und Monat (\u20ac)",note:"Betten, die Sie sperren m\u00fcssen. Start: 1 Bett zu rund 15.600 \u20ac im Monat (rund 650 \u20ac pro Tag, 80 % belegt)."},
+    home_care:{u:4,r:1300,one:"abgelehnter Patient",many:"abgelehnte Patienten",cap:"Abgelehnte Patienten",lu:"Abgelehnte Patienten je fehlender Kraft",lr:"Erl\u00f6s je Patient und Monat (\u20ac)",note:"Patienten, die Sie ablehnen m\u00fcssen. Start: 4 Patienten zu rund 1.300 \u20ac im Monat (Branchendurchschnitt)."}
+  };
   var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
   function num(id,min){var v=parseFloat(String($(id).value).replace(",","."));return isFinite(v)&&v>=min?v:min}
   function eur(v,d){var t=v.toLocaleString("de-DE",{minimumFractionDigits:d||0,maximumFractionDigits:d||0});return (/[1-9]/.test(t)?"\u2212":"")+t+" \u20ac"}
@@ -426,27 +434,12 @@
   function frac(){var d=new Date(),s=new Date(d.getFullYear(),0,1);return (d-s)/(365*864e5)}
   function glide(id,to){var from=shown[id]==null?0:shown[id];shown[id]=to;if(reduce){$(id).textContent=eur(to);return}var s=performance.now();(function f(now){var k=Math.min(1,(now-s)/600),e=1-Math.pow(1-k,3);$(id).textContent=eur(from+(to-from)*e);if(k<1&&shown[id]===to)requestAnimationFrame(f)})(s)}
   function icons(id,sym,ok,miss){var h="";for(var i=0;i<ok;i++)h+='<svg style="animation-delay:'+i*30+'ms"><use href="#p"/></svg>';for(var j=0;j<miss;j++)h+='<svg class="e" style="animation-delay:'+(ok+j)*30+'ms"><use href="#'+sym+'"/></svg>';$(id).innerHTML=h}
-  /* twenty places, drawn as blocks seen from above at an angle: a filled place stands, an empty one sinks to an outline */
-  var ISO=(function(){
-    var svg=$("kxiso"),NS="http://www.w3.org/2000/svg",C=5,R=4,TW=58,TH=29,cells=[],order=[7,12,3,16,9,1,18,5,14,10,0,19,6,13,2,17,8,11,4,15];
-    function el(n,c){var e=document.createElementNS(NS,n);e.setAttribute("class",c);return e}
-    for(var s=0;s<=C+R-2;s++)for(var c=0;c<C;c++){var r=s-c;if(r<0||r>=R)continue;
-      var g=el("g","cl"),o={c:c,r:r,i:r*C+c,h:20,to:20,x:146+(c-r)*32,y:44+(c+r)*16,g:g,l:el("polygon","l"),rt:el("polygon","r"),t:el("polygon","t"),d:el("circle","d")};
-      o.d.setAttribute("r","2.6");g.appendChild(o.l);g.appendChild(o.rt);g.appendChild(o.t);g.appendChild(o.d);svg.appendChild(g);cells.push(o)}
-    function put(o){var x=o.x,y=o.y,h=o.h,w=TW/2,t=TH/2,P=function(a){return a.map(function(q){return q[0].toFixed(1)+","+q[1].toFixed(1)}).join(" ")};
-      o.t.setAttribute("points",P([[x,y-t-h],[x+w,y-h],[x,y+t-h],[x-w,y-h]]));
-      o.l.setAttribute("points",P([[x-w,y-h],[x,y+t-h],[x,y+t],[x-w,y]]));
-      o.rt.setAttribute("points",P([[x,y+t-h],[x+w,y-h],[x+w,y],[x,y+t]]));
-      o.d.setAttribute("cx",x);o.d.setAttribute("cy",(y-h).toFixed(1));o.g.setAttribute("class","cl"+(o.to<5?" e":""))}
-    var raf=0;function step(){var moving=false;cells.forEach(function(o){var d=o.to-o.h;if(Math.abs(d)>.15){o.h+=d*(reduce?1:.16);moving=true}else o.h=o.to;put(o)});raf=moving?requestAnimationFrame(step):0}
-    cells.forEach(put);
-    return function(empty){cells.forEach(function(o){o.to=order.indexOf(o.i)<empty?1.2:20});if(!raf)raf=requestAnimationFrame(step)}
-  })();
+  var ISO=window.bvIso($("kxiso"));
   function iso(n){ISO(n)}
   function draw(){
     $("kxn").textContent=n;icons("kxpp","pe",Math.max(2,10-Math.min(n,8)),Math.min(n,24));
     var beds=Math.round(n*num("kxu",0));iso(Math.min(beds,20));
-    $("kxeq").innerHTML=beds?"Das hei\u00dft: <b>"+beds+" leere Pl\u00e4tze</b>"+(beds>20?" (20 gezeigt)":""):"";
+    var T=TYPES[type];$("kxeq").innerHTML=beds?"Das hei\u00dft: <b>"+beds+" "+(beds===1?T.one:T.many)+"</b>":"";$("kxl1").textContent=T.cap;$("kxnote").textContent=T.note;$("kxlu").textContent=T.lu;$("kxlr").textContent=T.lr;
     $("kxcap").textContent=mine?"Live \u00b7 Ihre Zahlen":"Live \u00b7 Beispiel: 3 fehlende Pflegekr\u00e4fte";
     var p=parts(),m=p[0]+p[1],y=m*12,f=Math.min(1,frac()),x=20+560*f,yy=28+150*f;
     $("kxpast").setAttribute("d","M20 28L"+x.toFixed(1)+" "+yy.toFixed(1));
@@ -458,24 +451,16 @@
     $("kxb1").style.width=(m?p[0]/m*100:0)+"%";$("kxb2").style.width=(m?Math.max(p[1]/m*100,p[1]?2:0):0)+"%";
     $("kxv1").textContent=eur(p[0]);$("kxv2").textContent=eur(p[1]);
     glide("kxmo",m);glide("kxyr",y);
-    var q="?src=home-kosten"+(mine?"&n="+n+"&m="+Math.round(m):"");$("kxgo").href="/fahrplan"+q;if($("kxgo2"))$("kxgo2").href="/fahrplan"+q;
+    var q="?src=home-kosten"+(mine?"&n="+n+"&m="+Math.round(m)+"&f="+type:"");$("kxgo").href="/fahrplan"+q;if($("kxgo2"))$("kxgo2").href="/fahrplan"+q;
     tick();
   }
   function tick(){var y=month()*12,s=(Date.now()-t0)/1000,here=s*y/31536000;
     $("kxbig").textContent=eur(y*frac(),2);$("kxhere").textContent=eur(here,2);if($("kxhere2"))$("kxhere2").textContent=eur(here,2)}
   $("kxm").onclick=function(){mine=true;n=Math.max(1,n-1);draw()};$("kxp").onclick=function(){mine=true;n=Math.min(50,n+1);draw()};
+  [].forEach.call(document.querySelectorAll(".kx-type button"),function(b){b.onclick=function(){type=b.getAttribute("data-f");mine=true;[].forEach.call(b.parentNode.children,function(x){x.classList.toggle("on",x===b)});$("kxu").value=TYPES[type].u;$("kxr").value=TYPES[type].r;draw()}});
   ["kxu","kxr","kxh","kxz"].forEach(function(id){$(id).addEventListener("input",function(){mine=true;draw()})});
   draw();setInterval(tick,reduce?1000:90);
-  if(!reduce&&window.matchMedia&&matchMedia("(min-width: 901px) and (pointer: fine)").matches){
-    var pan=document.querySelector(".kx-panel"),stg=document.querySelector(".stage"),tx=0,ty=0,cx=0,cy=0,on=false;
-    addEventListener("pointermove",function(e){tx=e.clientX/innerWidth*2-1;ty=e.clientY/innerHeight*2-1;if(!on){on=true;requestAnimationFrame(lean)}},{passive:true});
-    function lean(){cx+=(tx-cx)*.07;cy+=(ty-cy)*.07;
-      if(pan){pan.style.setProperty("--ry",(cx*-3.2).toFixed(2)+"deg");pan.style.setProperty("--rx",(cy*2.2).toFixed(2)+"deg")}
-      if(stg){stg.style.setProperty("--ry",(cx*7).toFixed(2)+"deg");stg.style.setProperty("--rx",(cy*-4).toFixed(2)+"deg")}
-      if(Math.abs(tx-cx)+Math.abs(ty-cy)>.002)requestAnimationFrame(lean);else on=false}
-  }
 })();
 </script>
-<!--BVJS-->
 </body>
 </html>
