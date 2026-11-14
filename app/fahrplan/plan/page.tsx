@@ -28,9 +28,9 @@ function tagged(url: string, leadId: string): string {
 type Link = { page: number; x: number; y: number; w: number; h: number; url: string };
 
 const TXT = {
-  de: { hint: "{n} Seiten · Die Knöpfe im Fahrplan funktionieren hier direkt.", plan: "Ihr Fahrplan", bonus: "Bonus: Agentur-Check", dl: "PDF herunterladen", bad: "Dieser Link ist ungültig oder abgelaufen.", again: "Fahrplan neu anfordern" },
-  en: { hint: "{n} pages · The buttons in the roadmap work right here.", plan: "Your roadmap", bonus: "Bonus: agency check", dl: "Download PDF", bad: "This link is invalid or expired.", again: "Request the roadmap again" },
-  fr: { hint: "{n} pages · Les boutons du plan fonctionnent ici directement.", plan: "Votre plan", bonus: "Bonus : check agence", dl: "Télécharger le PDF", bad: "Ce lien est invalide ou expiré.", again: "Redemander le plan" },
+  de: { hint: "{n} Seiten · Eine Kopie liegt in Ihrem Postfach.", plan: "Ihr Fahrplan", bonus: "Bonus: Agentur-Check", dl: "PDF herunterladen", bad: "Dieser Link ist ungültig oder abgelaufen.", again: "Fahrplan neu anfordern" },
+  en: { hint: "{n} pages · A copy is in your inbox.", plan: "Your roadmap", bonus: "Bonus: agency check", dl: "Download PDF", bad: "This link is invalid or expired.", again: "Request the roadmap again" },
+  fr: { hint: "{n} pages · Une copie est dans votre boîte mail.", plan: "Votre plan", bonus: "Bonus : check agence", dl: "Télécharger le PDF", bad: "Ce lien est invalide ou expiré.", again: "Redemander le plan" },
 } as const;
 
 function Viewer() {
