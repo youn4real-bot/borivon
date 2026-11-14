@@ -35,8 +35,8 @@ npx vercel --prod      # ship to production at www.borivon.com
 ```
 
 No tests are configured. Verification = `npx tsc --noEmit` + a manual
-smoke through the dev server. `npm run lint` is configured but
-`next lint` is deprecated upstream — use sparingly.
+smoke through the dev server. (`next lint` was removed in Next 16, so there
+is no lint script.)
 
 ## Routes you'll touch most
 

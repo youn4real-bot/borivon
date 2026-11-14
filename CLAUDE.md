@@ -11,9 +11,8 @@ Normal, clear prose. (The previous "caveman" terse mode was removed at the user'
 ```bash
 npm install            # install deps
 npm run dev            # Next dev server on :3000
-npm run build          # production build (passes through `next build`)
+npm run build          # production build (`next build --webpack` — webpack on purpose, see next.config.ts)
 npm run start          # serve a built app
-npm run lint           # next lint (deprecated upstream; use sparingly)
 npm test               # run Vitest unit tests (tests/**)
 npx tsc --noEmit       # type-check the whole tree without emitting
 npm run cf:build       # build for Cloudflare Workers (OpenNext adapter) → .open-next/
@@ -43,7 +42,7 @@ nicety is fine, losing a lead is not.
 
 ## Tech Stack
 
-- **Next.js 15** App Router, all pages are client components under `app/portal/**`.
+- **Next.js 16** App Router (built with webpack, not Turbopack), all pages are client components under `app/portal/**`. `middleware.ts` stays `middleware.ts` (edge runtime) — Next 16's `proxy.ts` is Node-only and experimental on OpenNext.
 - **React 19** + **TypeScript 5.9**.
 - **Tailwind v4** via `@tailwindcss/postcss`. Styling is `style={{ … }}` for design tokens (`--gold`, `--w`, `--w2`, `--w3`, `--card`, `--bg2`, `--border`, `--border-gold`, etc. defined in `app/globals.css`) + utility classes for layout.
 - **Supabase** for auth (Bearer JWT in every API call), Postgres tables (`documents`, `candidate_profiles`, `phase_slots`, `notifications`, `admin_notifications`, `organizations`, `organization_members`, `sub_admins`, `sign_requests`, etc.), and Storage buckets.

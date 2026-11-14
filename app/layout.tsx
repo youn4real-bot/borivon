@@ -124,7 +124,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="de" dir="ltr" className={`light ${inter.variable} ${garamond.variable} ${garamondUpright.variable} ${mono.variable}`}>
+    // data-scroll-behavior="smooth": globals.css sets `html{scroll-behavior:smooth}`. Next 16 only
+    // switches it off during page changes when this attribute says so; without it every link click
+    // would animate a slow scroll back to the top (Next 15 did this switch on its own).
+    <html lang="de" dir="ltr" data-scroll-behavior="smooth" className={`light ${inter.variable} ${garamond.variable} ${garamondUpright.variable} ${mono.variable}`}>
       <head>
         {/* Affiliate subdomain marker — runs synchronously before first paint so
             the global chrome (navbar/flag-strip/actions) is CSS-hidden on

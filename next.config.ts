@@ -69,13 +69,15 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
-  // ESLint is skipped during build (deprecated upstream; we lint/verify
-  // separately). TypeScript type-checking stays ON for Vercel builds — it's a
-  // real safety net and Vercel has the RAM for it. NOTE: the cloudflare-backup
-  // branch additionally sets `typescript: { ignoreBuildErrors: true }` because
-  // Cloudflare's FREE build container OOMs during the type-check pass; that
-  // skip is intentionally NOT here so production (Vercel) keeps the check.
-  eslint: { ignoreDuringBuilds: true },
+  // Next 16 removed `next lint` and this file's `eslint` key: the build never
+  // lints any more. TypeScript type-checking stays ON during the build — it's a
+  // real safety net.
+  //
+  // WEBPACK ON PURPOSE (Next 16 builds with Turbopack by default): package.json
+  // runs `next build --webpack` / `next dev --webpack`. The `webpack()` hook
+  // below keeps jsdom and postal-mime out of the Worker bundle, and
+  // scripts/strip-workers-only.mjs patches webpack's server output; Turbopack
+  // would ignore the hook (and Next 16 refuses a default build with it set).
   experimental: {
     // Tree-shake big barrel-file libraries aggressively. Without this, each
     // `import { X } from "lib"` pulls in metadata for every export. With it,
