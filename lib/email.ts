@@ -84,7 +84,34 @@ export async function sendAdminAlertEmail(subject: string, body: string): Promis
     replyTo: (process.env.CONTACT_EMAIL || "contact@borivon.com").trim(),
     subject: subject.slice(0, 200),
     text: body.slice(0, 4000),
+    html: alertHtml(body.slice(0, 4000)),
   });
+}
+
+/**
+ * The owner's alert in the site's look (founder 2026-11-14: "stop sending these shitty looking emails").
+ * Built from the plain text every caller already writes: the first line is the headline, "Label : value"
+ * lines become rows, a line that is only a link becomes the button, anything else stays a paragraph.
+ */
+function alertHtml(body: string): string {
+  const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+  const head = lines.shift() ?? "";
+  let rows = "", paras = "", button = "";
+  for (const l of lines) {
+    if (/^https?:\/\/\S+$/.test(l)) { button = l; continue; }
+    const m = l.match(/^([^:]{1,24}?)\s*:\s+(.+)$/);
+    if (m) rows += `<tr><td style="padding:9px 14px 9px 0;border-top:1px solid #e6e0d4;font:500 11px/1.3 Arial,Helvetica,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#8a6a28;vertical-align:top;white-space:nowrap">${esc(m[1])}</td><td style="padding:9px 0;border-top:1px solid #e6e0d4;font:400 15px/1.45 Arial,Helvetica,sans-serif;color:#15130f">${esc(m[2])}</td></tr>`;
+    else paras += `<p style="font:400 15px/1.6 Arial,Helvetica,sans-serif;color:#3b372f;margin:0 0 12px">${esc(l)}</p>`;
+  }
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f4f1ea;padding:32px 16px">
+<div style="max-width:560px;margin:0 auto;background:#fbfaf6;border:1px solid #ddd6c8;border-radius:6px;padding:30px 30px 26px">
+<p style="font:italic 400 22px/1 Georgia,'Times New Roman',serif;color:#15130f;margin:0 0 22px">Borivon<span style="color:#a8843a;font-style:normal">.</span></p>
+<p style="font:400 26px/1.2 Georgia,'Times New Roman',serif;letter-spacing:-0.01em;color:#15130f;margin:0 0 18px">${esc(head)}</p>
+${paras}${rows ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-bottom:1px solid #e6e0d4;margin:6px 0 4px">${rows}</table>` : ""}
+${button ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0"><tr><td bgcolor="#15130f" style="border-radius:3px"><a href="${esc(button)}" style="display:inline-block;padding:15px 24px;font:bold 15px/1 Arial,Helvetica,sans-serif;color:#f4f1ea;text-decoration:none">Im Portal öffnen &nbsp;&rarr;</a></td></tr></table>` : ""}
+<p style="font:400 11px/1.5 Arial,Helvetica,sans-serif;color:#8f887b;margin:26px 0 0">Interne Benachrichtigung. Geht nur an Sie, nie an Kunden.</p>
+</div></body></html>`;
 }
 
 /**
