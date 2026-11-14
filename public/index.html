@@ -263,6 +263,30 @@
 .kx-by img{width:42px;height:42px;border-radius:50%;object-fit:cover}
 .kx-by span{font-size:13px;line-height:1.35;color:#8f887b}
 .kx-by b{display:block;font:500 1.05rem/1.2 var(--serif);color:#f6f1e6}
+.kx-iso{display:block;width:100%;max-width:400px;height:auto;margin:6px 0 0 -8px;overflow:visible}
+.kx-iso .t{fill:#2b2722}.kx-iso .l{fill:#15130f}.kx-iso .r{fill:#1f1c18}.kx-iso .d{fill:#d4b676}
+.kx-iso polygon{stroke:#f4f1ea;stroke-width:1;stroke-linejoin:round;transition:fill .5s}
+.kx-iso .e .t{fill:rgba(154,74,51,.09);stroke:#9a4a33;stroke-width:1.3;stroke-dasharray:3.5 3}
+.kx-iso .e .l,.kx-iso .e .r{fill:rgba(154,74,51,.18);stroke:none}
+.kx-iso .e .d{opacity:0}.kx-iso .d{transition:opacity .4s}
+@media (max-width:900px){.kx-iso{margin:6px auto 0}}
+@media (min-width:901px){.kx-q{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);column-gap:18px;align-items:center}.kx-q>#kxlab{grid-column:1/-1}.kx-q>.kx-step,.kx-q>.kx-pp,.kx-q>.kx-eq{grid-column:1}.kx-q>.kx-iso{grid-column:2;grid-row:2/span 3;margin:0;max-width:none}.kx-q .kx-pp svg{width:21px;height:27px}}
+/* depth */
+.kx-panel{transform:perspective(1600px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transform-style:preserve-3d;will-change:transform}
+.stage.in .p2{transform:translateX(-50%) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateZ(46px)!important}
+.stage.in .p1{transform:translateX(-128%) rotateX(var(--rx,0deg)) rotateY(calc(24deg + var(--ry,0deg))) scale(.9)!important}
+.stage.in .p3{transform:translateX(28%) rotateX(var(--rx,0deg)) rotateY(calc(-24deg + var(--ry,0deg))) scale(.9)!important}
+.stage.in .pg{transition:transform .5s cubic-bezier(.2,.7,.2,1)!important;animation:kxfloat 7s ease-in-out infinite}
+.stage.in .p1{animation-delay:-2.3s}.stage.in .p3{animation-delay:-4.6s}
+@keyframes kxfloat{50%{translate:0 -10px}}
+@media (max-width:640px){.stage.in .p1{transform:translateX(-100%) rotateY(26deg) scale(.88)!important}.stage.in .p3{transform:translateX(0) rotateY(-26deg) scale(.88)!important}.stage.in .p2{transform:translateX(-50%) translateZ(30px)!important}}
+@media (prefers-reduced-motion:reduce){.stage.in .pg{animation:none}}
+/* room to breathe */
+.hero.kx{padding-top:clamp(36px,5vw,84px);padding-bottom:clamp(88px,10vw,168px)}
+.kx-grid{gap:clamp(36px,6vw,112px)}
+.kx-head{margin-bottom:clamp(28px,3.5vw,56px)}
+#fahrplan .how{margin-top:clamp(72px,8vw,120px)}
+#fahrplan .quote{margin-top:clamp(88px,10vw,150px)}
 .kx-head{max-width:820px;margin:0 auto clamp(8px,1vw,16px);text-align:center}
 .kx-head .hp{margin:22px auto 0;max-width:32em}
 .kx-cta{display:flex;flex-direction:column;align-items:center;margin-top:clamp(40px,4vw,60px)}
@@ -303,7 +327,7 @@
     <div class="kx-step" role="group" aria-labelledby="kxlab"><button type="button" id="kxm" aria-label="Eine weniger">−</button><b id="kxn" aria-live="polite">3</b><button type="button" id="kxp" aria-label="Eine mehr">+</button></div>
     <div class="kx-pp" id="kxpp" aria-hidden="true"></div>
     <p class="kx-eq" id="kxeq"></p>
-    <div class="kx-pp kx-bd" id="kxbd" aria-hidden="true"></div>
+    <svg class="kx-iso" id="kxiso" viewBox="0 0 320 196" aria-hidden="true"></svg>
    </div>
   </div>
   <div class="kx-panel" data-r>
@@ -434,9 +458,26 @@
   function frac(){var d=new Date(),s=new Date(d.getFullYear(),0,1);return (d-s)/(365*864e5)}
   function glide(id,to){var from=shown[id]==null?0:shown[id];shown[id]=to;if(reduce){$(id).textContent=eur(to);return}var s=performance.now();(function f(now){var k=Math.min(1,(now-s)/600),e=1-Math.pow(1-k,3);$(id).textContent=eur(from+(to-from)*e);if(k<1&&shown[id]===to)requestAnimationFrame(f)})(s)}
   function icons(id,sym,ok,miss){var h="";for(var i=0;i<ok;i++)h+='<svg style="animation-delay:'+i*30+'ms"><use href="#p"/></svg>';for(var j=0;j<miss;j++)h+='<svg class="e" style="animation-delay:'+(ok+j)*30+'ms"><use href="#'+sym+'"/></svg>';$(id).innerHTML=h}
+  /* twenty places, drawn as blocks seen from above at an angle: a filled place stands, an empty one sinks to an outline */
+  var ISO=(function(){
+    var svg=$("kxiso"),NS="http://www.w3.org/2000/svg",C=5,R=4,TW=58,TH=29,cells=[],order=[7,12,3,16,9,1,18,5,14,10,0,19,6,13,2,17,8,11,4,15];
+    function el(n,c){var e=document.createElementNS(NS,n);e.setAttribute("class",c);return e}
+    for(var s=0;s<=C+R-2;s++)for(var c=0;c<C;c++){var r=s-c;if(r<0||r>=R)continue;
+      var g=el("g","cl"),o={c:c,r:r,i:r*C+c,h:20,to:20,x:146+(c-r)*32,y:44+(c+r)*16,g:g,l:el("polygon","l"),rt:el("polygon","r"),t:el("polygon","t"),d:el("circle","d")};
+      o.d.setAttribute("r","2.6");g.appendChild(o.l);g.appendChild(o.rt);g.appendChild(o.t);g.appendChild(o.d);svg.appendChild(g);cells.push(o)}
+    function put(o){var x=o.x,y=o.y,h=o.h,w=TW/2,t=TH/2,P=function(a){return a.map(function(q){return q[0].toFixed(1)+","+q[1].toFixed(1)}).join(" ")};
+      o.t.setAttribute("points",P([[x,y-t-h],[x+w,y-h],[x,y+t-h],[x-w,y-h]]));
+      o.l.setAttribute("points",P([[x-w,y-h],[x,y+t-h],[x,y+t],[x-w,y]]));
+      o.rt.setAttribute("points",P([[x,y+t-h],[x+w,y-h],[x+w,y],[x,y+t]]));
+      o.d.setAttribute("cx",x);o.d.setAttribute("cy",(y-h).toFixed(1));o.g.setAttribute("class","cl"+(o.to<5?" e":""))}
+    var raf=0;function step(){var moving=false;cells.forEach(function(o){var d=o.to-o.h;if(Math.abs(d)>.15){o.h+=d*(reduce?1:.16);moving=true}else o.h=o.to;put(o)});raf=moving?requestAnimationFrame(step):0}
+    cells.forEach(put);
+    return function(empty){cells.forEach(function(o){o.to=order.indexOf(o.i)<empty?1.2:20});if(!raf)raf=requestAnimationFrame(step)}
+  })();
+  function iso(n){ISO(n)}
   function draw(){
     $("kxn").textContent=n;icons("kxpp","pe",Math.max(2,10-Math.min(n,8)),Math.min(n,24));
-    var beds=Math.round(n*num("kxu",0));icons("kxbd","bd",0,Math.min(beds,20));
+    var beds=Math.round(n*num("kxu",0));iso(Math.min(beds,20));
     $("kxeq").innerHTML=beds?"Das hei\u00dft: <b>"+beds+" leere Pl\u00e4tze</b>"+(beds>20?" (20 gezeigt)":""):"";
     $("kxcap").textContent=mine?"Live \u00b7 Ihre Zahlen":"Live \u00b7 Beispiel: 3 fehlende Pflegekr\u00e4fte";
     var p=parts(),m=p[0]+p[1],y=m*12,f=Math.min(1,frac()),x=20+560*f,yy=28+150*f;
@@ -457,6 +498,14 @@
   $("kxm").onclick=function(){mine=true;n=Math.max(1,n-1);draw()};$("kxp").onclick=function(){mine=true;n=Math.min(50,n+1);draw()};
   ["kxu","kxr","kxh","kxz"].forEach(function(id){$(id).addEventListener("input",function(){mine=true;draw()})});
   draw();setInterval(tick,reduce?1000:90);
+  if(!reduce&&window.matchMedia&&matchMedia("(min-width: 901px) and (pointer: fine)").matches){
+    var pan=document.querySelector(".kx-panel"),stg=document.querySelector(".stage"),tx=0,ty=0,cx=0,cy=0,on=false;
+    addEventListener("pointermove",function(e){tx=e.clientX/innerWidth*2-1;ty=e.clientY/innerHeight*2-1;if(!on){on=true;requestAnimationFrame(lean)}},{passive:true});
+    function lean(){cx+=(tx-cx)*.07;cy+=(ty-cy)*.07;
+      if(pan){pan.style.setProperty("--ry",(cx*-3.2).toFixed(2)+"deg");pan.style.setProperty("--rx",(cy*2.2).toFixed(2)+"deg")}
+      if(stg){stg.style.setProperty("--ry",(cx*7).toFixed(2)+"deg");stg.style.setProperty("--rx",(cy*-4).toFixed(2)+"deg")}
+      if(Math.abs(tx-cx)+Math.abs(ty-cy)>.002)requestAnimationFrame(lean);else on=false}
+  }
 })();
 </script>
 <script src="/pflege/assets/bv.js?v=6f368a06"></script>
