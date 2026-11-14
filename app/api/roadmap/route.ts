@@ -16,6 +16,7 @@ import { keepAlive } from "@/lib/keepAlive";
 import { isFormV2, normalizeForm, toModel, facilityLine, formSummaryDe } from "@/lib/roadmap/form";
 import { findConfirmedPrior, supersedeOlder } from "@/lib/roadmap/repeat";
 import { deliverRoadmap } from "@/lib/roadmap/delivery";
+import { viewLink } from "@/lib/roadmap/hosted";
 import { readTrack, trackServer } from "@/lib/track/server";
 
 /**
@@ -144,8 +145,12 @@ export async function POST(req: NextRequest) {
     if (!noticed) console.error("[roadmap] internal notice email failed (ADMIN_EMAIL set?)");
   });
 
+  // An address that confirmed before (today only the founder's test mailbox gets here) needs no confirm click:
+  // the page gets the signed viewer link and shows an "open" button at once. The e-mail copy goes out as well.
+  const openUrl = prior ? (await viewLink(id, lang, "plan")).replace(/^https:\/\/borivon\.com/, "") : "";
   return NextResponse.json({
     ok: true,
+    ...(openUrl ? { openUrl } : {}),
     result: {
       level: result.level,
       levelName: pick(LEVELS[result.level].name, lang),
