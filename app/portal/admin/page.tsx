@@ -5786,9 +5786,21 @@ export default function AdminPage() {
                 }),
               ];
               const keys: DocKey[] = [
-                { id: "id", label: t.pTypeID, st: stOf(getAdminDocs("id")), act: open(latest(getAdminDocs("id")), upload("id", t.pTypeID)) },
-                { id: "cv", label: t.pTypeCVde, st: stOf(getAdminDocs("cv_de")), spark: true, act: () => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank") },
-                { id: "letter", label: t.pTypeLetter, st: stOf(getAdminDocs("letter")), spark: true, act: () => window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank") },
+                // founder 2026-11-14: once made, the box opens the finished PDF; a small pencil edits it again
+                ...(() => {
+                  const idDoc = latest(getAdminDocs("id"));
+                  const cvDoc = latest(getAdminDocs("cv_de"));
+                  const letterDoc = latest(getAdminDocs("letter"));
+                  const cvEdit = () => { window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank"); };
+                  const letterEdit = () => { window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank"); };
+                  // passport: the preview with its data panel next to it (LAW #37: the admin may always edit)
+                  const idEdit = idDoc ? () => { setPreviewDoc(idDoc); setTimeout(() => setShowPassportInfo(true), 60); } : undefined;
+                  return [
+                    { id: "id" as const, label: t.pTypeID, st: stOf(getAdminDocs("id")), act: open(idDoc, upload("id", t.pTypeID)), edit: idEdit },
+                    { id: "cv" as const, label: t.pTypeCVde, st: stOf(getAdminDocs("cv_de")), spark: true, act: cvDoc ? open(cvDoc, cvEdit) : cvEdit, edit: cvDoc ? cvEdit : undefined },
+                    { id: "letter" as const, label: t.pTypeLetter, st: stOf(getAdminDocs("letter")), spark: true, act: letterDoc ? open(letterDoc, letterEdit) : letterEdit, edit: letterDoc ? letterEdit : undefined },
+                  ];
+                })(),
               ];
               return (
                 <div id="bv-admin-tiles">

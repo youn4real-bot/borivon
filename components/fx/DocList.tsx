@@ -56,7 +56,9 @@ export type DocRow = {
   /** the row keeps its own state instead of the worst of its sheets (Sonstiges: an empty "Neu" sheet is not a gap) */
   ownSt?: boolean;
 };
-export type DocKey = { id: "id" | "cv" | "letter"; label: string; st: DocSt; act: () => void; spark?: boolean };
+export type DocKey = { id: "id" | "cv" | "letter"; label: string; st: DocSt; act: () => void; spark?: boolean;
+  /** once it exists: a small pencil to edit it again (the box itself then opens the finished PDF) */
+  edit?: () => void };
 export type DocMode = "all" | "A" | "V";
 
 const DOT: Record<DocSt, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#dc2626", missing: "#d8d0c0" };
@@ -190,15 +192,25 @@ export function DocList({
       {/* the three special boxes — whole box = the action (passport / the builders) */}
       <div className="grid mb-4" style={{ gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
         {keys.map((k) => (
-          <button key={k.id} type="button" onClick={k.act} className="relative flex items-center text-left bv-dl-key"
+          <div key={k.id} className="relative" style={{ minWidth: 0 }}>
+          <button type="button" onClick={k.act} className="relative flex items-center text-left bv-dl-key w-full"
             style={{ gap: 12, padding: "14px 16px", borderRadius: 14, background: "var(--card)", border: `1px solid ${k.st === "pending" ? "#fcd9a8" : "var(--border)"}`, minWidth: 0, cursor: "pointer", color: "var(--w)", fontFamily: "inherit" }}>
             <span className="absolute" style={{ right: 10, top: 10, width: 9, height: 9, borderRadius: "50%", background: DOT[k.st] }} />
             <span className="grid place-items-center flex-none" style={{ width: 38, height: 38, borderRadius: 10, background: "var(--bg2)", color: "var(--gold)" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={KEY_ICON[k.id]} /></svg>
             </span>
             <span className="bv-dl-key-name" lang="de" style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 500, hyphens: "manual" }}>{k.label.replace(/^(Motivations)(?=schreiben)/, "$1­")}</span>
-            {k.spark && <span className="bv-dl-key-spark flex-none" style={{ color: "var(--gold)", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d={SPARK} /></svg></span>}
+            {k.spark && !k.edit && <span className="bv-dl-key-spark flex-none" style={{ color: "var(--gold)", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d={SPARK} /></svg></span>}
+            {k.edit && <span aria-hidden="true" style={{ width: 30, flex: "none" }} />}
           </button>
+          {/* minimalist edit (founder 2026-11-14: "keep that feature… it just has to be a minimalist button") */}
+          {k.edit && (
+            <button type="button" onClick={k.edit} aria-label={T(lang, "Bearbeiten", "Modifier", "Edit")} title={T(lang, "Bearbeiten", "Modifier", "Edit")}
+              className="absolute grid place-items-center" style={{ right: 10, bottom: 10, width: 30, height: 30, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--card)", color: "var(--w2)", cursor: "pointer" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+            </button>
+          )}
+          </div>
         ))}
       </div>
 

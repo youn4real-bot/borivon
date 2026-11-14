@@ -34,9 +34,9 @@ const STORE: Partial<Record<WayKey, keyof WayInput["steps"]>> = { visa: "visa", 
 const ETA_STEP: Partial<Record<Eta["kind"], string>> = { visa: "got", flight: "pickup", start: "day1" };
 
 const W = {
-  de: { hi: "Hallo", abroad: "Auf dem Weg", germany: "In Deutschland", of: "{a} von {b}", next: "Weiter", plan: "Plan & Termine", flat: "Wohnung", flatSub: "vor dem Visum", papers: "Unterlagen", wait: "{n} warten", open: "Öffnen", lang: "Deutsch", failed: "1× nicht bestanden", germanyIn: "Deutschland", doneAll: "geschafft", nurse: "Pflegekraft", facility: "Einrichtung", both: "Beide", done: "erledigt", visaPapers: "Visa-Unterlagen", est: "geschätzt" },
-  en: { hi: "Hello", abroad: "On the way", germany: "In Germany", of: "{a} of {b}", next: "Continue", plan: "Plan & dates", flat: "Flat", flatSub: "before the visa", papers: "Documents", wait: "{n} waiting", open: "Open", lang: "German", failed: "failed once", germanyIn: "Germany", doneAll: "done", nurse: "Nurse", facility: "Facility", both: "Both", done: "done", visaPapers: "Visa documents", est: "estimated" },
-  fr: { hi: "Bonjour", abroad: "En route", germany: "En Allemagne", of: "{a} sur {b}", next: "Continuer", plan: "Plan & dates", flat: "Logement", flatSub: "avant le visa", papers: "Documents", wait: "{n} en attente", open: "Ouvrir", lang: "Allemand", failed: "échoué une fois", germanyIn: "Allemagne", doneAll: "réussi", nurse: "Infirmière", facility: "Établissement", both: "Les deux", done: "fait", visaPapers: "Documents visa", est: "estimé" },
+  de: { hi: "Hallo", abroad: "Auf dem Weg", germany: "In Deutschland", of: "{a} von {b}", next: "Weiter", plan: "Plan & Termine", flat: "Wohnung", flatSub: "vor dem Visum", papers: "Unterlagen", wait: "{n} warten", open: "Öffnen", lang: "Deutsch", failed: "1× nicht bestanden", germanyIn: "Deutschland", doneAll: "geschafft", nurse: "Pflegekraft", facility: "Einrichtung", both: "Beide", done: "erledigt", visaPapers: "Visa-Unterlagen", est: "geschätzt", notYet: "Noch nicht dran", openDocs: "Unterlagen öffnen" },
+  en: { hi: "Hello", abroad: "On the way", germany: "In Germany", of: "{a} of {b}", next: "Continue", plan: "Plan & dates", flat: "Flat", flatSub: "before the visa", papers: "Documents", wait: "{n} waiting", open: "Open", lang: "German", failed: "failed once", germanyIn: "Germany", doneAll: "done", nurse: "Nurse", facility: "Facility", both: "Both", done: "done", visaPapers: "Visa documents", est: "estimated", notYet: "Not yet", openDocs: "Open documents" },
+  fr: { hi: "Bonjour", abroad: "En route", germany: "En Allemagne", of: "{a} sur {b}", next: "Continuer", plan: "Plan & dates", flat: "Logement", flatSub: "avant le visa", papers: "Documents", wait: "{n} en attente", open: "Ouvrir", lang: "Allemand", failed: "échoué une fois", germanyIn: "Allemagne", doneAll: "réussi", nurse: "Infirmière", facility: "Établissement", both: "Les deux", done: "fait", visaPapers: "Documents visa", est: "estimé", notYet: "Pas encore", openDocs: "Ouvrir les documents" },
 };
 
 /* ── icons: one line style, 24 grid ─────────────────────────────────────────── */
@@ -81,7 +81,10 @@ const CSS = `
 .bw-line s{flex:1;min-width:6px;height:2px;background:var(--bw-hair);text-decoration:none}
 .bw-line s.f{background:var(--w)}
 .bw-st{width:var(--bw-d);height:var(--bw-d);box-sizing:border-box;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--card);border:1.5px solid var(--bw-hair);color:var(--w3)}
-.bw-st.f{background:var(--w);border-color:var(--w);color:var(--bg)}
+.bw-st.f{background:var(--w);border-color:var(--w);color:var(--bg)}
+button.bw-st{cursor:pointer;font:inherit;padding:0;-webkit-tap-highlight-color:transparent}
+button.bw-st:hover{border-color:var(--w2)}
+.bw-st.s,button.bw-st:focus-visible{outline:2px solid var(--w);outline-offset:4px}
 .bw-st.n{width:var(--bw-now);height:var(--bw-now);border:2px solid var(--gold);color:var(--gold);box-shadow:0 0 0 6px var(--gdim)}
 .bw-card{display:block;width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px 24px;box-shadow:0 1px 2px rgba(0,0,0,.03),0 16px 36px -24px rgba(0,0,0,.18);transition:transform .3s var(--bw-ease),box-shadow .3s var(--bw-ease),border-color .3s var(--bw-ease)}
 button.bw-card:hover{transform:translateY(-2px);border-color:var(--bw-hair);box-shadow:0 1px 2px rgba(0,0,0,.03),0 22px 40px -22px rgba(0,0,0,.24)}
@@ -198,7 +201,9 @@ const fmt = (s: string, a: number, b: number) => s.replace("{a}", String(a)).rep
 const initials = (n: string) => n.trim().split(/\s+/).slice(0, 2).map((x) => x[0]?.toUpperCase() ?? "").join("");
 
 /* ── the line: two phases, icons, done = ink check, now = gold ring ─────────── */
-export function WayLine({ way, compact = false }: { way: Way; compact?: boolean }) {
+/** The map. With `onPick` every station is a button that opens it (founder 2026-11-14: "those should be
+ *  buttons that I can click to reveal me things"); `sel` is the station shown below. */
+export function WayLine({ way, compact = false, sel, onPick }: { way: Way; compact?: boolean; sel?: WayKey | null; onPick?: (k: WayKey) => void }) {
   const l = useL();
   const t = W[l];
   const keys = way.stations.map((s) => s.key);
@@ -215,9 +220,16 @@ export function WayLine({ way, compact = false }: { way: Way; compact?: boolean 
             return (
               <span key={s.key} style={{ display: "contents" }}>
                 {i > 0 && <s className={prevDone && (s.done || s.key === way.now) ? "f" : ""} />}
-                <span className={`bw-st ${cls}`} title={`${WAY_NAME[s.key][l]} · ${fmt(t.of, s.p[0], s.p[1])}`}>
-                  <WayIcon k={s.done ? "chk" : s.key} size={s.key === way.now ? (compact ? 15 : 22) : compact ? 12 : 17} stroke={s.done ? 2.4 : 1.6} />
-                </span>
+                {onPick ? (
+                  <button type="button" className={`bw-st ${cls}${sel === s.key ? " s" : ""}`} onClick={() => onPick(s.key)} aria-pressed={sel === s.key}
+                    aria-label={WAY_NAME[s.key][l]} title={`${WAY_NAME[s.key][l]} · ${fmt(t.of, s.p[0], s.p[1])}`}>
+                    <WayIcon k={s.done ? "chk" : s.key} size={s.key === way.now ? (compact ? 15 : 22) : compact ? 12 : 17} stroke={s.done ? 2.4 : 1.6} />
+                  </button>
+                ) : (
+                  <span className={`bw-st ${cls}`} title={`${WAY_NAME[s.key][l]} · ${fmt(t.of, s.p[0], s.p[1])}`}>
+                    <WayIcon k={s.done ? "chk" : s.key} size={s.key === way.now ? (compact ? 15 : 22) : compact ? 12 : 17} stroke={s.done ? 2.4 : 1.6} />
+                  </span>
+                )}
               </span>
             );
           })}
@@ -231,7 +243,7 @@ export function WayLine({ way, compact = false }: { way: Way; compact?: boolean 
     const ger: WayKey[] = [...(langOpen ? (["lang"] as WayKey[]) : []), ...WAY_GERMANY];
     return (
       <div className="bw-road" style={{ ["--bw-d" as string]: compact ? "26px" : "clamp(30px,6vw,40px)", ["--bw-now" as string]: compact ? "34px" : "clamp(40px,8vw,52px)", gap: compact ? 10 : undefined } as React.CSSProperties}
-        role="img" aria-label={[t.abroad, ...ger.map((k) => WAY_NAME[k][l])].join(" → ")}>
+        role={onPick ? "group" : "img"} aria-label={[t.abroad, ...ger.map((k) => WAY_NAME[k][l])].join(" → ")}>
         <div className="bw-grp" style={{ flex: "none" }}>
           {!compact && <small>{t.abroad}</small>}
           <div className="bw-line"><span className="bw-st f" title={`${t.abroad} · ${t.doneAll}`}><WayIcon k="chk" size={compact ? 12 : 17} stroke={2.4} /></span></div>
@@ -242,7 +254,7 @@ export function WayLine({ way, compact = false }: { way: Way; compact?: boolean 
   }
   return (
     <div className="bw-road" style={{ ["--bw-d" as string]: compact ? "26px" : "clamp(30px,6vw,40px)", ["--bw-now" as string]: compact ? "34px" : "clamp(40px,8vw,52px)", gap: compact ? 10 : undefined } as React.CSSProperties}
-      role="img" aria-label={keys.map((k) => WAY_NAME[k][l]).join(" → ")}>
+      role={onPick ? "group" : "img"} aria-label={keys.map((k) => WAY_NAME[k][l]).join(" → ")}>
       {grp(t.abroad, WAY_ABROAD)}
       {grp(t.germany, WAY_GERMANY)}
     </div>
@@ -264,8 +276,10 @@ function Count({ eta, today, big = 19 }: { eta: Eta; today: string; big?: number
 export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void }) {
   const l = useL();
   const t = W[l];
-  const { d, way, put, toggle } = useWay();
-  const [view, setView] = useState<"home" | "steps" | "lang" | "talk" | "profile" | "start" | "salary">("home");
+  const { d, way, put, toggle, setDate } = useWay();
+  const [view, setView] = useState<"home" | "steps" | "lang" | "talk" | "profile" | "start" | "salary" | "station">("home");
+  // a station opened from her map (founder 2026-11-14: the map is the buttons)
+  const [pickK, setPickK] = useState<WayKey | null>(null);
   // her next job interview (founder 2026-11-12, "Gespräche" sample 3): a button only while one is coming up
   const { talk } = useTalk();
   const talkSoon = !!talk && (talkDays(talk.at) ?? -1) >= 0;
@@ -294,7 +308,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
       </div>
       {way && view !== "home" && (
         <div className="bw-in" style={{ marginTop: 22, textAlign: "left" }}>
-          <button type="button" onClick={() => setView("home")} className="bw-link" style={{ marginBottom: 14 }}>
+          <button type="button" onClick={() => { setView("home"); setPickK(null); }} className="bw-link" style={{ marginBottom: 14 }}>
             <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><WayIcon k="arr" size={14} /></span>{l === "de" ? "Zurück" : l === "fr" ? "Retour" : "Back"}
           </button>
           {view === "steps" && (
@@ -303,6 +317,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
               <Ticks ticks={way.ticks} onTick={(id, done) => toggle(way.now, id, done)} photo={d?.photo ?? null} name={name} firstEta={way.nowEta} today={d!.today} />
             </div>
           )}
+          {view === "station" && pickK && d && <StationPanel k={pickK} way={way} d={d} name={name} onDocs={onDocs} admin={false} toggle={toggle} put={put} setDate={setDate} />}
           {view === "lang" && d?.input.lang && <LangCard lang={d.input.lang} b2={d.input.b2} full={false} canEdit today={d.today} onSave={(p) => put("lang", p)} />}
           {view === "talk" && <div className="bw-card"><TalkView /></div>}
           {view === "profile" && <div className="bw-card"><ProfileCard name={name} photo={d?.photo ?? null} cvHref="/portal/cv-builder" /></div>}
@@ -326,15 +341,15 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
             <div className="serif" style={{ marginTop: 8, fontSize: 30, lineHeight: 1, color: "var(--w2)" }}>{fmt(t.of, cur.p[0], cur.p[1])}</div>
           ) : null}
           <button type="button" className="bw-btn" style={{ marginTop: 26 }} onClick={go}>{t.next} <WayIcon k="arr" size={18} /></button>
-          <div style={{ marginTop: 26, display: "flex", justifyContent: "center" }}><div style={{ width: "100%", maxWidth: 360 }}><WayLine way={way} compact /></div></div>
+          <div style={{ marginTop: 26, display: "flex", justifyContent: "center" }}><div style={{ width: "100%", maxWidth: 360 }}><WayLine way={way} compact onPick={(k) => { setPickK(k); setView("station"); }} /></div></div>
           {land && (
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", flexWrap: "wrap", gap: "4px 10px", marginTop: 22, fontSize: 13, color: "var(--w3)" }}>
               <span style={{ color: "var(--gold)", alignSelf: "center", display: "inline-flex" }}><WayIcon k={ETA_ICON[land.kind]} size={18} /></span>{ETA_NAME[land.kind][l]}
               <b className="serif" style={{ fontWeight: 400, fontSize: 20, color: "var(--w)" }}>{until(d!.today, land.date, l).word}</b>
             </div>
           )}
-          {/* Deutsch and her papers: one tap each, their own view (no scrolling) */}
-          <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 10, marginTop: 22 }}>
+          {/* Deutsch and her papers: one tap each, their own view — HIDDEN 2026-11-14 (the map is the buttons now) */}
+          {SHOW_HERO_PILLS && <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 10, marginTop: 22 }}>
             {startSoon && (
               <button type="button" onClick={() => setView("start")} style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, border: "1px solid var(--w)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>
                 <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k="bld" size={16} /></span>{l === "de" ? "Arbeitsstart" : l === "fr" ? "Premier jour" : "First day"}
@@ -365,7 +380,7 @@ export function WayHero({ name, onDocs }: { name: string; onDocs?: () => void })
             <button type="button" onClick={() => setView("profile")} style={{ display: "inline-flex", alignItems: "center", gap: 8, height: 40, padding: "0 16px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--card)", color: "var(--w)", fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>
               <span style={{ color: "var(--gold)", display: "inline-flex" }}><WayIcon k="user" size={16} /></span>{l === "de" ? "Profil" : l === "fr" ? "Profil" : "Profile"}
             </button>
-          </div>
+          </div>}
         </div>
       )}
     </section>
@@ -426,12 +441,100 @@ function Ticks({ ticks, onTick, photo, name, firstEta, today }: { ticks: Tick[];
   );
 }
 
+/* ── one station, opened from the map ───────────────────────────────────────── */
+/** Founder 2026-11-14 ("simplify, less is more"): the map is the only set of buttons; tapping a station shows
+ *  just that station here. Documents live in ONE place (the Unterlagen station, one button). The old tab row
+ *  (Vertrag · Gespräch · Profil · Arbeitsstart · Unterlagen) is hidden behind SHOW_TABS. */
+function StationPanel({ k, way, d, name, onDocs, admin, toggle, put, setDate }: {
+  k: WayKey; way: Way; d: Data; name: string; onDocs?: () => void; admin: boolean;
+  toggle: (st: WayKey | "home", id: string, done: boolean) => void;
+  put: (kind: "lang" | "marks", patch: Partial<LangInfo> | Partial<Marks>) => void;
+  setDate: (kind: "submitted" | "flight" | "start", value: string) => void;
+}) {
+  const l = useL();
+  const t = W[l];
+  const st = way.stations.find((x) => x.key === k);
+  const isNow = k === way.now;
+  const docs = d.input.docs;
+  const marks = d.input.marks ?? null;
+  const parts: React.ReactNode[] = [];
+  const count = (p: [number, number]) => (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+      <span className="serif" style={{ fontSize: 44, lineHeight: 1 }}>{p[0]}</span>
+      <span className="serif" style={{ fontSize: 22, color: "var(--w3)" }}>/ {p[1]}</span>
+    </div>
+  );
+  if (k === "papers" && docs) parts.push(
+    <div key="docs" className="bw-card">
+      {count(docs.papers)}
+      {(docs.pending ?? 0) > 0 && <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 12, fontSize: 12.5, color: "var(--w2)" }}><i style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b" }} />{t.wait.replace("{n}", String(docs.pending))}</span>}
+      {onDocs && <button type="button" className="bw-btn" style={{ marginTop: 20, height: 46, fontSize: 14 }} onClick={onDocs}>{t.openDocs} <WayIcon k="arr" size={16} /></button>}
+    </div>,
+  );
+  if (k === "lang" && d.input.lang) parts.push(<LangCard key="lang" lang={d.input.lang} b2={d.input.b2} full={admin} canEdit today={d.today} onSave={(p) => put("lang", p)} />);
+  if (k === "contract" && marks) parts.push(<ContractCard key="contract" marks={marks} canEdit={admin} onSave={(p) => put("marks", p)} />);
+  if (k === "kp" && marks) parts.push(<KpCard key="kp" marks={marks} canEdit={admin} today={d.today} onSave={(p) => put("marks", p)} />);
+  if (isNow && way.ticks.length > 0) parts.push(
+    <div key="ticks" className="bw-card"><Ticks ticks={way.ticks} onTick={(id, done) => toggle(way.now, id, done)} photo={d.photo} name={name} firstEta={way.nowEta} today={d.today} /></div>,
+  );
+  // the Anerkennung / visa papers as a number only (the one documents button is in "Unterlagen")
+  if (isNow && way.ticks.length === 0 && docs && (k === "recog" || k === "visa")) {
+    const p = k === "recog" ? docs.bearbeitung : docs.visum;
+    if (p[1] > 0) parts.push(<div key="cnt" className="bw-card">{count(p)}</div>);
+  }
+  // the flat comes before the visa
+  if (k === "visa" && !way.landed && way.home.length > 0) parts.push(
+    <div key="home" className="bw-card">
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+        <span className="serif" style={{ fontSize: 22, lineHeight: 1.1 }}>{t.flat}</span>
+        <span style={{ fontSize: 12, color: "var(--w3)" }}>{way.home.filter((h) => h.done).length} / {way.home.length}</span>
+      </div>
+      <Ticks ticks={way.home} onTick={(id, done) => toggle("home", id, done)} photo={d.photo} name={name} firstEta={null} today={d.today} />
+    </div>,
+  );
+  if (admin && DATES[k]) parts.push(
+    <div key="dates" style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "4px 2px" }}>
+      {DATES[k]!.map((x) => (
+        <span key={x} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--w2)" }}>
+          {DATE_NAME[x][l]}<DatePick value={d.input.dates[x]} label={DATE_NAME[x][l]} onChange={(v) => setDate(x, v)} />
+        </span>
+      ))}
+    </div>,
+  );
+  // stations before the current one that are still open (Deutsch runs alongside): no "not yet" label
+  const behind = !st?.done && !isNow && way.stations.findIndex((x) => x.key === k) < way.stations.findIndex((x) => x.key === way.now);
+  // cards that carry their own title (Deutsch, Vertrag, Kenntnisprüfung) need no second heading
+  const ownTitle = (k === "lang" && !!d.input.lang) || (k === "contract" && !!marks) || (k === "kp" && !!marks);
+  const status = st?.done
+    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--w2)" }}><i style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a" }} />{t.done}</span>
+    : isNow && way.nowEta
+      ? <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8, fontSize: 12.5, color: "var(--w3)" }}>{ETA_NAME[way.nowEta.kind][l]}<b className="serif" style={{ fontWeight: 400, fontSize: 21, color: "var(--w)", whiteSpace: "nowrap" }}>{way.nowEta.est ? "~ " : ""}{until(d.today, way.nowEta.date, l).word}</b></span>
+      : isNow && st && way.ticks.length > 0
+        ? <span style={{ fontSize: 13, color: "var(--w3)" }}>{fmt(t.of, st.p[0], st.p[1])}</span>
+        : !isNow && !behind ? <span style={{ fontSize: 13, color: "var(--w3)" }}>{t.notYet}</span> : null;
+  return (
+    <div className="bw-in" style={{ marginTop: 20 }}>
+      {!ownTitle && (
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, margin: "0 2px 12px" }}>
+          <span className="serif" style={{ fontSize: 26, lineHeight: 1.1 }}>{WAY_NAME[k][l]}</span>
+          {status}
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 10 }}>{parts}</div>
+    </div>
+  );
+}
+
+const SHOW_TABS = false as boolean;
+const SHOW_HERO_PILLS = false as boolean;
+
 export function WayBoard({ userId, name, onDocs }: { userId: string; name: string; onDocs?: () => void }) {
   const l = useL();
   const t = W[l];
   const { d, way, toggle, put, setDate } = useWay(userId);
   const [flatOpen, setFlatOpen] = useState(true);
   const [panel, setPanel] = useState<"now" | "home" | "contract" | "lang" | "kp" | "talk" | "profile" | "start" | "salary">("now");
+  const [sel, setSel] = useState<WayKey | null>(null);
   if (!d || !way) return null;
   const cur = way.stations.find((s) => s.key === way.now)!;
   const docs = d.input.docs;
@@ -448,10 +551,12 @@ export function WayBoard({ userId, name, onDocs }: { userId: string; name: strin
   return (
     <section className="bw bw-in" aria-label={name}>
       <style>{CSS}</style>
-      <WayLine way={way} />
+      <WayLine way={way} sel={SHOW_TABS ? undefined : sel ?? way.now} onPick={SHOW_TABS ? undefined : (k) => setSel(k)} />
 
-      {/* one panel, switched by small tabs (founder 2026-11-11: "no one wants to scroll … flip to the next side") */}
-      {(() => {
+      {!SHOW_TABS && <StationPanel k={sel ?? way.now} way={way} d={d} name={name} onDocs={onDocs} admin={canEdit} toggle={toggle} put={put} setDate={setDate} />}
+
+      {/* one panel, switched by small tabs (founder 2026-11-11) — HIDDEN 2026-11-14, the map is the buttons now */}
+      {SHOW_TABS && (() => {
         const tabs: { k: typeof panel; icon: string; label: string; badge?: string; on: boolean }[] = [
           { k: "now", icon: way.now, label: WAY_NAME[way.now][l], badge: way.ticks.length > 0 ? `${cur.p[0]}/${cur.p[1]}` : undefined, on: true },
           { k: "home", icon: "home", label: t.flat, badge: `${homeDone}/${home.length}`, on: showFlat },

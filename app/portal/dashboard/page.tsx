@@ -3655,10 +3655,14 @@ export default function DashboardPage() {
                 ...vis.filter(scoped).map((sl) => slotRow(sl, "V", true)),
                 ...myDocMeta.extras.map((ex): DocRow => ({ id: ex.id, label: ex.label, st: stOf(getDoc(ex.id)), tags: ex.phase, extra: true, act: act(ex.id) })),
               ];
+              // founder 2026-11-14: once made, the box opens the finished PDF; a small pencil edits it again
+              const idDocN = getDoc("id"), cvDocN = getDoc("cv_de"), letterDocN = getDoc("letter");
+              const cvGo = () => router.push("/portal/cv-builder");
+              const letterGo = () => router.push("/portal/motivationsschreiben");
               const keys: DocKey[] = [
-                { id: "id", label: t.pTypeID, st: stOf(getDoc("id")), act: act("id") },
-                { id: "cv", label: t.pTypeCVde, st: stOf(getDoc("cv_de")), spark: true, act: () => router.push("/portal/cv-builder") },
-                { id: "letter", label: t.pTypeLetter, st: stOf(getDoc("letter")), spark: true, act: () => router.push("/portal/motivationsschreiben") },
+                { id: "id", label: t.pTypeID, st: stOf(idDocN), act: act("id"), edit: idDocN ? () => { void reopenPassportData(); } : undefined },
+                { id: "cv", label: t.pTypeCVde, st: stOf(cvDocN), spark: true, act: cvDocN ? () => handlePreview(cvDocN) : cvGo, edit: cvDocN ? cvGo : undefined },
+                { id: "letter", label: t.pTypeLetter, st: stOf(letterDocN), spark: true, act: letterDocN ? () => handlePreview(letterDocN) : letterGo, edit: letterDocN ? letterGo : undefined },
               ];
               return (
                 <div id="bv-my-tiles" className="mb-6">

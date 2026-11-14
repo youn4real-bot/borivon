@@ -74,7 +74,7 @@ if(d.fonts&&d.fonts.ready)d.fonts.ready.then(function(){fonts=true},function(){f
 var mo=new MutationObserver(function(){last=Date.now()});
 function busy(){var l=d.querySelectorAll("[data-bv-loader]");for(var i=0;i<l.length;i++){if(!o.contains(l[i]))return true}return false}
 function show(){try{mo.disconnect()}catch(e){}var s=d.createElement("style");s.textContent="body{visibility:visible!important;animation:none!important}";d.head.appendChild(s);
-requestAnimationFrame(function(){o.className="bv-out";setTimeout(function(){if(o.parentNode)o.parentNode.removeChild(o)},300)})}
+setTimeout(function(){o.className="bv-out";setTimeout(function(){if(o.parentNode)o.parentNode.removeChild(o)},300)},16)}
 function tick(){var n=Date.now();if(n-t0>8000)return show();if(fonts&&d.readyState==="complete"&&!busy()&&n-last>200&&n-t0>300)return show();setTimeout(tick,50)}
 function go(){try{mo.observe(d.body,{childList:true,subtree:true,characterData:true})}catch(e){}tick()}
 if(d.readyState==="loading")d.addEventListener("DOMContentLoaded",go);else go();
