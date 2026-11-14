@@ -81,7 +81,7 @@ function sceneHouse(root) {
   const carer = person("nurse"); carer.position.set(2.2, 0, 1.3); carer.rotation.y = -0.55; root.add(carer);
   const walkers = []; for (let i = 0; i < 7; i++) { const n = person("nurse"); n.rotation.y = Math.PI; root.add(n); walkers.push(n); }
   return {
-    fit: 8.6, target: [0, 1.2, 0], radius: 14.6, height: 4.9, low: -0.63, up: 0.17,
+    fit: 7.7, target: [0, 1.2, 0], radius: 14.6, height: 4.9, low: -0.63, up: 0.17,
     update(p, t) {
       const n = 3 + (wins.length - 3) * ss(0.32, 0.9, p);
       wins.forEach((w, i) => { const k = clamp(n - i); w.m.emissiveIntensity = k * (0.62 + 0.06 * Math.sin(t * 2 + i)); w.m.color.lerpColors(dark, lit, k); });
@@ -239,15 +239,13 @@ function makeStage(holder, build, mobile, night) {
   const hero = document.querySelector("header.hero"), stage = hero && hero.querySelector(".stage"), caps = hero && hero.querySelector(".caps3");
   if (!stage || (!CAP && matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
   const mobile = innerWidth < 700;
-  const space = document.createElement("div"); space.className = "s3d-space";
-  const track = document.createElement("div"); track.className = "s3d"; const pin = document.createElement("div"); pin.className = "s3d-pin"; track.appendChild(pin);
+  // the hero: the home stands beside the headline from the first frame and plays by itself (no scrolling needed)
+  const pin = document.createElement("div"); pin.className = "s3d-hero";
   const hs = makeStage(pin, sceneHouse, mobile); if (!hs) { document.documentElement.classList.remove("fx3d-on"); return; }
-  stage.parentNode.insertBefore(space, stage);
-  const beats = [].map.call(caps ? caps.children : [], (el, i) => { const c = document.createElement("p"); c.className = "s3d-cap"; c.appendChild(document.createTextNode(el.textContent)); pin.appendChild(c); return c; });
-  // the last beat is the promise kept: the button sits right under it
-  const hb = hero.querySelector(".cta .btn"); let endBtn = null; if (hb && beats.length) { endBtn = hb.cloneNode(true); endBtn.classList.add("s3d-go"); beats[beats.length - 1].appendChild(endBtn); }
+  const hc = hero.querySelector(".hero-c"); hc.parentNode.insertBefore(pin, hc.nextSibling);
+  const beats = [].map.call(caps ? caps.children : [], (el) => { const c = document.createElement("p"); c.className = "s3d-cap"; c.setAttribute("aria-hidden", "true"); c.textContent = el.textContent; pin.appendChild(c); return c; });
   if (CAP) document.documentElement.classList.add("cap");
-  hero.insertBefore(track, hero.firstChild); hero.classList.add("fx3d");
+  hero.classList.add("fx3d");
 
   // the problem section: its photo becomes the scene, its five lines drive it
   const lines = [].slice.call(document.querySelectorAll("[data-line]")), fig = lines.length && lines[0].closest(".sec") && lines[0].closest(".sec").querySelector("figure.media");
@@ -272,30 +270,24 @@ function makeStage(holder, build, mobile, night) {
   // the platform picture leans in as it arrives, its bars fill; the three numbers count up
   const duo = document.querySelector(".duo-box"); if (duo) duo.classList.add("fx-duo");
   [].forEach.call(document.querySelectorAll(".stats b"), (b) => {
-    const m = b.textContent.match(/^(d+)(.*)$/); if (!m || CAP) return; const end = +m[1], suf = m[2]; b.textContent = "0" + suf;
+    const m = b.textContent.match(/^([0-9]+)(.*)$/); if (!m || CAP) return; const end = +m[1], suf = m[2]; b.textContent = "0" + suf;
     new IntersectionObserver((es, io) => { if (!es[0].isIntersecting) return; io.disconnect(); const t0 = performance.now();
       (function step(now) { const k = Math.min(1, (now - t0) / 1400), e = 1 - Math.pow(1 - k, 3); b.textContent = Math.round(end * e) + suf; if (k < 1) requestAnimationFrame(step); })(t0); }, { threshold: 0.6 }).observe(b);
   });
   const through = (el) => { const r = el.getBoundingClientRect(), vh = innerHeight; return clamp((vh - r.top) / (vh + r.height)); };
 
-  let range = 1, top = 0;
-  function layout() {
-    track.style.height = space.offsetTop + space.offsetHeight + (hero.querySelector(".c").offsetTop || 0) + "px";
-    hs.resize(); if (pain) pain.resize(); if (stairs) stairs.resize(); if (sheets) sheets.resize(); if (night) night.resize();
-    const tr = track.getBoundingClientRect(); top = tr.top + scrollY; range = Math.max(1, tr.height - hs.H);
-  }
+  function layout() { hs.resize(); if (pain) pain.resize(); if (stairs) stairs.resize(); if (sheets) sheets.resize(); if (night) night.resize(); }
   const ptr = { x: 0, y: 0, tx: 0, ty: 0, px: 9, py: 9 };
   addEventListener("pointermove", (e) => { const r = pin.getBoundingClientRect(); ptr.tx = (e.clientX / innerWidth) * 2 - 1; ptr.ty = (e.clientY / innerHeight) * 2 - 1; ptr.px = ((e.clientX - r.left) / r.width) * 2 - 1; ptr.py = -(((e.clientY - r.top) / r.height) * 2 - 1); }, { passive: true });
   addEventListener("resize", layout); layout(); setTimeout(layout, 600); if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
 
-  let ps = -1, ls = -1;
+  let ls = -1;
   function frame(t) {
     ptr.x += (ptr.tx - ptr.x) * (CAP ? 1 : 0.06); ptr.y += (ptr.ty - ptr.y) * (CAP ? 1 : 0.06);
     if (hs.vis || CAP) {
-      const p = clamp((scrollY - top) / range); ps = ps < 0 || CAP ? p : ps + (p - ps) * 0.14;
-      hs.render(ps, t, ptr, lerp(1.06, 0.94, ss(0.1, 1, ps)), lerp(hs.sc.low, hs.sc.up, ss(0, 0.3, ps)));
-      beats.forEach((b, i) => { const a = 0.36 + i * 0.2, o = i === beats.length - 1 ? ss(a, a + 0.045, ps) : win(ps, a, a + 0.2, 0.045); b.style.opacity = o.toFixed(3); b.style.transform = "translateY(" + ((1 - o) * 14).toFixed(1) + "px)"; });
-      if (endBtn) endBtn.style.pointerEvents = ps > 0.8 ? "auto" : "none";
+      const p = 0.2 + 0.8 * ss(0.4, 9.5, t), bi = p < 0.46 ? 0 : p < 0.87 ? 1 : 2;
+      hs.render(p, t, ptr, 0.93, 0.03);
+      beats.forEach((b, i) => b.classList.toggle("on", i === bi));
     }
     if (pain && (pain.vis || CAP)) {
       const sr = psec.getBoundingClientRect(), L = clamp(-sr.top / Math.max(1, sr.height - innerHeight)) * 5.5;
@@ -313,7 +305,7 @@ function makeStage(holder, build, mobile, night) {
     if (night && (night.vis || CAP)) { quiet.x += Math.sin(t * 0.25) * 0.6; night.render(1, t, quiet, 0.82, 0.06); }
     if (duo) { const k = 1 - clamp(through(duo) * 2.1); duo.style.setProperty("--k", k.toFixed(3)); if (k < 0.45) duo.classList.add("in2"); }
   }
-  window.__fx = { frame, layout, get range() { return range; }, get top() { return top; } };
+  window.__fx = { frame, layout };
   if (CAP) { frame(0); return; }
   const t0 = performance.now(); (function loop(now) { requestAnimationFrame(loop); if (!document.hidden) frame((now - t0) / 1000); })(t0);
 })();

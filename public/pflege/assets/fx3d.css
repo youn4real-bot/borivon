@@ -1,16 +1,24 @@
-/* 3D hero: a pinned WebGL stage behind the hero; the page scrolls, the scene tells the story. */
-.hero.fx3d{position:relative}
-.hero.fx3d>.c{position:relative;z-index:1}
-html.fx3d-on .hero .stage{visibility:hidden;height:230vh;margin-top:0}
-html.fx3d-on .hero .caps3{visibility:hidden}
-.hero.fx3d .stage,.hero.fx3d .caps3{display:none!important}
-.s3d-space{height:230vh;pointer-events:none}
-.s3d{position:absolute;top:0;left:0;right:0;z-index:0;pointer-events:none}
-.s3d-pin{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden}
-.s3d-pin canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.s3d-cap{position:absolute;left:0;right:0;bottom:8.5vh;margin:0;padding:0 20px;text-align:center;opacity:0;will-change:opacity,transform;font:italic 400 clamp(1.5rem,1.05rem + 1.7vw,2.6rem)/1.2 "EB Garamond",Georgia,serif;letter-spacing:-.01em;color:#15130f;text-wrap:balance}
-.s3d-cap b{display:block;margin:0 0 12px;font:500 11.5px/1 Inter,sans-serif;font-style:normal;letter-spacing:.16em;text-transform:uppercase;color:#8a6a28}
-@media (max-width:640px){.s3d-cap{bottom:11vh}}
+/* Borivon scenes (content/pflege/fx3d.js). html.fx3d-on is set in <head>, so the layout is right before the scenes load. */
+/* hero: headline and button left, the home right; on a phone the home sits right under the button */
+html.fx3d-on .hero .stage,html.fx3d-on .hero .caps3{display:none}
+.s3d-hero{position:relative;height:42vh;margin-top:6px}
+.s3d-hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity 1.1s ease}
+.hero.fx3d .s3d-hero canvas{opacity:1}
+.s3d-cap{position:absolute;left:0;right:0;bottom:0;margin:0;text-align:center;opacity:0;transform:translateY(8px);transition:opacity .7s ease,transform .7s ease;font:italic 400 clamp(1.3rem,1rem + 1vw,2rem)/1.2 "EB Garamond",Georgia,serif;letter-spacing:-.01em;color:#15130f}
+.s3d-cap.on{opacity:1;transform:none}
+@media (min-width:901px){
+html.fx3d-on .hero{padding-top:clamp(20px,3vw,48px)}
+html.fx3d-on .hero>.c{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);column-gap:clamp(12px,2vw,36px);align-items:center}
+html.fx3d-on .hero>.c>*{grid-column:1/-1}
+html.fx3d-on .hero>.c>.hero-c{grid-column:1;grid-row:1;display:flex;flex-direction:column;justify-content:center;min-height:min(68vh,620px);max-width:none;margin:0;text-align:left}
+html.fx3d-on .hero .hero-c .for{margin-left:0;margin-right:0}
+html.fx3d-on .hero .hero-c .cta{align-items:flex-start}
+html.fx3d-on .hero .hero-c .status{justify-content:flex-start}
+html.fx3d-on .hero .h1 .main{font-size:clamp(2.5rem,1rem + 4.1vw,5.3rem)}
+html.fx3d-on .hero>.c>.s3d-hero{grid-column:2;grid-row:1;height:min(68vh,620px);margin:0}
+html.fx3d-on .hero .how{margin-top:clamp(28px,3vw,48px)}
+}
+@media (max-width:900px){html.fx3d-on .hero{padding-top:26px}html.fx3d-on .hero .hero-c .for{margin-top:16px}html.fx3d-on .hero .hero-c .cta{margin-top:20px}}
 html.cap *{transition:none!important;animation:none!important}
 html.cap .nav{transform:none!important}
 html.cap .mcta{display:none!important}
@@ -40,12 +48,6 @@ html.cap .mcta{display:none!important}
 .fx-step-cap small{flex-basis:100%;font-size:1.05rem;color:#4a453c}
 .fx-steps .steps-foot{justify-content:center;margin-top:22px}
 @media (max-width:900px){.fx-steps-box{height:34vh}.fx-steps .hp{display:none}}
-/* the hero ends on its button: clicks pass through the empty scroll room to it */
-.hero.fx3d>.c{pointer-events:none}
-.hero.fx3d>.c>*{pointer-events:auto}
-.hero.fx3d>.c>.s3d-space{pointer-events:none}
-.s3d-cap .s3d-go{display:flex;width:max-content;margin:22px auto 0;font-style:normal;letter-spacing:.005em;pointer-events:none}
-@media (max-width:640px){.s3d-cap{bottom:7vh}}
 /* the Fahrplan pages, the platform picture, the night ending */
 .page1.fx-sheets{aspect-ratio:1/.92;max-width:560px;margin-top:20px}
 .page1.fx-sheets img{display:none}
