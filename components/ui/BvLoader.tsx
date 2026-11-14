@@ -19,7 +19,7 @@ const CSS = `
 
 export function BvLoader({ label = "Lädt" }: { label?: string }) {
   return (
-    <div role="status" aria-live="polite" aria-label={label} className="bv-ld">
+    <div role="status" aria-live="polite" aria-label={label} className="bv-ld" data-bv-loader="">
       <span className="bv-ld-w" aria-hidden="true">
         {LETTERS.map((c, i) => (
           <span key={i} style={{ animationDelay: `${i * 0.07}s` }}>{c}</span>
@@ -29,4 +29,11 @@ export function BvLoader({ label = "Lädt" }: { label?: string }) {
       <style>{CSS}</style>
     </div>
   );
+}
+
+/** The same loader as plain HTML (no React), for the boot cover that app/portal/layout.tsx paints before
+ *  any JavaScript runs. Keep it identical to <BvLoader/>. */
+export function bvLoaderHtml(): string {
+  const letters = LETTERS.map((c, i) => `<span style="animation-delay:${(i * 0.07).toFixed(2)}s">${c}</span>`).join("");
+  return `<div class="bv-ld"><span class="bv-ld-w" aria-hidden="true">${letters}<b>.</b></span></div><style>${CSS}</style>`;
 }
